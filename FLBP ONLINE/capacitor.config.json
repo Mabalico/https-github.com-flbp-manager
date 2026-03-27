@@ -1,0 +1,6 @@
+{
+  "appId": "com.flbp.manager.suite",
+  "appName": "FLBP Manager Suite",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

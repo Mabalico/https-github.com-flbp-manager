@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mobile polish (PWA / wrapper-ready)
+   - Safe area padding for iOS notch when using viewport-fit=cover
+   - Remove tap highlight + reduce accidental double-tap zoom delay
+   - Behavior identical on desktop/TV (env() insets are 0)
+*/
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}

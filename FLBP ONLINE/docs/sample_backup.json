@@ -1,0 +1,63 @@
+{
+  "tournament": {
+    "id": "T-SAMPLE",
+    "name": "Sample Tournament",
+    "mode": "KO",
+    "createdAt": "2025-12-26T00:00:00.000Z",
+    "teams": [
+      { "id": "TEAM-A", "name": "Team A", "player1": "Rossi Mario", "player2": "Bianchi Luca", "isReferee": false },
+      { "id": "TEAM-B", "name": "Team B", "player1": "Verdi Anna", "player2": "Neri Paolo", "isReferee": false }
+    ],
+    "matches": [
+      {
+        "id": "B1",
+        "code": "B1",
+        "teamAId": "TEAM-A",
+        "teamBId": "BYE",
+        "isBye": true,
+        "hidden": true,
+        "status": "finished",
+        "played": true,
+        "scoreA": 0,
+        "scoreB": 0,
+        "stats": [
+          { "playerName": "Rossi Mario", "teamId": "TEAM-A", "canestri": 0, "soffi": 0 },
+          { "playerName": "Bianchi Luca", "teamId": "TEAM-A", "canestri": 0, "soffi": 0 }
+        ]
+      },
+      {
+        "id": "B2",
+        "code": "B2",
+        "teamAId": "TEAM-A",
+        "teamBId": "TEAM-B",
+        "status": "idle",
+        "played": false,
+        "scoreA": 0,
+        "scoreB": 0
+      }
+    ]
+  },
+  "teams": [
+    { "id": "TEAM-A", "name": "Team A", "player1": "Rossi Mario", "player2": "Bianchi Luca", "isReferee": false },
+    { "id": "TEAM-B", "name": "Team B", "player1": "Verdi Anna", "player2": "Neri Paolo", "isReferee": false }
+  ],
+  "matches": [
+    {
+      "id": "B1",
+      "code": "B1",
+      "teamAId": "TEAM-A",
+      "teamBId": "BYE",
+      "isBye": true,
+      "hidden": true,
+      "status": "finished",
+      "played": true,
+      "scoreA": 0,
+      "scoreB": 0,
+      "stats": [
+        { "playerName": "Rossi Mario", "teamId": "TEAM-A", "canestri": 0, "soffi": 0 },
+        { "playerName": "Bianchi Luca", "teamId": "TEAM-A", "canestri": 0, "soffi": 0 }
+      ]
+    }
+  ],
+  "tournamentHistory": []
+}

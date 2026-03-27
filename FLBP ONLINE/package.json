@@ -1,0 +1,51 @@
+{
+  "name": "aaflbp-manager-suite",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js",
+    "start": "node ./node_modules/vite/bin/vite.js",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
+    "check:invariants": "node scripts/check-invariants.mjs",
+    "check:public-sanitize": "node scripts/check-public-sanitization.mjs",
+    "check:all": "node scripts/check-all.mjs",
+    "test:editor": "node ./node_modules/vite/bin/vite.js build --config vite.editor-tests.config.ts && node ./.tmp-node-tests/tournamentStructure.test.js",
+    "test:data": "node ./node_modules/vite/bin/vite.js build --config vite.data-tests.config.ts && node ./.tmp-node-tests/playerDataManagement.test.js",
+    "release:check": "node scripts/check-release.mjs",
+    "build:mobile": "node ./node_modules/vite/bin/vite.js build --base=./",
+    "cap:init": "npx cap init \"aaFLBP Manager Suite\" \"it.flbp.manager.suite\" --web-dir=dist",
+    "cap:add:android": "npx cap add android",
+    "cap:add:ios": "npx cap add ios",
+    "cap:copy": "npx cap copy",
+    "cap:sync": "npx cap sync",
+    "cap:sync:android": "npx cap sync android",
+    "cap:sync:ios": "npx cap sync ios",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
+    "fix:perms": "node scripts/fix-perms.mjs",
+    "check:ssr-admin": "node _ssr_admin_check.mjs",
+    "check:ssr-tv": "node _ssr_tv_check.cjs",
+    "audit:backup-profiles": "node scripts/audit-backup-profiles.mjs",
+    "inspect:backup": "node scripts/inspect-backup-profile.mjs",
+    "check:i18n": "node scripts/check-i18n-coverage.mjs",
+    "check:tv-readonly": "node scripts/check-tv-readonly.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tesseract.js": "^5.1.0",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
