@@ -116,6 +116,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
     // Optional: when public DB read is enabled, we can fetch a pre-aggregated public leaderboard
     // (without exposing full YoB). This keeps multi-device public displays consistent.
     useEffect(() => {
+        if (stateOverride) {
+            setDbStats(null);
+            setDbHoF(null);
+            return;
+        }
         if (!publicDbReadEnabled()) {
             setDbStats(null);
             setDbHoF(null);

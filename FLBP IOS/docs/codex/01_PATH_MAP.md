@@ -14,13 +14,20 @@ chat non affidabile, seguo il repository.
 - `FLBP ONLINE/components/HallOfFame.tsx`
 - `FLBP ONLINE/components/TournamentLeaderboard.tsx`
 - `FLBP ONLINE/components/GroupStandingsTable.tsx`
+- `FLBP ONLINE/components/TvView.tsx`
+- `FLBP ONLINE/components/TvBracketView.tsx`
+- `FLBP ONLINE/components/TvScorersView.tsx`
+- `FLBP ONLINE/components/PublicTvShell.tsx`
 
 ## iOS native paths rilevanti
 - `FLBPManagerSuite/FLBPManagerSuiteApp.swift`
 - `FLBPManagerSuite/AuditedRoute.swift`
 - `FLBPManagerSuite/PublicRouteState.swift`
 - `FLBPManagerSuite/NativePublicData.swift`
+- `FLBPManagerSuite/NativePublicCache.swift`
 - `FLBPManagerSuite/NativePublicScreens.swift`
+- `FLBPManagerSuite/NativeProtectedData.swift`
+- `FLBPManagerSuite/NativeProtectedScreens.swift`
 - `FLBPManagerSuite/ContentView.swift`
 - `FLBPManagerSuite/Info.plist`
 - `FLBPManagerSuite.xcodeproj/project.pbxproj`

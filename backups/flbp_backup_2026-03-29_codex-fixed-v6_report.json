@@ -1,0 +1,49 @@
+{
+  "input": "C:\\Users\\marco\\Downloads\\flbp_backup_2026-03-29_codex-fixed-v5.json",
+  "output": "C:\\Users\\marco\\Desktop\\sito react\\FLBP MANAGER\\backups\\flbp_backup_2026-03-29_codex-fixed-v6.json",
+  "aliasRepairs": [],
+  "hallRepairs": [
+    {
+      "entryId": "mp3y8cjdt_top_scorer",
+      "type": "top_scorer",
+      "action": "individual_award_legacy_grouping_aligned",
+      "before": {
+        "playerId": "baroncelli_marco_ND",
+        "playerBirthDate": null,
+        "playerName": "Baroncelli Marco"
+      },
+      "after": {
+        "playerId": null,
+        "playerBirthDate": null,
+        "playerName": "Baroncelli Marco"
+      }
+    },
+    {
+      "entryId": "mp3y8cjdt_defender",
+      "type": "defender",
+      "action": "individual_award_legacy_grouping_aligned",
+      "before": {
+        "playerId": "baroncelli_marco_ND",
+        "playerBirthDate": null,
+        "playerName": "Baroncelli Marco"
+      },
+      "after": {
+        "playerId": null,
+        "playerBirthDate": null,
+        "playerName": "Baroncelli Marco"
+      }
+    }
+  ],
+  "ambiguousNames": [],
+  "splitCandidatesBefore": [
+    {
+      "normalizedName": "baroncelli marco",
+      "legacyKeys": [
+        "baroncelli marco",
+        "baroncelli_marco_ND"
+      ],
+      "canonicalPlayerId": "baroncelli_marco_ND"
+    }
+  ],
+  "splitCandidatesAfter": []
+}

@@ -3,16 +3,30 @@
 chat non affidabile, seguo il repository.
 
 ## Cosa il web ha e iOS ancora no
-- TV mode read-only dedicato
 - AdminDashboard reale
 - RefereesArea reale con OCR/referti
-- persistenza/sync oltre il routing minimo
-- funzioni protette via Supabase Auth
+- scritture admin native
+- scritture arbitri native
+- OCR/referti nativi completi
 
 ## Cosa iOS ha già riallineato
 - Home pubblica
 - Tournament list pubblica con filtri
 - Tournament detail pubblica con tabs condizionali
+- Player Area preview locale con account opzionale, profilo, risultati, live status e alert di chiamata simulati
+- sezione Turni pubblica con raggruppamento tavoli, filtri e dettaglio match read-only
+- TV mode read-only con projection pubbliche
 - Leaderboard pubblica
 - Hall of Fame pubblica
+- cache locale read-only dei dataset pubblici
+- accesso admin reale via Supabase Auth + `admin_users`
+- overview Admin consultativa read-only con snapshot DB, monitor live, monitor traffico billing-cycle e riepilogo visualizzazioni
+- sezione Admin `Account giocatori` preview-only con filtro provider, ricerca e modifica locale di email/profilo
+- accesso arbitri reale via password RPC del torneo live
+- monitor arbitri consultativo con turni/tavoli e upcoming matches
+- lookup referto da codice, selezione arbitro locale e report draft editabile con PT/SF device-side
+- bypass password arbitri sul device se il profilo giocatore collegato e' arbitro del live
 - stesso perimetro dati pubblici Supabase del web
+- percorso backend additivo gia' preparato nel repo web per leggere lo snapshot live completo via password arbitri, senza cambiare il flusso web attuale
+- percorso backend additivo gia' preparato nel repo web anche per profili player, device tokens e call alerts, ma ancora non applicato al progetto reale
+- il web ha gia' chiuso il wiring `live-when-available` per quei percorsi; iOS aggancia gia' in modo compatibile il `pull live state` arbitri quando la RPC esiste, ma deve ancora collegare player/call e le scritture vere a quelle stesse tabelle/RPC dopo il rollout SQL

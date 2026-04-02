@@ -23,7 +23,7 @@ export interface AliasRemovalImpact {
   affectedTitleRows: number;
 }
 
-type HallOfFamePlayerRef = {
+export type HallOfFamePlayerRef = {
   rawPlayerId: string;
   playerId: string;
   playerName: string;
@@ -47,7 +47,7 @@ const findTeamForWinnerEntry = (state: AppState, entry: HallOfFameEntry): Team |
   return (tournament.teams || []).find((team) => normalize(team.name) === normalize(entry.teamName || '')) || null;
 };
 
-const getHallOfFamePlayerRefs = (state: AppState, entry: HallOfFameEntry): HallOfFamePlayerRef[] => {
+export const getHallOfFamePlayerRefs = (state: AppState, entry: HallOfFameEntry): HallOfFamePlayerRef[] => {
   if (entry.type === 'winner') {
     const winnerTeam = findTeamForWinnerEntry(state, entry);
     if (winnerTeam) {

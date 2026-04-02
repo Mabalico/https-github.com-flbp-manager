@@ -213,7 +213,6 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
             <table className="w-full table-fixed">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="w-[14%] pb-1 text-left text-[8px] font-black uppercase tracking-[0.14em] text-slate-400">{t('code_short')}</th>
                   <th className="pb-1 text-left text-[8px] font-black uppercase tracking-[0.14em] text-slate-400">{t('match_detail')}</th>
                   <th className="w-[22%] pb-1 text-right text-[8px] font-black uppercase tracking-[0.14em] text-slate-400">
                     {t('result_status')}
@@ -228,22 +227,17 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
                   return (
                     <tr key={m.id} className="border-b border-white/6 last:border-b-0">
                       <td className="py-1 pr-1.5 align-middle">
-                        <div className="text-[9px] font-mono font-black text-slate-200">
-                          {m.code || '—'}
-                        </div>
-                        {m.isTieBreak && (
-                          <div className="mt-0.5 inline-flex rounded-full border border-amber-400/35 bg-amber-400/10 px-1 py-0.5 text-[7px] font-black uppercase tracking-[0.08em] text-amber-200">
-                            {t('tiebreak_label')}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-1 pr-1.5 align-middle">
                         <div
                           className="text-[10px] leading-tight font-black text-white break-words"
                           style={TV_CLAMP_2_STYLE}
                         >
                           {renderTeamsLabel(m)}
                         </div>
+                        {m.isTieBreak && (
+                          <div className="mt-0.5 inline-flex rounded-full border border-amber-400/35 bg-amber-400/10 px-1 py-0.5 text-[7px] font-black uppercase tracking-[0.08em] text-amber-200">
+                            {t('tiebreak_label')}
+                          </div>
+                        )}
                       </td>
                       <td className="py-1 align-middle text-right">
                         <span className={`inline-flex min-w-[5rem] justify-center rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.06em] ${
@@ -278,7 +272,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
             <div className="mt-1 text-[11px] font-mono font-bold text-amber-50/85">
               {pendingGroupTieBreaks
                 .slice(0, 4)
-                .map((m) => `${m.code || ''}${m.groupName ? ` (${m.groupName})` : ''}`)
+                .map((m) => `${renderTeamsLabel(m)}${m.groupName ? ` (${m.groupName})` : ''}`)
                 .join(' • ')}
               {pendingGroupTieBreaks.length > 4 ? ' • …' : ''}
             </div>
@@ -292,7 +286,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
             <div className="mt-1 text-[11px] font-mono font-bold text-rose-50/85">
               {pendingFinalTieBreaks
                 .slice(0, 4)
-                .map((m) => `${m.code || ''}${m.groupName ? ` (${m.groupName})` : ''}`)
+                .map((m) => `${renderTeamsLabel(m)}${m.groupName ? ` (${m.groupName})` : ''}`)
                 .join(' • ')}
               {pendingFinalTieBreaks.length > 4 ? ' • …' : ''}
             </div>

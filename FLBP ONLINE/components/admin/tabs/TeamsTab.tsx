@@ -7,6 +7,7 @@ import { formatBirthDateDisplay, getPlayerKey, normalizeBirthDateInput, pickPlay
 import { updatePlayerProfileIdentity } from '../../../services/playerProfileAdmin';
 import { buildPlayerProfileSnapshot } from '../../../services/playerDataProvenance';
 import type { AppState } from '../../../services/storageService';
+import { buildCanonicalPlayerNameFromParts, splitCanonicalPlayerName } from '../../../services/textUtils';
 
 export interface TeamsTabProps {
     t: (key: string) => string;
@@ -93,6 +94,12 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     setState,
 }) => {
     const [query, setQuery] = React.useState('');
+    const [p1FirstName, setP1FirstName] = React.useState('');
+    const [p1LastName, setP1LastName] = React.useState('');
+    const [p2FirstName, setP2FirstName] = React.useState('');
+    const [p2LastName, setP2LastName] = React.useState('');
+    const skipNextP1SyncRef = React.useRef(false);
+    const skipNextP2SyncRef = React.useRef(false);
     const [viewMode, setViewMode] = React.useState<'team' | 'player'>('team');
     const [teamSortKey, setTeamSortKey] = React.useState<'registration' | 'team_name' | 'player1' | 'player2'>('registration');
     const [teamSortDirection, setTeamSortDirection] = React.useState<'asc' | 'desc'>('asc');
@@ -150,6 +157,26 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
         const timer = window.setTimeout(() => setProfileFeedback(null), 2600);
         return () => window.clearTimeout(timer);
     }, [profileFeedback]);
+
+    React.useEffect(() => {
+        if (skipNextP1SyncRef.current) {
+            skipNextP1SyncRef.current = false;
+            return;
+        }
+        const parts = splitCanonicalPlayerName(p1);
+        setP1FirstName(parts.firstName);
+        setP1LastName(parts.lastName);
+    }, [p1]);
+
+    React.useEffect(() => {
+        if (skipNextP2SyncRef.current) {
+            skipNextP2SyncRef.current = false;
+            return;
+        }
+        const parts = splitCanonicalPlayerName(p2);
+        setP2FirstName(parts.firstName);
+        setP2LastName(parts.lastName);
+    }, [p2]);
 
     const profileEditMeta = React.useMemo(() => {
         if (!profileEditDraft) return null;
@@ -480,6 +507,10 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         <Plus className="w-4 h-4"/> {t('reset_form')}
                     </button>
 
+                    <button type="button" onClick={clearTeams} className={btnSecondary}>
+                        <Trash2 className="w-4 h-4"/> {t('clear_registered_list')}
+                    </button>
+
                     {isTesterMode && (
                         <details className="relative">
                             <summary className={`list-none cursor-pointer select-none ${btnSecondary}`}>
@@ -535,8 +566,29 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                     <div className="md:col-span-3 space-y-1">
                         <label className="block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_1_label')}</label>
-                        <div className="flex items-center gap-2">
-                            <input value={p1} onChange={(e)=>setP1(e.target.value)} placeholder={t('player_1_label')} className={`${inputBase} flex-1`} />
+                        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+                            <input
+                                value={p1FirstName}
+                                onChange={(e) => {
+                                    const nextFirstName = e.target.value;
+                                    setP1FirstName(nextFirstName);
+                                    skipNextP1SyncRef.current = true;
+                                    setP1(buildCanonicalPlayerNameFromParts(nextFirstName, p1LastName));
+                                }}
+                                placeholder={t('name_label')}
+                                className={inputBase}
+                            />
+                            <input
+                                value={p1LastName}
+                                onChange={(e) => {
+                                    const nextLastName = e.target.value;
+                                    setP1LastName(nextLastName);
+                                    skipNextP1SyncRef.current = true;
+                                    setP1(buildCanonicalPlayerNameFromParts(p1FirstName, nextLastName));
+                                }}
+                                placeholder={t('player_area_last_name')}
+                                className={inputBase}
+                            />
                             <label className="flex items-center gap-1 text-xs font-black text-slate-700 whitespace-nowrap">
                                 <input className={checkbox} type="checkbox" checked={p1IsReferee} onChange={(e)=>setP1IsReferee(e.target.checked)} />
                                 {t('referees')}
@@ -552,8 +604,29 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                     <div className="md:col-span-3 space-y-1">
                         <label className="block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_2_label')}</label>
-                        <div className="flex items-center gap-2">
-                            <input value={p2} onChange={(e)=>setP2(e.target.value)} placeholder={t('player_2_label')} className={`${inputBase} flex-1`} />
+                        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+                            <input
+                                value={p2FirstName}
+                                onChange={(e) => {
+                                    const nextFirstName = e.target.value;
+                                    setP2FirstName(nextFirstName);
+                                    skipNextP2SyncRef.current = true;
+                                    setP2(buildCanonicalPlayerNameFromParts(nextFirstName, p2LastName));
+                                }}
+                                placeholder={t('name_label')}
+                                className={inputBase}
+                            />
+                            <input
+                                value={p2LastName}
+                                onChange={(e) => {
+                                    const nextLastName = e.target.value;
+                                    setP2LastName(nextLastName);
+                                    skipNextP2SyncRef.current = true;
+                                    setP2(buildCanonicalPlayerNameFromParts(p2FirstName, nextLastName));
+                                }}
+                                placeholder={t('player_area_last_name')}
+                                className={inputBase}
+                            />
                             <label className="flex items-center gap-1 text-xs font-black text-slate-700 whitespace-nowrap">
                                 <input className={checkbox} type="checkbox" checked={p2IsReferee} onChange={(e)=>setP2IsReferee(e.target.checked)} />
                                 {t('referees')}

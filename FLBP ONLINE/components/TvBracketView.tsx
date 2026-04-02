@@ -312,7 +312,11 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                       <div className="mt-1 text-[10px] font-mono font-bold text-amber-50/85">
                         {pendingGroupTieBreaks
                           .slice(0, 4)
-                          .map((m) => `${m.code || ''}${m.groupName ? ` (${m.groupName})` : ''}`)
+                          .map((m) => {
+                            const ids = getMatchParticipantIds(m).filter((id) => id !== 'BYE');
+                            const prefix = m.isTieBreak ? `${t('tiebreak_label')} • ` : '';
+                            return `${prefix}${ids.map((id) => getName(id)).join(' vs ')}${m.groupName ? ` (${m.groupName})` : ''}`;
+                          })
                           .join(' • ')}
                         {pendingGroupTieBreaks.length > 4 ? ' • …' : ''}
                       </div>

@@ -9,6 +9,7 @@ import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { readVitePublicDbRead } from '../services/viteEnv';
 import { readCachedPublicHallOfFameEntries, writeCachedPublicHallOfFameEntries } from '../services/publicViewCache';
+import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
 
 type HallOfFameProps = {
   stateOverride?: AppState;
@@ -240,38 +241,12 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     const q = (searchTerm || '').trim().toLowerCase();
 
     if (activeTab === 'titled') {
-      const normalize = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-      // Aggregate titles per player. U25 titles are always shown, but they count less than all other titles:
-      // they are used only as a last tie-break after all main titles.
-      const playerCounts: Record<string, { name: string; breakdown: Record<string, number> }> = {};
-
-      const add = (key: string, name: string, type: string) => {
-        if (!playerCounts[key]) playerCounts[key] = { name, breakdown: {} };
-        playerCounts[key].breakdown[type] = (playerCounts[key].breakdown[type] || 0) + 1;
-      };
-
-      entries.forEach(e => {
-        const names = e.playerNames || [];
-        names.forEach(name => {
-          const key = (e.playerId && names.length === 1) ? e.playerId : normalize(name);
-          add(key, name, e.type);
-        });
-      });
-
-      const players = Object.values(playerCounts).map(p => {
-        const win = p.breakdown['winner'] || 0;
-        const mvp = p.breakdown['mvp'] || 0;
-        const ts = p.breakdown['top_scorer'] || 0;
-        const def = p.breakdown['defender'] || 0;
-        const ts25 = p.breakdown['top_scorer_u25'] || 0;
-        const def25 = p.breakdown['defender_u25'] || 0;
-
-        const total = win + mvp + ts + def;
-        const u25Total = ts25 + def25;
-
-        return { ...p, total, win, mvp, ts, def, ts25, def25, u25Total };
-      });
+      const titledState = (stateOverride || localStateSnapshot || {
+        tournament: null,
+        tournamentHistory: [],
+        playerAliases: {},
+      }) as Pick<AppState, 'tournament' | 'tournamentHistory' | 'playerAliases'>;
+      const players = buildTitledHallOfFameRows(titledState, entries);
 
       const sortedPlayers = players.sort((a, b) => {
         const primary = (p: typeof a) => {

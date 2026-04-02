@@ -24,6 +24,7 @@ data class NativeTournamentSummary(
     val isManual: Boolean,
     val status: String,
     val advancingPerGroup: Int?,
+    val refTables: Int?,
 )
 
 data class NativeTeamInfo(
@@ -31,6 +32,9 @@ data class NativeTeamInfo(
     val name: String,
     val player1: String,
     val player2: String?,
+    val player1IsReferee: Boolean,
+    val player2IsReferee: Boolean,
+    val isReferee: Boolean,
 )
 
 data class NativeGroupInfo(
@@ -103,189 +107,180 @@ data class NativeHallOfFameEntry(
     val value: Int?,
 )
 
+data class NativePublicProjectionPayload(
+    val catalog: NativePublicCatalog,
+    val leaderboard: List<NativeLeaderboardEntry>,
+    val hallOfFame: List<NativeHallOfFameEntry>,
+)
+
+private data class MutableLeaderboardRow(
+    val id: String,
+    var name: String,
+    var teamName: String,
+    var gamesPlayed: Int = 0,
+    var wins: Int = 0,
+    var losses: Int = 0,
+    var points: Int = 0,
+    var soffi: Int = 0,
+)
+
 object NativePublicApi {
-    suspend fun fetchCatalog(): NativePublicCatalog = withContext(Dispatchers.IO) {
-        val rows = requestArray(
-            "public_tournaments" +
-                "?workspace_id=eq.${encode(SUPABASE_WORKSPACE_ID)}" +
-                "&select=id,name,start_date,type,config,is_manual,status" +
-                "&order=start_date.asc"
-        )
-
-        val tournaments = buildList {
-            for (index in 0 until rows.length()) {
-                add(parseTournamentSummary(rows.getJSONObject(index)))
-            }
-        }
-
-        NativePublicCatalog(
-            liveTournament = tournaments.firstOrNull { it.status == "live" },
-            history = tournaments
-                .filter { it.status != "live" }
-                .sortedByDescending { it.startDate },
+    suspend fun fetchPublicProjection(): NativePublicProjectionPayload = withContext(Dispatchers.IO) {
+        val state = requestPublicWorkspaceState()
+        NativePublicProjectionPayload(
+            catalog = buildCatalogFromState(state),
+            leaderboard = buildLeaderboardFromState(state),
+            hallOfFame = buildHallOfFameFromState(state),
         )
     }
 
-    suspend fun fetchTournamentBundle(tournamentId: String): NativeTournamentBundle? = withContext(Dispatchers.IO) {
-        val safeTournamentId = encode(tournamentId)
-        val workspace = encode(SUPABASE_WORKSPACE_ID)
+    suspend fun fetchCatalog(): NativePublicCatalog =
+        fetchPublicProjection().catalog
 
-        val tournamentRows = requestArray(
-            "public_tournaments" +
-                "?workspace_id=eq.$workspace" +
-                "&id=eq.$safeTournamentId" +
-                "&select=id,name,start_date,type,config,is_manual,status" +
+    suspend fun fetchTournamentBundle(tournamentId: String): NativeTournamentBundle? = withContext(Dispatchers.IO) {
+        deriveTournamentBundleFromState(requestPublicWorkspaceState(), tournamentId)
+    }
+
+    suspend fun fetchCareerLeaderboard(): List<NativeLeaderboardEntry> =
+        fetchPublicProjection().leaderboard
+
+    suspend fun fetchHallOfFame(): List<NativeHallOfFameEntry> =
+        fetchPublicProjection().hallOfFame
+
+    private fun requestPublicWorkspaceState(): JSONObject {
+        val rows = requestArray(
+            "public_workspace_state" +
+                "?workspace_id=eq.${encode(SUPABASE_WORKSPACE_ID)}" +
+                "&select=state,updated_at" +
                 "&limit=1"
         )
+        if (rows.length() == 0) return JSONObject()
+        return rows.optJSONObject(0)?.optNullableObject("state") ?: JSONObject()
+    }
 
-        if (tournamentRows.length() == 0) return@withContext null
+    private fun buildCatalogFromState(state: JSONObject): NativePublicCatalog {
+        val liveTournament = state.optNullableObject("tournament")
+            ?.takeIf { it.optString("id").trim().isNotEmpty() }
+            ?.let(::parseTournamentSummaryFromState)
 
-        val tournament = parseTournamentSummary(tournamentRows.getJSONObject(0))
-        val teamRows = requestArray(
-            "public_tournament_teams" +
-                "?workspace_id=eq.$workspace" +
-                "&tournament_id=eq.$safeTournamentId" +
-                "&select=id,name,player1,player2,created_at" +
-                "&order=created_at.asc"
+        val history = state.optObjectArray("tournamentHistory")
+            .map(::parseTournamentSummaryFromState)
+            .sortedByDescending { it.startDate }
+
+        return NativePublicCatalog(
+            liveTournament = liveTournament,
+            history = history,
         )
-        val groupRows = requestArray(
-            "public_tournament_groups" +
-                "?workspace_id=eq.$workspace" +
-                "&tournament_id=eq.$safeTournamentId" +
-                "&select=id,name,order_index" +
-                "&order=order_index.asc"
-        )
-        val groupTeamRows = requestArray(
-            "public_tournament_group_teams" +
-                "?workspace_id=eq.$workspace" +
-                "&tournament_id=eq.$safeTournamentId" +
-                "&select=group_id,team_id,seed"
-        )
-        val matchRows = requestArray(
-            "public_tournament_matches" +
-                "?workspace_id=eq.$workspace" +
-                "&tournament_id=eq.$safeTournamentId" +
-                "&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,score_a,score_b,played,status,is_bye,hidden" +
-                "&order=order_index.asc"
-        )
-        val statRows = requestArray(
-            "public_tournament_match_stats" +
-                "?workspace_id=eq.$workspace" +
-                "&tournament_id=eq.$safeTournamentId" +
-                "&select=match_id,team_id,player_name,canestri,soffi"
-        )
+    }
 
-        val teams = buildList {
-            for (index in 0 until teamRows.length()) {
-                val row = teamRows.getJSONObject(index)
-                add(
-                    NativeTeamInfo(
-                        id = row.requireString("id"),
-                        name = row.optString("name"),
-                        player1 = row.optString("player1"),
-                        player2 = row.optNullableString("player2"),
-                    )
-                )
-            }
-        }
+    private fun deriveTournamentBundleFromState(state: JSONObject, tournamentId: String): NativeTournamentBundle? {
+        val liveTournament = state.optNullableObject("tournament")
+        val liveId = liveTournament?.optString("id")?.trim().orEmpty()
+        val selectedTournament = when {
+            liveId.isNotEmpty() && liveId == tournamentId -> liveTournament
+            else -> state.optObjectArray("tournamentHistory")
+                .firstOrNull { it.optString("id").trim() == tournamentId }
+        } ?: return null
 
-        val teamIdsByGroup = linkedMapOf<String, MutableList<String>>()
-        for (index in 0 until groupTeamRows.length()) {
-            val row = groupTeamRows.getJSONObject(index)
-            val groupId = row.requireString("group_id")
-            val teamId = row.requireString("team_id")
-            teamIdsByGroup.getOrPut(groupId) { mutableListOf() }.add(teamId)
-        }
+        val isLive = liveId.isNotEmpty() && liveId == tournamentId
+        val teams = selectedTournament.optObjectArray("teams").map(::parseTeamFromState)
+        val groups = parseGroupsFromState(selectedTournament)
+        val matchRows = extractTournamentMatches(state, selectedTournament, isLive)
+        val matches = matchRows.map(::parseMatchFromState).sortedBy { it.orderIndex ?: Int.MAX_VALUE }
+        val stats = extractMatchStats(matchRows)
 
-        val groups = buildList {
-            for (index in 0 until groupRows.length()) {
-                val row = groupRows.getJSONObject(index)
-                val groupId = row.requireString("id")
-                add(
-                    NativeGroupInfo(
-                        id = groupId,
-                        name = row.optString("name"),
-                        orderIndex = row.optIntOrNull("order_index"),
-                        teamIds = teamIdsByGroup[groupId]?.toList().orEmpty(),
-                    )
-                )
-            }
-        }
-
-        val matches = buildList {
-            for (index in 0 until matchRows.length()) {
-                val row = matchRows.getJSONObject(index)
-                add(
-                    NativeMatchInfo(
-                        id = row.requireString("id"),
-                        code = row.optNullableString("code"),
-                        phase = row.optNullableString("phase"),
-                        groupName = row.optNullableString("group_name"),
-                        round = row.optIntOrNull("round"),
-                        roundName = row.optNullableString("round_name"),
-                        orderIndex = row.optIntOrNull("order_index"),
-                        teamAId = row.optNullableString("team_a_id"),
-                        teamBId = row.optNullableString("team_b_id"),
-                        scoreA = row.optInt("score_a"),
-                        scoreB = row.optInt("score_b"),
-                        played = row.optBoolean("played"),
-                        status = row.optNullableString("status") ?: "scheduled",
-                        isBye = row.optBoolean("is_bye"),
-                        hidden = row.optBoolean("hidden"),
-                    )
-                )
-            }
-        }
-
-        val stats = buildList {
-            for (index in 0 until statRows.length()) {
-                val row = statRows.getJSONObject(index)
-                add(
-                    NativeMatchStatInfo(
-                        matchId = row.requireString("match_id"),
-                        teamId = row.requireString("team_id"),
-                        playerName = row.optString("player_name"),
-                        canestri = row.optInt("canestri"),
-                        soffi = row.optInt("soffi"),
-                    )
-                )
-            }
-        }
-
-        NativeTournamentBundle(
-            tournament = tournament,
+        return NativeTournamentBundle(
+            tournament = parseTournamentSummaryFromState(selectedTournament),
             teams = teams,
             groups = groups,
-            matches = matches.sortedBy { it.orderIndex ?: Int.MAX_VALUE },
+            matches = matches,
             stats = stats,
         )
     }
 
-    suspend fun fetchCareerLeaderboard(): List<NativeLeaderboardEntry> = withContext(Dispatchers.IO) {
-        val rows = requestArray(
-            "public_career_leaderboard" +
-                "?workspace_id=eq.${encode(SUPABASE_WORKSPACE_ID)}" +
-                "&select=id,name,team_name,games_played,points,soffi,avg_points,avg_soffi,u25,yob_label"
-        )
+    private fun buildLeaderboardFromState(state: JSONObject): List<NativeLeaderboardEntry> {
+        val rows = linkedMapOf<String, MutableLeaderboardRow>()
 
-        buildList {
-            for (index in 0 until rows.length()) {
-                val row = rows.getJSONObject(index)
-                add(
-                    NativeLeaderboardEntry(
-                        id = row.requireString("id"),
-                        name = row.optString("name"),
-                        teamName = row.optString("team_name"),
-                        gamesPlayed = row.optInt("games_played"),
-                        points = row.optInt("points"),
-                        soffi = row.optInt("soffi"),
-                        avgPoints = row.optDoubleOrZero("avg_points"),
-                        avgSoffi = row.optDoubleOrZero("avg_soffi"),
-                        u25 = row.optBoolean("u25"),
-                        yobLabel = row.optNullableString("yob_label"),
-                    )
+        fun ensurePlayer(name: String, teamName: String): MutableLeaderboardRow {
+            val displayName = name.trim().replace(Regex("\\s+"), " ")
+            val safeTeamName = teamName.trim().ifEmpty { "Integrazioni" }
+            val key = buildPlayerKey(displayName)
+            return rows.getOrPut(key) {
+                MutableLeaderboardRow(
+                    id = key,
+                    name = displayName,
+                    teamName = safeTeamName,
                 )
+            }.also { row ->
+                if (row.teamName.isBlank() && safeTeamName.isNotBlank()) {
+                    row.teamName = safeTeamName
+                }
+                if (row.name.isBlank() && displayName.isNotBlank()) {
+                    row.name = displayName
+                }
             }
+        }
+
+        fun processMatch(match: JSONObject, teamsSource: List<JSONObject>) {
+            val played = match.optBoolean("played") || (match.optNullableString("status") == "finished")
+            if (!played) return
+            val stats = match.optObjectArray("stats")
+            if (stats.isEmpty()) return
+
+            val winningTeamId = getWinningTeamId(match, teamsSource)
+            stats.forEach { stat ->
+                val playerName = stat.optString("playerName").trim()
+                val teamId = stat.optString("teamId").trim()
+                if (playerName.isEmpty() || teamId.isEmpty()) return@forEach
+                val teamName = lookupTeamName(teamId, teamsSource)
+                if (isPlaceholderTeamName(teamName)) return@forEach
+
+                val row = ensurePlayer(playerName, teamName)
+                row.gamesPlayed += 1
+                row.points += stat.optInt("canestri")
+                row.soffi += stat.optInt("soffi")
+                if (winningTeamId != null && isCompetitiveTeamId(teamId, teamsSource)) {
+                    if (winningTeamId == teamId) row.wins += 1 else row.losses += 1
+                }
+            }
+        }
+
+        state.optNullableObject("tournament")?.let { liveTournament ->
+            val liveTeams = liveTournament.optObjectArray("teams").ifEmpty { state.optObjectArray("teams") }
+            extractTournamentMatches(state, liveTournament, isLive = true).forEach { match ->
+                processMatch(match, liveTeams)
+            }
+        }
+
+        state.optObjectArray("tournamentHistory").forEach { tournament ->
+            val tournamentTeams = tournament.optObjectArray("teams")
+            extractTournamentMatches(state, tournament, isLive = false).forEach { match ->
+                processMatch(match, tournamentTeams)
+            }
+        }
+
+        state.optObjectArray("integrationsScorers").forEach { scorer ->
+            val playerName = scorer.optString("name").trim()
+            if (playerName.isEmpty()) return@forEach
+            val row = ensurePlayer(playerName, scorer.optNullableString("teamName") ?: "Integrazioni")
+            row.gamesPlayed += scorer.optInt("games")
+            row.points += scorer.optInt("points")
+            row.soffi += scorer.optInt("soffi")
+        }
+
+        return rows.values.map { row ->
+            NativeLeaderboardEntry(
+                id = row.id,
+                name = row.name,
+                teamName = row.teamName,
+                gamesPlayed = row.gamesPlayed,
+                points = row.points,
+                soffi = row.soffi,
+                avgPoints = if (row.gamesPlayed > 0) row.points.toDouble() / row.gamesPlayed.toDouble() else 0.0,
+                avgSoffi = if (row.gamesPlayed > 0) row.soffi.toDouble() / row.gamesPlayed.toDouble() else 0.0,
+                u25 = false,
+                yobLabel = null,
+            )
         }.sortedWith(
             compareByDescending<NativeLeaderboardEntry> { it.points }
                 .thenByDescending { it.soffi }
@@ -294,44 +289,232 @@ object NativePublicApi {
         )
     }
 
-    suspend fun fetchHallOfFame(): List<NativeHallOfFameEntry> = withContext(Dispatchers.IO) {
-        val rows = requestArray(
-            "public_hall_of_fame_entries" +
-                "?workspace_id=eq.${encode(SUPABASE_WORKSPACE_ID)}" +
-                "&select=id,year,tournament_id,tournament_name,type,team_name,player_names,value,created_at" +
-                "&order=year.desc,created_at.desc"
-        )
+    private fun buildHallOfFameFromState(state: JSONObject): List<NativeHallOfFameEntry> {
+        val tournamentDates = linkedMapOf<String, String>()
+        state.optNullableObject("tournament")?.let { tournament ->
+            val id = tournament.optString("id").trim()
+            val startDate = tournament.optString("startDate").trim()
+            if (id.isNotEmpty() && startDate.isNotEmpty()) {
+                tournamentDates[id] = startDate
+            }
+        }
+        state.optObjectArray("tournamentHistory").forEach { tournament ->
+            val id = tournament.optString("id").trim()
+            val startDate = tournament.optString("startDate").trim()
+            if (id.isNotEmpty() && startDate.isNotEmpty()) {
+                tournamentDates[id] = startDate
+            }
+        }
 
-        buildList {
-            for (index in 0 until rows.length()) {
-                val row = rows.getJSONObject(index)
+        val sourceRows = state.optObjectArray("hallOfFame")
+        return sourceRows.sortedWith(
+            compareByDescending<JSONObject> { hallSortValue(it, tournamentDates) }
+                .thenByDescending { it.optString("year").toIntOrNull() ?: 0 }
+                .thenByDescending { it.optString("tournamentName").lowercase() }
+                .thenByDescending { it.optString("id").lowercase() }
+        ).map(::parseHallEntryFromState)
+    }
+
+    private fun hallSortValue(entry: JSONObject, tournamentDates: Map<String, String>): Long {
+        val tournamentId = entry.optString("tournamentId").trim()
+        val sourceTournamentId = entry.optString("sourceTournamentId").trim()
+        val manualDate = entry.optString("sourceTournamentDate").trim()
+        val directDate = tournamentDates[tournamentId]
+            ?: tournamentDates[sourceTournamentId]
+            ?: manualDate.takeIf { isValidIsoDate(it) }
+            ?: extractIsoDateFromKey(tournamentId)
+            ?: extractIsoDateFromKey(sourceTournamentId)
+            ?: extractIsoDateFromKey(entry.optString("id"))
+        val parsed = directDate?.let { java.time.Instant.parse("${it}T00:00:00Z").toEpochMilli() }
+        if (parsed != null) return parsed
+        val year = entry.optString("year").toLongOrNull() ?: 0L
+        return if (year > 0L) java.time.Instant.parse("${year.toString().padStart(4, '0')}-01-01T00:00:00Z").toEpochMilli() else 0L
+    }
+
+    private fun parseTournamentSummaryFromState(row: JSONObject): NativeTournamentSummary {
+        val config = row.optNullableObject("config")
+        return NativeTournamentSummary(
+            id = row.requireString("id"),
+            name = row.optString("name"),
+            startDate = row.optString("startDate"),
+            type = row.optString("type"),
+            isManual = row.optBoolean("isManual"),
+            status = row.optNullableString("status") ?: "archive",
+            advancingPerGroup = config?.optIntOrNull("advancingPerGroup"),
+            refTables = config?.optIntOrNull("refTables"),
+        )
+    }
+
+    private fun parseTeamFromState(row: JSONObject): NativeTeamInfo = NativeTeamInfo(
+        id = row.requireString("id"),
+        name = row.optString("name"),
+        player1 = row.optString("player1"),
+        player2 = row.optNullableString("player2"),
+        player1IsReferee = row.optBoolean("player1IsReferee"),
+        player2IsReferee = row.optBoolean("player2IsReferee"),
+        isReferee = row.optBoolean("isReferee"),
+    )
+
+    private fun parseGroupsFromState(tournament: JSONObject): List<NativeGroupInfo> {
+        return tournament.optObjectArray("groups").mapIndexed { index, group ->
+            val teamIds = group.optObjectArray("teams").mapNotNull { team ->
+                team.optNullableString("id")
+            }
+            NativeGroupInfo(
+                id = group.optNullableString("id") ?: "group-${index + 1}",
+                name = group.optString("name"),
+                orderIndex = group.optIntOrNull("orderIndex"),
+                teamIds = teamIds,
+            )
+        }
+    }
+
+    private fun extractTournamentMatches(state: JSONObject, tournament: JSONObject, isLive: Boolean): List<JSONObject> {
+        val directMatches = tournament.optObjectArray("matches")
+        if (directMatches.isNotEmpty()) return directMatches
+        if (isLive) {
+            val liveMatches = state.optObjectArray("tournamentMatches")
+            if (liveMatches.isNotEmpty()) return liveMatches
+        }
+        return flattenRounds(tournament.optJSONArray("rounds"))
+    }
+
+    private fun flattenRounds(rounds: JSONArray?): List<JSONObject> = buildList {
+        if (rounds == null) return@buildList
+        for (roundIndex in 0 until rounds.length()) {
+            val round = rounds.optJSONArray(roundIndex) ?: continue
+            for (matchIndex in 0 until round.length()) {
+                round.optJSONObject(matchIndex)?.let { add(it) }
+            }
+        }
+    }
+
+    private fun extractMatchStats(matchRows: List<JSONObject>): List<NativeMatchStatInfo> = buildList {
+        matchRows.forEach { match ->
+            val matchId = match.optString("id").trim()
+            if (matchId.isEmpty()) return@forEach
+            match.optObjectArray("stats").forEach { stat ->
+                val teamId = stat.optString("teamId").trim()
+                val playerName = stat.optString("playerName").trim()
+                if (teamId.isEmpty() || playerName.isEmpty()) return@forEach
                 add(
-                    NativeHallOfFameEntry(
-                        id = row.requireString("id"),
-                        year = row.optString("year"),
-                        tournamentId = row.optString("tournament_id"),
-                        tournamentName = row.optString("tournament_name"),
-                        type = row.optString("type"),
-                        teamName = row.optNullableString("team_name"),
-                        playerNames = row.optStringArray("player_names"),
-                        value = row.optIntOrNull("value"),
+                    NativeMatchStatInfo(
+                        matchId = matchId,
+                        teamId = teamId,
+                        playerName = playerName,
+                        canestri = stat.optInt("canestri"),
+                        soffi = stat.optInt("soffi"),
                     )
                 )
             }
         }
     }
 
-    private fun parseTournamentSummary(row: JSONObject): NativeTournamentSummary {
-        val config = row.optNullableObject("config")
-        return NativeTournamentSummary(
-            id = row.requireString("id"),
-            name = row.optString("name"),
-            startDate = row.optString("start_date"),
-            type = row.optString("type"),
-            isManual = row.optBoolean("is_manual"),
-            status = row.optString("status"),
-            advancingPerGroup = config?.optIntOrNull("advancingPerGroup"),
-        )
+    private fun parseMatchFromState(row: JSONObject): NativeMatchInfo = NativeMatchInfo(
+        id = row.requireString("id"),
+        code = row.optNullableString("code"),
+        phase = row.optNullableString("phase"),
+        groupName = row.optNullableString("groupName"),
+        round = row.optIntOrNull("round"),
+        roundName = row.optNullableString("roundName"),
+        orderIndex = row.optIntOrNull("orderIndex"),
+        teamAId = row.optNullableString("teamAId"),
+        teamBId = row.optNullableString("teamBId"),
+        scoreA = row.optInt("scoreA"),
+        scoreB = row.optInt("scoreB"),
+        played = row.optBoolean("played"),
+        status = row.optNullableString("status") ?: if (row.optBoolean("played")) "finished" else "scheduled",
+        isBye = row.optBoolean("isBye"),
+        hidden = row.optBoolean("hidden"),
+    )
+
+    private fun parseHallEntryFromState(row: JSONObject): NativeHallOfFameEntry = NativeHallOfFameEntry(
+        id = row.requireString("id"),
+        year = row.optString("year"),
+        tournamentId = row.optString("tournamentId"),
+        tournamentName = row.optString("tournamentName"),
+        type = row.optString("type"),
+        teamName = row.optNullableString("teamName"),
+        playerNames = row.optStringArray("playerNames"),
+        value = row.optIntOrNull("value"),
+    )
+
+    private fun buildPlayerKey(name: String): String =
+        "${name.trim().lowercase().replace(Regex("\\s+"), "_")}_ND"
+
+    private fun isCompetitiveTeamId(teamId: String?, teamsSource: List<JSONObject>): Boolean {
+        val safeTeamId = teamId?.trim().orEmpty()
+        if (safeTeamId.isEmpty()) return false
+        val team = teamsSource.firstOrNull { it.optString("id").trim() == safeTeamId }
+        if (team?.optBoolean("isBye") == true || team?.optBoolean("hidden") == true) return false
+        val label = lookupTeamName(safeTeamId, teamsSource).trim().uppercase()
+        return label != "BYE" && label != "TBD" && label != "SLOT LIBERO"
+    }
+
+    private fun getWinningTeamId(match: JSONObject, teamsSource: List<JSONObject>): String? {
+        if (match.optBoolean("isBye")) return null
+
+        val teamIds = match.optJSONArray("teamIds")
+        val scoresByTeam = match.optNullableObject("scoresByTeam")
+        if (teamIds != null && scoresByTeam != null && teamIds.length() > 0) {
+            val competitiveTeamIds = buildList {
+                for (index in 0 until teamIds.length()) {
+                    val teamId = teamIds.optString(index).trim()
+                    if (isCompetitiveTeamId(teamId, teamsSource)) add(teamId)
+                }
+            }
+            if (competitiveTeamIds.size < 2) return null
+
+            var winningTeamId: String? = null
+            var bestScore = Double.NEGATIVE_INFINITY
+            var tie = false
+
+            competitiveTeamIds.forEach { teamId ->
+                val score = scoresByTeam.optDoubleOrZero(teamId)
+                if (score > bestScore) {
+                    bestScore = score
+                    winningTeamId = teamId
+                    tie = false
+                } else if (score == bestScore) {
+                    tie = true
+                }
+            }
+
+            return if (tie) null else winningTeamId
+        }
+
+        val teamAId = match.optNullableString("teamAId")
+        val teamBId = match.optNullableString("teamBId")
+        if (!isCompetitiveTeamId(teamAId, teamsSource) || !isCompetitiveTeamId(teamBId, teamsSource)) return null
+        val scoreA = match.optInt("scoreA")
+        val scoreB = match.optInt("scoreB")
+        if (scoreA == scoreB) return null
+        return if (scoreA > scoreB) teamAId else teamBId
+    }
+
+    private fun lookupTeamName(teamId: String?, teamsSource: List<JSONObject>): String {
+        val safeTeamId = teamId?.trim().orEmpty()
+        if (safeTeamId.isEmpty()) return "TBD"
+        return teamsSource.firstOrNull { it.optString("id").trim() == safeTeamId }
+            ?.optString("name")
+            ?.takeIf { it.isNotBlank() }
+            ?: safeTeamId
+    }
+
+    private fun isPlaceholderTeamName(raw: String): Boolean {
+        val normalized = raw.trim().uppercase()
+        return normalized == "BYE" || normalized == "TBD" || normalized == "SLOT LIBERO" || normalized.startsWith("TBD-")
+    }
+
+    private fun isValidIsoDate(value: String): Boolean =
+        Regex("""^\d{4}-\d{2}-\d{2}$""").matches(value)
+
+    private fun extractIsoDateFromKey(value: String?): String? {
+        val raw = value?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        val match = Regex("""(^|_)(\d{4}-\d{2}-\d{2})(_|$)""").find(raw) ?: return null
+        val iso = match.groupValues.getOrNull(2).orEmpty()
+        return iso.takeIf(::isValidIsoDate)
     }
 
     private fun requestArray(path: String): JSONArray {
@@ -423,6 +606,9 @@ private fun JSONObject.optNullableObject(key: String): JSONObject? {
     return value as? JSONObject
 }
 
+private fun JSONObject.optObjectArray(key: String): List<JSONObject> =
+    optJSONArray(key).jsonObjects()
+
 private fun JSONObject.optStringArray(key: String): List<String> {
     if (!has(key) || isNull(key)) return emptyList()
     val value = opt(key)
@@ -432,5 +618,12 @@ private fun JSONObject.optStringArray(key: String): List<String> {
             val item = value.optString(index).trim()
             if (item.isNotEmpty()) add(item)
         }
+    }
+}
+
+private fun JSONArray?.jsonObjects(): List<JSONObject> = buildList {
+    if (this@jsonObjects == null) return@buildList
+    for (index in 0 until this@jsonObjects.length()) {
+        this@jsonObjects.optJSONObject(index)?.let { add(it) }
     }
 }

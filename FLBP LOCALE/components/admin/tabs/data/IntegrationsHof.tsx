@@ -9,6 +9,7 @@ import { getXLSX } from '../../../../services/lazyXlsx';
 import { downloadBlob } from '../../../../services/adminDownloadUtils';
 import { decodeCsvText, detectCsvSeparator, parseCsvRows } from '../../../../services/adminCsvUtils';
 import { removeArchivedTournamentDeep } from '../../../../services/archiveCascadeDelete';
+import { buildCanonicalPlayerNameFromParts } from '../../../../services/textUtils';
 
 type AwardDraftRow = {
     playerName: string;
@@ -465,7 +466,10 @@ export const IntegrationsHof: React.FC<DataTabProps> = ({
                                     };
 
                                     return (rows || []).map((row) => {
-                                        const name = String(getField(row, ['Giocatore', 'Nome', 'Player', 'Name'])).trim();
+                                        const name = buildCanonicalPlayerNameFromParts(
+                                            String(getField(row, ['Nome', 'FirstName', 'First Name']) || '').trim(),
+                                            String(getField(row, ['Cognome', 'LastName', 'Last Name', 'Surname']) || '').trim(),
+                                        ) || String(getField(row, ['Giocatore', 'Nome', 'Player', 'Name'])).trim();
                                         if (!name) return null;
                                         const birthDate = normalizeBirthDateInput(String(getField(row, ['Data di nascita', 'DataNascita', 'BirthDate', 'DOB'])));
                                         const teamName = String(getField(row, ['Squadra', 'Team', 'TeamName'])).trim();
@@ -547,8 +551,8 @@ export const IntegrationsHof: React.FC<DataTabProps> = ({
                                 const downloadBundleTemplateXlsx = async () => {
                                     const XLSX = await getXLSX();
                                     const sheet = XLSX.utils.aoa_to_sheet([
-                                        ['Giocatore', 'Squadra', 'Data di nascita', 'Partite', 'Canestri', 'Soffi'],
-                                        ['', '', '', '', '', ''],
+                                        ['Nome', 'Cognome', 'Squadra', 'Data di nascita', 'Partite', 'Canestri', 'Soffi'],
+                                        ['', '', '', '', '', '', ''],
                                     ]);
                                     const workbook = XLSX.utils.book_new();
                                     XLSX.utils.book_append_sheet(workbook, sheet, 'Marcatori');

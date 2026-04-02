@@ -571,14 +571,14 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                         <div className="col-span-3 text-right">
                             <div className="flex items-baseline justify-end gap-2">
                                 <div className={`text-sm font-black ${sortField === 'points' ? 'text-beer-600' : 'text-slate-700'}`}>
-                                    PT {player.points}
+                                    CAN {player.points}
                                 </div>
                                 <div className={`text-sm font-black ${sortField === 'soffi' ? 'text-blue-600' : 'text-slate-700'}`}>
                                     SF {player.soffi}
                                 </div>
                             </div>
                             <div className="text-[9px] font-bold text-slate-400">
-                                PT {player.avgPoints} • SF {player.avgSoffi} • {t('standings_wins_short')}% {formatWinRate(player)}
+                                CAN {player.avgPoints} • SF {player.avgSoffi} • {t('standings_wins_short')}% {formatWinRate(player)}
                             </div>
                         </div>
                     </div>

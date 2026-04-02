@@ -1,5 +1,7 @@
 const ISO_BIRTHDATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const IT_BIRTHDATE_RE = /^\d{2}\/\d{2}\/\d{4}$/;
+const SHORT_YEAR_RE = /^\d{2}$/;
+const FULL_YEAR_RE = /^\d{4}$/;
 
 const isValidCalendarDate = (year: number, month: number, day: number) => {
     if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
@@ -30,6 +32,22 @@ export const formatBirthDateDisplay = (raw: string | null | undefined): string =
     if (!iso) return '';
     const [year, month, day] = iso.split('-');
     return `${day}/${month}/${year}`;
+};
+
+export const formatPlayerBirthIdentityLabel = (raw: string | null | undefined): string => {
+    const value = String(raw || '').trim();
+    if (!value || value.toUpperCase() === 'ND') return '';
+
+    const normalizedBirthDate = normalizeBirthDateInput(value);
+    if (normalizedBirthDate) return formatBirthDateDisplay(normalizedBirthDate);
+    if (FULL_YEAR_RE.test(value)) return value;
+    if (SHORT_YEAR_RE.test(value)) {
+        const parsed = parseInt(value, 10);
+        if (!Number.isFinite(parsed)) return '';
+        const currentYear = new Date().getFullYear() % 100;
+        return String(parsed <= currentYear ? 2000 + parsed : 1900 + parsed);
+    }
+    return '';
 };
 
 export const deriveYoBFromBirthDate = (raw: string | null | undefined): number | undefined => {
@@ -97,10 +115,10 @@ export const resolvePlayerKey = (
 
 export const getPlayerKeyLabel = (key: string): { name: string; yob: string } => {
     const raw = (key || '').trim();
-    const m = raw.match(/_(ND|\d{4}|\d{4}-\d{2}-\d{2})$/i);
+    const m = raw.match(/_(ND|\d{2}|\d{4}|\d{4}-\d{2}-\d{2})$/i);
     if (!m) return { name: raw.replace(/_/g, ' '), yob: 'ND' };
     const suffix = m[1];
-    const yob = ISO_BIRTHDATE_RE.test(suffix) ? formatBirthDateDisplay(suffix) : suffix.toUpperCase();
+    const yob = formatPlayerBirthIdentityLabel(suffix) || 'ND';
     const namePart = raw.slice(0, raw.length - m[0].length).replace(/_/g, ' ').trim();
     return { name: namePart, yob };
 };

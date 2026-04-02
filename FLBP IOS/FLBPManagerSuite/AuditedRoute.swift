@@ -25,6 +25,7 @@ enum NativeRoute: String, CaseIterable, Identifiable {
     case tournament
     case leaderboard
     case hof
+    case playerArea = "player_area"
     case tournamentDetail = "tournament_detail"
     case admin
     case refereesArea = "referees_area"
@@ -37,6 +38,7 @@ enum NativeRoute: String, CaseIterable, Identifiable {
         case .tournament: return "Tournament list"
         case .leaderboard: return "Leaderboard"
         case .hof: return "Hall of Fame"
+        case .playerArea: return "Player area"
         case .tournamentDetail: return "Tournament detail"
         case .admin: return "Admin"
         case .refereesArea: return "Referees area"
@@ -51,6 +53,7 @@ enum NativeRoute: String, CaseIterable, Identifiable {
         case .tournament: return "Public tournaments surface."
         case .leaderboard: return "Public ranking surface."
         case .hof: return "Public historical surface."
+        case .playerArea: return "Optional player account surface with profile, personal results, live status and call alerts."
         case .tournamentDetail: return "Child public route reached from the tournament list when a tournament is selected."
         case .admin: return "Protected tools surface."
         case .refereesArea: return "Protected referees surface."
@@ -59,7 +62,7 @@ enum NativeRoute: String, CaseIterable, Identifiable {
 
     var group: RouteGroup {
         switch self {
-        case .home, .tournament, .leaderboard, .hof:
+        case .home, .tournament, .leaderboard, .hof, .playerArea:
             return .publicPrimary
         case .tournamentDetail:
             return .publicChild

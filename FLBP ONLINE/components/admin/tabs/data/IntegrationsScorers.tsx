@@ -6,7 +6,7 @@ import type { AliasConflict } from '../../modals/AliasModal';
 import type { IntegrationScorerEntry } from '../../../../types';
 
 import { getPlayerKey, getPlayerKeyLabel, resolvePlayerKey } from '../../../../services/storageService';
-import { normalizeCol, normalizeNameLower } from '../../../../services/textUtils';
+import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../../../../services/textUtils';
 import { uuid } from '../../../../services/id';
 import { downloadBlob } from '../../../../services/adminDownloadUtils';
 import { decodeCsvText, detectCsvSeparator, parseCsvRows } from '../../../../services/adminCsvUtils';
@@ -110,7 +110,10 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
         const warnings: string[] = [];
 
         rows.forEach((r, idx) => {
-            const name = String(getField(r, ['Nome', 'Giocatore', 'Player', 'CognomeNome', 'Cognome Nome', 'Name'])).trim();
+            const name = buildCanonicalPlayerNameFromParts(
+                String(getField(r, ['Nome', 'FirstName', 'First Name']) || '').trim(),
+                String(getField(r, ['Cognome', 'LastName', 'Last Name', 'Surname']) || '').trim(),
+            ) || String(getField(r, ['Nome', 'Giocatore', 'Player', 'CognomeNome', 'Cognome Nome', 'Name'])).trim();
             if (!name) return;
 
             const birthDate = normalizeBirthDateInput(String(getField(r, ['DataNascita', 'Data di nascita', 'BirthDate', 'DOB', 'NascitaCompleta']) || ''));
@@ -308,15 +311,18 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
 
     const exportCsv = async () => {
         const XLSX = await getXLSX();
-        const rows = entries.map(e => ({
-            Nome: e.name,
+        const rows = entries.map(e => {
+            const parts = splitCanonicalPlayerName(e.name || '');
+            return {
+            Nome: parts.firstName,
+            Cognome: parts.lastName,
             DataNascita: formatBirthDateDisplay((e as any).birthDate) || '',
             Squadra: e.teamName ?? '',
             Partite: e.games ?? 0,
             Canestri: e.points ?? 0,
             Soffi: e.soffi ?? 0
-        }));
-        const ws = XLSX.utils.json_to_sheet(rows, { header: ['Nome', 'DataNascita', 'Squadra', 'Partite', 'Canestri', 'Soffi'] as any });
+        };});
+        const ws = XLSX.utils.json_to_sheet(rows, { header: ['Nome', 'Cognome', 'DataNascita', 'Squadra', 'Partite', 'Canestri', 'Soffi'] as any });
         const csv = '\ufeff' + XLSX.utils.sheet_to_csv(ws, { FS: ';' });
         downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `integrazioni_marcatori_${new Date().toISOString().slice(0, 10)}.csv`);
     };
@@ -324,8 +330,8 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
     const downloadTemplateXlsx = async () => {
         const XLSX = await getXLSX();
         const ws = XLSX.utils.aoa_to_sheet([
-            ['Nome', 'DataNascita', 'Squadra', 'Partite', 'Canestri', 'Soffi'],
-            ['', '', '', '', '', '']
+            ['Nome', 'Cognome', 'DataNascita', 'Squadra', 'Partite', 'Canestri', 'Soffi'],
+            ['', '', '', '', '', '', '']
         ]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Marcatori');

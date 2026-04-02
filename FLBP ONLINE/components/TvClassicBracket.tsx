@@ -779,12 +779,8 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 const isUndecidedMatch = topIsPlaceholder || bottomIsPlaceholder;
                 const rowPaddingClass = getRowPaddingClass(layout.profile, compact);
                 const cardRadiusClass = getCardRadiusClass(layout.profile, compact);
-                const codeBadgeClass = getCodeBadgeClass(layout.profile, compact);
                 const finalCardVisuals = getFinalCardVisuals(layout.profile, compact, match.raw.status === 'finished');
                 const finalWinnerRailClass = placement.side === 'right' ? 'right-0' : 'left-0';
-                const finalCodeBadgeClass = isFinal
-                  ? `${finalCardVisuals.codeClass} ${placement.side === 'right' ? 'left-2' : 'right-2'}`
-                  : `${codeBadgeClass} ${placement.side === 'right' ? 'left-2.5' : 'right-2.5'}`;
 
                 return (
                   <div
@@ -798,11 +794,6 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                       <div className={`absolute z-10 inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-slate-950/70 font-black uppercase tracking-[0.18em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur-md ${finalCardVisuals.badgeClass}`}>
                         <Trophy className="h-3 w-3" />
                         <span>{t('finale')}</span>
-                      </div>
-                    )}
-                    {(!isFinal || finalCardVisuals.showCodeBadge) && (
-                      <div className={`absolute z-10 font-black uppercase tracking-[0.16em] ${finalCodeBadgeClass} ${isUndecidedMatch ? 'text-slate-300/45' : isFinal ? 'text-amber-100/70' : 'text-white/45'}`}>
-                        {match.raw.code || `M${match.matchIndex + 1}`}
                       </div>
                     )}
                     {isFinal && (isWinnerA || isWinnerB) && (
@@ -951,12 +942,8 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               const isUndecidedMatch = topIsPlaceholder || bottomIsPlaceholder;
               const rowPaddingClass = getRowPaddingClass(layout.profile, compact);
               const cardRadiusClass = getCardRadiusClass(layout.profile, compact);
-              const codeBadgeClass = getCodeBadgeClass(layout.profile, compact);
               const finalCardVisuals = getFinalCardVisuals(layout.profile, compact, match.raw.status === 'finished');
               const finalWinnerRailClass = placement.side === 'right' ? 'right-0' : 'left-0';
-              const finalCodeBadgeClass = isFinal
-                ? `${finalCardVisuals.codeClass} ${placement.side === 'right' ? 'left-2' : 'right-2'}`
-                : `${codeBadgeClass} ${placement.side === 'right' ? 'left-2.5' : 'right-2.5'}`;
 
               return (
                 <div
@@ -970,11 +957,6 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`absolute z-10 inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-slate-950/70 font-black uppercase tracking-[0.18em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur-md ${finalCardVisuals.badgeClass}`}>
                       <Trophy className="h-3 w-3" />
                       <span>{t('finale')}</span>
-                    </div>
-                  )}
-                  {(!isFinal || finalCardVisuals.showCodeBadge) && (
-                    <div className={`absolute z-10 font-black uppercase tracking-[0.16em] ${finalCodeBadgeClass} ${isUndecidedMatch ? 'text-slate-300/45' : isFinal ? 'text-amber-100/70' : 'text-white/45'}`}>
-                      {match.raw.code || `M${match.matchIndex + 1}`}
                     </div>
                   )}
                   {isFinal && (isWinnerA || isWinnerB) && (

@@ -8,7 +8,7 @@ import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinA
 import { simulateMatchResult, simulateMultiMatchResult } from '../services/simulationService';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
 import { isPlaceholderTeamId } from '../services/matchUtils';
-import { normalizeCol, normalizeNameLower } from '../services/textUtils';
+import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
 import { ensureSupabaseAdminAccess, getConfiguredAdminEmail, getSupabaseConfig, getSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
@@ -20,6 +20,7 @@ import { generateSimPoolTeams } from '../services/simPool';
 import { getXLSX, type XLSXRuntime } from '../services/lazyXlsx';
 import { buildBackupJsonExportState, inspectBackupJsonState, mergeBackupJsonState, parseBackupJsonState } from '../services/backupJsonService';
 import { describeTeamImportLayout, detectTeamImportLayout, isTeamImportCoherentWithProfile, loadTeamImportProfile, normalizeTeamImportHeader, saveTeamImportProfile, type TeamImportLayout } from '../services/teamImportProfile';
+import { updatePlayerProfileIdentity } from '../services/playerProfileAdmin';
 
 import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { MvpModal } from './admin/modals/MvpModal';
@@ -1433,6 +1434,12 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
             alert(t('alert_fill_teamname_players'));
             return;
         }
+        const player1Parts = splitCanonicalPlayerName(p1);
+        const player2Parts = splitCanonicalPlayerName(p2);
+        if (!player1Parts.firstName || !player1Parts.lastName || !player2Parts.firstName || !player2Parts.lastName) {
+            alert(t('alert_fill_teamname_players'));
+            return;
+        }
 
         const player1BirthDate = normalizeBirthDateInput(y1);
         const player2BirthDate = normalizeBirthDateInput(y2);
@@ -1490,12 +1497,50 @@ if (conflicts.length > 0) {
 
 
         const teams = [...(state.teams || [])];
+        let nextState = state;
         const idx = teams.findIndex(t => t.id === next.id);
-        if (idx >= 0) teams[idx] = { ...teams[idx], ...next };
-        else teams.push(next);
+        const currentTeam = idx >= 0 ? teams[idx] : null;
+        if (currentTeam) {
+            const playerCorrections = [
+                {
+                    previousName: String(currentTeam.player1 || '').trim(),
+                    previousBirthDate: normalizeBirthDateInput((currentTeam as any).player1BirthDate) || undefined,
+                    previousYoB: currentTeam.player1YoB,
+                    nextName: next.player1,
+                    nextBirthDate: next.player1BirthDate,
+                },
+                {
+                    previousName: String(currentTeam.player2 || '').trim(),
+                    previousBirthDate: normalizeBirthDateInput((currentTeam as any).player2BirthDate) || undefined,
+                    previousYoB: currentTeam.player2YoB,
+                    nextName: next.player2 || '',
+                    nextBirthDate: next.player2BirthDate,
+                },
+            ].filter((row) => {
+                if (!row.previousName || !row.nextName) return false;
+                return row.previousName !== row.nextName || (row.previousBirthDate || '') !== (row.nextBirthDate || '');
+            });
 
-        const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, teams);
-        setState({ ...state, teams, tournament: nextTournament });
+            playerCorrections.forEach((row) => {
+                const currentPlayerId = resolvePlayerKey(
+                    nextState,
+                    getPlayerKey(row.previousName, pickPlayerIdentityValue(row.previousBirthDate, row.previousYoB))
+                );
+                nextState = updatePlayerProfileIdentity(nextState, {
+                    currentPlayerId,
+                    nextPlayerName: row.nextName,
+                    nextBirthDate: row.nextBirthDate,
+                });
+            });
+        }
+
+        const nextTeams = [...(nextState.teams || [])];
+        const nextIdx = nextTeams.findIndex(t => t.id === next.id);
+        if (nextIdx >= 0) nextTeams[nextIdx] = { ...nextTeams[nextIdx], ...next };
+        else nextTeams.push(next);
+
+        const nextTournament = mergeIntoLiveTournamentTeams(nextState.tournament, nextTeams);
+        setState({ ...nextState, teams: nextTeams, tournament: nextTournament });
         resetForm();
     };
 
@@ -1568,16 +1613,22 @@ const confirmAliasModal = () => {
 
     const exportTeamsXlsx = async () => {
         const XLSX = await getXLSX();
-        const rows = (state.teams || []).map(t => ({
-            Squadra: t.name,
-            Giocatore1: t.player1,
-            DataNascita1: formatBirthDateDisplay((t as any).player1BirthDate) || '',
-            Arbitro1: (t as any).player1IsReferee ? 'SI' : 'NO',
-            Giocatore2: t.player2 ?? '',
-            DataNascita2: formatBirthDateDisplay((t as any).player2BirthDate) || '',
-            Arbitro2: (t as any).player2IsReferee ? 'SI' : 'NO',
-            Arbitro: ((t as any).player1IsReferee || (t as any).player2IsReferee || t.isReferee) ? 'SI' : 'NO'
-        }));
+        const rows = (state.teams || []).map(t => {
+            const player1Parts = splitCanonicalPlayerName(t.player1 || '');
+            const player2Parts = splitCanonicalPlayerName(t.player2 || '');
+            return {
+                Squadra: t.name,
+                Nome1: player1Parts.firstName,
+                Cognome1: player1Parts.lastName,
+                DataNascita1: formatBirthDateDisplay((t as any).player1BirthDate) || '',
+                Arbitro1: (t as any).player1IsReferee ? 'SI' : 'NO',
+                Nome2: player2Parts.firstName,
+                Cognome2: player2Parts.lastName,
+                DataNascita2: formatBirthDateDisplay((t as any).player2BirthDate) || '',
+                Arbitro2: (t as any).player2IsReferee ? 'SI' : 'NO',
+                Arbitro: ((t as any).player1IsReferee || (t as any).player2IsReferee || t.isReferee) ? 'SI' : 'NO'
+            };
+        });
         const ws = XLSX.utils.json_to_sheet(rows);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Squadre');
@@ -1902,8 +1953,14 @@ ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
             const teams = data
                 .map((row) => {
                     const name = String(getField(row, ['Squadra', 'Team']) || '').trim();
-                    const g1 = String(getField(row, ['Giocatore1', 'Giocatore 1', 'Player1', 'Player 1']) || '').trim();
-                    const g2 = String(getField(row, ['Giocatore2', 'Giocatore 2', 'Player2', 'Player 2']) || '').trim();
+                    const g1 = buildCanonicalPlayerNameFromParts(
+                        String(getField(row, ['Nome1', 'Nome 1', 'FirstName1', 'First Name 1']) || '').trim(),
+                        String(getField(row, ['Cognome1', 'Cognome 1', 'LastName1', 'Last Name 1', 'Surname1', 'Surname 1']) || '').trim(),
+                    ) || String(getField(row, ['Giocatore1', 'Giocatore 1', 'Player1', 'Player 1']) || '').trim();
+                    const g2 = buildCanonicalPlayerNameFromParts(
+                        String(getField(row, ['Nome2', 'Nome 2', 'FirstName2', 'First Name 2']) || '').trim(),
+                        String(getField(row, ['Cognome2', 'Cognome 2', 'LastName2', 'Last Name 2', 'Surname2', 'Surname 2']) || '').trim(),
+                    ) || String(getField(row, ['Giocatore2', 'Giocatore 2', 'Player2', 'Player 2']) || '').trim();
                     if (!name || !g1 || !g2) return null;
 
                     const birthDate1 = normalizeBirthDateInput(String(getField(row, ['DataNascita1', 'DataNascita 1', 'Data nascita 1', 'BirthDate1', 'Birth Date 1', 'DOB1']) || '').trim());
@@ -1944,7 +2001,10 @@ ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
             const grouped = new Map<string, { players: { name: string; yob?: number; birthDate?: string; isReferee?: boolean }[]; isReferee: boolean }>();
             for (const row of data) {
                 const squadra = String(getField(row, ['Squadra', 'Team']) || '').trim();
-                const nome = String(getField(row, ['Cognome Nome', 'Nome', 'Giocatore', 'Player']) || '').trim();
+                const nome = buildCanonicalPlayerNameFromParts(
+                    String(getField(row, ['Nome', 'FirstName', 'First Name']) || '').trim(),
+                    String(getField(row, ['Cognome', 'LastName', 'Last Name', 'Surname']) || '').trim(),
+                ) || String(getField(row, ['Cognome Nome', 'Nome', 'Giocatore', 'Player']) || '').trim();
                 if (!squadra || !nome) continue;
                 const birthDate = normalizeBirthDateInput(String(getField(row, ['DataNascita', 'Data di nascita', 'BirthDate', 'Birth Date', 'DOB', 'NascitaCompleta']) || '').trim());
                 const yob = deriveYoBFromBirthDate(birthDate);

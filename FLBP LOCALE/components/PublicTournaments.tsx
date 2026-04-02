@@ -1,8 +1,6 @@
 import React from 'react';
 import { Match, Team, TournamentData } from '../types';
 import { useTranslation } from '../App';
-import { getSupabaseConfig, pullPublicTournamentBundle } from '../services/supabasePublic';
-import { getOrFetchPublicTournamentBundleCached, readCachedPublicTournamentBundle, writeCachedPublicTournamentBundle } from '../services/publicDataCache';
 import { formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds, isByeTeamId } from '../services/matchUtils';
 import { Activity, History, ArrowRight, MonitorPlay, Search, X, Users, CalendarDays, LayoutList } from 'lucide-react';
 import { PublicBrandStack } from './PublicBrandStack';
@@ -58,33 +56,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
       return;
     }
 
-    // DB-backed public view: fetch the tournament bundle (teams + matches).
-    if (!getSupabaseConfig()) {
-      setTurnsError(t('turns_unavailable_local'));
-      return;
-    }
-
-    const cacheTtlMs = 5000;
-    const cachedBundle = readCachedPublicTournamentBundle(liveTournament.id, cacheTtlMs);
-    if (cachedBundle) {
-      setTurnsBundle({ teams: cachedBundle.teams || [], matches: cachedBundle.matches || [] });
-      return;
-    }
-
-    setTurnsLoading(true);
-    try {
-      const b = await getOrFetchPublicTournamentBundleCached(liveTournament.id, cacheTtlMs, () => pullPublicTournamentBundle(liveTournament.id));
-      if (!b) {
-        setTurnsError(t('turns_unavailable_tournament'));
-      } else {
-        writeCachedPublicTournamentBundle(liveTournament.id, b);
-        setTurnsBundle({ teams: b.teams || [], matches: b.matches || [] });
-      }
-    } catch {
-      setTurnsError(t('turns_load_error'));
-    } finally {
-      setTurnsLoading(false);
-    }
+    setTurnsError(t('turns_unavailable_tournament'));
   };
 
   const closeTurns = () => {

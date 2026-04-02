@@ -31,26 +31,56 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.util.Calendar
 
 private enum class DetailSection(val label: String) {
     OVERVIEW("Overview"),
+    TURNS("Turns"),
     GROUPS("Groups"),
     BRACKET("Bracket"),
     SCORERS("Scorers"),
 }
 
+enum class TurnFilter(val label: String) {
+    ALL("All"),
+    LIVE("Live"),
+    NEXT("Next"),
+    PLAYED("Played"),
+    TBD("TBD"),
+}
+
 private enum class LeaderboardSort(val label: String) {
-    POINTS("Points"),
+    POINTS("Baskets"),
     SOFFI("Soffi"),
     GAMES("Games"),
-    AVG_POINTS("Avg points"),
+    AVG_POINTS("Avg baskets"),
     AVG_SOFFI("Avg soffi"),
+}
+
+private val isoBirthDateRegex = Regex("""^\d{4}-\d{2}-\d{2}$""")
+private val fullYearRegex = Regex("""^\d{4}$""")
+private val shortYearRegex = Regex("""^\d{2}$""")
+
+internal fun formatBirthIdentityLabel(raw: String?): String? {
+    val value = raw?.trim().orEmpty()
+    if (value.isBlank() || value.equals("ND", ignoreCase = true)) return null
+    if (isoBirthDateRegex.matches(value)) {
+        val parts = value.split("-")
+        if (parts.size == 3) return "${parts[2]}/${parts[1]}/${parts[0]}"
+    }
+    if (fullYearRegex.matches(value)) return value
+    if (shortYearRegex.matches(value)) {
+        val parsed = value.toIntOrNull() ?: return null
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR) % 100
+        return if (parsed <= currentYear) String.format("%04d", 2000 + parsed) else String.format("%04d", 1900 + parsed)
+    }
+    return value.takeUnless { it.equals("ND", ignoreCase = true) }
 }
 
 private enum class HofFilter(val label: String) {
@@ -60,6 +90,11 @@ private enum class HofFilter(val label: String) {
     TOP_SCORER("Top scorers"),
     DEFENDER("Defenders"),
     U25("U25"),
+}
+
+private enum class HofViewMode(val label: String) {
+    PLAYERS("Titled players"),
+    RECORDS("Records"),
 }
 
 @Composable
@@ -88,7 +123,7 @@ fun TopBar(
                         fontWeight = FontWeight.Black,
                     )
                     Text(
-                        text = "Native public checkpoint wired to the same Supabase public data as FLBP ONLINE.",
+                        text = "Native public checkpoint wired to the same public workspace snapshot as FLBP ONLINE.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -163,7 +198,7 @@ fun HomeScreen(
                 liveTournament != null -> PrimaryActionCard(
                     title = liveTournament.name,
                     subtitle = "${formatDateLabel(liveTournament.startDate)} • ${formatTournamentType(liveTournament.type)} • LIVE",
-                    body = "Open the current tournament detail wired from public_tournaments + public_tournament_* tables.",
+                    body = "Open the current tournament detail derived from the same public workspace snapshot used by FLBP ONLINE.",
                     primaryLabel = "Open tournaments",
                     onPrimaryClick = onOpenTournaments,
                 )
@@ -242,7 +277,7 @@ fun TournamentListScreen(
         item {
             HeroCard(
                 title = "Tournament list",
-                body = "This surface mirrors FLBP ONLINE/components/PublicTournaments.tsx and reads the same public_tournaments list from Supabase.",
+                body = "This surface mirrors FLBP ONLINE/components/PublicTournaments.tsx and derives archive/live tournaments from the same public workspace snapshot.",
             )
         }
 
@@ -317,6 +352,7 @@ fun TournamentDetailScreen(
     detailLoading: Boolean,
     detailError: String?,
     hallOfFame: List<NativeHallOfFameEntry>,
+    onEnterTv: (NativeTvProjection) -> Unit,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -369,8 +405,13 @@ fun TournamentDetailScreen(
     }
 
     var section by rememberSaveable(bundle.tournament.id) { mutableStateOf(DetailSection.OVERVIEW.name) }
+    var turnFilter by rememberSaveable(bundle.tournament.id) { mutableStateOf(TurnFilter.ALL.name) }
+    var selectedMatchId by rememberSaveable(bundle.tournament.id) { mutableStateOf("") }
     val selectedSection = remember(section) {
         DetailSection.values().firstOrNull { it.name == section } ?: DetailSection.OVERVIEW
+    }
+    val selectedTurnFilter = remember(turnFilter) {
+        TurnFilter.values().firstOrNull { it.name == turnFilter } ?: TurnFilter.ALL
     }
     val tournamentAwards = remember(bundle.tournament.id, hallOfFame) {
         hallOfFame.filter { it.tournamentId == bundle.tournament.id }
@@ -380,61 +421,118 @@ fun TournamentDetailScreen(
     }
     val bracketMatches = remember(bundle) { visiblePublicMatches(bundle).filter { it.phase != "groups" } }
     val playerRows = remember(bundle) { buildTournamentLeaderboard(bundle) }
+    val turnsSnapshot = remember(bundle) { buildTurnsSnapshot(bundle) }
+    val hasTurnsContent = remember(turnsSnapshot) {
+        turnsSnapshot.activeBlocks.isNotEmpty() || turnsSnapshot.playedBlocks.isNotEmpty() || turnsSnapshot.tbdMatches.isNotEmpty()
+    }
+    val selectedMatch = remember(bundle, selectedMatchId) {
+        if (selectedMatchId.isBlank()) null else bundle.matches.firstOrNull { it.id == selectedMatchId }
+    }
 
-    LazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            PrimaryActionCard(
-                title = bundle.tournament.name,
-                subtitle = buildString {
-                    append(formatDateLabel(bundle.tournament.startDate))
-                    append(" • ")
-                    append(formatTournamentType(bundle.tournament.type))
-                    append(" • ")
-                    append(if (bundle.tournament.status == "live") "LIVE" else "ARCHIVE")
-                },
-                body = "Native detail uses the same tournament id + public_tournament_* bundle contract as FLBP ONLINE/components/PublicTournamentDetail.tsx.",
-                primaryLabel = "Back to list",
-                onPrimaryClick = onBack,
-                secondaryLabel = "Refresh",
-                onSecondaryClick = onRefresh,
-            )
-        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                PrimaryActionCard(
+                    title = bundle.tournament.name,
+                    subtitle = buildString {
+                        append(formatDateLabel(bundle.tournament.startDate))
+                        append(" • ")
+                        append(formatTournamentType(bundle.tournament.type))
+                        append(" • ")
+                        append(if (bundle.tournament.status == "live") "LIVE" else "ARCHIVE")
+                    },
+                    body = "Native detail derives the selected tournament from the same public workspace snapshot used by FLBP ONLINE/components/PublicTournamentDetail.tsx.",
+                    primaryLabel = "Back to list",
+                    onPrimaryClick = onBack,
+                    secondaryLabel = "Refresh",
+                    onSecondaryClick = onRefresh,
+                )
+            }
 
-        item {
-            Row(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DetailSection.values().forEach { candidate ->
-                    val enabled = when (candidate) {
-                        DetailSection.OVERVIEW -> true
-                        DetailSection.GROUPS -> bundle.groups.isNotEmpty()
-                        DetailSection.BRACKET -> bracketMatches.isNotEmpty()
-                        DetailSection.SCORERS -> playerRows.isNotEmpty()
-                    }
-                    FilterChip(
-                        selected = selectedSection == candidate,
-                        onClick = { if (enabled) section = candidate.name },
-                        enabled = enabled,
-                        label = { Text(candidate.label) },
+            item {
+                SectionCard(title = "TV read-only") {
+                    Text(
+                        text = "The native TV mode uses the same public tournament bundle and keeps all projections read-only.",
+                        style = MaterialTheme.typography.bodySmall,
                     )
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        NativeTvProjection.entries.forEach { candidate ->
+                            val enabled = when (candidate) {
+                                NativeTvProjection.GROUPS -> bundle.groups.isNotEmpty()
+                                NativeTvProjection.GROUPS_BRACKET -> bundle.groups.isNotEmpty() || bracketMatches.isNotEmpty()
+                                NativeTvProjection.BRACKET -> bracketMatches.isNotEmpty()
+                                NativeTvProjection.SCORERS -> playerRows.isNotEmpty()
+                            }
+                            FilterChip(
+                                selected = false,
+                                onClick = { if (enabled) onEnterTv(candidate) },
+                                enabled = enabled,
+                                label = { Text(candidate.label) },
+                            )
+                        }
+                    }
                 }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailSection.values().forEach { candidate ->
+                        val enabled = when (candidate) {
+                            DetailSection.OVERVIEW -> true
+                            DetailSection.TURNS -> hasTurnsContent
+                            DetailSection.GROUPS -> bundle.groups.isNotEmpty()
+                            DetailSection.BRACKET -> bracketMatches.isNotEmpty()
+                            DetailSection.SCORERS -> playerRows.isNotEmpty()
+                        }
+                        FilterChip(
+                            selected = selectedSection == candidate,
+                            onClick = { if (enabled) section = candidate.name },
+                            enabled = enabled,
+                            label = { Text(candidate.label) },
+                        )
+                    }
+                }
+            }
+
+            when (selectedSection) {
+                DetailSection.OVERVIEW -> tournamentOverviewItems(bundle, tournamentAwards)
+                DetailSection.TURNS -> tournamentTurnsItems(
+                    bundle = bundle,
+                    turnsSnapshot = turnsSnapshot,
+                    selectedFilter = selectedTurnFilter,
+                    onFilterSelected = { turnFilter = it.name },
+                    onMatchSelected = { selectedMatchId = it },
+                )
+                DetailSection.GROUPS -> tournamentGroupsItems(bundle, standingsByGroup)
+                DetailSection.BRACKET -> tournamentBracketItems(bundle, bracketMatches)
+                DetailSection.SCORERS -> tournamentScorersItems(playerRows)
             }
         }
 
-        when (selectedSection) {
-            DetailSection.OVERVIEW -> tournamentOverviewItems(bundle, tournamentAwards)
-            DetailSection.GROUPS -> tournamentGroupsItems(bundle, standingsByGroup)
-            DetailSection.BRACKET -> tournamentBracketItems(bundle, bracketMatches)
-            DetailSection.SCORERS -> tournamentScorersItems(playerRows)
+        if (selectedMatch != null) {
+            MatchDetailDialog(
+                bundle = bundle,
+                match = selectedMatch,
+                onDismiss = { selectedMatchId = "" },
+            )
         }
     }
 }
@@ -476,6 +574,7 @@ fun LeaderboardScreen(
                     .thenBy { it.name.lowercase() }
             )
     }
+    val aliasPool = remember(entries) { entries.map { it.name }.distinct() }
 
     LazyColumn(
         modifier = Modifier
@@ -487,7 +586,7 @@ fun LeaderboardScreen(
         item {
             HeroCard(
                 title = "Historic leaderboard",
-                body = "The native screen reads the same aggregated public_career_leaderboard that FLBP ONLINE uses when public DB read is enabled.",
+                body = "The native screen derives the historic leaderboard from the same public workspace snapshot used by FLBP ONLINE.",
             )
         }
 
@@ -529,6 +628,7 @@ fun LeaderboardScreen(
                     LeaderboardEntryCard(
                         rank = filteredEntries.indexOf(entry) + 1,
                         entry = entry,
+                        aliasPool = aliasPool,
                     )
                 }
             }
@@ -545,9 +645,13 @@ fun HallOfFameScreen(
     onRefresh: () -> Unit,
 ) {
     var filter by rememberSaveable { mutableStateOf(HofFilter.ALL.name) }
+    var viewMode by rememberSaveable { mutableStateOf(HofViewMode.PLAYERS.name) }
     var query by rememberSaveable { mutableStateOf("") }
     val selectedFilter = remember(filter) {
         HofFilter.values().firstOrNull { it.name == filter } ?: HofFilter.ALL
+    }
+    val selectedViewMode = remember(viewMode) {
+        HofViewMode.values().firstOrNull { it.name == viewMode } ?: HofViewMode.PLAYERS
     }
     val filteredEntries = remember(entries, selectedFilter, query) {
         entries.filter { entry ->
@@ -576,6 +680,26 @@ fun HallOfFameScreen(
             matchesFilter && matchesQuery
         }
     }
+    val titledRows = remember(entries) { buildTitledHallOfFameRows(entries) }
+    val filteredTitledRows = remember(titledRows, selectedFilter, query) {
+        titledRows.filter { row ->
+            val matchesFilter = when (selectedFilter) {
+                HofFilter.ALL -> row.total > 0 || row.u25Total > 0
+                HofFilter.WINNER -> row.win > 0
+                HofFilter.MVP -> row.mvp > 0
+                HofFilter.TOP_SCORER -> row.ts > 0
+                HofFilter.DEFENDER -> row.def > 0
+                HofFilter.U25 -> row.u25Total > 0
+            }
+            val matchesQuery = if (query.isBlank()) {
+                true
+            } else {
+                row.name.lowercase().contains(query.trim().lowercase())
+            }
+            matchesFilter && matchesQuery
+        }
+    }
+    val aliasPool = remember(entries) { entries.flatMap { it.playerNames }.distinct() }
 
     LazyColumn(
         modifier = Modifier
@@ -587,7 +711,7 @@ fun HallOfFameScreen(
         item {
             HeroCard(
                 title = "Hall of Fame",
-                body = "This screen reads the same public_hall_of_fame_entries source that powers the web history view.",
+                body = "This screen derives Hall of Fame data from the same public workspace snapshot as the web app and keeps titled-player identities grouped safely on mobile.",
             )
         }
 
@@ -599,7 +723,7 @@ fun HallOfFameScreen(
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        label = { Text("Search record") },
+                        label = { Text("Search Hall of Fame") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                     )
@@ -611,16 +735,44 @@ fun HallOfFameScreen(
                         onSelected = { filter = it },
                         labelFormatter = { raw -> HofFilter.valueOf(raw).label },
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FilterRow(
+                        label = "View",
+                        options = HofViewMode.values().map { it.name },
+                        selected = selectedViewMode.name,
+                        onSelected = { viewMode = it },
+                        labelFormatter = { raw -> HofViewMode.valueOf(raw).label },
+                    )
                 }
             }
         }
 
         if (!loading && error == null) {
-            if (filteredEntries.isEmpty()) {
-                item { EmptyStateCard("No hall of fame entries match the current filters.") }
+            val isPlayersView = selectedViewMode == HofViewMode.PLAYERS
+            val hasRows = if (isPlayersView) filteredTitledRows.isNotEmpty() else filteredEntries.isNotEmpty()
+            if (!hasRows) {
+                item {
+                    EmptyStateCard(
+                        if (isPlayersView) {
+                            "No titled players match the current filters."
+                        } else {
+                            "No hall of fame entries match the current filters."
+                        },
+                    )
+                }
             } else {
-                items(filteredEntries) { entry ->
-                    AwardCard(entry = entry)
+                if (isPlayersView) {
+                    items(filteredTitledRows) { row ->
+                        TitledHallPlayerCard(
+                            rank = filteredTitledRows.indexOf(row) + 1,
+                            row = row,
+                            aliasPool = aliasPool,
+                        )
+                    }
+                } else {
+                    items(filteredEntries) { entry ->
+                        AwardCard(entry = entry, aliasPool = aliasPool)
+                    }
                 }
             }
         }

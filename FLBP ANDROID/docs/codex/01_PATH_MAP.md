@@ -14,6 +14,10 @@ chat non affidabile, seguo il repository.
 - `FLBP ONLINE/components/HallOfFame.tsx`
 - `FLBP ONLINE/components/TournamentLeaderboard.tsx`
 - `FLBP ONLINE/components/GroupStandingsTable.tsx`
+- `FLBP ONLINE/components/TvView.tsx`
+- `FLBP ONLINE/components/TvBracketView.tsx`
+- `FLBP ONLINE/components/TvScorersView.tsx`
+- `FLBP ONLINE/components/PublicTvShell.tsx`
 
 ## Android native paths rilevanti
 - `app/src/main/java/com/flbp/manager/suite/MainActivity.kt`
@@ -24,4 +28,8 @@ chat non affidabile, seguo il repository.
 - `app/src/main/java/com/flbp/manager/suite/AndroidPublicUi.kt`
 - `app/src/main/java/com/flbp/manager/suite/AndroidPublicUiDetails.kt`
 - `app/src/main/java/com/flbp/manager/suite/AndroidPublicLogic.kt`
+- `app/src/main/java/com/flbp/manager/suite/AndroidTvUi.kt`
+- `app/src/main/java/com/flbp/manager/suite/NativePublicCache.kt`
+- `app/src/main/java/com/flbp/manager/suite/NativeProtectedApi.kt`
+- `app/src/main/java/com/flbp/manager/suite/AndroidProtectedUi.kt`
 - `app/src/main/AndroidManifest.xml`

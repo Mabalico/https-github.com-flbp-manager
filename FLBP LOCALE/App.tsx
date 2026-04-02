@@ -3,7 +3,7 @@ import { Home } from './components/Home';
 import { PublicBrandStack } from './components/PublicBrandStack';
 import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
-import { getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
+import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
 import { pullWorkspaceState } from './services/supabaseRest';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
@@ -13,14 +13,6 @@ import { isAutoStructuredSyncEnabled, isLocalOnlyMode } from './services/reposit
 import { hasRemoteDraftCache } from './services/repository/remoteDraftCache';
 import { readVitePublicDbRead } from './services/viteEnv';
 import {
-    getOrFetchPublicTournamentBundleCached,
-    getOrFetchPublicTournamentsListCached,
-    getOrFetchPublicWorkspaceStateCached,
-    readCachedPublicTournamentBundle,
-    readCachedPublicTournamentsList,
-    readCachedPublicWorkspaceState,
-    writeCachedPublicTournamentBundle,
-    writeCachedPublicTournamentsList,
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
 import { Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert } from 'lucide-react';
@@ -115,8 +107,6 @@ const loadAutoDbSyncModule = () => import('./services/autoDbSync');
 const getSupabasePublicOps = async () => {
     const module = await loadSupabasePublicModule();
     return {
-        pullPublicTournamentBundle: module.pullPublicTournamentBundle,
-        pullPublicTournamentsList: module.pullPublicTournamentsList,
         pullPublicWorkspaceState: module.pullPublicWorkspaceState,
         trackPublicSiteView: module.trackPublicSiteView
     };
@@ -217,8 +207,6 @@ const App: React.FC = () => {
     const [remoteBootstrapStatus, setRemoteBootstrapStatus] = useState<'idle' | 'booting' | 'ready'>('idle');
     const [publicDbState, setPublicDbState] = useState<AppState | null>(null);
     const [publicDbUpdatedAt, setPublicDbUpdatedAt] = useState<string | null>(null);
-    const [publicDbTournaments, setPublicDbTournaments] = useState<{ liveTournament: TournamentData | null; history: TournamentData[] } | null>(null);
-    const [publicDbTournamentBundles, setPublicDbTournamentBundles] = useState<Record<string, { data: TournamentData; teams: any[]; matches: any[] }>>({});
     const VIEW_KEY = 'flbp_view';
     const LANG_KEY = 'flbp_lang';
     const SELECTED_TOURNAMENT_KEY = 'flbp_selected_tournament';
@@ -448,6 +436,17 @@ const App: React.FC = () => {
     const stateForPublicViews = React.useMemo<AppState>(() => {
         if (!publicDbState) return state;
 
+        const remoteBaseUpdatedAt = getRemoteBaseUpdatedAt();
+        const publicDbTs = Date.parse(String(publicDbUpdatedAt || ''));
+        const remoteBaseTs = Date.parse(String(remoteBaseUpdatedAt || ''));
+        const publicSnapshotIsStale =
+            Number.isFinite(remoteBaseTs)
+            && (!Number.isFinite(publicDbTs) || remoteBaseTs > publicDbTs);
+
+        if (publicSnapshotIsStale) {
+            return state;
+        }
+
         const publicHistory = Array.isArray(publicDbState.tournamentHistory) ? publicDbState.tournamentHistory : [];
         const localHistory = Array.isArray(state.tournamentHistory) ? state.tournamentHistory : [];
         const publicHall = Array.isArray(publicDbState.hallOfFame) ? publicDbState.hallOfFame : [];
@@ -471,7 +470,7 @@ const App: React.FC = () => {
             playerAliases: publicAliases || {},
             logo: publicDbState.logo || state.logo || '',
         };
-    }, [publicDbState, state]);
+    }, [publicDbState, publicDbUpdatedAt, state]);
 
     // Lightweight, informative banner for ops (non-blocking).
     const dbPrimaryActive = repo.source === 'remote';
@@ -620,9 +619,7 @@ const App: React.FC = () => {
                 return true;
             }
         };
-        const cacheTtlMs = tvMode != null ? 4000 : 15000;
-
-        const hydrateFromCachedRow = (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
+        const hydratePublicRow = (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
             if (!row?.state) return false;
             void coerceLoadedAppState(row.state).then((next) => {
                 if (!cancelled) setPublicDbState(next);
@@ -633,19 +630,14 @@ const App: React.FC = () => {
             return true;
         };
 
-        const cachedRow = readCachedPublicWorkspaceState(cacheTtlMs);
-        if (cachedRow) {
-            hydrateFromCachedRow(cachedRow);
-        }
-
         const pullOnce = async () => {
             if (!shouldPollNow()) return;
             try {
-                const row = await getOrFetchPublicWorkspaceStateCached(cacheTtlMs, async () => (await getSupabasePublicOps()).pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll' }));
+                const row = await (await getSupabasePublicOps()).pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll' });
                 if (cancelled) return;
                 if (!row?.state) return;
                 writeCachedPublicWorkspaceState(row);
-                hydrateFromCachedRow(row);
+                hydratePublicRow(row);
             } catch {
                 // silent fallback to local state
             }
@@ -677,121 +669,6 @@ const App: React.FC = () => {
             window.clearInterval(id);
         };
     }, [tvMode, view, selectedTournament?.isLive]);
-
-    // Public tournaments read via sanitized tables (smaller than full snapshot).
-    // Falls back to the public snapshot if tables/migrations are missing.
-    useEffect(() => {
-        if (!publicDbReadEnabled()) {
-            setPublicDbTournaments(null);
-            return;
-        }
-        if (!getSupabaseConfig()) return;
-        if (view !== 'tournament' && view !== 'tournament_detail') return;
-
-        let cancelled = false;
-        const shouldPollNow = () => {
-            try {
-                return document.visibilityState === 'visible';
-            } catch {
-                return true;
-            }
-        };
-        const cacheTtlMs = view === 'tournament' ? 20000 : 12000;
-
-        const cachedList = readCachedPublicTournamentsList(cacheTtlMs);
-        if (cachedList) {
-            setPublicDbTournaments(cachedList);
-        }
-
-        const pullOnce = async () => {
-            if (!shouldPollNow()) return;
-            try {
-                const r = await getOrFetchPublicTournamentsListCached(cacheTtlMs, async () => (await getSupabasePublicOps()).pullPublicTournamentsList({ kind: 'polling', source: 'App.publicTournamentsPoll' }));
-                if (cancelled) return;
-                writeCachedPublicTournamentsList(r);
-                setPublicDbTournaments(r);
-            } catch {
-                // silent fallback
-                if (!cancelled && !cachedList) setPublicDbTournaments(null);
-            }
-        };
-
-        void pullOnce();
-        const onVisible = () => {
-            if (!shouldPollNow()) return;
-            void pullOnce();
-        };
-        document.addEventListener('visibilitychange', onVisible);
-        if (view !== 'tournament') {
-            return () => {
-                cancelled = true;
-                document.removeEventListener('visibilitychange', onVisible);
-            };
-        }
-
-        const id = window.setInterval(() => { void pullOnce(); }, 20000);
-        return () => {
-            cancelled = true;
-            document.removeEventListener('visibilitychange', onVisible);
-            window.clearInterval(id);
-        };
-    }, [view]);
-
-    // Per-tournament bundle (teams + matches + group mapping) for public detail.
-    useEffect(() => {
-        if (!publicDbReadEnabled()) return;
-        if (!getSupabaseConfig()) return;
-        if (view !== 'tournament_detail') return;
-        if (!selectedTournament?.data?.id) return;
-
-        const id = selectedTournament.data.id;
-        let cancelled = false;
-        const shouldPollNow = () => {
-            try {
-                return document.visibilityState === 'visible';
-            } catch {
-                return true;
-            }
-        };
-        const cacheTtlMs = selectedTournament.isLive ? 5000 : 60000;
-
-        const cachedBundle = readCachedPublicTournamentBundle(id, cacheTtlMs);
-        if (cachedBundle) {
-            setPublicDbTournamentBundles(prev => (prev[id] ? prev : ({ ...prev, [id]: cachedBundle })));
-        }
-
-        const pullOnce = async () => {
-            if (!shouldPollNow()) return;
-            try {
-                const b = await getOrFetchPublicTournamentBundleCached(id, cacheTtlMs, async () => (await getSupabasePublicOps()).pullPublicTournamentBundle(id, { kind: 'polling', source: 'App.publicTournamentBundlePoll' }));
-                if (cancelled || !b) return;
-                writeCachedPublicTournamentBundle(id, b);
-                setPublicDbTournamentBundles(prev => ({ ...prev, [id]: b }));
-            } catch {
-                // silent fallback
-            }
-        };
-
-        void pullOnce();
-        const onVisible = () => {
-            if (!shouldPollNow()) return;
-            void pullOnce();
-        };
-        document.addEventListener('visibilitychange', onVisible);
-        if (!selectedTournament.isLive) {
-            return () => {
-                cancelled = true;
-                document.removeEventListener('visibilitychange', onVisible);
-            };
-        }
-
-        const tmr = window.setInterval(() => { void pullOnce(); }, 5000);
-        return () => {
-            cancelled = true;
-            document.removeEventListener('visibilitychange', onVisible);
-            window.clearInterval(tmr);
-        };
-    }, [view, selectedTournament?.data?.id, selectedTournament?.isLive]);
 
     useEffect(() => {
         if (translationDictionaries[language]) return;
@@ -1095,21 +972,8 @@ const App: React.FC = () => {
             const id = String(parsed.id || '').trim();
             const base = stateForPublicViews;
 
-            // Prefer sanitized public tables (if available) - may return a "stub" tournament.
-            const fromDbList = (() => {
-                if (!publicDbTournaments) return null;
-                if (isLive) {
-                    return publicDbTournaments.liveTournament && publicDbTournaments.liveTournament.id === id
-                        ? publicDbTournaments.liveTournament
-                        : null;
-                }
-                return (publicDbTournaments.history || []).find(t => t.id === id) || null;
-            })();
-
-            // Fallback: full snapshot (public or local)
             const fromSnapshot = isLive ? base.tournament : (base.tournamentHistory || []).find(t => t.id === id);
-
-            const data = fromDbList || fromSnapshot;
+            const data = fromSnapshot;
             if (data) setSelectedTournament({ data, isLive });
             else {
                 try { localStorage.removeItem(SELECTED_TOURNAMENT_KEY); } catch {}
@@ -1119,7 +983,7 @@ const App: React.FC = () => {
             try { localStorage.removeItem(SELECTED_TOURNAMENT_KEY); } catch {}
             setView('tournament');
         }
-    }, [view, selectedTournament, stateForPublicViews, publicDbTournaments]);
+    }, [view, selectedTournament, stateForPublicViews]);
 
     if (tvMode) {
         return (
@@ -1169,10 +1033,8 @@ const App: React.FC = () => {
                 );
             case 'tournament':
                 {
-                    const liveTournament = (publicDbTournaments?.liveTournament || stateForPublicViews.tournament) || null;
-                    const history = (publicDbTournaments?.history && publicDbTournaments.history.length
-                        ? publicDbTournaments.history
-                        : stateForPublicViews.tournamentHistory) || [];
+                    const liveTournament = stateForPublicViews.tournament || null;
+                    const history = stateForPublicViews.tournamentHistory || [];
                     return (
                         <React.Suspense fallback={<RouteViewFallback /> }>
                             <PublicTournamentsLazy
@@ -1189,20 +1051,16 @@ const App: React.FC = () => {
                 if (!selectedTournament) return <RouteViewFallback />;
                 {
                     const id = selectedTournament.data.id;
-                    const bundle = publicDbTournamentBundles?.[id];
-
                     const snapshotTournament = selectedTournament.isLive
                         ? stateForPublicViews.tournament
                         : (stateForPublicViews.tournamentHistory || []).find(t => t.id === id);
 
-                    const data = bundle?.data || snapshotTournament || selectedTournament.data;
+                    const data = snapshotTournament || selectedTournament.data;
 
                     const snapshotMatches = snapshotTournament?.matches || (snapshotTournament?.rounds ? snapshotTournament.rounds.flat() : []);
-                    const matches = (bundle?.matches
-                        || (selectedTournament.isLive ? stateForPublicViews.tournamentMatches : (snapshotMatches || selectedTournament.data.matches || []))) || [];
+                    const matches = (selectedTournament.isLive ? stateForPublicViews.tournamentMatches : (snapshotMatches || selectedTournament.data.matches || [])) || [];
 
-                    const teams = (bundle?.teams
-                        || (selectedTournament.isLive ? stateForPublicViews.teams : (snapshotTournament?.teams || selectedTournament.data.teams || []))) || [];
+                    const teams = (selectedTournament.isLive ? stateForPublicViews.teams : (snapshotTournament?.teams || selectedTournament.data.teams || [])) || [];
 
                     return (
                         <React.Suspense fallback={<RouteViewFallback /> }>

@@ -1,0 +1,72 @@
+name: Cloudflare Pages Production
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "FLBP ONLINE/**"
+      - ".github/workflows/cloudflare-pages-production.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-pages-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and Deploy FLBP ONLINE
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    defaults:
+      run:
+        working-directory: FLBP ONLINE
+
+    env:
+      VITE_SUPABASE_URL: https://kgwhcemqkgqvtsctnwql.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_XhZ5hAdoycuWfDMeiQKaGA_7gD6nDhz
+      VITE_SUPABASE_ADMIN_EMAIL: admin@flbp.local
+      VITE_REMOTE_REPO: "1"
+      VITE_WORKSPACE_ID: default
+      VITE_PUBLIC_DB_READ: "1"
+      VITE_AUTO_STRUCTURED_SYNC: "1"
+      VITE_ALLOW_LOCAL_ONLY: "0"
+      VITE_APP_MODE: official
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: FLBP ONLINE/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check i18n
+        run: npm run check:i18n
+
+      - name: Check SSR admin
+        run: npm run check:ssr-admin
+
+      - name: Check SSR TV
+        run: npm run check:ssr-tv
+
+      - name: Build production dist
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          workingDirectory: FLBP ONLINE
+          command: pages deploy dist --project-name=${{ secrets.CLOUDFLARE_PAGES_PROJECT_NAME }}

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, loadState, getPlayerKey, resolvePlayerKey, isU25 } from '../services/storageService';
-import { deriveYoBFromBirthDate, pickPlayerIdentityValue } from '../services/playerIdentity';
+import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { PlayerStats, Match, Team } from '../types';
 import { useTranslation } from '../App';
 import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, Star, Wind, X, CalendarDays } from 'lucide-react';
@@ -116,6 +116,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
     // Optional: when public DB read is enabled, we can fetch a pre-aggregated public leaderboard
     // (without exposing full YoB). This keeps multi-device public displays consistent.
     useEffect(() => {
+        if (stateOverride) {
+            setDbStats(null);
+            setDbHoF(null);
+            return;
+        }
         if (!publicDbReadEnabled()) {
             setDbStats(null);
             setDbHoF(null);
@@ -293,13 +298,20 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
     };
 
     const normalizeName = (n: string) => normalizeNameLower(n);
+    const getDisplayBirthIdentityLabel = (player: PlayerStats) =>
+        formatPlayerBirthIdentityLabel(
+            player.yobLabel
+            ?? player.birthDate
+            ?? (typeof player.yob === 'number' ? String(player.yob) : '')
+        );
 
     const disambiguateNameMap = useMemo(() => {
         const map = new Map<string, Set<string>>();
         stats.forEach(p => {
             const k = normalizeName(p.name);
             const set = map.get(k) || new Set<string>();
-            set.add(p.yobLabel ? `LBL:${p.yobLabel}` : 'ND');
+            const label = getDisplayBirthIdentityLabel(p);
+            set.add(label ? `LBL:${label}` : 'ND');
             map.set(k, set);
         });
         const res: Record<string, boolean> = {};
@@ -627,9 +639,9 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                                 return parts.length ? <span className="flex items-center gap-1">{parts}</span> : null;
                                             })()}
                                         </div>
-                                        {disambiguateNameMap[normalizeName(p.name)] && (
+                                        {disambiguateNameMap[normalizeName(p.name)] && getDisplayBirthIdentityLabel(p) && (
                                             <div className="text-[10px] text-slate-400 font-bold">
-                                                {p.yobLabel ? p.yobLabel : 'ND'}
+                                                {getDisplayBirthIdentityLabel(p)}
                                             </div>
                                         )}
                                     </td>

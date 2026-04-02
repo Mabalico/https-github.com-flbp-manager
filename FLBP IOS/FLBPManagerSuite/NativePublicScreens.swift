@@ -22,6 +22,31 @@ private func isPlaceholderLabel(_ name: String) -> Bool {
     return normalized == "BYE" || normalized == "TBD" || normalized == "SLOT LIBERO" || normalized.hasPrefix("TBD-")
 }
 
+private func formatBirthIdentityLabel(_ raw: String?) -> String? {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+    if trimmed.uppercased() == "ND" { return nil }
+
+    let isoRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}$"#)
+    let fullYearRegex = try! NSRegularExpression(pattern: #"^\d{4}$"#)
+    let shortYearRegex = try! NSRegularExpression(pattern: #"^\d{2}$"#)
+    let range = NSRange(location: 0, length: trimmed.utf16.count)
+
+    if isoRegex.firstMatch(in: trimmed, options: [], range: range) != nil {
+        let parts = trimmed.split(separator: "-").map(String.init)
+        if parts.count == 3 {
+            return "\(parts[2])/\(parts[1])/\(parts[0])"
+        }
+    }
+    if fullYearRegex.firstMatch(in: trimmed, options: [], range: range) != nil {
+        return trimmed
+    }
+    if shortYearRegex.firstMatch(in: trimmed, options: [], range: range) != nil, let parsed = Int(trimmed) {
+        let currentYear = Calendar.current.component(.year, from: Date()) % 100
+        return String(format: "%04d", parsed <= currentYear ? 2000 + parsed : 1900 + parsed)
+    }
+    return trimmed
+}
+
 func hasValidParticipants(_ bundle: NativeTournamentBundle, _ match: NativeMatchInfo) -> Bool {
     !isPlaceholderLabel(bundle.teamName(for: match.teamAId)) && !isPlaceholderLabel(bundle.teamName(for: match.teamBId))
 }
@@ -138,6 +163,59 @@ func formatPercentOrNd(_ value: Double, hasValue: Bool) -> String {
     return String(format: "%.1f%%", value)
 }
 
+func buildTurnsSnapshot(bundle: NativeTournamentBundle) -> NativeTurnsSnapshot {
+    let tablesPerTurn = max(bundle.tournament.refTables ?? 8, 1)
+    let visibleMatches = visiblePublicMatches(bundle).sorted { ($0.orderIndex ?? .max) < ($1.orderIndex ?? .max) }
+    let playedMatches = visibleMatches.filter { $0.played || $0.status == "finished" }
+    let upcomingMatches = visibleMatches.filter { !$0.played && $0.status != "finished" }
+    let playableUpcoming = upcomingMatches.filter { hasValidParticipants(bundle, $0) }
+    let tbdMatches = upcomingMatches.filter { !hasValidParticipants(bundle, $0) }
+
+    let liveChunks = stride(from: 0, to: playableUpcoming.count, by: tablesPerTurn).map { start in
+        Array(playableUpcoming[start..<min(start + tablesPerTurn, playableUpcoming.count)])
+    }
+    let playedChunks = stride(from: 0, to: playedMatches.count, by: tablesPerTurn).map { start in
+        Array(playedMatches[start..<min(start + tablesPerTurn, playedMatches.count)])
+    }
+
+    let currentChunkIndex = liveChunks.firstIndex { chunk in
+        chunk.contains { $0.status == "playing" }
+    }
+
+    let activeBlocks = liveChunks.enumerated().map { index, matches in
+        let hasLive = matches.contains { $0.status == "playing" }
+        let isNext = currentChunkIndex != nil ? index == currentChunkIndex! + 1 : index == 0
+        return NativeTurnBlock(
+            id: "active-\(index + 1)",
+            turnNumber: index + 1,
+            statusLabel: hasLive ? "Live" : (isNext ? "Next" : "Upcoming"),
+            matches: matches,
+            isLive: hasLive,
+            isNext: isNext,
+            isPlayed: false
+        )
+    }
+
+    let archivedBlocks = playedChunks.enumerated().map { index, matches in
+        NativeTurnBlock(
+            id: "played-\(index + 1)",
+            turnNumber: index + 1,
+            statusLabel: "Played",
+            matches: matches,
+            isLive: false,
+            isNext: false,
+            isPlayed: true
+        )
+    }
+
+    return NativeTurnsSnapshot(
+        tablesPerTurn: tablesPerTurn,
+        activeBlocks: activeBlocks,
+        playedBlocks: archivedBlocks,
+        tbdMatches: tbdMatches
+    )
+}
+
 struct TopBarView: View {
     let selectedRoute: NativeRoute
     let onRouteSelected: (NativeRoute) -> Void
@@ -149,7 +227,7 @@ struct TopBarView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("FLBP Manager Suite")
                         .font(.title2.weight(.black))
-                    Text("Native public checkpoint wired to the same Supabase public data as FLBP ONLINE.")
+                    Text("Native public checkpoint wired to the same public workspace snapshot as FLBP ONLINE.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -204,7 +282,7 @@ struct HomeScreenView: View {
                     PrimaryActionCard(
                         title: liveTournament.name,
                         subtitle: "\(formatDateLabel(liveTournament.startDate)) • \(formatTournamentType(liveTournament.type)) • LIVE",
-                        bodyText: "Open the current tournament detail wired from public_tournaments + public_tournament_* tables.",
+                        bodyText: "Open the current tournament detail derived from the same public workspace snapshot used by FLBP ONLINE.",
                         primaryLabel: "Open tournaments",
                         onPrimary: onOpenTournaments,
                         secondaryLabel: nil,
@@ -279,7 +357,7 @@ struct TournamentListScreenView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HeroCard(
                     title: "Tournament list",
-                    body: "This surface mirrors FLBP ONLINE/components/PublicTournaments.tsx and reads the same public_tournaments list from Supabase."
+                    body: "This surface mirrors FLBP ONLINE/components/PublicTournaments.tsx and derives archive/live tournaments from the same public workspace snapshot."
                 )
 
                 if catalogLoading {
@@ -331,10 +409,13 @@ struct TournamentDetailScreenView: View {
     let detailLoading: Bool
     let detailError: String?
     let hallOfFame: [NativeHallOfFameEntry]
+    let onEnterTv: (NativeTvProjection) -> Void
     let onBack: () -> Void
     let onRefresh: () -> Void
 
     @State private var section: DetailSection = .overview
+    @State private var turnFilter: TurnFilter = .all
+    @State private var selectedMatch: NativeMatchInfo?
 
     var body: some View {
         Group {
@@ -344,41 +425,79 @@ struct TournamentDetailScreenView: View {
                 ScrollView { ErrorCard(message: detailError, onRetry: onRefresh).padding(16) }
             } else if let selection, let bundle {
                 let tournamentAwards = hallOfFame.filter { $0.tournamentId == bundle.tournament.id }
+                let tournamentAliasPool = Array(
+                    Set(
+                        bundle.teams.flatMap { [$0.player1, $0.player2].compactMap { $0 } } +
+                        bundle.stats.map(\.playerName) +
+                        tournamentAwards.flatMap(\.playerNames)
+                    )
+                ).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
                 let standingsByGroup = bundle.groups.reduce(into: [String: [GroupStandingRow]]()) { result, group in
                     result[group.id] = computeGroupStandings(bundle: bundle, group: group)
                 }
                 let bracketMatches = visiblePublicMatches(bundle).filter { $0.phase != "groups" }
                 let playerRows = buildTournamentLeaderboard(bundle: bundle)
+                let turnsSnapshot = buildTurnsSnapshot(bundle: bundle)
+                let hasTurnsContent = !turnsSnapshot.activeBlocks.isEmpty || !turnsSnapshot.playedBlocks.isEmpty || !turnsSnapshot.tbdMatches.isEmpty
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         PrimaryActionCard(
                             title: bundle.tournament.name,
                             subtitle: "\(formatDateLabel(bundle.tournament.startDate)) • \(formatTournamentType(bundle.tournament.type)) • \(bundle.tournament.status == "live" ? "LIVE" : "ARCHIVE")",
-                            bodyText: "Native detail uses the same tournament id + public_tournament_* bundle contract as FLBP ONLINE/components/PublicTournamentDetail.tsx.",
+                            bodyText: "Native detail derives the selected tournament from the same public workspace snapshot used by FLBP ONLINE/components/PublicTournamentDetail.tsx.",
                             primaryLabel: "Back to list",
                             onPrimary: onBack,
                             secondaryLabel: "Refresh",
                             onSecondary: onRefresh
                         )
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(DetailSection.allCases) { candidate in
-                            let enabled: Bool
-                            switch candidate {
-                            case .overview:
-                                enabled = true
-                            case .groups:
-                                enabled = !bundle.groups.isEmpty
-                            case .bracket:
-                                enabled = !bracketMatches.isEmpty
-                            case .scorers:
-                                enabled = !playerRows.isEmpty
+                        SectionCard(title: "TV read-only") {
+                            Text("The native TV mode uses the same public tournament bundle and keeps all projections read-only.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(NativeTvProjection.allCases) { projection in
+                                        let enabled: Bool
+                                        switch projection {
+                                        case .groups:
+                                            enabled = !bundle.groups.isEmpty
+                                        case .groupsBracket:
+                                            enabled = !bundle.groups.isEmpty || !bracketMatches.isEmpty
+                                        case .bracket:
+                                            enabled = !bracketMatches.isEmpty
+                                        case .scorers:
+                                            enabled = !playerRows.isEmpty
+                                        }
+                                        ChipButton(label: projection.label, selected: false, enabled: enabled) {
+                                            if enabled { onEnterTv(projection) }
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 1)
                             }
-                            ChipButton(label: candidate.label, selected: section == candidate, enabled: enabled) {
-                                if enabled { section = candidate }
-                            }
+                        }
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(DetailSection.allCases) { candidate in
+                                    let enabled: Bool
+                                    switch candidate {
+                                    case .overview:
+                                        enabled = true
+                                    case .turns:
+                                        enabled = hasTurnsContent
+                                    case .groups:
+                                        enabled = !bundle.groups.isEmpty
+                                    case .bracket:
+                                        enabled = !bracketMatches.isEmpty
+                                    case .scorers:
+                                        enabled = !playerRows.isEmpty
+                                    }
+                                    ChipButton(label: candidate.label, selected: section == candidate, enabled: enabled) {
+                                        if enabled { section = candidate }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 1)
@@ -386,19 +505,32 @@ struct TournamentDetailScreenView: View {
 
                         switch section {
                         case .overview:
-                            tournamentOverview(bundle: bundle, tournamentAwards: tournamentAwards)
+                            tournamentOverview(bundle: bundle, tournamentAwards: tournamentAwards, aliasPool: tournamentAliasPool)
+                        case .turns:
+                            tournamentTurns(
+                                bundle: bundle,
+                                turnsSnapshot: turnsSnapshot,
+                                selectedFilter: turnFilter,
+                                onFilterSelected: { turnFilter = $0 },
+                                onMatchSelected: { selectedMatch = $0 }
+                            )
                         case .groups:
                             tournamentGroups(bundle: bundle, standingsByGroup: standingsByGroup)
                         case .bracket:
                             tournamentBracket(bundle: bundle, bracketMatches: bracketMatches)
                         case .scorers:
-                            tournamentScorers(playerRows: playerRows)
+                            tournamentScorers(playerRows: playerRows, aliasPool: tournamentAliasPool)
                         }
                     }
                     .padding(16)
                 }
                 .onChange(of: selection.id) { _ in
                     section = .overview
+                    turnFilter = .all
+                    selectedMatch = nil
+                }
+                .sheet(item: $selectedMatch) { match in
+                    MatchDetailSheet(bundle: bundle, match: match)
                 }
             } else if let selection {
                 ScrollView { EmptyStateCard(message: "No tournament bundle is available for \(selection.id).").padding(16) }
@@ -418,6 +550,10 @@ struct LeaderboardScreenView: View {
     @State private var query = ""
     @State private var onlyU25 = false
     @State private var sort: LeaderboardSort = .points
+
+    private var aliasPool: [String] {
+        Array(Set(entries.map(\.name))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
 
     private var filteredEntries: [NativeLeaderboardEntry] {
         entries
@@ -459,7 +595,7 @@ struct LeaderboardScreenView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HeroCard(title: "Historic leaderboard", body: "The native screen reads the same aggregated public_career_leaderboard that FLBP ONLINE uses when public DB read is enabled.")
+                HeroCard(title: "Historic leaderboard", body: "The native screen derives the historic leaderboard from the same public workspace snapshot used by FLBP ONLINE.")
 
                 if loading {
                     LoadingCard(message: "Loading leaderboard…")
@@ -479,7 +615,7 @@ struct LeaderboardScreenView: View {
                         EmptyStateCard(message: "No leaderboard rows match the current filters.")
                     } else {
                         ForEach(Array(filteredEntries.enumerated()), id: \.element.id) { index, entry in
-                            LeaderboardEntryCard(rank: index + 1, entry: entry)
+                            LeaderboardEntryCard(rank: index + 1, entry: entry, aliasPool: aliasPool)
                         }
                     }
                 }
@@ -497,6 +633,15 @@ struct HallOfFameScreenView: View {
 
     @State private var query = ""
     @State private var filter: HofFilter = .all
+    @State private var viewMode: HofViewMode = .players
+
+    private var aliasPool: [String] {
+        Array(Set(entries.flatMap(\.playerNames))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var titledRows: [NativeTitledHallPlayerRow] {
+        buildTitledHallOfFameRows(entries: entries)
+    }
 
     private var filteredEntries: [NativeHallOfFameEntry] {
         entries.filter { entry in
@@ -522,10 +667,33 @@ struct HallOfFameScreenView: View {
         }
     }
 
+    private var filteredTitledRows: [NativeTitledHallPlayerRow] {
+        titledRows.filter { row in
+            let matchesFilter: Bool
+            switch filter {
+            case .all:
+                matchesFilter = row.total > 0 || row.u25Total > 0
+            case .winner:
+                matchesFilter = row.win > 0
+            case .mvp:
+                matchesFilter = row.mvp > 0
+            case .topScorer:
+                matchesFilter = row.ts > 0
+            case .defender:
+                matchesFilter = row.def > 0
+            case .u25:
+                matchesFilter = row.u25Total > 0
+            }
+            let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if trimmedQuery.isEmpty { return matchesFilter }
+            return matchesFilter && row.name.lowercased().contains(trimmedQuery)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HeroCard(title: "Hall of Fame", body: "This screen reads the same public_hall_of_fame_entries source that powers the web history view.")
+                HeroCard(title: "Hall of Fame", body: "This screen derives Hall of Fame data from the same public workspace snapshot as the web app and also exposes an identity-safe titled-player summary so awards do not split across the same player on mobile.")
 
                 if loading {
                     LoadingCard(message: "Loading hall of fame…")
@@ -533,23 +701,159 @@ struct HallOfFameScreenView: View {
                     ErrorCard(message: error, onRetry: onRefresh)
                 } else {
                     SectionCard(title: "Filters") {
-                        TextField("Search record", text: $query)
+                        TextField("Search Hall of Fame", text: $query)
                             .textFieldStyle(.roundedBorder)
                         FilterRow(label: "Category", options: HofFilter.allCases.map(\.rawValue), selected: filter.rawValue, onSelected: { raw in
                             filter = HofFilter(rawValue: raw) ?? .all
                         }, labelFormatter: { HofFilter(rawValue: $0)?.label ?? $0 })
+                        FilterRow(label: "View", options: HofViewMode.allCases.map(\.rawValue), selected: viewMode.rawValue, onSelected: { raw in
+                            viewMode = HofViewMode(rawValue: raw) ?? .players
+                        }, labelFormatter: { HofViewMode(rawValue: $0)?.label ?? $0 })
                     }
 
-                    if filteredEntries.isEmpty {
-                        EmptyStateCard(message: "No hall of fame entries match the current filters.")
+                    if viewMode == .players {
+                        if filteredTitledRows.isEmpty {
+                            EmptyStateCard(message: "No titled players match the current filters.")
+                        } else {
+                            ForEach(Array(filteredTitledRows.enumerated()), id: \.element.id) { index, row in
+                                TitledHallPlayerCard(rank: index + 1, row: row, aliasPool: aliasPool)
+                            }
+                        }
                     } else {
-                        ForEach(filteredEntries) { entry in
-                            AwardCard(entry: entry)
+                        if filteredEntries.isEmpty {
+                            EmptyStateCard(message: "No hall of fame entries match the current filters.")
+                        } else {
+                            ForEach(filteredEntries) { entry in
+                                AwardCard(entry: entry, aliasPool: aliasPool)
+                            }
                         }
                     }
                 }
             }
             .padding(16)
+        }
+    }
+}
+
+struct NativeTVModeScreenView: View {
+    let projection: NativeTvProjection
+    let selection: TournamentSelectionRef?
+    let bundle: NativeTournamentBundle?
+    let detailLoading: Bool
+    let detailError: String?
+    let hallOfFame: [NativeHallOfFameEntry]
+    let onProjectionSelected: (NativeTvProjection) -> Void
+    let onExit: () -> Void
+    let onRefresh: () -> Void
+
+    var body: some View {
+        Group {
+            if detailLoading {
+                ScrollView { LoadingCard(message: "Loading TV projection…").padding(16) }
+            } else if let detailError {
+                ScrollView { ErrorCard(message: detailError, onRetry: onRefresh).padding(16) }
+            } else if let selection, let bundle {
+                let tournamentAwards = hallOfFame.filter { $0.tournamentId == bundle.tournament.id }
+                let tournamentAliasPool = Array(
+                    Set(
+                        bundle.teams.flatMap { [$0.player1, $0.player2].compactMap { $0 } } +
+                        bundle.stats.map(\.playerName) +
+                        tournamentAwards.flatMap(\.playerNames)
+                    )
+                ).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                let standingsByGroup = bundle.groups.reduce(into: [String: [GroupStandingRow]]()) { result, group in
+                    result[group.id] = computeGroupStandings(bundle: bundle, group: group)
+                }
+                let bracketMatches = visiblePublicMatches(bundle).filter { $0.phase != "groups" }
+                let playerRows = buildTournamentLeaderboard(bundle: bundle)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionCard(title: "TV mode") {
+                            Text(bundle.tournament.name)
+                                .font(.title2.weight(.black))
+                            Text("\(formatDateLabel(bundle.tournament.startDate)) • \(formatTournamentType(bundle.tournament.type)) • read-only")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(NativeTvProjection.allCases) { candidate in
+                                        let enabled: Bool
+                                        switch candidate {
+                                        case .groups:
+                                            enabled = !bundle.groups.isEmpty
+                                        case .groupsBracket:
+                                            enabled = !bundle.groups.isEmpty || !bracketMatches.isEmpty
+                                        case .bracket:
+                                            enabled = !bracketMatches.isEmpty
+                                        case .scorers:
+                                            enabled = !playerRows.isEmpty
+                                        }
+                                        ChipButton(label: candidate.label, selected: projection == candidate, enabled: enabled) {
+                                            if enabled { onProjectionSelected(candidate) }
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 1)
+                            }
+                            HStack(spacing: 8) {
+                                Button("Refresh", action: onRefresh)
+                                    .buttonStyle(.bordered)
+                                Button("Exit TV", action: onExit)
+                                    .buttonStyle(.bordered)
+                            }
+                        }
+
+                        switch projection {
+                        case .groups:
+                            if bundle.groups.isEmpty {
+                                EmptyStateCard(message: "No group data is available for this tournament.")
+                            } else {
+                                tournamentGroups(bundle: bundle, standingsByGroup: standingsByGroup, hideMatchCode: true)
+                            }
+                        case .groupsBracket:
+                            if bundle.groups.isEmpty && bracketMatches.isEmpty {
+                                EmptyStateCard(message: "No public TV projection is available for this tournament yet.")
+                            } else {
+                                if !bundle.groups.isEmpty {
+                                    tournamentGroups(bundle: bundle, standingsByGroup: standingsByGroup, hideMatchCode: true)
+                                }
+                                if !bracketMatches.isEmpty {
+                                    tournamentBracket(bundle: bundle, bracketMatches: bracketMatches, hideMatchCode: true)
+                                }
+                            }
+                        case .bracket:
+                            if bracketMatches.isEmpty {
+                                EmptyStateCard(message: "No bracket projection is available yet.")
+                            } else {
+                                tournamentBracket(bundle: bundle, bracketMatches: bracketMatches, hideMatchCode: true)
+                            }
+                        case .scorers:
+                            if playerRows.isEmpty {
+                                EmptyStateCard(message: "No scorer data is available in the public dataset.")
+                            } else {
+                                SectionCard(title: "Awards") {
+                                    if tournamentAwards.isEmpty {
+                                        Text("No tournament awards are currently available in the public dataset.")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        ForEach(tournamentAwards) { award in
+                                            AwardCard(entry: award, aliasPool: tournamentAliasPool)
+                                        }
+                                    }
+                                }
+                                tournamentScorers(playerRows: playerRows, aliasPool: tournamentAliasPool)
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            } else if let selection {
+                ScrollView { EmptyStateCard(message: "No tournament bundle is available for \(selection.id).").padding(16) }
+            } else {
+                ScrollView { EmptyStateCard(message: "TV mode needs a selected tournament. Open a tournament detail first.").padding(16) }
+            }
         }
     }
 }
@@ -573,7 +877,12 @@ struct ToolsPlaceholderView: View {
 }
 
 @ViewBuilder
-private func tournamentOverview(bundle: NativeTournamentBundle, tournamentAwards: [NativeHallOfFameEntry]) -> some View {
+private func tournamentOverview(
+    bundle: NativeTournamentBundle,
+    tournamentAwards: [NativeHallOfFameEntry],
+    aliasPool: [String],
+    hideMatchCode: Bool = false
+) -> some View {
     SectionCard(title: "Overview") {
         MetadataRow(label: "Status", value: bundle.tournament.status == "live" ? "Live" : "Archive")
         MetadataRow(label: "Format", value: formatTournamentType(bundle.tournament.type))
@@ -587,7 +896,7 @@ private func tournamentOverview(bundle: NativeTournamentBundle, tournamentAwards
     if !bundle.teams.isEmpty {
         SectionCard(title: "Teams") {
             ForEach(bundle.teams) { team in
-                TeamCard(team: team)
+                TeamCard(team: team, aliasPool: aliasPool)
             }
         }
     }
@@ -595,7 +904,7 @@ private func tournamentOverview(bundle: NativeTournamentBundle, tournamentAwards
     if !tournamentAwards.isEmpty {
         SectionCard(title: "Awards") {
             ForEach(tournamentAwards) { award in
-                AwardCard(entry: award)
+                AwardCard(entry: award, aliasPool: aliasPool)
             }
         }
     }
@@ -604,14 +913,109 @@ private func tournamentOverview(bundle: NativeTournamentBundle, tournamentAwards
     if !liveAndUpcoming.isEmpty {
         SectionCard(title: "Upcoming turns") {
             ForEach(Array(liveAndUpcoming.prefix(10))) { match in
-                MatchCard(bundle: bundle, match: match)
+                MatchCard(bundle: bundle, match: match, hideCode: hideMatchCode)
             }
         }
     }
 }
 
 @ViewBuilder
-private func tournamentGroups(bundle: NativeTournamentBundle, standingsByGroup: [String: [GroupStandingRow]]) -> some View {
+private func tournamentTurns(
+    bundle: NativeTournamentBundle,
+    turnsSnapshot: NativeTurnsSnapshot,
+    selectedFilter: TurnFilter,
+    onFilterSelected: @escaping (TurnFilter) -> Void,
+    onMatchSelected: @escaping (NativeMatchInfo) -> Void
+) -> some View {
+    let activeBlocks: [NativeTurnBlock]
+    switch selectedFilter {
+    case .all:
+        activeBlocks = turnsSnapshot.activeBlocks
+    case .live:
+        activeBlocks = turnsSnapshot.activeBlocks.filter { $0.isLive }
+    case .next:
+        activeBlocks = turnsSnapshot.activeBlocks.filter { $0.isNext }
+    case .played, .tbd:
+        activeBlocks = []
+    }
+
+    let playedBlocks = (selectedFilter == .all || selectedFilter == .played) ? turnsSnapshot.playedBlocks : []
+    let tbdMatches = (selectedFilter == .all || selectedFilter == .tbd) ? turnsSnapshot.tbdMatches : []
+    let counts: [TurnFilter: Int] = [
+        .all: turnsSnapshot.activeBlocks.reduce(0) { $0 + $1.matches.count } + turnsSnapshot.playedBlocks.reduce(0) { $0 + $1.matches.count } + turnsSnapshot.tbdMatches.count,
+        .live: turnsSnapshot.activeBlocks.filter { $0.isLive }.reduce(0) { $0 + $1.matches.count },
+        .next: turnsSnapshot.activeBlocks.filter { $0.isNext }.reduce(0) { $0 + $1.matches.count },
+        .played: turnsSnapshot.playedBlocks.reduce(0) { $0 + $1.matches.count },
+        .tbd: turnsSnapshot.tbdMatches.count
+    ]
+
+    SectionCard(title: "Turns") {
+        Text("Matches are grouped into referee turns using the tournament table count, just like the web live detail.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        MetadataRow(label: "Tables per turn", value: "\(turnsSnapshot.tablesPerTurn)")
+        FilterRow(
+            label: "Filter",
+            options: TurnFilter.allCases.map(\.rawValue),
+            selected: selectedFilter.rawValue,
+            onSelected: { raw in
+                onFilterSelected(TurnFilter(rawValue: raw) ?? .all)
+            },
+            labelFormatter: { raw in
+                let filter = TurnFilter(rawValue: raw) ?? .all
+                return "\(filter.label) (\(counts[filter] ?? 0))"
+            }
+        )
+    }
+
+    if activeBlocks.isEmpty && playedBlocks.isEmpty && tbdMatches.isEmpty {
+        EmptyStateCard(message: "No matches are available for the selected turns filter.")
+    }
+
+    ForEach(activeBlocks) { block in
+        SectionCard(title: "Turn \(block.turnNumber)") {
+            MetadataRow(label: "State", value: block.statusLabel)
+            MetadataRow(label: "Matches", value: "\(block.matches.count)/\(turnsSnapshot.tablesPerTurn)")
+            ForEach(block.matches) { match in
+                MatchCard(bundle: bundle, match: match, onTap: {
+                    onMatchSelected(match)
+                })
+            }
+        }
+    }
+
+    ForEach(playedBlocks) { block in
+        SectionCard(title: "Played turn \(block.turnNumber)") {
+            MetadataRow(label: "State", value: block.statusLabel)
+            MetadataRow(label: "Matches", value: "\(block.matches.count)/\(turnsSnapshot.tablesPerTurn)")
+            ForEach(block.matches) { match in
+                MatchCard(bundle: bundle, match: match, onTap: {
+                    onMatchSelected(match)
+                })
+            }
+        }
+    }
+
+    if !tbdMatches.isEmpty {
+        SectionCard(title: "Waiting for TBD") {
+            Text("These matches are published but do not have valid participants yet, so they are not part of a playable turn.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            ForEach(tbdMatches) { match in
+                MatchCard(bundle: bundle, match: match, onTap: {
+                    onMatchSelected(match)
+                })
+            }
+        }
+    }
+}
+
+@ViewBuilder
+private func tournamentGroups(
+    bundle: NativeTournamentBundle,
+    standingsByGroup: [String: [GroupStandingRow]],
+    hideMatchCode: Bool = false
+) -> some View {
     ForEach(bundle.groups) { group in
         SectionCard(title: group.name.isEmpty ? "Group" : group.name) {
             let standings = standingsByGroup[group.id] ?? []
@@ -646,7 +1050,7 @@ private func tournamentGroups(bundle: NativeTournamentBundle, standingsByGroup: 
             let groupMatches = visiblePublicMatches(bundle).filter { $0.groupName == group.name }
             if !groupMatches.isEmpty {
                 ForEach(groupMatches) { match in
-                    MatchCard(bundle: bundle, match: match)
+                    MatchCard(bundle: bundle, match: match, hideCode: hideMatchCode)
                 }
             }
         }
@@ -654,23 +1058,27 @@ private func tournamentGroups(bundle: NativeTournamentBundle, standingsByGroup: 
 }
 
 @ViewBuilder
-private func tournamentBracket(bundle: NativeTournamentBundle, bracketMatches: [NativeMatchInfo]) -> some View {
+private func tournamentBracket(
+    bundle: NativeTournamentBundle,
+    bracketMatches: [NativeMatchInfo],
+    hideMatchCode: Bool = false
+) -> some View {
     let grouped = Dictionary(grouping: bracketMatches) { match in
-        match.roundName ?? match.round.map { "Round \($0)" } ?? match.code ?? "Bracket"
+        match.roundName ?? match.round.map { "Round \($0)" } ?? (hideMatchCode ? "Bracket" : (match.code ?? "Bracket"))
     }
     let orderedKeys = grouped.keys.sorted()
 
     ForEach(orderedKeys, id: \.self) { key in
         SectionCard(title: key) {
             ForEach((grouped[key] ?? []).sorted(by: { ($0.orderIndex ?? .max) < ($1.orderIndex ?? .max) })) { match in
-                MatchCard(bundle: bundle, match: match)
+                MatchCard(bundle: bundle, match: match, hideCode: hideMatchCode)
             }
         }
     }
 }
 
 @ViewBuilder
-private func tournamentScorers(playerRows: [TournamentPlayerRow]) -> some View {
+private func tournamentScorers(playerRows: [TournamentPlayerRow], aliasPool: [String]) -> some View {
     SectionCard(title: "Scorers") {
         if playerRows.isEmpty {
             Text("No match stats are available in the public dataset.")
@@ -684,7 +1092,12 @@ private func tournamentScorers(playerRows: [TournamentPlayerRow]) -> some View {
                     Text(player.teamName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Text("PT \(player.points) • SF \(player.soffi) • GP \(player.gamesPlayed) • AVG \(String(format: "%.1f", player.avgPoints))/\(String(format: "%.1f", player.avgSoffi)) • W% \(formatPercentOrNd(player.winRate, hasValue: player.wins + player.losses > 0))")
+                    if let aliasNote = buildPossibleAliasNote(referenceNames: [player.name], candidates: aliasPool) {
+                        Text(aliasNote)
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Text("CAN \(player.points) • SF \(player.soffi) • GP \(player.gamesPlayed) • AVG \(String(format: "%.1f", player.avgPoints))/\(String(format: "%.1f", player.avgSoffi)) • W% \(formatPercentOrNd(player.winRate, hasValue: player.wins + player.losses > 0))")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -864,14 +1277,21 @@ struct MetadataRow: View {
 
 struct TeamCard: View {
     let team: NativeTeamInfo
+    var aliasPool: [String] = []
 
     var body: some View {
+        let aliasNote = buildPossibleAliasNote(referenceNames: [team.player1, team.player2].compactMap { $0 }, candidates: aliasPool)
         VStack(alignment: .leading, spacing: 4) {
             Text(team.name)
                 .font(.headline)
             Text([team.player1, team.player2].compactMap { $0 }.joined(separator: " • "))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            if let aliasNote {
+                Text(aliasNote)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -882,12 +1302,14 @@ struct TeamCard: View {
 struct MatchCard: View {
     let bundle: NativeTournamentBundle
     let match: NativeMatchInfo
+    var onTap: (() -> Void)? = nil
+    var hideCode: Bool = false
 
     var body: some View {
         let scoreLabel = (match.played || match.status == "finished" || match.status == "playing")
             ? "\(match.scoreA) - \(match.scoreB)"
             : "—"
-        let title = [match.code, match.roundName, match.groupName].compactMap { $0 }.joined(separator: " • ")
+        let title = [hideCode ? nil : match.code, match.roundName, match.groupName].compactMap { $0 }.joined(separator: " • ")
 
         VStack(alignment: .leading, spacing: 4) {
             Text(title.isEmpty ? "Match" : title)
@@ -902,13 +1324,63 @@ struct MatchCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
+        }
+    }
+}
+
+struct MatchDetailSheet: View {
+    let bundle: NativeTournamentBundle
+    let match: NativeMatchInfo
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                SectionCard(title: "Match detail") {
+                    MetadataRow(label: "Teams", value: "\(bundle.teamName(for: match.teamAId)) vs \(bundle.teamName(for: match.teamBId))")
+                    MetadataRow(label: "Status", value: match.status)
+                    MetadataRow(
+                        label: "Score",
+                        value: (match.played || match.status == "finished" || match.status == "playing")
+                            ? "\(match.scoreA) - \(match.scoreB)"
+                            : "—"
+                    )
+                    if let phase = match.phase, !phase.isEmpty {
+                        MetadataRow(label: "Phase", value: phase)
+                    }
+                    if let groupName = match.groupName, !groupName.isEmpty {
+                        MetadataRow(label: "Group", value: groupName)
+                    }
+                    if let roundName = match.roundName, !roundName.isEmpty {
+                        MetadataRow(label: "Round", value: roundName)
+                    }
+                    if let code = match.code, !code.isEmpty {
+                        MetadataRow(label: "Code", value: code)
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("Match")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 
 struct AwardCard: View {
     let entry: NativeHallOfFameEntry
+    var aliasPool: [String] = []
 
     var body: some View {
+        let aliasNote = buildPossibleAliasNote(referenceNames: entry.playerNames, candidates: aliasPool)
         VStack(alignment: .leading, spacing: 4) {
             Text(entry.tournamentName)
                 .font(.caption.weight(.bold))
@@ -923,8 +1395,43 @@ struct AwardCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            if let aliasNote {
+                Text(aliasNote)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
             if let value = entry.value {
                 Text("Value: \(value)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+    }
+}
+
+struct TitledHallPlayerCard: View {
+    let rank: Int
+    let row: NativeTitledHallPlayerRow
+    var aliasPool: [String] = []
+
+    var body: some View {
+        let aliasNote = buildPossibleAliasNote(referenceNames: [row.name], candidates: aliasPool)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(rank). \(row.name)")
+                .font(.headline)
+            if let aliasNote {
+                Text(aliasNote)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            Text("TOT \(row.total) • W \(row.win) • MVP \(row.mvp) • TS \(row.ts) • DEF \(row.def)")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if row.u25Total > 0 {
+                Text("U25 • TS25 \(row.ts25) • DEF25 \(row.def25)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -938,15 +1445,23 @@ struct AwardCard: View {
 struct LeaderboardEntryCard: View {
     let rank: Int
     let entry: NativeLeaderboardEntry
+    var aliasPool: [String] = []
 
     var body: some View {
+        let birthIdentityLabel = formatBirthIdentityLabel(entry.yobLabel)
+        let aliasNote = buildPossibleAliasNote(referenceNames: [entry.name], candidates: aliasPool)
         VStack(alignment: .leading, spacing: 4) {
             Text("\(rank). \(entry.name)")
                 .font(.headline)
             Text(entry.teamName)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("GP \(entry.gamesPlayed) • PT \(entry.points) • SF \(entry.soffi) • AVG \(String(format: "%.1f", entry.avgPoints))/\(String(format: "%.1f", entry.avgSoffi))\(entry.u25 ? " • U25" : "")\(entry.yobLabel.map { " • \($0)" } ?? "")")
+            if let aliasNote {
+                Text(aliasNote)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+            Text("GP \(entry.gamesPlayed) • CAN \(entry.points) • SF \(entry.soffi) • AVG \(String(format: "%.1f", entry.avgPoints))/\(String(format: "%.1f", entry.avgSoffi))\(entry.u25 ? " • U25" : "")\(birthIdentityLabel.map { " • \($0)" } ?? "")")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -1005,4 +1520,329 @@ struct ChipButton: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
     }
+}
+
+struct PlayerAreaScreenView: View {
+    let snapshot: NativePlayerAreaSnapshot
+    let infoMessage: String?
+    let errorMessage: String?
+    let onRegister: (String, String, String, String, String) -> Void
+    let onSignIn: (String, String) -> Void
+    let onSaveProfile: (String, String, String) -> Void
+    let onSignOut: () -> Void
+    let onAcknowledgeCall: (String) -> Void
+    let onClearCall: (String) -> Void
+    let onOpenReferees: () -> Void
+
+    @State private var username: String
+    @State private var password = ""
+    @State private var firstName: String
+    @State private var lastName: String
+    @State private var birthDate: String
+
+    private var playerAliasPool: [String] {
+        Array(
+            Set(
+                [
+                    snapshot.profile?.canonicalPlayerName,
+                    snapshot.results?.canonicalPlayerName
+                ].compactMap { $0 } +
+                (snapshot.results?.leaderboardRows.map(\.name) ?? []) +
+                (snapshot.results?.awards.flatMap(\.playerNames) ?? [])
+            )
+        ).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    init(
+        snapshot: NativePlayerAreaSnapshot,
+        infoMessage: String?,
+        errorMessage: String?,
+        onRegister: @escaping (String, String, String, String, String) -> Void,
+        onSignIn: @escaping (String, String) -> Void,
+        onSaveProfile: @escaping (String, String, String) -> Void,
+        onSignOut: @escaping () -> Void,
+        onAcknowledgeCall: @escaping (String) -> Void,
+        onClearCall: @escaping (String) -> Void,
+        onOpenReferees: @escaping () -> Void
+    ) {
+        self.snapshot = snapshot
+        self.infoMessage = infoMessage
+        self.errorMessage = errorMessage
+        self.onRegister = onRegister
+        self.onSignIn = onSignIn
+        self.onSaveProfile = onSaveProfile
+        self.onSignOut = onSignOut
+        self.onAcknowledgeCall = onAcknowledgeCall
+        self.onClearCall = onClearCall
+        self.onOpenReferees = onOpenReferees
+        _username = State(initialValue: snapshot.session?.username ?? "")
+        _firstName = State(initialValue: snapshot.profile?.firstName ?? "")
+        _lastName = State(initialValue: snapshot.profile?.lastName ?? "")
+        _birthDate = State(initialValue: snapshot.profile?.birthDate ?? "")
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HeroCard(
+                    title: "Player area",
+                    body: "Optional account surface. Tournament participation stays open to everyone, while the linked profile unlocks personal results, live team status and future call alerts."
+                )
+
+                if let infoMessage, !infoMessage.isEmpty {
+                    SectionCard(title: "Status") {
+                        Text(infoMessage)
+                    }
+                }
+
+                if let errorMessage, !errorMessage.isEmpty {
+                    SectionCard(title: "Action blocked") {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                if snapshot.session == nil {
+                    SectionCard(title: "Sign in / Register") {
+                        Text("Create or unlock a preview account on this device using a real email address. Real Supabase player auth stays prepared in the repo but inactive until the backend rollout.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        TextField("Email", text: $username)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField("Password", text: $password)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Password recovery will use this email address once live auth plus a real administrator sender email are enabled.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        TextField("First name", text: $firstName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Last name", text: $lastName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Birth date (YYYY-MM-DD)", text: $birthDate)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Name, surname and birth date are used when creating the player profile linked to the account.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button("Sign in") {
+                                onSignIn(username, password)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            Button("Register") {
+                                onRegister(username, password, firstName, lastName, birthDate)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                } else {
+                    SectionCard(title: "Linked account") {
+                        Text(snapshot.session?.username ?? "")
+                            .font(.title3.weight(.black))
+                        Text("Provider: \(snapshot.session?.provider ?? "preview_password") - Mode: \(snapshot.session?.mode ?? "preview")")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text("This preview keeps the email locally on device. Real password reset stays backend-pending until SMTP / administrator sender email are configured.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        if let profile = snapshot.profile {
+                            MetadataRow(label: "Linked profile", value: formatBirthIdentityLabel(profile.birthDate).map { "\(profile.canonicalPlayerName) - \($0)" } ?? profile.canonicalPlayerName)
+                            if let aliasNote = buildPossibleAliasNote(referenceNames: [profile.canonicalPlayerName], candidates: playerAliasPool) {
+                                Text(aliasNote)
+                                    .font(.footnote)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        Button("Sign out") {
+                            onSignOut()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                SectionCard(title: snapshot.profile == nil ? "Complete your profile" : "Player profile") {
+                    Text("Name, surname and birth date are used for rankings, U25 eligibility and duplicate-name handling.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    TextField("First name", text: $firstName)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(snapshot.session == nil)
+                    TextField("Last name", text: $lastName)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(snapshot.session == nil)
+                    TextField("Birth date (YYYY-MM-DD)", text: $birthDate)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(snapshot.session == nil)
+                    Button(snapshot.profile == nil ? "Save profile" : "Update profile") {
+                        onSaveProfile(firstName, lastName, birthDate)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(snapshot.session == nil)
+                }
+
+                SectionCard(title: "Social sign-in rollout") {
+                    Text("Google, Facebook and Apple are planned for v1 once the live auth providers are enabled. Instagram stays intentionally out of the first rollout.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(snapshot.featureStatus.socialProvidersPrepared, id: \.self) { provider in
+                                ChipButton(label: provider, selected: false, enabled: false) {}
+                            }
+                        }
+                    }
+                }
+
+                SectionCard(title: "Your results") {
+                    if let results = snapshot.results, !results.leaderboardRows.isEmpty || !results.awards.isEmpty {
+                        MetadataRow(label: "Canonical player", value: results.canonicalPlayerName)
+                        if let aliasNote = buildPossibleAliasNote(referenceNames: [results.canonicalPlayerName], candidates: playerAliasPool) {
+                            Text(aliasNote)
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                        }
+                        MetadataRow(label: "Birth date", value: formatBirthIdentityLabel(results.birthDate) ?? "")
+                        MetadataRow(label: "Games", value: "\(results.totalGames)")
+                        MetadataRow(label: "Baskets", value: "\(results.totalPoints)")
+                        MetadataRow(label: "Soffi", value: "\(results.totalSoffi)")
+                        if !results.linkedTeams.isEmpty {
+                            MetadataRow(label: "Teams", value: results.linkedTeams.joined(separator: " • "))
+                        }
+                        if !results.leaderboardRows.isEmpty {
+                            Text("Leaderboard rows")
+                                .font(.headline)
+                            ForEach(results.leaderboardRows) { row in
+                                PlayerSectionSubCard(
+                                    title: row.teamName,
+                                    body: "GP \(row.gamesPlayed) • CAN \(row.points) • SF \(row.soffi) • AVG \(String(format: "%.1f", row.avgPoints))/\(String(format: "%.1f", row.avgSoffi))"
+                                )
+                            }
+                        }
+                        if !results.awards.isEmpty {
+                            Text("Awards")
+                                .font(.headline)
+                            ForEach(results.awards) { award in
+                                PlayerSectionSubCard(
+                                    title: "\(award.year) • \(formatAwardType(award.type))",
+                                    body: buildPlayerAwardLine(award)
+                                )
+                            }
+                        }
+                    } else {
+                        Text("No personal results are available yet for this linked profile.")
+                    }
+                }
+
+                SectionCard(title: "Live status") {
+                    if snapshot.liveStatus.liveTournamentId == nil {
+                        Text("No live tournament is currently published.")
+                    } else {
+                        MetadataRow(label: "Tournament", value: snapshot.liveStatus.liveTournamentName ?? snapshot.liveStatus.liveTournamentId ?? "ND")
+                        MetadataRow(label: "Linked team", value: snapshot.liveStatus.linkedTeam?.name ?? "Not linked")
+                        MetadataRow(label: "Next match", value: snapshot.liveStatus.nextMatchLabel ?? "No scheduled match found")
+                        MetadataRow(label: "Opponent", value: snapshot.liveStatus.nextOpponentLabel ?? "ND")
+                        MetadataRow(label: "Next turn", value: snapshot.liveStatus.nextMatchTurn.map(String.init) ?? "ND")
+                        MetadataRow(label: "Turns until play", value: snapshot.liveStatus.turnsUntilPlay.map(String.init) ?? "ND")
+                        if snapshot.liveStatus.refereeBypassEligible {
+                            Text("This linked player is flagged as a live referee and can open the referees area without the tournament password on this device.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            Button("Open referees area") {
+                                onOpenReferees()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                }
+
+                SectionCard(title: "Team call alerts") {
+                    if let activeCall = snapshot.liveStatus.activeCall {
+                        MetadataRow(label: "Team", value: activeCall.teamName)
+                        MetadataRow(label: "State", value: activeCall.status)
+                        MetadataRow(label: "Requested", value: formatPlayerTimestampLabel(activeCall.requestedAt))
+                        if let acknowledgedAt = activeCall.acknowledgedAt {
+                            MetadataRow(label: "Acknowledged", value: formatPlayerTimestampLabel(acknowledgedAt))
+                        }
+                        if let cancelledAt = activeCall.cancelledAt {
+                            MetadataRow(label: "Cancelled", value: formatPlayerTimestampLabel(cancelledAt))
+                        }
+                        HStack(spacing: 8) {
+                            Button("Confirm receipt") {
+                                onAcknowledgeCall(activeCall.id)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(activeCall.status != "ringing")
+                            Button("Clear") {
+                                onClearCall(activeCall.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!(activeCall.status == "ringing" || activeCall.status == "acknowledged"))
+                        }
+                    } else {
+                        Text("No active team call is available. Real push/live alerts remain backend-pending; this screen is already shaped for the final flow.")
+                    }
+                }
+
+                SectionCard(title: "Activation status") {
+                    PlayerStatusRowView(label: "Preview mode", value: snapshot.featureStatus.previewEnabled)
+                    PlayerStatusRowView(label: "Remote auth", value: snapshot.featureStatus.remoteAuthPrepared)
+                    PlayerStatusRowView(label: "Player profile", value: snapshot.featureStatus.playerProfilesPrepared)
+                    PlayerStatusRowView(label: "Live call alerts", value: snapshot.featureStatus.playerCallsPrepared)
+                    PlayerStatusRowView(label: "Referee bypass", value: snapshot.featureStatus.refereeBypassPrepared)
+                }
+            }
+            .padding(16)
+        }
+        .onChange(of: snapshot.session?.accountId) { _ in
+            username = snapshot.session?.username ?? ""
+        }
+        .onChange(of: snapshot.profile?.updatedAt) { _ in
+            firstName = snapshot.profile?.firstName ?? ""
+            lastName = snapshot.profile?.lastName ?? ""
+            birthDate = snapshot.profile?.birthDate ?? ""
+        }
+    }
+}
+
+private struct PlayerStatusRowView: View {
+    let label: String
+    let value: Bool
+
+    var body: some View {
+        MetadataRow(label: label, value: value ? "Prepared" : "Pending backend")
+    }
+}
+
+private struct PlayerSectionSubCard: View {
+    let title: String
+    let body: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+            Text(body)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+    }
+}
+
+private func formatPlayerTimestampLabel(_ value: TimeInterval) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "dd/MM/yyyy HH:mm"
+    return formatter.string(from: Date(timeIntervalSince1970: value / 1000))
+}
+
+private func buildPlayerAwardLine(_ award: NativeHallOfFameEntry) -> String {
+    var parts: [String] = [award.tournamentName]
+    if let teamName = award.teamName, !teamName.isEmpty {
+        parts.append(teamName)
+    }
+    if let value = award.value {
+        parts.append("value \(value)")
+    }
+    return parts.joined(separator: " • ")
 }

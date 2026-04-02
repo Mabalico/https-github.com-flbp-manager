@@ -1,4 +1,4 @@
-import type { AppState } from './storageService';
+import { coerceAppState, type AppState } from './storageService';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
 import type { TournamentData, Team, Match, Group, MatchStats, TournamentConfig, FinalRoundRobinConfig, FinalRoundRobinTopTeams } from '../types';
 import { SIM_TEAM_NAMES_200 } from './simTeamNames200';
@@ -25,6 +25,11 @@ export const SUPABASE_REFRESH_TOKEN_LS_KEY = 'flbp_supabase_refresh_token';
 export const SUPABASE_EXPIRES_AT_LS_KEY = 'flbp_supabase_expires_at';
 export const SUPABASE_USER_EMAIL_LS_KEY = 'flbp_supabase_user_email';
 export const SUPABASE_USER_ID_LS_KEY = 'flbp_supabase_user_id';
+export const PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY = 'flbp_player_supabase_access_token';
+export const PLAYER_SUPABASE_REFRESH_TOKEN_LS_KEY = 'flbp_player_supabase_refresh_token';
+export const PLAYER_SUPABASE_EXPIRES_AT_LS_KEY = 'flbp_player_supabase_expires_at';
+export const PLAYER_SUPABASE_USER_EMAIL_LS_KEY = 'flbp_player_supabase_user_email';
+export const PLAYER_SUPABASE_USER_ID_LS_KEY = 'flbp_player_supabase_user_id';
 
 // Tracks the remote snapshot version that the user is currently "based on".
 // Used to prevent accidental overwrites when multiple admins are editing.
@@ -55,6 +60,66 @@ export interface SupabaseSession {
     expiresAt?: string | null; // ISO
     email?: string | null;
     userId?: string | null;
+}
+
+export interface PlayerSupabaseSession extends SupabaseSession {
+    provider?: 'password' | 'google' | 'facebook' | 'apple';
+}
+
+export type PlayerOAuthProvider = 'google' | 'facebook' | 'apple';
+
+export interface PlayerSupabaseProfileRow {
+    workspace_id: string;
+    user_id: string;
+    first_name: string;
+    last_name: string;
+    birth_date: string;
+    canonical_player_id?: string | null;
+    canonical_player_name?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface PlayerSupabaseDeviceRow {
+    id: string;
+    workspace_id: string;
+    user_id: string;
+    platform: 'web' | 'android' | 'ios';
+    device_token?: string | null;
+    push_enabled?: boolean | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface PlayerSupabaseCallRow {
+    id: string;
+    workspace_id: string;
+    tournament_id: string;
+    team_id: string;
+    team_name?: string | null;
+    target_user_id: string;
+    target_player_id?: string | null;
+    target_player_name?: string | null;
+    requested_by_user_id?: string | null;
+    status: 'ringing' | 'acknowledged' | 'cancelled' | 'expired';
+    requested_at?: string | null;
+    acknowledged_at?: string | null;
+    cancelled_at?: string | null;
+    metadata?: Json;
+}
+
+export interface AdminPlayerAccountCatalogRow {
+    user_id: string;
+    email?: string | null;
+    providers?: string[] | null;
+    primary_provider?: string | null;
+    created_at?: string | null;
+    last_login_at?: string | null;
+    linked_player_name?: string | null;
+    birth_date?: string | null;
+    canonical_player_id?: string | null;
+    has_profile: boolean;
+    device_count: number;
 }
 
 export interface SupabaseWorkspaceStateRow {
@@ -230,6 +295,55 @@ export const setSupabaseSession = (s: SupabaseSession | null) => {
 
 export const clearSupabaseSession = () => setSupabaseSession(null);
 
+export const getPlayerSupabaseAccessToken = (): string | null => {
+    try {
+        const v = (localStorage.getItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY) || '').trim();
+        return v ? v : null;
+    } catch {
+        return null;
+    }
+};
+
+export const getPlayerSupabaseSession = (): PlayerSupabaseSession | null => {
+    try {
+        const accessToken = (localStorage.getItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY) || '').trim();
+        if (!accessToken) return null;
+        const refreshToken = (localStorage.getItem(PLAYER_SUPABASE_REFRESH_TOKEN_LS_KEY) || '').trim() || null;
+        const expiresAt = (localStorage.getItem(PLAYER_SUPABASE_EXPIRES_AT_LS_KEY) || '').trim() || null;
+        const email = (localStorage.getItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY) || '').trim() || null;
+        const userId = (localStorage.getItem(PLAYER_SUPABASE_USER_ID_LS_KEY) || '').trim() || null;
+        return { accessToken, refreshToken, expiresAt, email, userId };
+    } catch {
+        return null;
+    }
+};
+
+export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
+    try {
+        if (!s?.accessToken) {
+            localStorage.removeItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY);
+            localStorage.removeItem(PLAYER_SUPABASE_REFRESH_TOKEN_LS_KEY);
+            localStorage.removeItem(PLAYER_SUPABASE_EXPIRES_AT_LS_KEY);
+            localStorage.removeItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY);
+            localStorage.removeItem(PLAYER_SUPABASE_USER_ID_LS_KEY);
+            return;
+        }
+        localStorage.setItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY, s.accessToken);
+        if (s.refreshToken) localStorage.setItem(PLAYER_SUPABASE_REFRESH_TOKEN_LS_KEY, String(s.refreshToken));
+        else localStorage.removeItem(PLAYER_SUPABASE_REFRESH_TOKEN_LS_KEY);
+        if (s.expiresAt) localStorage.setItem(PLAYER_SUPABASE_EXPIRES_AT_LS_KEY, String(s.expiresAt));
+        else localStorage.removeItem(PLAYER_SUPABASE_EXPIRES_AT_LS_KEY);
+        if (s.email) localStorage.setItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY, String(s.email));
+        else localStorage.removeItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY);
+        if (s.userId) localStorage.setItem(PLAYER_SUPABASE_USER_ID_LS_KEY, String(s.userId));
+        else localStorage.removeItem(PLAYER_SUPABASE_USER_ID_LS_KEY);
+    } catch {
+        // ignore
+    }
+};
+
+export const clearPlayerSupabaseSession = () => setPlayerSupabaseSession(null);
+
 export const getSupabaseConfig = (): SupabaseConfig | null => {
     const url = (readViteSupabaseUrl() || '').trim();
     const anonKey = (readViteSupabaseAnonKey() || '').trim();
@@ -282,6 +396,23 @@ const readErrorBody = async (res: Response) => {
         return text || `${res.status} ${res.statusText}`;
     } catch {
         return `${res.status} ${res.statusText}`;
+    }
+};
+
+const buildPostgrestInClause = (values: Array<string | null | undefined>): string => {
+    return values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .map((value) => encodeURIComponent(value))
+        .join(',');
+};
+
+const cleanUrlAuthPayload = () => {
+    try {
+        const nextUrl = `${window.location.pathname}${window.location.search}`;
+        window.history.replaceState({}, document.title, nextUrl);
+    } catch {
+        // ignore
     }
 };
 
@@ -427,6 +558,486 @@ export const signOutSupabase = async (): Promise<void> => {
     } finally {
         clearSupabaseSession();
     }
+};
+
+export const ensureFreshPlayerSupabaseSession = async (): Promise<PlayerSupabaseSession | null> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return null;
+    const cur = getPlayerSupabaseSession();
+    if (!cur?.accessToken) return null;
+
+    const expTs = cur.expiresAt ? Date.parse(cur.expiresAt) : NaN;
+    if (!Number.isFinite(expTs)) return cur;
+    if (expTs > Date.now() + 60_000) return cur;
+    if (!cur.refreshToken) return cur;
+
+    try {
+        const res = await fetchWithDevRequestPerf(authUrl(cfg, 'token?grant_type=refresh_token'), {
+            method: 'POST',
+            headers: {
+                'apikey': cfg.anonKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ refresh_token: cur.refreshToken })
+        }, { source: 'ensureFreshPlayerSupabaseSession', kind: 'sync' });
+        if (!res.ok) return cur;
+        const j = await res.json();
+        const accessToken = String(j.access_token || '').trim();
+        if (!accessToken) return cur;
+        const refreshToken = String(j.refresh_token || cur.refreshToken || '').trim() || null;
+        const expiresIn = Number(j.expires_in || 0);
+        const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : (cur.expiresAt || null);
+        const email = (j.user?.email ? String(j.user.email) : (cur.email || null));
+        const userId = (j.user?.id ? String(j.user.id) : (cur.userId || null));
+        const next: PlayerSupabaseSession = { accessToken, refreshToken, expiresAt, email, userId, provider: cur.provider };
+        setPlayerSupabaseSession(next);
+        return next;
+    } catch {
+        return cur;
+    }
+};
+
+const requirePlayerSupabaseSession = async (): Promise<PlayerSupabaseSession> => {
+    const session = await ensureFreshPlayerSupabaseSession();
+    if (!session?.accessToken) {
+        throw new Error('Sessione player assente o scaduta. Accedi di nuovo dall’Area Giocatore.');
+    }
+    return session;
+};
+
+const parsePlayerSession = (j: any, fallbackEmail?: string | null, provider?: PlayerSupabaseSession['provider']): PlayerSupabaseSession => {
+    const accessToken = String(j.access_token || '').trim();
+    if (!accessToken) throw new Error('Login player fallito (token mancante).');
+    const refreshToken = String(j.refresh_token || '').trim() || null;
+    const expiresIn = Number(j.expires_in || 0);
+    const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+    return {
+        accessToken,
+        refreshToken,
+        expiresAt,
+        email: j.user?.email ? String(j.user.email) : (fallbackEmail || null),
+        userId: j.user?.id ? String(j.user.id) : null,
+        provider
+    };
+};
+
+export const consumePlayerSupabaseSessionFromUrl = (): PlayerSupabaseSession | null => {
+    try {
+        const hash = String(window.location.hash || '').replace(/^#/, '').trim();
+        const search = String(window.location.search || '').replace(/^\?/, '').trim();
+        const params = new URLSearchParams(hash || search);
+        const accessToken = String(params.get('access_token') || '').trim();
+        const refreshToken = String(params.get('refresh_token') || '').trim();
+        const errorDescription = String(params.get('error_description') || params.get('error') || '').trim();
+        if (errorDescription) {
+            cleanUrlAuthPayload();
+            throw new Error(errorDescription);
+        }
+        if (!accessToken) return null;
+
+        const expiresIn = Number(params.get('expires_in') || 0);
+        const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+        const providerRaw = String(params.get('provider') || '').trim().toLowerCase();
+        const provider: PlayerSupabaseSession['provider'] =
+            providerRaw === 'google' || providerRaw === 'facebook' || providerRaw === 'apple'
+                ? providerRaw
+                : 'password';
+
+        const next: PlayerSupabaseSession = {
+            accessToken,
+            refreshToken: refreshToken || null,
+            expiresAt,
+            provider,
+        };
+        setPlayerSupabaseSession(next);
+        cleanUrlAuthPayload();
+        return next;
+    } catch (error) {
+        cleanUrlAuthPayload();
+        throw error;
+    }
+};
+
+export const playerSignInWithPassword = async (email: string, password: string): Promise<PlayerSupabaseSession> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const e = (email || '').trim();
+    const p = password || '';
+    if (!e || !p) throw new Error('Inserisci email e password.');
+    const res = await fetchWithTimeout(authUrl(cfg, 'token?grant_type=password'), {
+        method: 'POST',
+        headers: {
+            'apikey': cfg.anonKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ email: e, password: p })
+    }, 8000, { source: 'playerSignInWithPassword', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const next = parsePlayerSession(await res.json(), e, 'password');
+    setPlayerSupabaseSession(next);
+    return next;
+};
+
+export const playerSignUpWithPassword = async (
+    email: string,
+    password: string,
+    metadata?: Record<string, Json>
+): Promise<PlayerSupabaseSession> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const e = (email || '').trim();
+    const p = password || '';
+    if (!e || !p) throw new Error('Inserisci email e password.');
+    const res = await fetchWithTimeout(authUrl(cfg, 'signup'), {
+        method: 'POST',
+        headers: {
+            'apikey': cfg.anonKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+            email: e,
+            password: p,
+            data: metadata || {}
+        })
+    }, 8000, { source: 'playerSignUpWithPassword', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const next = parsePlayerSession(await res.json(), e, 'password');
+    setPlayerSupabaseSession(next);
+    return next;
+};
+
+export const playerRequestPasswordReset = async (email: string, redirectTo?: string | null): Promise<void> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const e = (email || '').trim();
+    if (!e) throw new Error('Inserisci una email valida.');
+    const payload: Record<string, Json> = { email: e };
+    const safeRedirect = String(redirectTo || '').trim();
+    if (safeRedirect) {
+        payload.redirect_to = safeRedirect;
+    }
+    const res = await fetchWithTimeout(authUrl(cfg, 'recover'), {
+        method: 'POST',
+        headers: {
+            'apikey': cfg.anonKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    }, 8000, { source: 'playerRequestPasswordReset', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+};
+
+export const playerSignOutSupabase = async (): Promise<void> => {
+    const cfg = getSupabaseConfig();
+    const cur = getPlayerSupabaseSession();
+    try {
+        if (cfg && cur?.accessToken) {
+            await fetchWithDevRequestPerf(authUrl(cfg, 'logout'), {
+                method: 'POST',
+                headers: {
+                    'apikey': cfg.anonKey,
+                    'Authorization': `Bearer ${cur.accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            }, { source: 'playerSignOutSupabase', kind: 'sync' });
+        }
+    } catch {
+        // ignore
+    } finally {
+        clearPlayerSupabaseSession();
+    }
+};
+
+export const getPlayerOAuthAuthorizeUrl = (
+    provider: PlayerOAuthProvider,
+    redirectTo?: string | null
+): string => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const params = new URLSearchParams({ provider });
+    const safeRedirect = String(redirectTo || '').trim();
+    if (safeRedirect) params.set('redirect_to', safeRedirect);
+    return authUrl(cfg, `authorize?${params.toString()}`);
+};
+
+export const pullPlayerAppProfile = async (): Promise<PlayerSupabaseProfileRow | null> => {
+    const cfg = getSupabaseConfig();
+    const session = await requirePlayerSupabaseSession();
+    const userId = String(session.userId || '').trim();
+    if (!cfg || !userId) return null;
+    const url = restUrl(
+        cfg,
+        `player_app_profiles?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&user_id=eq.${encodeURIComponent(userId)}&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at&limit=1`
+    );
+    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 4000, { source: 'pullPlayerAppProfile', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json();
+    return Array.isArray(rows) && rows[0] ? rows[0] as PlayerSupabaseProfileRow : null;
+};
+
+export const pushPlayerAppProfile = async (input: {
+    firstName: string;
+    lastName: string;
+    birthDate: string;
+    canonicalPlayerId?: string | null;
+    canonicalPlayerName?: string | null;
+}): Promise<PlayerSupabaseProfileRow> => {
+    const cfg = getSupabaseConfig();
+    const session = await requirePlayerSupabaseSession();
+    const userId = String(session.userId || '').trim();
+    if (!cfg || !userId) throw new Error('Sessione player non valida.');
+    const payload = {
+        workspace_id: cfg.workspaceId,
+        user_id: userId,
+        first_name: String(input.firstName || '').trim(),
+        last_name: String(input.lastName || '').trim(),
+        birth_date: String(input.birthDate || '').trim(),
+        canonical_player_id: input.canonicalPlayerId ? String(input.canonicalPlayerId) : null,
+        canonical_player_name: input.canonicalPlayerName ? String(input.canonicalPlayerName) : null,
+    };
+    const res = await fetchWithTimeout(
+        restUrl(cfg, 'player_app_profiles?on_conflict=workspace_id,user_id&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at'),
+        {
+            method: 'POST',
+            headers: {
+                ...buildHeaders(cfg, session.accessToken),
+                'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify(payload)
+        },
+        4000,
+        { source: 'pushPlayerAppProfile', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows[0]) throw new Error('Profilo player non restituito.');
+    return rows[0] as PlayerSupabaseProfileRow;
+};
+
+export const registerPlayerAppDevice = async (input: {
+    id: string;
+    platform: PlayerSupabaseDeviceRow['platform'];
+    deviceToken?: string | null;
+    pushEnabled?: boolean;
+}): Promise<PlayerSupabaseDeviceRow> => {
+    const cfg = getSupabaseConfig();
+    const session = await requirePlayerSupabaseSession();
+    const userId = String(session.userId || '').trim();
+    if (!cfg || !userId) throw new Error('Sessione player non valida.');
+    const payload = {
+        id: String(input.id || '').trim(),
+        workspace_id: cfg.workspaceId,
+        user_id: userId,
+        platform: input.platform,
+        device_token: input.deviceToken ? String(input.deviceToken) : null,
+        push_enabled: input.pushEnabled !== false
+    };
+    if (!payload.id) throw new Error('Device id mancante.');
+    const res = await fetchWithTimeout(
+        restUrl(cfg, 'player_app_devices?on_conflict=id&select=id,workspace_id,user_id,platform,device_token,push_enabled,created_at,updated_at'),
+        {
+            method: 'POST',
+            headers: {
+                ...buildHeaders(cfg, session.accessToken),
+                'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify(payload)
+        },
+        4000,
+        { source: 'registerPlayerAppDevice', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows[0]) throw new Error('Device player non restituito.');
+    return rows[0] as PlayerSupabaseDeviceRow;
+};
+
+export const pullPlayerAppCalls = async (): Promise<PlayerSupabaseCallRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requirePlayerSupabaseSession();
+    const userId = String(session.userId || '').trim();
+    if (!cfg || !userId) return [];
+    const url = restUrl(
+        cfg,
+        `player_app_calls?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&target_user_id=eq.${encodeURIComponent(userId)}&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,requested_by_user_id,status,requested_at,acknowledged_at,cancelled_at,metadata&order=requested_at.desc`
+    );
+    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 4000, { source: 'pullPlayerAppCalls', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return (await res.json()) as PlayerSupabaseCallRow[];
+};
+
+export const acknowledgePlayerAppCall = async (callId: string): Promise<Json> => {
+    const cfg = getSupabaseConfig();
+    const session = await requirePlayerSupabaseSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(rpcUrl(cfg, 'flbp_player_ack_call'), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_call_id: String(callId || '').trim()
+        })
+    }, 4000, { source: 'acknowledgePlayerAppCall', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json();
+};
+
+export const cancelPlayerAppCall = async (callId: string): Promise<Json> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(rpcUrl(cfg, 'flbp_player_cancel_call'), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_call_id: String(callId || '').trim()
+        })
+    }, 4000, { source: 'cancelPlayerAppCall', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json();
+};
+
+export const callPlayerAppTeam = async (input: {
+    tournamentId: string;
+    teamId: string;
+    teamName?: string | null;
+    targetUserId: string;
+    targetPlayerId?: string | null;
+    targetPlayerName?: string | null;
+}): Promise<Json> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(rpcUrl(cfg, 'flbp_player_call_team'), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_tournament_id: String(input.tournamentId || '').trim(),
+            p_team_id: String(input.teamId || '').trim(),
+            p_team_name: input.teamName ? String(input.teamName) : null,
+            p_target_user_id: String(input.targetUserId || '').trim(),
+            p_target_player_id: input.targetPlayerId ? String(input.targetPlayerId) : null,
+            p_target_player_name: input.targetPlayerName ? String(input.targetPlayerName) : null,
+        })
+    }, 4000, { source: 'callPlayerAppTeam', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json();
+};
+
+export const pullAdminPlayerAccounts = async (origin?: string | null): Promise<AdminPlayerAccountCatalogRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(rpcUrl(cfg, 'flbp_admin_list_player_accounts'), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_origin: origin ? String(origin).trim().toLowerCase() : null,
+        })
+    }, 5000, { source: 'pullAdminPlayerAccounts', kind: 'admin' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as AdminPlayerAccountCatalogRow[];
+};
+
+export const pushAdminPlayerAppProfile = async (input: {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    birthDate: string;
+    canonicalPlayerId?: string | null;
+    canonicalPlayerName?: string | null;
+}): Promise<PlayerSupabaseProfileRow> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const payload = {
+        workspace_id: cfg.workspaceId,
+        user_id: String(input.userId || '').trim(),
+        first_name: String(input.firstName || '').trim(),
+        last_name: String(input.lastName || '').trim(),
+        birth_date: String(input.birthDate || '').trim(),
+        canonical_player_id: input.canonicalPlayerId ? String(input.canonicalPlayerId).trim() : null,
+        canonical_player_name: input.canonicalPlayerName ? String(input.canonicalPlayerName).trim() : null,
+    };
+    if (!payload.user_id) throw new Error('Utente player non valido.');
+    if (!payload.first_name || !payload.last_name || !payload.birth_date) {
+        throw new Error('Profilo player non valido.');
+    }
+    const res = await fetchWithTimeout(
+        restUrl(cfg, 'player_app_profiles?on_conflict=workspace_id,user_id&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at'),
+        {
+            method: 'POST',
+            headers: {
+                ...buildHeaders(cfg, session.accessToken),
+                'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify(payload)
+        },
+        5000,
+        { source: 'pushAdminPlayerAppProfile', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows[0]) throw new Error('Profilo player live non restituito.');
+    return rows[0] as PlayerSupabaseProfileRow;
+};
+
+export const pullAdminPlayerCallTargets = async (canonicalPlayerIds: string[]): Promise<PlayerSupabaseProfileRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const safeIds = canonicalPlayerIds.map((value) => String(value || '').trim()).filter(Boolean);
+    if (!safeIds.length) return [];
+    const inClause = buildPostgrestInClause(safeIds);
+    const url = restUrl(
+        cfg,
+        `player_app_profiles?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&canonical_player_id=in.(${inClause})&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at`
+    );
+    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 5000, {
+        source: 'pullAdminPlayerCallTargets',
+        kind: 'admin'
+    });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as PlayerSupabaseProfileRow[];
+};
+
+export const pullAdminPlayerCalls = async (input: {
+    tournamentId: string;
+    teamId?: string | null;
+    statuses?: Array<PlayerSupabaseCallRow['status']>;
+}): Promise<PlayerSupabaseCallRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const tournamentId = String(input.tournamentId || '').trim();
+    if (!tournamentId) throw new Error('Torneo non valido.');
+    let path =
+        `player_app_calls?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}` +
+        `&tournament_id=eq.${encodeURIComponent(tournamentId)}` +
+        `&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,requested_by_user_id,status,requested_at,acknowledged_at,cancelled_at,metadata` +
+        `&order=requested_at.desc`;
+    const teamId = String(input.teamId || '').trim();
+    if (teamId) {
+        path += `&team_id=eq.${encodeURIComponent(teamId)}`;
+    }
+    const statuses = (input.statuses || []).map((value) => String(value || '').trim()).filter(Boolean);
+    if (statuses.length) {
+        path += `&status=in.(${buildPostgrestInClause(statuses)})`;
+    }
+    const res = await fetchWithTimeout(restUrl(cfg, path), { headers: buildHeaders(cfg, session.accessToken) }, 5000, {
+        source: 'pullAdminPlayerCalls',
+        kind: 'admin'
+    });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as PlayerSupabaseCallRow[];
 };
 
 export interface SupabaseAdminAccessResult {
@@ -1035,6 +1646,14 @@ type RefereeAuthCheckResult = {
     updated_at?: string | null;
 };
 
+export type RefereePullLiveStateResult = {
+    ok: boolean;
+    reason?: string | null;
+    auth_version?: string | null;
+    updated_at?: string | null;
+    state?: AppState | null;
+};
+
 type RefereePushStateResult = {
     ok: boolean;
     updated_at?: string | null;
@@ -1101,6 +1720,47 @@ export const verifyRefereePassword = async (tournamentId: string, refereePasswor
     }, { source: 'verifyRefereePassword', kind: 'referee' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     return await res.json() as RefereeAuthCheckResult;
+};
+
+export const pullRefereeLiveState = async (
+    tournamentId: string,
+    refereePassword: string
+): Promise<RefereePullLiveStateResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const rpcName = 'flbp_referee_pull_live_state';
+    const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
+        method: 'POST',
+        headers: buildAnonHeaders(cfg),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_tournament_id: String(tournamentId || '').trim(),
+            p_referees_password: String(refereePassword || '')
+        })
+    }, { source: 'pullRefereeLiveState', kind: 'referee' });
+    if (!res.ok) {
+        const body = await readErrorBody(res);
+        if (isMissingRpcFunctionError(body, rpcName)) {
+            throw new Error('RPC flbp_referee_pull_live_state non disponibile su questo progetto Supabase.');
+        }
+        throw new Error(body);
+    }
+    const out = await res.json() as {
+        ok?: boolean;
+        reason?: string | null;
+        auth_version?: string | null;
+        updated_at?: string | null;
+        state?: any;
+    };
+    const normalizedState = out?.ok && out?.state ? coerceAppState(out.state) : null;
+    if (out?.ok && out?.updated_at) setRemoteBaseUpdatedAt(out.updated_at);
+    return {
+        ok: !!out?.ok,
+        reason: out?.reason ?? null,
+        auth_version: out?.auth_version ?? null,
+        updated_at: out?.updated_at ?? null,
+        state: normalizedState
+    };
 };
 
 export const pushRefereeLiveState = async (

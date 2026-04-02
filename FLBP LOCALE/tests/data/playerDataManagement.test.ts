@@ -3,6 +3,7 @@ import type { HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentDa
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
 import { buildPlayerProfileSnapshot, getAliasRemovalImpact, removePlayerAliasMapping } from '../../services/playerDataProvenance';
 import { deleteHallOfFameEntry, getHallOfFameEntryOrigin, reassignHallOfFameEntry } from '../../services/hallOfFameAdmin';
+import { buildTitledHallOfFameRows } from '../../services/hallOfFameView';
 import { generateTournamentStructure } from '../../services/tournamentEngine';
 
 const makeBirthDate = (year: number) => `${year}-01-01`;
@@ -174,6 +175,16 @@ defineCase('player profile snapshot exposes titles, archived stats, manual stats
   assertOk(profile.badges.includes('archivio'));
   assertOk(profile.badges.includes('manuale'));
   assertOk(profile.badges.includes('alias_attivo'));
+});
+
+defineCase('titled hall of fame aggregation merges winner and individual awards under the same player identity', () => {
+  const rows = buildTitledHallOfFameRows(baseState, baseState.hallOfFame);
+  const rossiRows = rows.filter((row) => row.name === 'Rossi Mario');
+  assertEqual(rossiRows.length, 1);
+  assertEqual(rossiRows[0].win, 1);
+  assertEqual(rossiRows[0].ts, 1);
+  assertEqual(rossiRows[0].mvp, 1);
+  assertEqual(rossiRows[0].total, 3);
 });
 
 defineCase('hall of fame origin classifies manual and archived entries', () => {

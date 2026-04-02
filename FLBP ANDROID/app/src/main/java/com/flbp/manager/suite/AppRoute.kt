@@ -46,6 +46,14 @@ enum class AppRoute(
         group = RouteGroup.PUBLIC_PRIMARY,
         directlyNavigable = true
     ),
+    PLAYER_AREA(
+        id = "player_area",
+        label = "Player area",
+        sourcePath = "App.tsx",
+        note = "Optional player account surface with personal results and live call status.",
+        group = RouteGroup.PUBLIC_PRIMARY,
+        directlyNavigable = true
+    ),
     TOURNAMENT_DETAIL(
         id = "tournament_detail",
         label = "Tournament detail",

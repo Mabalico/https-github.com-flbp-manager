@@ -1,0 +1,60 @@
+{
+  "source": "C:/Users/marco/Desktop/sito react/FLBP MANAGER/backups/flbp_backup_2026-03-29_codex-fixed-v6.json",
+  "output": "C:/Users/marco/Desktop/sito react/FLBP MANAGER/backups/flbp_backup_2026-03-29_codex-fixed-v7.json",
+  "addedTopScorers": [
+    {
+      "id": "hist_2015-01-03_v-torneo-beer-pong_top_scorer_damore-tancredi",
+      "tournamentId": "hist_2015-01-03_v-torneo-beer-pong",
+      "tournamentName": "V Torneo Beer Pong",
+      "playerName": "D'Amore Tancredi",
+      "teamName": "Cabrones",
+      "year": "2015"
+    },
+    {
+      "id": "hist_2015-06-27_vi-torneo-beer-pong_top_scorer_peschiera-matteo",
+      "tournamentId": "hist_2015-06-27_vi-torneo-beer-pong",
+      "tournamentName": "VI Torneo Beer Pong",
+      "playerName": "Peschiera Matteo",
+      "teamName": "Aristocazzi",
+      "year": "2015"
+    },
+    {
+      "id": "hist_2016-01-03_vii-torneo-beer-pong_top_scorer_paladini-andrea",
+      "tournamentId": "hist_2016-01-03_vii-torneo-beer-pong",
+      "tournamentName": "VII Torneo Beer Pong",
+      "playerName": "Paladini Andrea",
+      "teamName": "Avada Cedrata",
+      "year": "2016"
+    },
+    {
+      "id": "hist_2016-07-16_viii-torneo-beer-pong_top_scorer_ercolini-riccardo",
+      "tournamentId": "hist_2016-07-16_viii-torneo-beer-pong",
+      "tournamentName": "VIII Torneo Beer Pong",
+      "playerName": "Ercolini Riccardo",
+      "teamName": null,
+      "year": "2016"
+    },
+    {
+      "id": "hist_2017-04-15_ix-torneo-beer-pong_top_scorer_salvadori-daniele",
+      "tournamentId": "hist_2017-04-15_ix-torneo-beer-pong",
+      "tournamentName": "IX Torneo Beer Pong",
+      "playerName": "Salvadori Daniele",
+      "teamName": "Gli omini delle bombe",
+      "year": "2017"
+    }
+  ],
+  "hallOfFameCount": 41,
+  "hallOfFameByType": {
+    "winner": 22,
+    "top_scorer": 10,
+    "defender": 5,
+    "mvp": 4
+  },
+  "scorerRows": 216,
+  "scorerTotals": {
+    "games": 584,
+    "points": 2551,
+    "soffi": 258
+  },
+  "noteForVIII": "VIII Torneo Beer Pong found by date/id, but the archived tournament roster in this backup only contains Aristocazzi, so Ercolini Riccardo was linked to the tournament without teamName rather than inventing one."
+}

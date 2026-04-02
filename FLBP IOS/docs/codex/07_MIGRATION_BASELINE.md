@@ -12,5 +12,7 @@ chat non affidabile, seguo il repository.
 - progetto Xcode reale
 - client pubblico Supabase reale
 - Home/Tournament list/detail/Leaderboard/Hall of Fame cablate
-- `admin` e `referees_area` placeholder espliciti
-- nessun OCR/TV/Admin/Auth nativo ancora migrato
+- dettaglio torneo con sezione Turni read-only cablata sui dati pubblici reali
+- TV mode read-only cablato sulle stesse projection pubbliche del web
+- `admin` e `referees_area` protetti a livello base, ma non completi
+- nessun OCR/referti nativi ancora migrato

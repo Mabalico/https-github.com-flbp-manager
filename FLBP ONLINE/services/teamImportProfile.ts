@@ -27,9 +27,19 @@ export const detectTeamImportLayout = (headersRaw: string[]): TeamImportLayout |
   const headers = (headersRaw || []).map(normalizeTeamImportHeader).filter(Boolean);
   const hasTeamName = headerMatches(headers, ['Squadra', 'Team']);
   const hasPlayer1 = headerMatches(headers, ['Giocatore1', 'Giocatore 1', 'Player1', 'Player 1']);
+  const hasPlayer2 = headerMatches(headers, ['Giocatore2', 'Giocatore 2', 'Player2', 'Player 2']);
+  const hasSplitPlayer1 =
+    headerMatches(headers, ['Nome1', 'Nome 1', 'FirstName1', 'First Name 1']) &&
+    headerMatches(headers, ['Cognome1', 'Cognome 1', 'LastName1', 'Last Name 1', 'Surname1', 'Surname 1']);
+  const hasSplitPlayer2 =
+    headerMatches(headers, ['Nome2', 'Nome 2', 'FirstName2', 'First Name 2']) &&
+    headerMatches(headers, ['Cognome2', 'Cognome 2', 'LastName2', 'Last Name 2', 'Surname2', 'Surname 2']);
   const hasPlayerRowName = headerMatches(headers, ['Cognome Nome', 'Nome', 'Giocatore', 'Player']);
-  if (hasTeamName && hasPlayer1) return 'team_rows';
-  if (hasTeamName && hasPlayerRowName) return 'player_rows';
+  const hasSplitPlayerRow =
+    headerMatches(headers, ['Nome', 'FirstName', 'First Name']) &&
+    headerMatches(headers, ['Cognome', 'LastName', 'Last Name', 'Surname']);
+  if (hasTeamName && ((hasPlayer1 && hasPlayer2) || (hasSplitPlayer1 && hasSplitPlayer2))) return 'team_rows';
+  if (hasTeamName && (hasPlayerRowName || hasSplitPlayerRow)) return 'player_rows';
   return null;
 };
 

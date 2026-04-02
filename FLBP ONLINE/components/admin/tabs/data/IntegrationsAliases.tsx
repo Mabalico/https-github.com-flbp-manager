@@ -3,6 +3,7 @@ import type { DataTabProps } from '../DataTab';
 import { getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from '../../../../services/storageService';
 import { pickPlayerIdentityValue } from '../../../../services/playerIdentity';
 import { normalizeNameLower } from '../../../../services/textUtils';
+import { mergeAliasIntoBirthdatedProfile } from '../../../../services/playerProfileAdmin';
 
 export const IntegrationsAliases: React.FC<DataTabProps> = ({
     state,
@@ -149,6 +150,29 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
                                     }
 
                                     const to = resolvePlayerKey(state, toRaw);
+
+                                    if (/_ND$/i.test(from) && /_\d{4}-\d{2}-\d{2}$/i.test(to)) {
+                                        const confirmed = window.confirm(
+                                            t('alias_birthdate_merge_confirm')
+                                                .replace('{from}', labelFromPlayerKey(from))
+                                                .replace('{to}', labelFromPlayerKey(to))
+                                        );
+                                        if (!confirmed) return;
+                                        try {
+                                            setState(mergeAliasIntoBirthdatedProfile(state, {
+                                                sourcePlayerId: from,
+                                                targetPlayerId: to,
+                                            }));
+                                            setAliasToolSelections(prev => {
+                                                const n = { ...prev };
+                                                delete (n as any)[from];
+                                                return n;
+                                            });
+                                        } catch (error: any) {
+                                            alert(String(error?.message || error || t('players_snackbar_profile_update_error')));
+                                        }
+                                        return;
+                                    }
 
                                     const nextAliases = { ...(state.playerAliases || {}), [from]: to };
                                     // prevenzione cicli (alias A->B e B->A)
