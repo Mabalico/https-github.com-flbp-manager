@@ -92,8 +92,13 @@ Eliminare la duplicazione `FLBP ONLINE/` + `FLBP LOCALE/` e sostituirla con:
 ### Per il web
 - sviluppo locale su branch `dev`
 - promozione in produzione da `main`
-- produzione automatica da `main` tramite GitHub Actions -> `wrangler pages deploy` sul progetto Cloudflare Pages esistente
-- non usiamo ancora Git integration nativa Pages, perche' il progetto corrente e' nato come `Direct Upload`
+- produzione automatica da `main` tramite **Cloudflare Pages Git integration**
+- progetto Pages attuale: `flbp-pages`
+- configurazione Pages:
+  - repository: `Mabalico/https-github.com-flbp-manager`
+  - root directory: `FLBP ONLINE`
+  - build: `npm run build`
+  - output: `dist`
 
 ### Per Android/iOS
 - stesso repo

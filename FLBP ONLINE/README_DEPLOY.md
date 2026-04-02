@@ -197,39 +197,20 @@ Questo file include anche la migration finale per l'admin auth.
   - riallineamento `public_workspace_state` come fonte pubblica coerente
   - fix TV/tabellone
 
-## Deploy automatico da GitHub (progetto Pages attuale)
+## Deploy automatico da GitHub (Cloudflare Pages)
 
-Il progetto Cloudflare attuale e' nato come **Direct Upload**, quindi non puo' essere convertito a Git integration nativa in-place.
-Per automatizzare i deploy senza cambiare progetto, il repository usa:
+Il web pubblico usa ora un progetto **Cloudflare Pages** con **Git integration nativa** collegata al repository:
+- `Mabalico/https-github.com-flbp-manager`
 
-- workflow GitHub Actions: `.github/workflows/cloudflare-pages-production.yml`
-- deploy con `cloudflare/wrangler-action@v3`
-- target: progetto Pages esistente via `wrangler pages deploy`
+Configurazione attuale:
+- progetto Pages: `flbp-pages`
+- branch di produzione: `main`
+- root directory: `FLBP ONLINE`
+- framework preset: `React (Vite)`
+- build command: `npm run build`
+- output directory: `dist`
 
-### Trigger
-
-- push su branch `main`
-- solo quando cambiano file in `FLBP ONLINE/**`
-- oppure esecuzione manuale via `workflow_dispatch`
-
-### Secrets GitHub richiesti
-
-Nel repository GitHub vanno creati questi **Repository secrets**:
-
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_PAGES_PROJECT_NAME`
-
-### Permessi token Cloudflare
-
-Il token Cloudflare deve avere almeno:
-- `Account`
-- `Cloudflare Pages`
-- `Edit`
-
-### Build env usate dal workflow
-
-Il workflow builda `FLBP ONLINE` con lo stesso profilo attuale di produzione:
+Variabili ambiente configurate in Cloudflare Pages:
 - `VITE_SUPABASE_URL=https://kgwhcemqkgqvtsctnwql.supabase.co`
 - `VITE_SUPABASE_ANON_KEY=sb_publishable_XhZ5hAdoycuWfDMeiQKaGA_7gD6nDhz`
 - `VITE_SUPABASE_ADMIN_EMAIL=admin@flbp.local`
@@ -240,11 +221,14 @@ Il workflow builda `FLBP ONLINE` con lo stesso profilo attuale di produzione:
 - `VITE_ALLOW_LOCAL_ONLY=0`
 - `VITE_APP_MODE=official`
 
+Conseguenza operativa:
+- i deploy web partono automaticamente dai push su `main`
+- il vecchio flusso manuale `Direct Upload` / Worker non e' piu' il percorso raccomandato
+- l'eventuale workflow GitHub Actions provato in precedenza e' stato rimosso per evitare doppio deploy
+
 Nota:
-- `VITE_SUPABASE_ANON_KEY` e' una chiave publishable/publica lato client.
-- Se in futuro vuoi spostare questi valori in GitHub Variables/Secrets, il workflow si puo' adattare senza cambiare progetto Cloudflare.
-  - fix Hall of Fame / Giocatori titolati
-  - dipendenze dati come il backup corretto `v7`
+- `VITE_SUPABASE_ANON_KEY` e' una chiave publishable/publica lato client
+- resta consigliato ruotare l'eventuale token Cloudflare mostrato in screenshot durante il setup iniziale
 
 ### Nota sul monitor traffico
 - La sezione `Admin → Gestione dati → Traffico Supabase` mostra una **stima del traffico FLBP verso Supabase**, non il billing ufficiale della piattaforma.
