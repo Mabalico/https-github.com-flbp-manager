@@ -14,6 +14,7 @@ import {
     queuePreviewTeamCall,
     type PlayerCallRequest,
 } from '../../../services/playerAppService';
+import { isLocalOnlyMode } from '../../../services/repository/featureFlags';
 import { callPlayerAppTeam, cancelPlayerAppCall, getSupabaseConfig, pullAdminPlayerCalls, pullAdminPlayerCallTargets } from '../../../services/supabaseRest';
 
 export interface ReportsTabProps {
