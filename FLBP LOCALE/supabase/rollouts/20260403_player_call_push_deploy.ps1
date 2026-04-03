@@ -3,6 +3,7 @@ param(
     [string]$SupabaseUrl = "",
     [string]$SupabaseAnonKey = "",
     [string]$SupabaseServiceRoleKey = "",
+    [string]$FcmServiceAccountJsonPath = "",
     [string]$FcmProjectId = "",
     [string]$FcmClientEmail = "",
     [string]$FcmPrivateKeyPath = "",
@@ -58,6 +59,16 @@ function Read-SecretFileAsSingleLine {
     return ($raw -replace "`r`n", "\n" -replace "`n", "\n").Trim()
 }
 
+function Normalize-MultilineSecret {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+
+    return ($Value -replace "`r`n", "\n" -replace "`n", "\n").Trim()
+}
+
 $onlineRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $envLocalPath = Join-Path $onlineRoot ".env.local"
 
@@ -68,7 +79,23 @@ if (-not $SupabaseAnonKey) {
     $SupabaseAnonKey = Read-DotEnvValue -Path $envLocalPath -Name "VITE_SUPABASE_ANON_KEY"
 }
 
-$fcmPrivateKey = Read-SecretFileAsSingleLine -Path $FcmPrivateKeyPath
+$fcmPrivateKey = ""
+if (-not [string]::IsNullOrWhiteSpace($FcmServiceAccountJsonPath)) {
+    if (-not (Test-Path $FcmServiceAccountJsonPath)) {
+        throw "Firebase service account JSON not found: $FcmServiceAccountJsonPath"
+    }
+    $serviceAccount = Get-Content -Raw $FcmServiceAccountJsonPath | ConvertFrom-Json
+    if (-not $FcmProjectId) {
+        $FcmProjectId = [string]$serviceAccount.project_id
+    }
+    if (-not $FcmClientEmail) {
+        $FcmClientEmail = [string]$serviceAccount.client_email
+    }
+    $fcmPrivateKey = Normalize-MultilineSecret -Value ([string]$serviceAccount.private_key)
+}
+if (-not $fcmPrivateKey) {
+    $fcmPrivateKey = Read-SecretFileAsSingleLine -Path $FcmPrivateKeyPath
+}
 $apnsPrivateKey = Read-SecretFileAsSingleLine -Path $ApnsPrivateKeyPath
 
 Require-Value -Name "SUPABASE_ACCESS_TOKEN environment variable" -Value $env:SUPABASE_ACCESS_TOKEN
@@ -77,7 +104,7 @@ Require-Value -Name "SUPABASE_ANON_KEY" -Value $SupabaseAnonKey
 Require-Value -Name "SUPABASE_SERVICE_ROLE_KEY" -Value $SupabaseServiceRoleKey
 Require-Value -Name "FCM_PROJECT_ID" -Value $FcmProjectId
 Require-Value -Name "FCM_CLIENT_EMAIL" -Value $FcmClientEmail
-Require-Value -Name "FCM_PRIVATE_KEY file" -Value $fcmPrivateKey
+Require-Value -Name "FCM private key" -Value $fcmPrivateKey
 Require-Value -Name "APNS_TEAM_ID" -Value $ApnsTeamId
 Require-Value -Name "APNS_KEY_ID" -Value $ApnsKeyId
 Require-Value -Name "APNS_PRIVATE_KEY file" -Value $apnsPrivateKey

@@ -123,6 +123,8 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
     - `fcm_project_id`
     - `fcm_api_key`
     - `fcm_sender_id`
+  - helper pronto per applicarli da `google-services.json`:
+    - [20260403_apply_fcm_google_services.ps1](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ANDROID/scripts/20260403_apply_fcm_google_services.ps1)
   - package id atteso: `com.flbp.manager.suite`
 - iOS
   - compile reale da Mac/Xcode
