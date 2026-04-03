@@ -99,3 +99,4 @@ chat non affidabile, seguo il repository.
 - completata la chiusura pragmatica della parita' grafica/funzionale: Android ora usa di default una shell nativa con FLBP ONLINE mobile in WebView full-screen
 - il percorso Compose legacy resta nel pacchetto solo come fallback tecnico quando il web mirror non si carica
 - build Android verificata green anche dopo l'introduzione del web mirror (`:app:assembleDebug`)
+- trasformata anche l'icona launcher Android in adaptive icon reale (`mipmap-anydpi-v26` + foreground dedicato), cosi' il logo FLBP puo' occupare meglio lo spazio utile sui launcher moderni
