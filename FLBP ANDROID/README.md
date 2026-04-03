@@ -25,7 +25,7 @@ Il fallback legacy resta allineato alla surface pubblica di `FLBP ONLINE`:
 
 Stato attuale reale:
 - usa `public_workspace_state` come fonte pubblica primaria, coerente con FLBP ONLINE
-- usa `https://flbp-pages.pages.dev` come web mirror primario dentro la shell Android
+- usa l'URL pubblico di produzione `https://flbp.marcoxbaroncelli.workers.dev` come web mirror primario dentro la shell Android
 - mantiene `tournament_detail` come child flow con ref `{ id, isLive }`
 - deriva catalogo, dettaglio torneo, leaderboard e Hall of Fame dallo stesso snapshot pubblico per evitare rimbalzi tra fonti diverse
 - espone la sezione Turni con filtri `All/Live/Next/Played/TBD` e dettaglio match read-only

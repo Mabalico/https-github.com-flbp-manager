@@ -90,3 +90,4 @@ chat non affidabile, seguo il repository.
 - riallineati a sorgente i componenti web mirror-aware: le schermate storiche non devono piu' dipendere da contenitori interni con `max-height + overflow + sticky header`, che nei WebView possono risultare vuoti o non scorrere correttamente
 - mantenuto lo stesso fix architetturale anche su iOS per evitare divergenze future rispetto ad Android e `FLBP ONLINE`
 - forzato anche il WKWebView iOS a usare `reloadIgnoringLocalCacheData` e aggiornato `shell_rev`, cosi' il mirror nativo non resta inchiodato a risorse web obsolete dopo i deploy
+- riallineato anche il web mirror iOS al dominio pubblico di produzione (`flbp.marcoxbaroncelli.workers.dev`) per mantenere la stessa frontend reale del browser pubblico
