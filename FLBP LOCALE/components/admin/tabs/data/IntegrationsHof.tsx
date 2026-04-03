@@ -260,6 +260,7 @@ export const IntegrationsHof: React.FC<DataTabProps> = ({
     };
 
     const removeAwardTieRow = (setter: React.Dispatch<React.SetStateAction<AwardDraftRow[]>>, index: number) => {
+        if (!window.confirm(t('hof_bundle_remove_row_confirm'))) return;
         setter((prev) => {
             const next = (prev || []).filter((_, rowIndex) => rowIndex !== index);
             return next.length ? next : [createEmptyAwardRow()];

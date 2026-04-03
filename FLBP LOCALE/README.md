@@ -54,6 +54,7 @@ Note:
 
 
 ## Aggiornamenti recenti (2026-03)
+- **Pubblico / TV / Classifiche / Hall of Fame**: la UI pubblica legge ora come fonte primaria un solo snapshot (`public_workspace_state`) invece di mescolare snapshot, tabelle pubbliche normalizzate e cache dedicate; questo riduce i rimbalzi in cui, dopo una modifica admin, alcune viste mostravano temporaneamente dati vecchi.
 - **Public/Admin/TV (UI text fit)**: rimossi i principali troncamenti su nomi torneo, team, giocatori, alias e header TV; dove serve il testo ora va a capo in modo controllato senza toccare i flussi.
 - **Dialog public / tab Next**: il filtro **Next** nei dialog turni mostra ora solo il prossimo blocco reale, non tutti i turni futuri.
 - **TournamentBracket**: `wrapTeamNames` resta il meccanismo esplicito per mostrare nomi completi nel bracket; attivo nei punti sensibili (TV fallback/classic, Public detail, Monitor bracket, Tournament editor).

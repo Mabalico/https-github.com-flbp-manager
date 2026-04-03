@@ -1,11 +1,11 @@
 import React from 'react';
-import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, TriangleAlert } from 'lucide-react';
+import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, TriangleAlert, Users } from 'lucide-react';
 import type { Team, Match } from '../../../types';
 import type { AppState } from '../../../services/storageService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from '../../../services/dbDiagnostics';
 import { getSupabaseAccessToken } from '../../../services/supabaseRest';
 import { isRemotePersistenceLocked } from '../../../services/repository/featureFlags';
-import { ArchiveSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
+import { AccountsSubTab, ArchiveSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
 
 export interface DataTabProps {
     state: AppState;
@@ -149,9 +149,9 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
     const safeSessionSet = (key: string, value: string) => {
         try { window.sessionStorage.setItem(key, value); } catch {}
     };
-    const [mainSection, setMainSection] = React.useState<'integrations' | 'views' | 'traffic' | 'persistence' | null>(() => {
+    const [mainSection, setMainSection] = React.useState<'integrations' | 'views' | 'traffic' | 'persistence' | 'accounts' | null>(() => {
         const raw = safeSessionGet('flbp_admin_data_main_section');
-        return raw === 'integrations' || raw === 'views' || raw === 'traffic' || raw === 'persistence' ? raw : null;
+        return raw === 'integrations' || raw === 'views' || raw === 'traffic' || raw === 'persistence' || raw === 'accounts' ? raw : null;
     });
     const embedded = !!props.embedded;
 
@@ -170,7 +170,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
     const tabBtnInactive = 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50';
     const entryBtnBase = `group relative overflow-hidden text-left rounded-3xl border p-5 transition-all duration-200 ${ring}`;
 
-    const entryBtnClass = (section: 'integrations' | 'views' | 'traffic' | 'persistence') => {
+    const entryBtnClass = (section: 'integrations' | 'views' | 'traffic' | 'persistence' | 'accounts') => {
         const isActive = mainSection === section;
         if (section === 'integrations') {
             return `${entryBtnBase} ${
@@ -191,6 +191,13 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 isActive
                     ? 'border-violet-300 bg-gradient-to-br from-violet-50 via-fuchsia-50 to-white shadow-md shadow-violet-100'
                     : 'border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-sm'
+            }`;
+        }
+        if (section === 'accounts') {
+            return `${entryBtnBase} ${
+                isActive
+                    ? 'border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-white shadow-md shadow-amber-100'
+                    : 'border-slate-200 bg-white hover:border-amber-200 hover:bg-amber-50/40 hover:shadow-sm'
             }`;
         }
         return `${entryBtnBase} ${
@@ -296,7 +303,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 </div>
             ) : null}
 
-            <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
                 <button
                     type="button"
                     onClick={() => setMainSection('integrations')}
@@ -393,6 +400,30 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         <div className="flex items-center gap-2 flex-wrap justify-end text-xs font-bold max-w-[42%]">
                             {pill(t('data_pill_backup_file'))}
                             {pill(t('data_pill_sync_online'))}
+                        </div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setMainSection('accounts')}
+                    className={entryBtnClass('accounts')}
+                >
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-amber-600 text-white shadow-sm mb-3">
+                                <Users className="w-5 h-5" />
+                            </div>
+                            <div className="text-base font-black text-slate-900 flex items-center gap-2">
+                                {t('data_accounts_title')}
+                            </div>
+                            <div className="text-sm text-slate-600 font-bold mt-1 max-w-[36ch]">
+                                {t('data_accounts_desc')}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap justify-end text-xs font-bold max-w-[42%]">
+                            {pill(t('player_area_feature_auth'))}
+                            {pill(t('player_area_feature_profile'))}
                         </div>
                     </div>
                 </button>
@@ -511,6 +542,10 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                     />
                     <DbSyncPanel state={props.state} setState={props.setState} />
                 </div>
+            ) : null}
+
+            {mainSection === 'accounts' ? (
+                <AccountsSubTab state={props.state} t={t} />
             ) : null}
         </div>
     );

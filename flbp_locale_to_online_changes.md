@@ -1,5 +1,15 @@
 # FLBP LOCALE -> FLBP ONLINE Tracker
 
+Stato corrente:
+- Dal `2026-04-03`, `FLBP LOCALE` non e' piu' una copia sperimentale indipendente.
+- `FLBP LOCALE` deve restare uno specchio di `FLBP ONLINE`.
+- Le sole differenze consentite sono locali e non tracciate, per esempio:
+  - `.env.local`
+  - `node_modules/`
+  - `dist/`
+  - cache / tmp locali
+- Questo file resta come storico dei vecchi scostamenti, ma non e' piu' una licenza per lasciare divergenze persistenti tra le due cartelle.
+
 Source locale:
 - [FLBP LOCALE](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20LOCALE)
 
@@ -7,12 +17,11 @@ Target online:
 - [FLBP ONLINE](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE)
 
 Rules:
-- Work only in `FLBP LOCALE` until explicit transfer approval.
-- Add every modified file here.
-- Do not track generated artifacts in `dist/`; rebuild the target copy when transferring.
-- `DO_NOT_PORT` means the change is intentionally local-only and must not be copied to `FLBP ONLINE`.
-- `PENDING_PORT` means the change should be evaluated for transfer when requested.
-- `PORTED` means it has already been copied to `FLBP ONLINE`.
+- Keep `FLBP LOCALE` aligned with `FLBP ONLINE`.
+- Add every intentional exception here.
+- Do not track generated artifacts in `dist/`; rebuild when needed.
+- `DO_NOT_PORT` means the difference is intentionally local-only and must stay out of tracked source parity.
+- `PORTED` means the source parity is restored.
 
 | Date | File in FLBP LOCALE | Reason | Status | Notes |
 | --- | --- | --- | --- | --- |

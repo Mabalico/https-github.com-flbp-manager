@@ -98,15 +98,30 @@ export const getCatalogTeam = (snapshot: TournamentStructureSnapshot, teamId?: s
   return getCatalogTeamMap(snapshot).get(teamId);
 };
 
-export const getRound1Matches = (snapshot: TournamentStructureSnapshot): Match[] => {
+export const getBracketMatches = (snapshot: TournamentStructureSnapshot): Match[] => {
   return (snapshot.matches || [])
-    .filter((m) => m.phase === 'bracket' && (m.round || 1) === 1)
+    .filter((m) => m.phase === 'bracket')
     .slice()
-    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+    .sort((a, b) => {
+      const roundDiff = (a.round || 1) - (b.round || 1);
+      if (roundDiff !== 0) return roundDiff;
+      return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
+    });
+};
+
+export const getRound1Matches = (snapshot: TournamentStructureSnapshot): Match[] => {
+  return getBracketMatches(snapshot).filter((m) => (m.round || 1) === 1);
 };
 
 export const getMatchById = (snapshot: TournamentStructureSnapshot, matchId: string): Match | undefined => {
   return (snapshot.matches || []).find((m) => m.id === matchId);
+};
+
+export const isLockedBracketMatchForStructureEdit = (match?: Match): boolean => {
+  if (!match) return true;
+  if (match.phase !== 'bracket') return true;
+  if (match.status === 'playing') return true;
+  return !!match.played && !match.isBye && !match.hidden;
 };
 
 export const getGroupById = (snapshot: TournamentStructureSnapshot, groupId: string) => {
@@ -157,7 +172,7 @@ export const getGroupAssignedTeamIds = (snapshot: TournamentStructureSnapshot): 
 
 export const getBracketAssignedTeamIds = (snapshot: TournamentStructureSnapshot): string[] => {
   const ids = new Set<string>();
-  for (const match of getRound1Matches(snapshot)) {
+  for (const match of getBracketMatches(snapshot)) {
     for (const id of [match.teamAId, match.teamBId]) {
       const raw = String(id || '').trim();
       if (!raw || isPlaceholderTeamId(raw)) continue;
@@ -188,7 +203,7 @@ export const getTeamPlacement = (
     return undefined;
   }
 
-  for (const match of getRound1Matches(snapshot)) {
+  for (const match of getBracketMatches(snapshot)) {
     if ((match.teamAId || '').trim() === id) {
       return {
         phase: 'bracket',

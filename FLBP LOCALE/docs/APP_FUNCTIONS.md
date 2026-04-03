@@ -5,6 +5,37 @@
 
 Questo file descrive **cosa fa l’app e come lavora**, collegando ogni macro-funzione a file reali.
 
+## Aggiornamento 2026-03-30
+
+- In Area Admin → Squadre l'inserimento manuale dei giocatori ora usa campi separati `Nome` / `Cognome`, ma continua a salvare internamente l'identita' canonica `Cognome Nome` per non rompere storico, classifiche e alias.
+- I template import/export che prima usavano un solo campo nome ora esportano `Nome` / `Cognome` separati e restano retrocompatibili in lettura con i file storici.
+- In `player_area` la registrazione preview continua a usare `email + password`, ma se l'utente compila gia' `Nome`, `Cognome` e `Data di nascita` questi dati vengono salvati subito nel profilo collegato.
+
+## Aggiornamento 2026-04-02
+
+- `player_area` web e' stata riallineata al rollout live additivo: quando il backend player e' disponibile usa sessione Supabase, profilo reale, registrazione device web e call alerts reali; se il rollout SQL non e' ancora applicato, resta compatibile con la preview locale.
+- `Gestione dati -> Account giocatori` prova ora a leggere il catalogo live via `flbp_admin_list_player_accounts(...)` e a modificare il profilo collegato su `player_app_profiles`, con fallback prudente quando il backend non e' ancora disponibile.
+- `ReportsTab` prova ora a usare i target/call reali (`player_app_profiles`, `player_app_calls`, `flbp_player_call_team`, `flbp_player_cancel_call`) e torna alla preview locale solo se il backend additivo non e' ancora presente.
+- `RefereesArea` al login puo' riallineare lo snapshot live leggendo `flbp_referee_pull_live_state(...)` quando la RPC additiva e' disponibile.
+
+## Aggiornamento 2026-04-02b
+
+- Le migration additive `referees/player/accounts` sono state applicate manualmente sul progetto Supabase reale via `SQL Editor`.
+- Da questo momento `flbp_referee_pull_live_state(...)`, `player_app_profiles`, `player_app_devices`, `player_app_calls` e `flbp_admin_list_player_accounts(...)` esistono sul backend reale.
+- Restano comunque da attivare/configurare fuori dal codice:
+  - provider auth live (`email/password`, `google`, `facebook`, `apple`)
+  - mittente email amministratore reale / SMTP
+  - push device reali per le convocazioni squadra
+
+## Aggiornamento 2026-04-03
+
+- In `Editor Torneo -> Bracket` le modifiche strutturali non sono piu' limitate al solo Round 1: ora e' possibile intervenire anche sui branch futuri incompleti e sui round successivi non realmente giocati.
+- I match `team vs BYE` continuano a contare come assegnazioni valide nella struttura, ma non bloccano l'editing come se fossero partite giocate.
+- Restano bloccati solo i match bracket davvero giocati o in corso; i controlli di integrita' continuano a impedire squadre escluse dalla struttura e duplicati nel punto di ingresso del bracket.
+- L'editor bracket web include ora anche il toggle `Schermo intero` per lavorare meglio sul tabellone in editing.
+- La schermata `player_area` non autenticata e' stata riallineata a un funnel piu' chiaro: social login visuale in alto, separatore `oppure`, ingresso email in evidenza e form email/password subito sotto.
+- Ripulita la formattazione corrotta del dizionario italiano (`Modalità`, frecce, ellissi, apostrofi e caratteri accentati) nei testi UI che mostravano mojibake.
+
 ---
 
 ## Modalità applicazione (Tester vs Ufficiale)
@@ -110,6 +141,11 @@ Componenti public montati da `App.tsx`:
   - Layout pubblico: gironi e tabellone supportano rendering **fit-to-width** (senza scroll orizzontale) quando abilitato da `PublicTournamentDetail.tsx`.
 - Guida: `components/HelpGuide.tsx`
 - Area Arbitri: `components/RefereesArea.tsx`
+
+Fonte dati pubblica attuale:
+- Le viste public/TV usano come base coerente `public_workspace_state` (snapshot pubblico sanificato).
+- Le tabelle pubbliche normalizzate (`public_tournaments`, `public_hall_of_fame_entries`, `public_career_leaderboard`) restano utili per export/query e supporto, ma non sono più la fonte primaria della UI pubblica live.
+- Obiettivo: evitare disallineamenti temporanei in cui alcune viste leggevano lo snapshot admin/public e altre una cache o tabella pubblica aggiornata in tempi diversi.
   - accesso **protetto**: richiede la password del **torneo live** (`tournament.refereesPassword`) e salva una sessione in `sessionStorage` (`flbp_ref_authed` + `flbp_ref_authed_for=<tournament.id>`). Se **non c’è live attivo** o la password non è configurata, l’area resta inaccessibile.
   - La password viene richiesta quando si avvia il live (Admin → Struttura → “Conferma e Avvia Live”).
   - Step R2: selezione arbitro da giocatori del torneo live + aggiunta manuale
@@ -130,6 +166,20 @@ Componenti public montati da `App.tsx`:
       - aggiorna `match.stats` e `scoreA/scoreB` (e `scoresByTeam` per multi-team)
       - se `groups_elimination`: `services/tournamentEngine.ts::syncBracketFromGroups()` + auto-risoluzione BYE
       - se match `bracket`: propagazione vincitore alla partita successiva (auto-advance BYE)
+    - RPC arbitri attuali:
+      - `services/supabaseRest.ts::verifyRefereePassword()` → `public.flbp_referee_auth_check(...)`
+      - `services/supabaseRest.ts::pushRefereeLiveState()` → `public.flbp_referee_push_live_state(...)`
+    - Preparazione nativa additiva nel repository:
+      - `services/supabaseRest.ts::pullRefereeLiveState()` → `public.flbp_referee_pull_live_state(...)`
+      - pensata per un futuro client nativo che debba leggere lo snapshot live completo in modo protetto
+      - e' ora disponibile sul progetto Supabase reale dopo il rollout manuale del `2026-04-02`
+    - Preparazione additiva player/call nel repository:
+      - `services/playerAppService.ts` → preview locale per account giocatore, profilo, risultati, stato live e alert di convocazione
+      - `services/supabaseRest.ts::pullPlayerAppProfile()` / `pushPlayerAppProfile()` / `registerPlayerAppDevice()`
+      - `services/supabaseRest.ts::pullPlayerAppCalls()` / `callPlayerAppTeam()` / `acknowledgePlayerAppCall()` / `cancelPlayerAppCall()`
+      - il wiring web e' gia' chiuso in `components/PlayerArea.tsx`, `components/admin/tabs/ReportsTab.tsx` e `components/admin/tabs/data/AccountsSubTab.tsx`
+      - le migration additive player/accounts sono ora applicate sul progetto Supabase reale
+      - il fallback preview locale resta solo come compatibilita' prudente finche' non completiamo provider auth, SMTP e push
 
 
 Lazy-load in `App.tsx`:
@@ -211,6 +261,9 @@ Note robuste emerse dalle ultime correzioni:
 - `coerceAppState()` riallinea `tournament.matches` e `tournamentMatches` quando uno snapshot arriva incompleto o incoerente
 - `autoDbSync` usa un fingerprint contenutistico, non solo conteggi, quindi cambi reali a match/stats/Hall of Fame attivano correttamente il sync strutturato
 - `supabaseRest` usa il roster del torneo live per aggregazioni pubbliche live (evita statistiche sbagliate quando `state.teams` non coincide con `tournament.teams`)
+- `supabaseRest` espone anche `pullRefereeLiveState()` come wrapper per la RPC additiva `flbp_referee_pull_live_state(...)`; il wrapper normalizza lo snapshot con `coerceAppState()` e aggiorna `REMOTE_BASE_UPDATED_AT_LS_KEY`
+- `playerAppService` prepara `player_area` con preview locale e semantica di convocazione squadra come alert push/live, non telefonata OS reale
+- `supabaseRest` espone anche il pacchetto wrapper `player_app_*` / `flbp_player_*` per il rollout live di profili player, device token e chiamate squadra; le tabelle/RPC sono ora presenti sul progetto Supabase reale, ma la piena esperienza live dipende ancora da auth provider, SMTP e push
 
 ---
 

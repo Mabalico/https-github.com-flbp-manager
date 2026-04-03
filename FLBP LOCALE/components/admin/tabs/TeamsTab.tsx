@@ -507,6 +507,10 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         <Plus className="w-4 h-4"/> {t('reset_form')}
                     </button>
 
+                    <button type="button" onClick={clearTeams} className={btnSecondary}>
+                        <Trash2 className="w-4 h-4"/> {t('clear_registered_list')}
+                    </button>
+
                     {isTesterMode && (
                         <details className="relative">
                             <summary className={`list-none cursor-pointer select-none ${btnSecondary}`}>

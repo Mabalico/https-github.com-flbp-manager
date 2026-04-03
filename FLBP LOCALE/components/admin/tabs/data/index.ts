@@ -8,3 +8,4 @@ export { ViewsSubTab } from './ViewsSubTab';
 export { TrafficSubTab } from './TrafficSubTab';
 export { BackupSyncPanel } from './BackupSyncPanel';
 export { DbSyncPanel } from './DbSyncPanel';
+export { AccountsSubTab } from './AccountsSubTab';

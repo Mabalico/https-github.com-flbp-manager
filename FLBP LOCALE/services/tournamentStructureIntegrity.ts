@@ -49,7 +49,6 @@ export const buildTournamentStructureIntegritySummary = (
 
   const bracketOcc = new Map<string, number>();
   for (const match of getRound1Matches(snapshot)) {
-    if (match.hidden || match.isBye) continue;
     for (const idRaw of getMatchParticipantIds(match)) {
       const id = String(idRaw || '').trim();
       if (!id || isPlaceholderTeamId(id)) continue;
@@ -60,7 +59,6 @@ export const buildTournamentStructureIntegritySummary = (
   }
 
   for (const match of snapshot.matches || []) {
-    if (match.hidden || match.isBye) continue;
     for (const idRaw of getMatchParticipantIds(match)) {
       const id = String(idRaw || '').trim();
       if (!id || isPlaceholderTeamId(id)) continue;

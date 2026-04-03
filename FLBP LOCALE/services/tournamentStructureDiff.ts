@@ -112,7 +112,7 @@ export const diffTournamentStructure = (
 
   return {
     changed: groupChanges.length > 0 || bracketChanges.length > 0 || futureBracketChanges.length > 0,
-    operationsCount: groupChanges.length + bracketChanges.length,
+    operationsCount: groupChanges.length + bracketChanges.length + futureBracketChanges.length,
     groupChanges,
     bracketChanges,
     futureBracketChanges,

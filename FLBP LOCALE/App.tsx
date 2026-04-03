@@ -5,7 +5,7 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { pullWorkspaceState } from './services/supabaseRest';
+import { clearPlayerSupabaseSession, pullWorkspaceState } from './services/supabaseRest';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -15,7 +15,7 @@ import { readVitePublicDbRead } from './services/viteEnv';
 import {
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
-import { Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert } from 'lucide-react';
+import { Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound } from 'lucide-react';
 
 type UiErrorBoundaryProps = {
     title: string;
@@ -98,6 +98,7 @@ const loadHallOfFameModule = () => import('./components/HallOfFame');
 const loadPublicTournamentsModule = () => import('./components/PublicTournaments');
 const loadPublicTournamentDetailModule = () => import('./components/PublicTournamentDetail');
 const loadRefereesAreaModule = () => import('./components/RefereesArea');
+const loadPlayerAreaModule = () => import('./components/PlayerArea');
 const loadHelpGuideModule = () => import('./components/HelpGuide');
 
 const loadSupabasePublicModule = () => import('./services/supabasePublic');
@@ -130,6 +131,10 @@ const PublicTournamentDetailLazy = React.lazy(() =>
 
 const RefereesAreaLazy = React.lazy(() =>
     loadRefereesAreaModule().then((m) => ({ default: m.RefereesArea }))
+);
+
+const PlayerAreaLazy = React.lazy(() =>
+    loadPlayerAreaModule().then((m) => ({ default: m.PlayerArea }))
 );
 
 const HelpGuideLazy = React.lazy(() =>
@@ -217,7 +222,7 @@ const App: React.FC = () => {
 
     const safeView = (v: string | null | undefined) => {
         if (!v) return 'home';
-        if (['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'admin', 'referees_area'].includes(v)) return v;
+        if (['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'admin', 'referees_area'].includes(v)) return v;
         return 'home';
     };
 
@@ -235,7 +240,7 @@ const App: React.FC = () => {
         return `${year}-${month}-${day}`;
     };
 
-    const [view, setView] = useState(() => safeView(localStorage.getItem(VIEW_KEY)));
+    const [view, setView] = useState(() => 'home');
     const [tvMode, setTvMode] = useState<TvProjection | null>(() => {
         const stored = localStorage.getItem('flbp_tv_mode');
         return stored ? assertTvProjectionSafe(stored) : null;
@@ -260,6 +265,8 @@ const App: React.FC = () => {
                 return loadPublicTournamentDetailModule();
             case 'referees_area':
                 return loadRefereesAreaModule();
+            case 'player_area':
+                return loadPlayerAreaModule();
             case 'admin':
                 return loadAdminDashboardModule();
             default:
@@ -781,8 +788,8 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        try { localStorage.setItem(VIEW_KEY, view); } catch {}
-    }, [view]);
+        try { localStorage.removeItem(VIEW_KEY); } catch {}
+    }, []);
 
     useEffect(() => {
         try { localStorage.setItem(LANG_KEY, language); } catch {}
@@ -1112,13 +1119,35 @@ const App: React.FC = () => {
                     </React.Suspense>
                 );
             }
+            case 'player_area':
+                return (
+                    <React.Suspense fallback={<RouteViewFallback /> }>
+                        <UiErrorBoundary
+                            title={t('player_area')}
+                            onReset={() => {
+                                try { localStorage.removeItem(VIEW_KEY); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_accounts_v1'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_session_v1'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_profiles_v1'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_calls_v1'); } catch {}
+                                clearPlayerSupabaseSession();
+                                void navigateToView('home');
+                            }}
+                        >
+                            <PlayerAreaLazy
+                                state={state}
+                                onOpenReferees={() => { void navigateToView('referees_area'); }}
+                            />
+                        </UiErrorBoundary>
+                    </React.Suspense>
+                );
             default:
                 return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!state.tournament} />;
         }
     };
 
         const isPublicView = ['home','leaderboard','hof','tournament','tournament_detail'].includes(view);
-    const isToolsView = view === 'admin' || view === 'referees_area';
+    const isToolsView = view === 'admin' || view === 'referees_area' || view === 'player_area';
 
     const hasDbIssue = !!((dbDiag as any)?.lastConflictAt || hasVisibleDbError);
     const dbIssueTitle = (dbDiag as any)?.lastConflictAt
@@ -1218,6 +1247,20 @@ const App: React.FC = () => {
 
                         <hr className="border-slate-100 my-3" />
 
+                        <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('account_section')}</div>
+                        <button
+                            aria-current={view === 'player_area' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('player_area', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('player_area')}
+                            onFocus={() => primeViewChunk('player_area')}
+                            className={menuItemClass(view === 'player_area')}
+                        >
+                            <UserRound className="w-5 h-5 text-slate-500" />
+                            <span>{t('player_area')}</span>
+                        </button>
+
+                        <hr className="border-slate-100 my-3" />
+
                         <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('tools_section')}</div>
                         <button
                             aria-current={view === 'referees_area' ? 'page' : undefined}
@@ -1286,7 +1329,7 @@ const App: React.FC = () => {
                                             FLBP
                                         </div>
                                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border border-slate-200 bg-white text-slate-700">
-                                            {view === 'admin' ? t('admin') : t('referees_area')}
+                                            {view === 'admin' ? t('admin') : view === 'referees_area' ? t('referees_area') : t('player_area')}
                                         </span>
                                     </div>
                                 )}

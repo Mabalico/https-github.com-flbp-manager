@@ -8,10 +8,11 @@ import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
-import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
+import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
+import { buildPlayerAreaSnapshot } from '../services/playerAppService';
 
 interface RefereesAreaProps {
     state: AppState;
@@ -47,6 +48,9 @@ const sameSet = (a: string[], b: string[]) => {
 
 export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onBack }) => {
     const { t } = useTranslation();
+    const playerAreaSnapshot = useMemo(() => buildPlayerAreaSnapshot(state), [state]);
+    const previewRefereeBypass = !!playerAreaSnapshot.liveStatus.refereeBypassEligible;
+    const previewRefereeName = String(playerAreaSnapshot.profile?.canonicalPlayerName || '').trim();
     const initialLiveTournament = state.tournament;
     const initialLiveId = initialLiveTournament?.id || '';
     const initialAuthVersion = String((initialLiveTournament as any)?.refereesAuthVersion || '').trim();
@@ -57,6 +61,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
     const [authed, setAuthed] = useState<boolean>(() => {
         try {
+            if (previewRefereeBypass && initialLiveId) return true;
             if (!initialLiveId) return false;
             if (initialUsesRemoteRefereeSecret) return false;
             const sameLive = sessionStorage.getItem('flbp_ref_authed') === '1'
@@ -129,6 +134,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
         try {
             const liveAuthVersion = String((liveTournament as any)?.refereesAuthVersion || '').trim();
+            if (previewRefereeBypass) {
+                if (!authed) setAuthed(true);
+                return;
+            }
             const ok = sessionStorage.getItem('flbp_ref_authed') === '1'
                 && (sessionStorage.getItem('flbp_ref_authed_for') || '') === liveId
                 && (!liveAuthVersion || (sessionStorage.getItem('flbp_ref_authed_ver') || '') === liveAuthVersion);
@@ -141,7 +150,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         } catch {
             if (authed) setAuthed(false);
         }
-    }, [liveTournament?.id, (liveTournament as any)?.refereesAuthVersion, authed, requiresTransientRefereeSecret]);
+    }, [liveTournament?.id, (liveTournament as any)?.refereesAuthVersion, authed, requiresTransientRefereeSecret, previewRefereeBypass]);
 
     useEffect(() => {
         syncedPasswordRef.current = '';
@@ -327,6 +336,17 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         : (t('referees_password_wrong') || 'Password errata.'));
                     return;
                 }
+                try {
+                    const pulled = await pullRefereeLiveState(live.id, entered);
+                    if (pulled?.ok && pulled.state) {
+                        setState(pulled.state);
+                    }
+                } catch (syncError: any) {
+                    const syncMessage = String(syncError?.message || syncError || '');
+                    if (!/flbp_referee_pull_live_state|non disponibile su questo progetto Supabase/i.test(syncMessage)) {
+                        throw syncError;
+                    }
+                }
             } else {
                 setLoginError(t('referees_access_not_configured') || 'Accesso arbitri non configurato per questo torneo.');
                 return;
@@ -370,6 +390,13 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         setSelectedReferee(n);
         try { sessionStorage.setItem('flbp_ref_name', n); } catch {}
     };
+
+    useEffect(() => {
+        if (!previewRefereeBypass) return;
+        if (!previewRefereeName) return;
+        if (selectedReferee) return;
+        persistSelectedReferee(previewRefereeName);
+    }, [previewRefereeBypass, previewRefereeName, selectedReferee]);
 
     const persistReportCode = (code: string) => {
         const c = (code || '').trim().toUpperCase();
@@ -521,7 +548,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         const teamB = match?.teamBId ? getTeamFromCatalog(match.teamBId) : undefined;
         const row = (label: string, name: string, stats: { canestri?: number; soffi?: number }) => {
             const parts = [label, name || ''];
-            if (typeof stats.canestri === 'number') parts.push(`PT ${stats.canestri}`);
+            if (typeof stats.canestri === 'number') parts.push(`CAN ${stats.canestri}`);
             if (typeof stats.soffi === 'number') parts.push(`SF ${stats.soffi}`);
             return parts.filter(Boolean).join(' | ');
         };

@@ -1,12 +1,25 @@
 import type { AppState } from './storageService';
 import type { HallOfFameEntry, Match, Team, TournamentData } from '../types';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
+import { buildPlayerProfileSnapshot } from './playerDataProvenance';
 
 interface UpdatePlayerProfileIdentityInput {
   currentPlayerId: string;
   nextPlayerName: string;
   nextBirthDate?: string | null;
 }
+
+interface MergeAliasIntoBirthdatedProfileInput {
+  sourcePlayerId: string;
+  targetPlayerId: string;
+}
+
+const extractBirthDateFromPlayerId = (playerId: string): string | undefined => {
+  const match = String(playerId || '').trim().match(/_(\d{4}-\d{2}-\d{2})$/i);
+  return match?.[1] ? normalizeBirthDateInput(match[1]) : undefined;
+};
+
+const isUndatedPlayerId = (playerId: string) => /_ND$/i.test(String(playerId || '').trim());
 
 const getTeamSlotIdentity = (team: Team, slot: 1 | 2) => {
   const name = slot === 1 ? team.player1 : team.player2 || '';
@@ -157,4 +170,33 @@ export const updatePlayerProfileIdentity = (state: AppState, input: UpdatePlayer
     hallOfFame,
     playerAliases: nextAliases,
   };
+};
+
+export const mergeAliasIntoBirthdatedProfile = (state: AppState, input: MergeAliasIntoBirthdatedProfileInput): AppState => {
+  const sourcePlayerId = resolvePlayerKey(state, String(input.sourcePlayerId || '').trim());
+  const targetPlayerId = resolvePlayerKey(state, String(input.targetPlayerId || '').trim());
+  if (!sourcePlayerId || !targetPlayerId) {
+    throw new Error('Profili giocatore non validi.');
+  }
+  if (sourcePlayerId === targetPlayerId) return state;
+  if (!isUndatedPlayerId(sourcePlayerId)) {
+    throw new Error('Il merge guidato è disponibile solo per alias senza data di nascita.');
+  }
+
+  const targetBirthDate = extractBirthDateFromPlayerId(targetPlayerId);
+  if (!targetBirthDate) {
+    throw new Error('Il profilo destinazione deve avere una data di nascita valida.');
+  }
+
+  const targetSnapshot = buildPlayerProfileSnapshot(state, targetPlayerId);
+  const nextPlayerName = String(targetSnapshot?.displayName || '').trim();
+  if (!nextPlayerName) {
+    throw new Error('Impossibile determinare il nome del profilo destinazione.');
+  }
+
+  return updatePlayerProfileIdentity(state, {
+    currentPlayerId: sourcePlayerId,
+    nextPlayerName,
+    nextBirthDate: targetBirthDate,
+  });
 };

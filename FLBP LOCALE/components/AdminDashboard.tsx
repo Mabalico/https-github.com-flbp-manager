@@ -26,7 +26,6 @@ import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
-import { isLocalOnlyMode } from '../services/repository/featureFlags';
 
 
 const loadTeamsTabModule = () => import('./admin/tabs/TeamsTab');
@@ -301,9 +300,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const initialSupabaseSession = useMemo(() => getSupabaseSession(), []);
     const supabaseConfig = useMemo(() => getSupabaseConfig(), []);
-    const localOnlyAdminBypass = useMemo(() => !supabaseConfig && isLocalOnlyMode(), [supabaseConfig]);
     const adminToolsMenuRef = useRef<HTMLDetailsElement | null>(null);
-    const [authed, setAuthed] = useState<boolean>(() => localOnlyAdminBypass);
+    const [authed, setAuthed] = useState<boolean>(false);
     const [adminAuthEmailInput, setAdminAuthEmailInput] = useState<string>(() => initialSupabaseSession?.email || getConfiguredAdminEmail());
     const [adminAuthPasswordInput, setAdminAuthPasswordInput] = useState<string>('');
     const [supabaseEmail, setSupabaseEmail] = useState<string | null>(() => {
@@ -400,16 +398,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     useEffect(() => {
         let alive = true;
 
-        if (localOnlyAdminBypass) {
-            setAuthed(true);
-            setSupabaseEmail(null);
-            setAdminAuthError('');
-            setAdminSessionChecking(false);
-            return () => {
-                alive = false;
-            };
-        }
-
         const syncSupabaseSessionMeta = async () => {
             const session = getSupabaseSession();
             const nextEmail = session?.accessToken ? (session.email || getConfiguredAdminEmail()) : null;
@@ -468,7 +456,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [isFatalAdminAccessFailure, localOnlyAdminBypass]);
+    }, [isFatalAdminAccessFailure]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');

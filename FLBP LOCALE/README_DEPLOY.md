@@ -69,6 +69,18 @@ Questa patch prepara l'app per deploy pubblico **frontend statico su Cloudflare 
 - Aggiunto `.nvmrc`.
 - `vite.config.ts` non inietta più chiavi build-time non necessarie nel client pubblico.
 
+### 8) Player Area e convocazioni squadra
+- Aggiunta la route `player_area` nel client web.
+- Il login giocatore resta **opzionale**: il torneo continua a funzionare anche senza account.
+- La UI player include:
+  - sign in / registrazione preview locale
+  - profilo con nome, cognome e data di nascita
+  - risultati personali derivati dai dataset pubblici
+  - stato live del torneo collegato
+  - alert di convocazione squadra in preview locale
+- La semantica corretta e' **convocazione push/live**, non telefonata OS reale.
+- Nel repository sono pronti anche wrapper e migration additive per il rollout live di profili player, device e chiamate squadra, ma non sono attivi finche' non esegui l'SQL sul progetto Supabase reale.
+
 ---
 
 ## File modificati
@@ -140,6 +152,83 @@ Questo file include anche la migration finale per l'admin auth.
 - RPC `public.flbp_admin_push_workspace_state(...)` per scrittura snapshot admin atomica con check conflitto lato DB
 - tabella `public.app_supabase_usage_daily`
 - RPC `public.flbp_track_supabase_usage_batch(...)` per aggregare byte/richieste stimate del frontend verso Supabase
+
+### Preparazione nativa additiva (non necessaria ora)
+- Nel repository e' presente anche `supabase/migrations/20260328000100_referee_pull_live_state_rpc.sql`.
+- Aggiunge la RPC `public.flbp_referee_pull_live_state(...)`, pensata per un futuro flusso nativo arbitri che debba leggere in modo protetto lo snapshot live completo prima di costruire un save sicuro.
+- Questa RPC e' **additiva**: non sostituisce `flbp_referee_auth_check(...)` o `flbp_referee_push_live_state(...)`.
+- La web app pubblica attuale **non** la usa, quindi non e' richiesta per il deploy Cloudflare/Supabase gia' online.
+- Se l'app live e' in uso, puoi tranquillamente **rimandarne l'applicazione** a una finestra dedicata: il comportamento online corrente non cambia finche' non la esegui nel progetto reale.
+
+### Preparazione player/call additiva (non necessaria ora)
+- Nel repository e' presente anche `supabase/migrations/20260328000200_player_app_accounts_and_calls.sql`.
+- Aggiunge in modo **additivo**:
+  - `public.player_app_profiles`
+  - `public.player_app_devices`
+  - `public.player_app_calls`
+  - `public.flbp_player_call_team(...)`
+  - `public.flbp_player_ack_call(...)`
+  - `public.flbp_player_cancel_call(...)`
+- Questi oggetti servono per il rollout live di account giocatore, convocazioni squadra e conferma ricezione.
+- La web app pubblica attuale usa ancora solo la preview locale di `player_area`, quindi non devi applicare questa migration finche' non hai una finestra sicura sul Supabase reale.
+
+### Catalogo admin account giocatori (non necessario ora)
+- Nel repository e' presente anche `supabase/migrations/20260330000100_player_app_admin_accounts.sql`.
+- Aggiunge in modo **additivo** la funzione `public.flbp_admin_list_player_accounts(...)`.
+- Serve a popolare la nuova quinta sezione `Gestione dati -> Account giocatori`, con elenco unico account / provider / profilo giocatore collegato.
+- Anche questa migration puo' aspettare una finestra sicura: il web online corrente non dipende ancora da lei.
+
+### Bundle rollout pronto
+- Per applicare in un colpo solo il blocco additivo `referees/player/accounts`, usare:
+  - `supabase/rollouts/20260402_player_referee_additive_rollout.sql`
+- Dopo l'applicazione, verificare con:
+  - `supabase/rollouts/20260402_player_referee_additive_postcheck.sql`
+
+### Promemoria backend unico
+- Tutta la sequenza SQL/backend preparata da inizio chat e' raccolta anche in `docs/SQL_ROLLOUT_TODO.md`.
+- Dentro trovi:
+  - cosa e' gia' stato applicato
+  - cosa e' solo pronto nel repo
+  - il promemoria esplicito sul **mittente email amministratore reale / SMTP reale** ancora da collegare per i reset password live
+
+### Promemoria deploy Cloudflare
+- I fix web gia' pronti nel repo ma non ancora garantiti sulla build Cloudflare online sono raccolti in `docs/CLOUDFLARE_PENDING_DEPLOY_FIXES.md`.
+- Questo include in particolare:
+  - riallineamento `public_workspace_state` come fonte pubblica coerente
+  - fix TV/tabellone
+
+## Deploy automatico da GitHub (Cloudflare Pages)
+
+Il web pubblico usa ora un progetto **Cloudflare Pages** con **Git integration nativa** collegata al repository:
+- `Mabalico/https-github.com-flbp-manager`
+
+Configurazione attuale:
+- progetto Pages: `flbp-pages`
+- branch di produzione: `main`
+- root directory: `FLBP ONLINE`
+- framework preset: `React (Vite)`
+- build command: `npm run build`
+- output directory: `dist`
+
+Variabili ambiente configurate in Cloudflare Pages:
+- `VITE_SUPABASE_URL=https://kgwhcemqkgqvtsctnwql.supabase.co`
+- `VITE_SUPABASE_ANON_KEY=sb_publishable_XhZ5hAdoycuWfDMeiQKaGA_7gD6nDhz`
+- `VITE_SUPABASE_ADMIN_EMAIL=admin@flbp.local`
+- `VITE_REMOTE_REPO=1`
+- `VITE_WORKSPACE_ID=default`
+- `VITE_PUBLIC_DB_READ=1`
+- `VITE_AUTO_STRUCTURED_SYNC=1`
+- `VITE_ALLOW_LOCAL_ONLY=0`
+- `VITE_APP_MODE=official`
+
+Conseguenza operativa:
+- i deploy web partono automaticamente dai push su `main`
+- il vecchio flusso manuale `Direct Upload` / Worker non e' piu' il percorso raccomandato
+- l'eventuale workflow GitHub Actions provato in precedenza e' stato rimosso per evitare doppio deploy
+
+Nota:
+- `VITE_SUPABASE_ANON_KEY` e' una chiave publishable/publica lato client
+- resta consigliato ruotare l'eventuale token Cloudflare mostrato in screenshot durante il setup iniziale
 
 ### Nota sul monitor traffico
 - La sezione `Admin → Gestione dati → Traffico Supabase` mostra una **stima del traffico FLBP verso Supabase**, non il billing ufficiale della piattaforma.

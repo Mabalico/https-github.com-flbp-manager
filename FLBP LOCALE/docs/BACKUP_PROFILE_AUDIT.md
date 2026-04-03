@@ -1,6 +1,6 @@
 # Audit profilo backup JSON inclusi nel repository
 
-Generato automaticamente da `npm run audit:backup-profiles` il 2026-03-27T08:02:12.176Z.
+Generato automaticamente da `npm run audit:backup-profiles` il 2026-03-27T08:26:30.594Z.
 
 Questo report censisce solo i JSON **già inclusi nello ZIP/repository** che espongono davvero una shape di backup FLBP (sample, import, restore, fixture operative). I template/stub senza stato completo vengono ignorati.
 Non analizza i backup caricati in chat o i file esterni dell'utente.
