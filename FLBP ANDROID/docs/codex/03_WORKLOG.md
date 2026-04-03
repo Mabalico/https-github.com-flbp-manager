@@ -109,3 +109,4 @@ chat non affidabile, seguo il repository.
 - ridotta di circa il 10% la dimensione apparente del logo launcher Android tramite `inset` sull'adaptive icon background, cosi' il cerchio nero resta tutto nel quadratino
 - riportato il web mirror Android a `flbp-pages.pages.dev` come sorgente primaria voluta per il rollout finale, lasciando il Worker fuori dal flusso delle app native
 - ridotto ancora il logo launcher Android: l'adaptive icon usa ora un inset piu' ampio, cosi' il cerchio nero sta piu' comodamente dentro il quadratino
+- ridotto di nuovo il logo launcher Android con un inset portato a `15dp`, per avere ancora piu' margine e mantenere il cerchio nero completamente dentro il quadratino
