@@ -5,7 +5,7 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { pullWorkspaceState } from './services/supabaseRest';
+import { clearPlayerSupabaseSession, pullWorkspaceState } from './services/supabaseRest';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -1122,10 +1122,23 @@ const App: React.FC = () => {
             case 'player_area':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
-                        <PlayerAreaLazy
-                            state={state}
-                            onOpenReferees={() => { void navigateToView('referees_area'); }}
-                        />
+                        <UiErrorBoundary
+                            title={t('player_area')}
+                            onReset={() => {
+                                try { localStorage.setItem(VIEW_KEY, 'home'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_accounts_v1'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_session_v1'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_profiles_v1'); } catch {}
+                                try { localStorage.removeItem('flbp_player_preview_calls_v1'); } catch {}
+                                clearPlayerSupabaseSession();
+                                void navigateToView('home');
+                            }}
+                        >
+                            <PlayerAreaLazy
+                                state={state}
+                                onOpenReferees={() => { void navigateToView('referees_area'); }}
+                            />
+                        </UiErrorBoundary>
                     </React.Suspense>
                 );
             default:

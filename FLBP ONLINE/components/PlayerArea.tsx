@@ -90,6 +90,35 @@ const getPlayerWebDeviceId = () => {
 const isPlayerBackendPendingError = (message: string) =>
   /player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_call_team|relation .*player_app_|function .*flbp_player_/i.test(message);
 
+const buildSafePlayerAreaSnapshot = (
+  state: AppState,
+  liveBackendEnabled: boolean
+): ReturnType<typeof buildPlayerAreaSnapshot> => ({
+  session: null,
+  profile: null,
+  personalProfile: null,
+  liveStatus: {
+    liveTournamentId: state.tournament?.id || null,
+    liveTournamentName: state.tournament?.name || null,
+    linkedTeam: null,
+    nextMatch: null,
+    nextMatchTurn: null,
+    turnsUntilPlay: null,
+    refereeBypassEligible: false,
+    activeCall: null,
+  },
+  featureStatus: {
+    previewEnabled: true,
+    supabaseConfigured: liveBackendEnabled,
+    supabaseSessionPresent: false,
+    remoteAuthPrepared: liveBackendEnabled,
+    socialAuthPrepared: ['google', 'facebook', 'apple'],
+    playerProfilesPrepared: false,
+    playerCallsPrepared: false,
+    refereeBypassPrepared: true,
+  },
+});
+
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees }) => {
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
@@ -110,7 +139,23 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     liveBackendEnabled ? 'loading' : 'disabled'
   );
   const [liveRuntimeError, setLiveRuntimeError] = React.useState<string | null>(null);
-  const snapshot = React.useMemo(() => buildPlayerAreaSnapshot(state), [state, refreshNonce]);
+  const snapshotState = React.useMemo(() => {
+    try {
+      return {
+        snapshot: buildPlayerAreaSnapshot(state),
+        bootstrapError: null as string | null,
+      };
+    } catch (error: any) {
+      const message = String(error?.message || error || t('player_area_preview_error'));
+      console.error('[PlayerArea] Safe bootstrap fallback', error);
+      return {
+        snapshot: buildSafePlayerAreaSnapshot(state, liveBackendEnabled),
+        bootstrapError: message,
+      };
+    }
+  }, [liveBackendEnabled, refreshNonce, state, t]);
+  const snapshot = snapshotState.snapshot;
+  const bootstrapError = snapshotState.bootstrapError;
 
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
@@ -456,6 +501,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
             {feedback ? (
               <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
                 {feedback.message}
+              </div>
+            ) : null}
+
+            {bootstrapError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                Area giocatore ripristinata in modalita sicura. {bootstrapError}
               </div>
             ) : null}
 
