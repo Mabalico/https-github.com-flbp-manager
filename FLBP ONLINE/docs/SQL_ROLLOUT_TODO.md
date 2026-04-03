@@ -102,6 +102,9 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 ## Configurazioni esterne non-SQL ancora necessarie
 
 - deploy funzione Edge `player-call-push` sul progetto Supabase reale
+- helper pronto per il deploy:
+  - [20260403_player_call_push_deploy.ps1](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE/supabase/rollouts/20260403_player_call_push_deploy.ps1)
+  - [20260403_player_call_push_secrets.env.example](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE/supabase/rollouts/20260403_player_call_push_secrets.env.example)
 - secret funzione Edge:
   - `SUPABASE_URL`
   - `SUPABASE_ANON_KEY`
@@ -120,9 +123,11 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
     - `fcm_project_id`
     - `fcm_api_key`
     - `fcm_sender_id`
+  - package id atteso: `com.flbp.manager.suite`
 - iOS
   - compile reale da Mac/Xcode
   - signing/provisioning con capability Push Notifications effettiva
+  - bundle id atteso: `com.flbp.manager.suite`
 - prodotto
   - le push di chiamata squadra non sono da considerare attive in produzione finche' i punti sopra non sono chiusi
 
