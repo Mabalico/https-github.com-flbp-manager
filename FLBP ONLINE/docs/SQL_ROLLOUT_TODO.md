@@ -160,6 +160,31 @@ Eccezioni ancora volontarie, da ricordare:
   - build Cloudflare vecchia
   - oppure vista pubblica non ancora allineata alla single source of truth
 
+## Regola operativa cross-app
+
+Da qui in avanti ogni modifica applicativa va trattata cosi':
+
+- se tocco il web / Cloudflare:
+  - verifico se la stessa UX, label, logica o protezione esiste anche su Android e iOS
+  - se esiste, la riallineo oppure annoto esplicitamente il gap residuo
+- se tocco Android:
+  - verifico il corrispettivo web e iOS
+- se tocco iOS:
+  - verifico il corrispettivo web e Android
+- se il feature set non e' ancora equivalente tra le piattaforme:
+  - non dichiaro "allineato" in modo generico
+  - distinguo sempre tra:
+    - allineamento pubblico/read-only
+    - allineamento consultativo/protetto
+    - operativita' live completa
+
+Checklist minima da applicare a ogni passaggio:
+- UI/label/testi
+- comportamento pubblico/live
+- fallback safe / error boundary / anti-crash
+- wiring backend o stato preview locale
+- documentazione `00_PROJECT_STATUS`, `03_WORKLOG`, `06_SHARED_GAPS_WITH_WEB` quando il cambiamento lo richiede
+
 ## Backlog residuo emerso dalla chat
 
 Questa sezione raccoglie il resto delle cose ancora da fare che non sono solo SQL puro, ma sono rimaste aperte nella conversazione.
