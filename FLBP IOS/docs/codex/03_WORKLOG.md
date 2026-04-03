@@ -86,3 +86,6 @@ chat non affidabile, seguo il repository.
 - chiuso anche il bridge live-first iOS per `player_area` e `Account giocatori`, cosi' i sorgenti non restano preview-only dove il backend additivo e' gia' disponibile
 - completata la chiusura pragmatica della parita' grafica/funzionale: iOS ora usa a sorgente una shell nativa con FLBP ONLINE mobile in WKWebView full-screen
 - il percorso SwiftUI legacy resta nel progetto solo come fallback tecnico quando il web mirror non si carica
+- aggiunto anche su iOS il flag `?native_shell=ios` al web mirror primario, cosi' il frontend web puo' adattare il layout quando gira dentro la shell nativa
+- riallineati a sorgente i componenti web mirror-aware: le schermate storiche non devono piu' dipendere da contenitori interni con `max-height + overflow + sticky header`, che nei WebView possono risultare vuoti o non scorrere correttamente
+- mantenuto lo stesso fix architetturale anche su iOS per evitare divergenze future rispetto ad Android e `FLBP ONLINE`

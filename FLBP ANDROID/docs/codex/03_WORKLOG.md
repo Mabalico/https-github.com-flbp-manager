@@ -100,3 +100,8 @@ chat non affidabile, seguo il repository.
 - il percorso Compose legacy resta nel pacchetto solo come fallback tecnico quando il web mirror non si carica
 - build Android verificata green anche dopo l'introduzione del web mirror (`:app:assembleDebug`)
 - trasformata anche l'icona launcher Android in adaptive icon reale (`mipmap-anydpi-v26` + foreground dedicato), cosi' il logo FLBP puo' occupare meglio lo spazio utile sui launcher moderni
+- riallineata di nuovo l'adaptive icon Android usando il logo completo nel background layer, cosi' il cerchio esterno non viene piu' ridotto dal foreground inset del launcher
+- aggiunto il flag `?native_shell=android` al web mirror primario, cosi' la shell nativa puo' dichiararsi esplicitamente al frontend web
+- corretto il rendering WebView delle schermate storiche (`Leaderboard`, `HallOfFame`, `TournamentLeaderboard`): in shell nativa non usano piu' contenitori interni con `max-height + overflow + sticky header` che lasciavano le tabelle visivamente vuote su Android
+- allineato anche `GroupStandingsTable` al comportamento shell-aware: niente `fitToWidth` scalato nella shell nativa, meglio scorrimento regolare e contenuto sempre visibile
+- rebuild Android verificata green con `:app:assembleDebug` e reinstallazione reale sul device dopo il fix del web mirror

@@ -10,6 +10,7 @@ import { normalizeNameLower } from '../services/textUtils';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { readVitePublicDbRead } from '../services/viteEnv';
+import { isEmbeddedNativeShell } from '../services/nativeShell';
 import {
     readCachedPublicCareerLeaderboard,
     readCachedPublicHallOfFameEntries,
@@ -83,6 +84,7 @@ const getWinningTeamId = (match: Match, teamsSource: Team[]): string | null => {
 
 export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
     const { t } = useTranslation();
+    const nativeShell = isEmbeddedNativeShell();
     const [localStateSnapshot] = useState<AppState | null>(() => (stateOverride ? null : loadState()));
     const state = stateOverride || localStateSnapshot || { teams: [], matches: [], tournamentHistory: [], hallOfFame: [], integrationsScorers: [] } as AppState;
     const [searchTerm, setSearchTerm] = useState('');
@@ -398,7 +400,8 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
 });
 
     const thPad = 'py-3 px-3 sm:p-4';
-    const stickyTh = 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
+    const stickyTh = nativeShell ? '' : 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
+    const tableScrollClass = nativeShell ? 'overflow-x-auto' : 'max-h-[68vh] overflow-auto overscroll-contain';
     const sortBtnBase = 'inline-flex items-center justify-center gap-1 w-full rounded-md focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 outline-none';
     const SortTh: React.FC<{ field: typeof sortField; children: React.ReactNode; className?: string }> = ({ field, children, className }) => (
         <th
@@ -534,7 +537,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="max-h-[68vh] overflow-auto overscroll-contain">
+                <div className={tableScrollClass}>
                     <table className="w-full min-w-[1020px] text-left">
                         <thead className="bg-slate-50 text-slate-500 text-xs font-black uppercase tracking-wider">
                             <tr>

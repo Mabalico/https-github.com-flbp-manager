@@ -10,6 +10,7 @@ import { PublicBrandStack } from './PublicBrandStack';
 import { readVitePublicDbRead } from '../services/viteEnv';
 import { readCachedPublicHallOfFameEntries, writeCachedPublicHallOfFameEntries } from '../services/publicViewCache';
 import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
+import { isEmbeddedNativeShell } from '../services/nativeShell';
 
 type HallOfFameProps = {
   stateOverride?: AppState;
@@ -17,6 +18,7 @@ type HallOfFameProps = {
 
 export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
   const { t } = useTranslation();
+  const nativeShell = isEmbeddedNativeShell();
   const [localStateSnapshot] = useState<AppState | null>(() => (stateOverride ? null : loadState()));
   const [entries, setEntries] = useState<HallOfFameEntry[]>([]);
   const [activeTab, setActiveTab] = useState<
@@ -26,7 +28,8 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     'total' | 'winner' | 'top_scorer' | 'defender' | 'mvp' | 'top_scorer_u25' | 'defender_u25'
   >('total');
   const [searchTerm, setSearchTerm] = useState('');
-  const stickyTh = 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
+  const stickyTh = nativeShell ? '' : 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
+  const tableScrollClass = nativeShell ? 'overflow-x-auto' : 'max-h-[68vh] overflow-auto overscroll-contain';
 
   const yearsCount = React.useMemo(() => {
     const set = new Set<string>();
@@ -310,7 +313,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
       return (
         <div className="space-y-3">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="max-h-[68vh] overflow-auto overscroll-contain">
+            <div className={tableScrollClass}>
             <table className="w-full text-left" style={{ minWidth: 840 }}>
               <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                 <tr>

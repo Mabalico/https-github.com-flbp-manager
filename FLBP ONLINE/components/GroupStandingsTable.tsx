@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from '../App';
 import type { Team } from '../types';
 import type { StandingRow } from '../services/groupStandings';
+import { isEmbeddedNativeShell } from '../services/nativeShell';
 
 type HeaderStyle = 'abbr' | 'legend';
 
@@ -41,12 +42,14 @@ export const GroupStandingsTable: React.FC<GroupStandingsTableProps> = ({
   tvReadable = false,
 }) => {
   const { t } = useTranslation();
+  const nativeShell = isEmbeddedNativeShell();
+  const effectiveFitToWidth = fitToWidth && !nativeShell;
   const resolvedAriaLabel = ariaLabel || t('standings_label');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [fitScale, setFitScale] = useState(1);
 
   useLayoutEffect(() => {
-    if (!fitToWidth || compact) {
+    if (!effectiveFitToWidth || compact) {
       setFitScale(1);
       return;
     }
@@ -69,7 +72,7 @@ export const GroupStandingsTable: React.FC<GroupStandingsTableProps> = ({
     const ro = new ResizeObserver(() => measure());
     ro.observe(container);
     return () => ro.disconnect();
-  }, [fitToWidth, compact, rankedTeams.length]);
+  }, [effectiveFitToWidth, compact, rankedTeams.length]);
 
   if (!rankedTeams.length) {
     return <div className="text-xs text-slate-400 italic">{t('no_teams_available')}</div>;
@@ -132,11 +135,11 @@ export const GroupStandingsTable: React.FC<GroupStandingsTableProps> = ({
         </div>
       )}
 
-      <div ref={containerRef} className={fitToWidth ? "overflow-hidden" : "overflow-x-auto"}>
+      <div ref={containerRef} className={effectiveFitToWidth ? "overflow-hidden" : "overflow-x-auto"}>
         <table
           aria-label={resolvedAriaLabel}
           className={`w-full ${compact ? 'text-[10px]' : 'text-xs'}`}
-          style={fitToWidth ? { transform: `scale(${fitScale})`, transformOrigin: 'top left' } : undefined}
+          style={effectiveFitToWidth ? { transform: `scale(${fitScale})`, transformOrigin: 'top left' } : undefined}
         >
           <caption className="sr-only">{resolvedAriaLabel}</caption>
           <thead>

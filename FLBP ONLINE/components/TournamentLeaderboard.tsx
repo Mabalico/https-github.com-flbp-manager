@@ -5,6 +5,7 @@ import { Trophy, Medal, Search, Baby, ChevronDown, ChevronUp, ArrowDown, ArrowUp
 import { isU25, getPlayerKey, resolvePlayerKey } from '../services/storageService';
 import { deriveYoBFromBirthDate, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
+import { isEmbeddedNativeShell } from '../services/nativeShell';
 
 type TournamentLeaderboardVariant = 'sidebar' | 'page';
 type SortField = 'points' | 'soffi' | 'gamesPlayed' | 'winRate' | 'avgPoints' | 'avgSoffi';
@@ -75,12 +76,14 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     playerAliases = {},
 }) => {
     const { t } = useTranslation();
+    const nativeShell = isEmbeddedNativeShell();
     const listId = useId();
     const [isExpanded, setIsExpanded] = useState(false);
     const [sortField, setSortField] = useState<SortField>('points');
     const [searchTerm, setSearchTerm] = useState('');
     const [onlyU25, setOnlyU25] = useState(false);
-    const stickyTh = 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
+    const stickyTh = nativeShell ? '' : 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
+    const pageTableScrollClass = nativeShell ? 'overflow-x-auto' : 'max-h-[68vh] overflow-auto overscroll-contain';
 
     const stats = useMemo(() => {
         const playerMap: Record<string, PlayerStats> = {};
@@ -362,7 +365,7 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                         </div>
                     </div>
 
-                    <div className="max-h-[68vh] overflow-auto overscroll-contain">
+                    <div className={pageTableScrollClass}>
                         <table className="w-full min-w-[1020px] text-left">
                             <thead className="bg-white text-[11px] font-black uppercase tracking-wide text-slate-500">
                                 <tr>
