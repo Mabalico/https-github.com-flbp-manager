@@ -5,8 +5,8 @@ const dir = path.resolve('services/i18n');
 const files = fs.readdirSync(dir).filter((file) => file.endsWith('.ts')).sort();
 const loadDictionary = (file) => {
   let source = fs.readFileSync(path.join(dir, file), 'utf8');
-  source = source.replace(/^import type \{ TranslationDictionary \} from '\.\.\/i18nService';\n\n/, '');
-  source = source.replace(/^export const dictionary: TranslationDictionary = /, 'module.exports = ');
+  source = source.replace(/^\uFEFF?import type \{ TranslationDictionary \} from '\.\.\/i18nService';\r?\n\r?\n/, '');
+  source = source.replace(/^\uFEFF?export const dictionary: TranslationDictionary = /, 'module.exports = ');
   const mod = { exports: {} };
   vm.runInNewContext(source, { module: mod, exports: mod.exports });
   return mod.exports;

@@ -1,16 +1,17 @@
 import { isFinalGroup } from './groupUtils';
 import { isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
+import { buildTournamentStructureIntegritySummary } from './tournamentStructureIntegrity';
 import {
   findTeamEliminated,
   findTeamStartedInPhase,
   getCatalogTeam,
+  getBracketMatches,
   getBracketAssignedTeamIds,
   getGroupAssignedTeamIds,
   getDuplicateBracketTeamIds,
   getDuplicateGroupTeamIds,
   getGroupById,
   getGroupMatches,
-  getRound1Matches,
   getSlotPlacement,
   getSlotValue,
   getTeamPlacement,
@@ -18,6 +19,7 @@ import {
   parseSlotKey,
   isGroupConcluded,
   getMatchById,
+  isLockedBracketMatchForStructureEdit,
 } from './tournamentStructureSelectors';
 import type {
   DraftValidationResult,
@@ -42,12 +44,6 @@ const blocked = (reasonCode: string, humanMessage: string): StructuralTargetChec
   reasonCode,
   humanMessage,
 });
-
-const isLockedBracketMatchForStructureEdit = (match: ReturnType<typeof getMatchById>): boolean => {
-  if (!match) return true;
-  if (match.status === 'playing') return true;
-  return !!match.played && !match.isBye && !match.hidden;
-};
 
 const pushIssueUnique = (bucket: StructuralIssue[], issue: StructuralIssue) => {
   const key = [
@@ -144,15 +140,6 @@ export const getTeamEligibility = (
         status: 'duplicate',
         reasonCode: 'duplicate_in_bracket',
         humanMessage: 'Squadra duplicata nel Round 1 del bracket.',
-        currentPlacement: placement,
-      };
-    }
-    if (findTeamStartedInPhase(snapshot, id, 'bracket')) {
-      return {
-        teamId: id,
-        status: 'locked_by_match',
-        reasonCode: 'locked_by_bracket_match',
-        humanMessage: 'La squadra ha già un match bracket giocato o in corso.',
         currentPlacement: placement,
       };
     }
@@ -361,7 +348,6 @@ export const canInsertTeamIntoBracketSlot = (
   if (!parsed) return blocked('invalid_slot', 'Slot bracket non valido.');
   const match = getMatchById(snapshot, parsed.matchId);
   if (!match) return blocked('invalid_slot', 'Match bracket non trovato.');
-  if ((match.round || 1) !== 1) return blocked('unsupported_round', 'Posso modificare solo il Round 1.');
   if (isLockedBracketMatchForStructureEdit(match)) {
     return blocked('slot_locked', 'Il match di destinazione è già giocato o in corso.');
   }
@@ -382,7 +368,6 @@ export const canReplaceBracketSlot = (
   if (!parsed) return blocked('invalid_slot', 'Slot bracket non valido.');
   const match = getMatchById(snapshot, parsed.matchId);
   if (!match) return blocked('invalid_slot', 'Match bracket non trovato.');
-  if ((match.round || 1) !== 1) return blocked('unsupported_round', 'Posso modificare solo il Round 1.');
   const currentValue = getSlotValue(snapshot, slotKey);
   if (!currentValue || isPlaceholderTeamId(currentValue)) {
     return blocked('slot_not_placeholder', 'Per uno slot BYE/TBD usa l’operazione di insert.');
@@ -397,9 +382,6 @@ export const canReplaceBracketSlot = (
   }
   if (isLockedBracketMatchForStructureEdit(match)) {
     return blocked('slot_locked', 'Il match di destinazione è già giocato o in corso.');
-  }
-  if (findTeamStartedInPhase(snapshot, currentValue, 'bracket')) {
-    return blocked('replace_requires_unplayed_source', 'La squadra presente nello slot ha già iniziato il bracket.');
   }
   const teamState = getTeamEligibility(snapshot, newTeamId, 'bracket');
   if (teamState.status !== 'eligible') return blocked(teamState.reasonCode, teamState.humanMessage);
@@ -418,20 +400,14 @@ export const canMoveBracketSlot = (
   const fromMatch = getMatchById(snapshot, fromParsed.matchId);
   const toMatch = getMatchById(snapshot, toParsed.matchId);
   if (!fromMatch || !toMatch) return blocked('invalid_slot', 'Match bracket non trovato.');
-  if ((fromMatch.round || 1) !== 1 || (toMatch.round || 1) !== 1) {
-    return blocked('unsupported_round', 'Posso spostare solo slot del Round 1.');
-  }
 
   const fromValue = getSlotValue(snapshot, fromSlotKey);
   const toValue = getSlotValue(snapshot, toSlotKey);
   if (!fromValue || isPlaceholderTeamId(fromValue)) {
     return blocked('source_locked', 'Lo slot origine non contiene una squadra reale.');
   }
-  if (!toValue || !(isByeTeamId(toValue) || isTbdTeamId(toValue))) {
-    return blocked('slot_not_placeholder', 'La destinazione deve essere uno slot BYE/TBD.');
-  }
-  if (findTeamStartedInPhase(snapshot, fromValue, 'bracket')) {
-    return blocked('locked_by_bracket_match', 'La squadra origine ha già iniziato il bracket.');
+  if (toValue && !(isByeTeamId(toValue) || isTbdTeamId(toValue))) {
+    return blocked('slot_not_placeholder', 'La destinazione deve essere vuota oppure uno slot BYE/TBD.');
   }
   if (isLockedBracketMatchForStructureEdit(fromMatch)) {
     return blocked('source_locked', 'Il match origine è già giocato o in corso.');
@@ -454,9 +430,6 @@ export const canSwapBracketSlots = (
   const matchA = getMatchById(snapshot, parsedA.matchId);
   const matchB = getMatchById(snapshot, parsedB.matchId);
   if (!matchA || !matchB) return blocked('invalid_slot', 'Match bracket non trovato.');
-  if ((matchA.round || 1) !== 1 || (matchB.round || 1) !== 1) {
-    return blocked('unsupported_round', 'Posso scambiare solo slot del Round 1.');
-  }
   const valueA = getSlotValue(snapshot, slotAKey);
   const valueB = getSlotValue(snapshot, slotBKey);
   if (!valueA || !valueB) return blocked('invalid_slot', 'Uno dei due slot è vuoto.');
@@ -465,12 +438,6 @@ export const canSwapBracketSlots = (
   const bPlaceholder = isPlaceholderTeamId(valueB);
   if (aPlaceholder && bPlaceholder) {
     return blocked('slot_not_placeholder', 'Due placeholder non hanno nulla da scambiare.');
-  }
-  if (!aPlaceholder && findTeamStartedInPhase(snapshot, valueA, 'bracket')) {
-    return blocked('locked_by_bracket_match', 'La prima squadra ha già iniziato il bracket.');
-  }
-  if (!bPlaceholder && findTeamStartedInPhase(snapshot, valueB, 'bracket')) {
-    return blocked('locked_by_bracket_match', 'La seconda squadra ha già iniziato il bracket.');
   }
   if (isLockedBracketMatchForStructureEdit(matchA) || isLockedBracketMatchForStructureEdit(matchB)) {
     return blocked('slot_locked', 'Non posso intervenire su match bracket già giocati o in corso.');
@@ -484,6 +451,7 @@ export const validateDraftBeforeApply = (
 ): DraftValidationResult => {
   const blockingErrors: StructuralIssue[] = [];
   const warnings: StructuralIssue[] = [];
+  const integrity = buildTournamentStructureIntegritySummary(draft);
 
   for (const group of draft.tournament.groups || []) {
     if ((group.teams || []).some((team) => isPlaceholderTeamId(team.id))) {
@@ -511,6 +479,15 @@ export const validateDraftBeforeApply = (
       severity: 'blocking',
       code: 'duplicate_in_bracket',
       message: `Squadra duplicata nel Round 1 del bracket: ${getCatalogTeam(draft, teamId)?.name || teamId}.`,
+      teamId,
+    });
+  }
+
+  for (const teamId of integrity.excluded) {
+    pushIssueUnique(blockingErrors, {
+      severity: 'blocking',
+      code: 'team_excluded_from_structure',
+      message: `La squadra ${getCatalogTeam(draft, teamId)?.name || teamId} è rimasta fuori dalla struttura del torneo.`,
       teamId,
     });
   }
@@ -585,37 +562,22 @@ export const validateDraftBeforeApply = (
     });
   }
 
-  for (const teamId of getBracketAssignedTeamIds(original)) {
-    if (!findTeamStartedInPhase(original, teamId, 'bracket')) continue;
-    const originalPlacement = getTeamPlacement(original, teamId, 'bracket');
-    const draftPlacement = getTeamPlacement(draft, teamId, 'bracket');
-    if ((originalPlacement?.slotKey || '') === (draftPlacement?.slotKey || '')) continue;
-    pushIssueUnique(blockingErrors, {
-      severity: 'blocking',
-      code: 'locked_by_bracket_match',
-      message: `La squadra ${getCatalogTeam(original, teamId)?.name || teamId} ha già iniziato il bracket e non può essere spostata.`,
-      teamId,
-      slotKey: originalPlacement?.slotKey,
-      matchId: originalPlacement?.matchId,
-    });
+  const originalBracketSlots = new Map<string, string>();
+  const draftBracketSlots = new Map<string, string>();
+  for (const match of getBracketMatches(original)) {
+    originalBracketSlots.set(`${match.id}|A`, String(match.teamAId || '').trim());
+    originalBracketSlots.set(`${match.id}|B`, String(match.teamBId || '').trim());
   }
-
-  const originalRound1 = new Map<string, string>();
-  const draftRound1 = new Map<string, string>();
-  for (const match of getRound1Matches(original)) {
-    originalRound1.set(`${match.id}|A`, String(match.teamAId || '').trim());
-    originalRound1.set(`${match.id}|B`, String(match.teamBId || '').trim());
+  for (const match of getBracketMatches(draft)) {
+    draftBracketSlots.set(`${match.id}|A`, String(match.teamAId || '').trim());
+    draftBracketSlots.set(`${match.id}|B`, String(match.teamBId || '').trim());
   }
-  for (const match of getRound1Matches(draft)) {
-    draftRound1.set(`${match.id}|A`, String(match.teamAId || '').trim());
-    draftRound1.set(`${match.id}|B`, String(match.teamBId || '').trim());
-  }
-  for (const match of getRound1Matches(original)) {
-    if (!(match.status === 'playing' || match.played)) continue;
+  for (const match of getBracketMatches(original)) {
+    if (!isLockedBracketMatchForStructureEdit(match)) continue;
     for (const side of ['A', 'B'] as const) {
       const slotKey = `${match.id}|${side}`;
-      const beforeTeamId = originalRound1.get(slotKey) || '';
-      const afterTeamId = draftRound1.get(slotKey) || '';
+      const beforeTeamId = originalBracketSlots.get(slotKey) || '';
+      const afterTeamId = draftBracketSlots.get(slotKey) || '';
       if (beforeTeamId === afterTeamId) continue;
       pushIssueUnique(blockingErrors, {
         severity: 'blocking',
@@ -627,23 +589,10 @@ export const validateDraftBeforeApply = (
       });
     }
   }
-  for (const [slotKey, beforeTeamId] of originalRound1.entries()) {
-    const afterTeamId = draftRound1.get(slotKey) || '';
-    if (beforeTeamId === afterTeamId || !beforeTeamId || isPlaceholderTeamId(beforeTeamId)) continue;
-    if (findTeamStartedInPhase(original, beforeTeamId, 'bracket')) {
-      pushIssueUnique(blockingErrors, {
-        severity: 'blocking',
-        code: 'replace_requires_unplayed_source',
-        message: `La squadra ${getCatalogTeam(original, beforeTeamId)?.name || beforeTeamId} ha già iniziato il bracket e non può essere rimossa dallo slot ${slotKey}.`,
-        teamId: beforeTeamId,
-        slotKey,
-      });
-    }
-  }
 
   if (!blockingErrors.length) {
-    const futureStartedMatches = (draft.matches || []).filter(
-      (match) => match.phase === 'bracket' && (match.round || 1) > 1 && (match.status === 'playing' || match.status === 'finished')
+    const futureStartedMatches = getBracketMatches(draft).filter(
+      (match) => (match.round || 1) > 1 && isLockedBracketMatchForStructureEdit(match)
     );
     if (futureStartedMatches.length) {
       pushIssueUnique(warnings, {

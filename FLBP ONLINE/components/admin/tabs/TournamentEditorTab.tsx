@@ -7,6 +7,8 @@ import {
   GripVertical,
   Info,
   Lock,
+  Maximize2,
+  Minimize2,
   RefreshCcw,
   RotateCcw,
   Save,
@@ -23,10 +25,13 @@ import { setRemoteBaseUpdatedAt } from '../../../services/supabaseRest';
 import {
   buildTournamentStructureSnapshot,
   findTeamStartedInPhase,
+  getBracketMatches,
   getCatalogTeam,
+  getMatchById,
   getRound1Matches,
   getSlotValue,
   hasRealBracketStarted,
+  isLockedBracketMatchForStructureEdit,
 } from '../../../services/tournamentStructureSelectors';
 import {
   canInsertTeamIntoBracketSlot,
@@ -388,8 +393,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const [pendingApplyLocal, setPendingApplyLocal] = React.useState<ReturnType<typeof prepareTournamentStructureApply> | null>(null);
   const [liveOutOfSync, setLiveOutOfSync] = React.useState(false);
   const previewPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const bracketWorkspaceRef = React.useRef<HTMLDivElement | null>(null);
   const dragPointerRef = React.useRef<{ x: number; y: number; target: EventTarget | null }>({ x: 0, y: 0, target: null });
   const dragAutoscrollFrameRef = React.useRef<number | null>(null);
+  const [isBracketFullscreen, setIsBracketFullscreen] = React.useState(false);
 
   const stopDragAutoscroll = React.useCallback(() => {
     if (dragAutoscrollFrameRef.current !== null) {
@@ -403,7 +410,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   }, [initialView]);
 
   const groupsAvailable = (draft.state.present.tournament.groups || []).length > 0;
-  const bracketAvailable = getRound1Matches(draft.state.present).length > 0;
+  const allBracketMatches = React.useMemo(() => getBracketMatches(draft.state.present), [draft.state.present]);
+  const bracketAvailable = allBracketMatches.length > 0;
   const currentPhase: StructuralPhase = view === 'groups' ? 'groups' : 'bracket';
 
   React.useEffect(() => {
@@ -471,6 +479,14 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     const timer = window.setTimeout(() => setSnackbar(null), 3200);
     return () => window.clearTimeout(timer);
   }, [snackbar]);
+
+  React.useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsBracketFullscreen(document.fullscreenElement === bracketWorkspaceRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   React.useEffect(() => {
     if (!hasLiveTournament) return;
@@ -763,7 +779,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           return;
         }
         const targetValue = getSlotValue(draft.state.present, slotKey);
-        if (targetValue && isPlaceholderTeamId(targetValue)) {
+        if (!targetValue || isPlaceholderTeamId(targetValue)) {
           applyOperation({ type: 'MOVE_BRACKET_SLOT', fromSlotKey: activeSource.slotKey, toSlotKey: slotKey }, 'success');
           return;
         }
@@ -785,7 +801,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       }
       if (activeSource.kind === 'bracket-slot') {
         const targetValue = getSlotValue(draft.state.present, slotKey);
-        return targetValue && isPlaceholderTeamId(targetValue)
+        return !targetValue || isPlaceholderTeamId(targetValue)
           ? canMoveBracketSlot(draft.state.present, activeSource.slotKey, slotKey)
           : canSwapBracketSlots(draft.state.present, activeSource.slotKey, slotKey);
       }
@@ -795,6 +811,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   );
 
   const round1Matches = React.useMemo(() => getRound1Matches(draft.state.present), [draft.state.present]);
+  const allBracketSlotKeys = React.useMemo(
+    () => allBracketMatches.flatMap((match) => [`${match.id}|A`, `${match.id}|B`]),
+    [allBracketMatches]
+  );
   const round1SlotKeys = React.useMemo(() => round1Matches.flatMap((match) => [`${match.id}|A`, `${match.id}|B`]), [round1Matches]);
   const round1HasPlaceholderSlots = React.useMemo(
     () => round1SlotKeys.some((slotKey) => {
@@ -811,20 +831,34 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     applyOperation({ type: 'ADD_PRELIMINARY_BRACKET_ROUND' }, 'success');
   }, [applyOperation]);
 
+  const toggleBracketFullscreen = React.useCallback(async () => {
+    const node = bracketWorkspaceRef.current;
+    if (!node) return;
+    try {
+      if (document.fullscreenElement === node) {
+        await document.exitFullscreen();
+      } else {
+        await node.requestFullscreen();
+      }
+    } catch {
+      setInteractionMessage('Non sono riuscito ad attivare lo schermo intero per il tabellone.');
+    }
+  }, []);
+
   const bracketActiveCheckMap = React.useMemo(() => {
     const valid = new Set<string>();
     const invalid = new Set<string>();
-    for (const slotKey of round1SlotKeys) {
+    for (const slotKey of allBracketSlotKeys) {
       const check = bracketTargetCheck(slotKey);
       if (!check) continue;
       if (check.allowed) valid.add(slotKey);
       else invalid.add(slotKey);
     }
     return { valid, invalid };
-  }, [bracketTargetCheck, round1SlotKeys]);
+  }, [allBracketSlotKeys, bracketTargetCheck]);
   const interactiveByeSlots = React.useMemo(() => {
     const activeSource = dragSource || selection;
-    return activeSource?.kind === 'pool-team';
+    return activeSource?.kind === 'pool-team' || activeSource?.kind === 'bracket-slot';
   }, [dragSource, selection]);
 
   const highlightedBracketSlots = React.useMemo(() => {
@@ -847,11 +881,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
   const lockedBracketSlots = React.useMemo(
     () =>
-      round1SlotKeys.filter((slotKey) => {
-        const teamId = getSlotValue(draft.state.present, slotKey);
-        return !!teamId && !isPlaceholderTeamId(teamId) && findTeamStartedInPhase(draft.state.present, teamId, 'bracket');
-      }),
-    [draft.state.present, round1SlotKeys]
+      allBracketMatches.flatMap((match) =>
+        isLockedBracketMatchForStructureEdit(match) ? [`${match.id}|A`, `${match.id}|B`] : []
+      ),
+    [allBracketMatches]
   );
 
   const applyPreparedSnapshot = React.useCallback(
@@ -1526,19 +1559,35 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                       {t('editor_bracket_capacity_hint_prefix')} <span className="font-semibold text-[var(--editor-text-primary)]">{t('editor_bracket_capacity_hint_highlight')}</span>{t('editor_bracket_capacity_hint_suffix')}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAddPreliminaryRound}
-                    disabled={!canExpandBracketWithPreliminaryRound}
-                    className={editorOutlineButtonClass}
-                  >
-                    <Brackets className="h-4 w-4" />
-                    {t('editor_add_preliminary_round')}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleBracketFullscreen}
+                      className={editorGhostButtonClass}
+                    >
+                      {isBracketFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                      {isBracketFullscreen ? 'Esci da schermo intero' : 'Schermo intero'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddPreliminaryRound}
+                      disabled={!canExpandBracketWithPreliminaryRound}
+                      className={editorOutlineButtonClass}
+                    >
+                      <Brackets className="h-4 w-4" />
+                      {t('editor_add_preliminary_round')}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div id="editor-bracket-workspace" className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] p-2.5 lg:p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+              <div
+                id="editor-bracket-workspace"
+                ref={bracketWorkspaceRef}
+                className={`rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
+                  isBracketFullscreen ? 'h-screen overflow-auto p-4' : 'overflow-auto p-2.5 lg:p-3'
+                }`}
+              >
                 <TournamentBracket
                   teams={draft.state.present.catalogTeams}
                   matches={draft.state.present.matches}
@@ -1560,7 +1609,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     const slotKey = `${args.matchId}|${args.side}`;
                     const teamId = getSlotValue(draft.state.present, slotKey) || undefined;
                     if (!teamId) return;
-                    if (!isPlaceholderTeamId(teamId) && findTeamStartedInPhase(draft.state.present, teamId, 'bracket')) {
+                    const match = getMatchById(draft.state.present, args.matchId);
+                    if (match && isLockedBracketMatchForStructureEdit(match)) {
                       setInteractionMessage(t('editor_bracket_slot_locked_started'));
 
                       return;

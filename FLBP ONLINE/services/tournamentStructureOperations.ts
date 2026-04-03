@@ -21,6 +21,7 @@ import {
   getRound1Matches,
   getSlotValue,
   hasRealBracketStarted,
+  isLockedBracketMatchForStructureEdit,
   parseSlotKey,
   resolveWinnerTeamId,
   syncTournamentRosterFromStructure,
@@ -122,9 +123,9 @@ const isRealTeamId = (id?: string) => {
   return !!raw && !isPlaceholderTeamId(raw);
 };
 
-const resetEditableRound1BracketMatch = (match: Match): Match => {
-  if (match.phase !== 'bracket' || (match.round || 1) !== 1) return match;
-  if (match.status === 'playing') return match;
+const resetEditableBracketMatch = (match: Match): Match => {
+  if (match.phase !== 'bracket') return match;
+  if (isLockedBracketMatchForStructureEdit(match)) return match;
 
   const teamAId = String(match.teamAId || '').trim();
   const teamBId = String(match.teamBId || '').trim();
@@ -220,24 +221,6 @@ export const realignFutureBracketFromRound1 = (snapshot: TournamentStructureSnap
   const roundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
   const rounds = roundNumbers.map((round) => (bracketRoundsMap.get(round) || []).slice().sort(sortByOrderIndexSafe));
 
-  for (const match of matches) {
-    if (match.phase !== 'bracket') continue;
-    if ((match.round || 1) <= 1) continue;
-    if (match.status === 'playing' || (match.status === 'finished' && !match.isBye && !match.hidden)) continue;
-    byId.set(match.id, {
-      ...match,
-      teamAId: undefined,
-      teamBId: undefined,
-      scoreA: 0,
-      scoreB: 0,
-      played: false,
-      status: 'scheduled',
-      hidden: false,
-      isBye: false,
-      stats: undefined,
-    });
-  }
-
   for (let rIdx = 0; rIdx < rounds.length - 1; rIdx += 1) {
     const currentRound = rounds[rIdx] || [];
     const nextRound = rounds[rIdx + 1] || [];
@@ -247,10 +230,14 @@ export const realignFutureBracketFromRound1 = (snapshot: TournamentStructureSnap
       const targetSkeleton = nextRound[Math.floor(mIdx / 2)];
       if (!targetSkeleton) continue;
       const target = byId.get(targetSkeleton.id) || targetSkeleton;
-      if (target.status === 'playing' || (target.status === 'finished' && !target.isBye && !target.hidden)) continue;
+      if (isLockedBracketMatchForStructureEdit(target)) continue;
 
       const slot: 'teamAId' | 'teamBId' = mIdx % 2 === 0 ? 'teamAId' : 'teamBId';
       const winner = resolveWinnerTeamId(current);
+      if (!winner) {
+        byId.set(target.id, normalizeFutureBracketMatch(target));
+        continue;
+      }
       byId.set(
         target.id,
         normalizeFutureBracketMatch({
@@ -478,7 +465,7 @@ const applyInsertTeamInBracketSlot = (
   const team = getCatalogTeam(next, teamId);
   if (!match || !team) return makeBlockedResult(blockedLike('unknown', 'Slot o squadra non trovati.'));
   (match as any)[parsed.field] = teamId;
-  Object.assign(match, resetEditableRound1BracketMatch(match));
+  Object.assign(match, resetEditableBracketMatch(match));
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'INSERT_TEAM_IN_BRACKET_SLOT', `Inserita ${team.name} nello slot ${slotKey}.`, check);
 };
@@ -496,7 +483,7 @@ const applyReplaceBracketSlot = (
   const team = getCatalogTeam(next, newTeamId);
   if (!match || !team) return makeBlockedResult(blockedLike('unknown', 'Slot o squadra non trovati.'));
   (match as any)[parsed.field] = newTeamId;
-  Object.assign(match, resetEditableRound1BracketMatch(match));
+  Object.assign(match, resetEditableBracketMatch(match));
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'REPLACE_BRACKET_SLOT', `Sostituita la squadra nello slot ${slotKey} con ${team.name}.`, check);
 };
@@ -516,10 +503,10 @@ const applyMoveBracketSlot = (
   if (!fromMatch || !toMatch) return makeBlockedResult(blockedLike('unknown', 'Match bracket non trovato.'));
   const value = String((fromMatch as any)[fromParsed.field] || '').trim();
   const targetPlaceholder = String((toMatch as any)[toParsed.field] || '').trim();
-  (fromMatch as any)[fromParsed.field] = targetPlaceholder || 'BYE';
+  (fromMatch as any)[fromParsed.field] = targetPlaceholder && isPlaceholderTeamId(targetPlaceholder) ? targetPlaceholder : undefined;
   (toMatch as any)[toParsed.field] = value;
-  Object.assign(fromMatch, resetEditableRound1BracketMatch(fromMatch));
-  Object.assign(toMatch, resetEditableRound1BracketMatch(toMatch));
+  Object.assign(fromMatch, resetEditableBracketMatch(fromMatch));
+  Object.assign(toMatch, resetEditableBracketMatch(toMatch));
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'MOVE_BRACKET_SLOT', `Spostata la squadra ${getCatalogTeam(snapshot, value)?.name || value} da ${fromSlotKey} a ${toSlotKey}.`, check);
 };
@@ -554,8 +541,8 @@ const applySwapBracketSlots = (
   const currentB = String((matchB as any)[parsedB.field] || '').trim();
   (matchA as any)[parsedA.field] = currentB;
   (matchB as any)[parsedB.field] = currentA;
-  Object.assign(matchA, resetEditableRound1BracketMatch(matchA));
-  Object.assign(matchB, resetEditableRound1BracketMatch(matchB));
+  Object.assign(matchA, resetEditableBracketMatch(matchA));
+  Object.assign(matchB, resetEditableBracketMatch(matchB));
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'SWAP_BRACKET_SLOTS', `Scambiati gli slot ${slotAKey} e ${slotBKey}.`, check);
 };

@@ -53,6 +53,7 @@ fun PlayerAreaScreen(
     var birthDate by rememberSaveable(snapshot.profile?.accountId, snapshot.profile?.updatedAt) {
         mutableStateOf(snapshot.profile?.birthDate.orEmpty())
     }
+    var emailPanelExpanded by rememberSaveable { mutableStateOf(true) }
     val playerAliasPool = remember(snapshot.profile, snapshot.results) {
         buildList {
             snapshot.profile?.canonicalPlayerName?.let(::add)
@@ -98,68 +99,100 @@ fun PlayerAreaScreen(
 
         item {
             if (snapshot.session == null) {
-                SectionCard(title = "Sign in / Register") {
+                SectionCard(title = "Register or sign in") {
                     Text(
-                        text = "Create or unlock a preview account on this device using a real email address. Real Supabase player auth stays prepared in the repo but inactive until the backend rollout.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("Email") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Password recovery will use this email address once live auth plus a real administrator sender email are enabled.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = firstName,
-                        onValueChange = { firstName = it },
-                        label = { Text("First name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = lastName,
-                        onValueChange = { lastName = it },
-                        label = { Text("Last name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = birthDate,
-                        onValueChange = { birthDate = it },
-                        label = { Text("Birth date (YYYY-MM-DD)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    Text(
-                        text = "Name, surname and birth date are used when creating the player profile linked to the account.",
+                        text = "Choose the access method first. Tournament participation stays open to everyone, while the account unlocks the extra player area.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onSignIn(username, password) }) {
-                            Text("Sign in")
-                        }
-                        OutlinedButton(onClick = { onRegister(username, password, firstName, lastName, birthDate) }) {
-                            Text("Register")
+                    OutlinedButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Continue with Facebook")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Continue with Google")
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("or", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { emailPanelExpanded = !emailPanelExpanded },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Continue with email")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Google/Facebook live auth stays backend-pending. Email/password is already prepared as the primary path.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (emailPanelExpanded) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { username = it },
+                            label = { Text("Email") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("Password") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Password recovery will use this email address once live auth plus a real administrator sender email are enabled.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = firstName,
+                            onValueChange = { firstName = it },
+                            label = { Text("First name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = lastName,
+                            onValueChange = { lastName = it },
+                            label = { Text("Last name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = birthDate,
+                            onValueChange = { birthDate = it },
+                            label = { Text("Birth date (YYYY-MM-DD)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Text(
+                            text = "Name, surname and birth date are used when creating the player profile linked to the account.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onSignIn(username, password) }) {
+                                Text("Sign in")
+                            }
+                            OutlinedButton(onClick = { onRegister(username, password, firstName, lastName, birthDate) }) {
+                                Text("Register")
+                            }
                         }
                     }
                 }

@@ -77,3 +77,8 @@ chat non affidabile, seguo il repository.
 ## 2026-04-02
 - chiuso lato web il wiring additivo live per `player_area`, `Account giocatori`, chiamate squadra e `pullRefereeLiveState(...)`, lasciando Android come prossimo consumer di quel backend una volta applicate le migration reali
 - allineata la documentazione Android: i wrapper/public flow restano coerenti col modello DB-first e il prossimo cablaggio nativo dovra' appoggiarsi alle stesse tabelle/RPC (`player_app_profiles`, `player_app_devices`, `player_app_calls`, `flbp_admin_list_player_accounts`, `flbp_referee_pull_live_state`)
+
+## 2026-04-03
+- riallineata la schermata Android `player_area` non autenticata a un funnel piu' chiaro: scelta iniziale del provider, CTA primaria `Continue with email` e form email/password raccolto in un blocco dedicato
+- mantenuta la stessa logica preview locale / live-ready gia' presente, senza introdurre scorciatoie incoerenti col backend reale
+- verificata di nuovo la build Android con `:app:assembleDebug`

@@ -27,6 +27,15 @@ Questo file descrive **cosa fa l’app e come lavora**, collegando ogni macro-fu
   - mittente email amministratore reale / SMTP
   - push device reali per le convocazioni squadra
 
+## Aggiornamento 2026-04-03
+
+- In `Editor Torneo -> Bracket` le modifiche strutturali non sono piu' limitate al solo Round 1: ora e' possibile intervenire anche sui branch futuri incompleti e sui round successivi non realmente giocati.
+- I match `team vs BYE` continuano a contare come assegnazioni valide nella struttura, ma non bloccano l'editing come se fossero partite giocate.
+- Restano bloccati solo i match bracket davvero giocati o in corso; i controlli di integrita' continuano a impedire squadre escluse dalla struttura e duplicati nel punto di ingresso del bracket.
+- L'editor bracket web include ora anche il toggle `Schermo intero` per lavorare meglio sul tabellone in editing.
+- La schermata `player_area` non autenticata e' stata riallineata a un funnel piu' chiaro: social login visuale in alto, separatore `oppure`, ingresso email in evidenza e form email/password subito sotto.
+- Ripulita la formattazione corrotta del dizionario italiano (`Modalità`, frecce, ellissi, apostrofi e caratteri accentati) nei testi UI che mostravano mojibake.
+
 ---
 
 ## Modalità applicazione (Tester vs Ufficiale)

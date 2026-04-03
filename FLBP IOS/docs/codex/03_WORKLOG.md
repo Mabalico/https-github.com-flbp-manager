@@ -69,3 +69,8 @@ chat non affidabile, seguo il repository.
 ## 2026-04-02
 - chiuso lato web il wiring additivo live per `player_area`, `Account giocatori`, chiamate squadra e `pullRefereeLiveState(...)`, lasciando iOS come prossimo consumer di quel backend una volta applicate le migration reali
 - allineata la documentazione iOS: il prossimo cablaggio nativo dovra' appoggiarsi alle stesse tabelle/RPC (`player_app_profiles`, `player_app_devices`, `player_app_calls`, `flbp_admin_list_player_accounts`, `flbp_referee_pull_live_state`) gia' preparate e usate dal web quando disponibili
+
+## 2026-04-03
+- riallineata la schermata iOS `player_area` non autenticata allo stesso funnel del web: provider social mostrati in alto, CTA email in evidenza e form email/password raccolto sotto
+- mantenuta la distinzione tra preview locale e rollout live, con note esplicite su reset password e mittente amministratore reale ancora da configurare
+- il sorgente iOS e' stato aggiornato in parita' funzionale con Android/web per questo blocco UI, in attesa della compile reale su Mac/Xcode

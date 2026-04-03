@@ -1539,6 +1539,7 @@ struct PlayerAreaScreenView: View {
     @State private var firstName: String
     @State private var lastName: String
     @State private var birthDate: String
+    @State private var emailPanelExpanded = true
 
     private var playerAliasPool: [String] {
         Array(
@@ -1603,35 +1604,53 @@ struct PlayerAreaScreenView: View {
                 }
 
                 if snapshot.session == nil {
-                    SectionCard(title: "Sign in / Register") {
-                        Text("Create or unlock a preview account on this device using a real email address. Real Supabase player auth stays prepared in the repo but inactive until the backend rollout.")
+                    SectionCard(title: "Register or sign in") {
+                        Text("Choose the access method first. Tournament participation stays open to everyone, while the account unlocks the extra player area.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        TextField("Email", text: $username)
-                            .textFieldStyle(.roundedBorder)
-                        SecureField("Password", text: $password)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Password recovery will use this email address once live auth plus a real administrator sender email are enabled.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        TextField("First name", text: $firstName)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Last name", text: $lastName)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Birth date (YYYY-MM-DD)", text: $birthDate)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Name, surname and birth date are used when creating the player profile linked to the account.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 8) {
-                            Button("Sign in") {
-                                onSignIn(username, password)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            Button("Register") {
-                                onRegister(username, password, firstName, lastName, birthDate)
-                            }
+                        Button("Continue with Facebook") {}
                             .buttonStyle(.bordered)
+                            .disabled(true)
+                        Button("Continue with Google") {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+                        Text("or")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
+                        Button(emailPanelExpanded ? "Hide email access" : "Continue with email") {
+                            emailPanelExpanded.toggle()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Text("Google/Facebook live auth stays backend-pending. Email/password is already prepared as the primary path.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        if emailPanelExpanded {
+                            TextField("Email", text: $username)
+                                .textFieldStyle(.roundedBorder)
+                            SecureField("Password", text: $password)
+                                .textFieldStyle(.roundedBorder)
+                            Text("Password recovery will use this email address once live auth plus a real administrator sender email are enabled.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            TextField("First name", text: $firstName)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("Last name", text: $lastName)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("Birth date (YYYY-MM-DD)", text: $birthDate)
+                                .textFieldStyle(.roundedBorder)
+                            Text("Name, surname and birth date are used when creating the player profile linked to the account.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Button("Sign in") {
+                                    onSignIn(username, password)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                Button("Register") {
+                                    onRegister(username, password, firstName, lastName, birthDate)
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
                     }
                 } else {

@@ -95,6 +95,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [authMode, setAuthMode] = React.useState<'login' | 'register'>('login');
+  const [emailPanelOpen, setEmailPanelOpen] = React.useState(true);
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [firstName, setFirstName] = React.useState('');
@@ -465,89 +466,107 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
             ) : null}
 
             {!effectiveSession ? (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
-                  <div>
-                    <div className={sectionTitleClass}>
-                      {authMode === 'login' ? t('player_area_login_title') : t('player_area_register_title')}
-                    </div>
-                    <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+              <div className="mx-auto max-w-xl">
+                <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60 md:p-6">
+                  <div className="text-center">
+                    <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_login_title')}</div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
                       {t('player_area_preview_note')}
                     </div>
-                    <div className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                      {t('player_area_email_recovery_hint')}
-                    </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setAuthMode('login')} className={authMode === 'login' ? btnPrimary : btnSecondary}>
-                      <LogIn className="h-4 w-4" /> {t('player_area_sign_in')}
+                  <div className="mt-6 space-y-3">
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-[#1877F2] bg-[#1877F2] px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(24,119,242,0.6)] disabled:cursor-not-allowed disabled:opacity-100"
+                    >
+                      <Facebook className="h-4 w-4" /> Accedi con Facebook
                     </button>
-                    <button type="button" onClick={() => setAuthMode('register')} className={authMode === 'register' ? btnPrimary : btnSecondary}>
-                      <UserPlus className="h-4 w-4" /> {t('player_area_register')}
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-black text-slate-700 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.18)] disabled:cursor-not-allowed disabled:opacity-100"
+                    >
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700">G</span>
+                      Accedi con Google
+                    </button>
+
+                    <div className="flex items-center gap-3 py-1">
+                      <div className="h-px flex-1 bg-slate-200" />
+                      <span className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">oppure</span>
+                      <div className="h-px flex-1 bg-slate-200" />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setEmailPanelOpen((value) => !value)}
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-teal-500 bg-teal-500 px-4 py-3.5 text-sm font-black text-white shadow-[0_14px_30px_-22px_rgba(20,184,166,0.55)] hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                    >
+                      <Mail className="h-4 w-4" />
+                      Accedi con la tua email
                     </button>
                   </div>
 
-                  <div className="space-y-3">
-                    <div>
-                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</div>
-                      <input value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder={t('player_area_email_placeholder')} />
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_password')}</div>
-                      <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} placeholder={t('player_area_password_placeholder')} />
-                    </div>
-                    {authMode === 'register' ? (
-                      <>
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div>
-                            <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
-                            <input value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} placeholder={t('player_area_first_name_placeholder')} />
-                          </div>
-                          <div>
-                            <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
-                            <input value={lastName} onChange={(event) => setLastName(event.target.value)} className={inputClass} placeholder={t('player_area_last_name_placeholder')} />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
-                          <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
-                          <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-
-                  <button type="button" onClick={submitAuth} className={btnPrimary}>
-                    {authMode === 'login' ? <LogIn className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
-                    {authMode === 'login' ? t('player_area_sign_in') : t('player_area_register')}
-                  </button>
-                  <button type="button" onClick={() => void requestPasswordReset()} className={btnSecondary}>
-                    <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
-                  </button>
-                </div>
-
-                <div className="rounded-[22px] border border-slate-200 bg-white p-4 md:p-5 space-y-4">
-                  <div>
-                    <div className={sectionTitleClass}>{t('player_area_social_title')}</div>
-                    <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                      {t('player_area_social_desc')}
-                    </div>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <button type="button" disabled className={btnSecondary}>
-                      <Mail className="h-4 w-4" /> Google
-                    </button>
-                    <button type="button" disabled className={btnSecondary}>
-                      <Facebook className="h-4 w-4" /> Facebook
-                    </button>
-                    <button type="button" disabled className={btnSecondary}>
-                      <BadgeCheck className="h-4 w-4" /> Apple
-                    </button>
-                  </div>
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
                     {t('player_area_social_pending')}
                   </div>
+
+                  {emailPanelOpen ? (
+                    <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setAuthMode('login')} className={authMode === 'login' ? btnPrimary : btnSecondary}>
+                          <LogIn className="h-4 w-4" /> {t('player_area_sign_in')}
+                        </button>
+                        <button type="button" onClick={() => setAuthMode('register')} className={authMode === 'register' ? btnPrimary : btnSecondary}>
+                          <UserPlus className="h-4 w-4" /> {t('player_area_register')}
+                        </button>
+                      </div>
+
+                      <div className="text-xs font-semibold leading-5 text-slate-500">
+                        {t('player_area_email_recovery_hint')}
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</div>
+                          <input value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder={t('player_area_email_placeholder')} />
+                        </div>
+                        <div>
+                          <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_password')}</div>
+                          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} placeholder={t('player_area_password_placeholder')} />
+                        </div>
+                        {authMode === 'register' ? (
+                          <>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <div>
+                                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
+                                <input value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} placeholder={t('player_area_first_name_placeholder')} />
+                              </div>
+                              <div>
+                                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
+                                <input value={lastName} onChange={(event) => setLastName(event.target.value)} className={inputClass} placeholder={t('player_area_last_name_placeholder')} />
+                              </div>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
+                              <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
+                              <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+
+                      <button type="button" onClick={submitAuth} className={`${btnPrimary} w-full`}>
+                        {authMode === 'login' ? <LogIn className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+                        {authMode === 'login' ? t('player_area_sign_in') : t('player_area_register')}
+                      </button>
+
+                      <button type="button" onClick={() => void requestPasswordReset()} className={`${btnSecondary} w-full`}>
+                        <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : !effectiveProfile ? (
