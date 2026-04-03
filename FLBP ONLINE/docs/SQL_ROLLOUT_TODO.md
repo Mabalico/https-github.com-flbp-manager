@@ -159,6 +159,7 @@ Eccezioni ancora volontarie, da ricordare:
 - il problema "referto arbitri salvato ma tabellone pubblico non aggiornato" va trattato come segnale di:
   - build Cloudflare vecchia
   - oppure vista pubblica non ancora allineata alla single source of truth
+- Android e iOS ora riparano automaticamente dati preview player corrotti/orfani e offrono un reset esplicito locale, ma restano comunque preview-first finche' il runtime live completo non sostituisce quel percorso
 
 ## Regola operativa cross-app
 

@@ -31,6 +31,8 @@ Stato attuale reale:
 - usa una email reale come identificatore del preview account giocatore sul device
 - nella Player Area preview mostra anche `First name` / `Last name` / `Birth date` gia' in registrazione, coerente con il web
 - mantiene `Nome` / `Cognome` separati lato UI dove serve, ma continua a derivare l'identita' canonica del giocatore nel formato interno stabile
+- ripara automaticamente sessioni/account/profili/call preview corrotti o orfani trovati sul device
+- espone anche un reset esplicito dei dati locali della `player_area`, cosi' il fallback preview non deve bloccare il render
 - documenta il recupero password come reset via email, non invio password; il live reset resta backend-pending finche' non viene collegato un mittente amministratore reale / SMTP reale
 - se il profilo giocatore collegato e' anche arbitro del live, apre `referees_area` senza password torneo sul device
 - espone una overview Admin consultativa con stato snapshot e live tournament monitor

@@ -118,11 +118,93 @@ class NativePlayerPreviewStore(context: Context) {
 
     fun readSession(): NativePlayerPreviewSession? {
         val raw = prefs.getString(PLAYER_PREVIEW_SESSION, null) ?: return null
-        return runCatching { sessionFromJson(JSONObject(raw)) }.getOrNull()
+        return parseSession(raw)
     }
 
     fun signOut() {
         prefs.edit().remove(PLAYER_PREVIEW_SESSION).apply()
+    }
+
+    fun clearAllPreviewData() {
+        prefs.edit()
+            .remove(PLAYER_PREVIEW_ACCOUNTS)
+            .remove(PLAYER_PREVIEW_SESSION)
+            .remove(PLAYER_PREVIEW_PROFILES)
+            .remove(PLAYER_PREVIEW_CALLS)
+            .apply()
+    }
+
+    fun repairCorruptedState(): String? {
+        val repairs = linkedSetOf<String>()
+        val editor = prefs.edit()
+
+        val accountsRaw = prefs.getString(PLAYER_PREVIEW_ACCOUNTS, null)
+        val accounts = when {
+            accountsRaw == null -> emptyList()
+            else -> parseAccounts(accountsRaw) ?: run {
+                editor.remove(PLAYER_PREVIEW_ACCOUNTS)
+                repairs += "invalid account records"
+                emptyList()
+            }
+        }
+        val validAccountIds = accounts.mapTo(linkedSetOf()) { it.id }
+
+        val sessionRaw = prefs.getString(PLAYER_PREVIEW_SESSION, null)
+        val session = when {
+            sessionRaw == null -> null
+            else -> parseSession(sessionRaw) ?: run {
+                editor.remove(PLAYER_PREVIEW_SESSION)
+                repairs += "invalid session"
+                null
+            }
+        }
+        if (session != null && session.accountId !in validAccountIds) {
+            editor.remove(PLAYER_PREVIEW_SESSION)
+            repairs += "orphaned session"
+        }
+
+        var profilesToRewrite: Map<String, NativePlayerPreviewProfile>? = null
+        val profilesRaw = prefs.getString(PLAYER_PREVIEW_PROFILES, null)
+        when {
+            profilesRaw == null -> Unit
+            parseProfiles(profilesRaw) == null -> {
+                editor.remove(PLAYER_PREVIEW_PROFILES)
+                repairs += "invalid profiles"
+            }
+            else -> {
+                val profiles = parseProfiles(profilesRaw).orEmpty()
+                val filtered = profiles.filterKeys { it in validAccountIds }
+                if (filtered.size != profiles.size) {
+                    profilesToRewrite = filtered
+                    repairs += "orphaned profile links"
+                }
+            }
+        }
+
+        var callsToRewrite: List<NativePlayerPreviewCall>? = null
+        val callsRaw = prefs.getString(PLAYER_PREVIEW_CALLS, null)
+        when {
+            callsRaw == null -> Unit
+            parseCalls(callsRaw) == null -> {
+                editor.remove(PLAYER_PREVIEW_CALLS)
+                repairs += "invalid call alerts"
+            }
+            else -> {
+                val calls = parseCalls(callsRaw).orEmpty()
+                val filtered = calls.filter { it.targetAccountId in validAccountIds }
+                if (filtered.size != calls.size) {
+                    callsToRewrite = filtered
+                    repairs += "orphaned call alerts"
+                }
+            }
+        }
+
+        editor.apply()
+        profilesToRewrite?.let(::writeProfiles)
+        callsToRewrite?.let(::writeCalls)
+
+        if (repairs.isEmpty()) return null
+        return "Player area local preview data were repaired on this device: ${repairs.joinToString(", ")}."
     }
 
     fun registerAccount(usernameRaw: String, passwordRaw: String): NativePlayerPreviewSession {
@@ -337,7 +419,7 @@ class NativePlayerPreviewStore(context: Context) {
 
     private fun readAccounts(): List<NativePlayerPreviewAccount> {
         val raw = prefs.getString(PLAYER_PREVIEW_ACCOUNTS, null) ?: return emptyList()
-        return runCatching { JSONArray(raw).jsonObjects().map(::accountFromJson) }.getOrDefault(emptyList())
+        return parseAccounts(raw) ?: emptyList()
     }
 
     private fun writeAccounts(rows: List<NativePlayerPreviewAccount>) {
@@ -359,14 +441,7 @@ class NativePlayerPreviewStore(context: Context) {
 
     private fun readProfiles(): Map<String, NativePlayerPreviewProfile> {
         val raw = prefs.getString(PLAYER_PREVIEW_PROFILES, null) ?: return emptyMap()
-        return runCatching {
-            val root = JSONObject(raw)
-            buildMap {
-                root.keys().forEach { accountId ->
-                    root.optJSONObject(accountId)?.let { put(accountId, profileFromJson(it)) }
-                }
-            }
-        }.getOrDefault(emptyMap())
+        return parseProfiles(raw) ?: emptyMap()
     }
 
     private fun writeProfiles(rows: Map<String, NativePlayerPreviewProfile>) {
@@ -378,7 +453,7 @@ class NativePlayerPreviewStore(context: Context) {
 
     private fun readCalls(): List<NativePlayerPreviewCall> {
         val raw = prefs.getString(PLAYER_PREVIEW_CALLS, null) ?: return emptyList()
-        return runCatching { JSONArray(raw).jsonObjects().map(::callFromJson) }.getOrDefault(emptyList())
+        return parseCalls(raw) ?: emptyList()
     }
 
     private fun writeCalls(rows: List<NativePlayerPreviewCall>) {
@@ -387,6 +462,25 @@ class NativePlayerPreviewStore(context: Context) {
             JSONArray().apply { rows.forEach { put(it.toJson()) } }.toString(),
         ).apply()
     }
+
+    private fun parseSession(raw: String): NativePlayerPreviewSession? =
+        runCatching { sessionFromJson(JSONObject(raw)) }.getOrNull()
+
+    private fun parseAccounts(raw: String): List<NativePlayerPreviewAccount>? =
+        runCatching { JSONArray(raw).jsonObjects().map(::accountFromJson) }.getOrNull()
+
+    private fun parseProfiles(raw: String): Map<String, NativePlayerPreviewProfile>? =
+        runCatching {
+            val root = JSONObject(raw)
+            buildMap {
+                root.keys().forEach { accountId ->
+                    root.optJSONObject(accountId)?.let { put(accountId, profileFromJson(it)) }
+                }
+            }
+        }.getOrNull()
+
+    private fun parseCalls(raw: String): List<NativePlayerPreviewCall>? =
+        runCatching { JSONArray(raw).jsonObjects().map(::callFromJson) }.getOrNull()
 }
 
 fun buildNativePlayerAreaSnapshot(
@@ -415,6 +509,38 @@ fun buildNativePlayerAreaSnapshot(
         ),
     )
 }
+
+fun buildSafeNativePlayerAreaSnapshot(
+    catalog: NativePublicCatalog,
+    leaderboard: List<NativeLeaderboardEntry>,
+    hallOfFame: List<NativeHallOfFameEntry>,
+    liveBundle: NativeTournamentBundle?,
+    store: NativePlayerPreviewStore,
+): NativePlayerAreaSnapshot =
+    runCatching {
+        buildNativePlayerAreaSnapshot(
+            catalog = catalog,
+            leaderboard = leaderboard,
+            hallOfFame = hallOfFame,
+            liveBundle = liveBundle,
+            store = store,
+        )
+    }.getOrElse {
+        NativePlayerAreaSnapshot(
+            session = null,
+            profile = null,
+            results = null,
+            liveStatus = buildNativePlayerLiveStatus(catalog, liveBundle, null, store),
+            featureStatus = NativePlayerFeatureStatus(
+                previewEnabled = true,
+                remoteAuthPrepared = false,
+                socialProvidersPrepared = listOf("Google", "Facebook", "Apple"),
+                playerProfilesPrepared = true,
+                playerCallsPrepared = false,
+                refereeBypassPrepared = true,
+            ),
+        )
+    }
 
 private fun buildNativePlayerResultSnapshot(
     profile: NativePlayerPreviewProfile,

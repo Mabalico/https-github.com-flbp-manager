@@ -39,6 +39,7 @@ fun PlayerAreaScreen(
     onAcknowledgeCall: (String) -> Unit,
     onClearCall: (String) -> Unit,
     onOpenReferees: () -> Unit,
+    onResetPreviewData: () -> Unit,
 ) {
     var username by rememberSaveable(snapshot.session?.accountId) {
         mutableStateOf(snapshot.session?.username.orEmpty())
@@ -417,6 +418,13 @@ fun PlayerAreaScreen(
                 PlayerStatusRow(label = "Player profile", value = snapshot.featureStatus.playerProfilesPrepared)
                 PlayerStatusRow(label = "Live call alerts", value = snapshot.featureStatus.playerCallsPrepared)
                 PlayerStatusRow(label = "Referee bypass", value = snapshot.featureStatus.refereeBypassPrepared)
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onResetPreviewData,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Reset local preview data")
+                }
             }
         }
     }

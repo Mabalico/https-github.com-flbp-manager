@@ -1274,6 +1274,72 @@ final class NativePlayerPreviewStore {
         defaults.removeObject(forKey: Keys.session)
     }
 
+    func clearAllPreviewData() {
+        defaults.removeObject(forKey: Keys.accounts)
+        defaults.removeObject(forKey: Keys.session)
+        defaults.removeObject(forKey: Keys.profiles)
+        defaults.removeObject(forKey: Keys.calls)
+    }
+
+    func repairCorruptedState() -> String? {
+        var repairs = [String]()
+
+        let accounts: [NativePlayerPreviewAccount]
+        if let data = defaults.data(forKey: Keys.accounts) {
+            if let decoded = decodeRawValue([NativePlayerPreviewAccount].self, from: data) {
+                accounts = decoded
+            } else {
+                defaults.removeObject(forKey: Keys.accounts)
+                repairs.append("invalid account records")
+                accounts = []
+            }
+        } else {
+            accounts = []
+        }
+        let validAccountIds = Set(accounts.map(\.id))
+
+        if let data = defaults.data(forKey: Keys.session) {
+            if let session = decodeRawValue(NativePlayerPreviewSession.self, from: data) {
+                if !validAccountIds.contains(session.accountId) {
+                    defaults.removeObject(forKey: Keys.session)
+                    repairs.append("orphaned session")
+                }
+            } else {
+                defaults.removeObject(forKey: Keys.session)
+                repairs.append("invalid session")
+            }
+        }
+
+        if let data = defaults.data(forKey: Keys.profiles) {
+            if let decoded = decodeRawValue([String: NativePlayerPreviewProfile].self, from: data) {
+                let filtered = decoded.filter { validAccountIds.contains($0.key) }
+                if filtered.count != decoded.count {
+                    writeProfiles(filtered)
+                    repairs.append("orphaned profile links")
+                }
+            } else {
+                defaults.removeObject(forKey: Keys.profiles)
+                repairs.append("invalid profiles")
+            }
+        }
+
+        if let data = defaults.data(forKey: Keys.calls) {
+            if let decoded = decodeRawValue([NativePlayerPreviewCall].self, from: data) {
+                let filtered = decoded.filter { validAccountIds.contains($0.targetAccountId) }
+                if filtered.count != decoded.count {
+                    writeCalls(filtered)
+                    repairs.append("orphaned call alerts")
+                }
+            } else {
+                defaults.removeObject(forKey: Keys.calls)
+                repairs.append("invalid call alerts")
+            }
+        }
+
+        guard !repairs.isEmpty else { return nil }
+        return "Player area local preview data were repaired on this device: \(Array(Set(repairs)).joined(separator: ", "))."
+    }
+
     @discardableResult
     func registerAccount(username: String, password: String) throws -> NativePlayerPreviewSession {
         let safeUsername = normalizePreviewUsername(username)
@@ -1604,12 +1670,16 @@ final class NativePlayerPreviewStore {
 
     private func decodeValue<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
         guard let data = defaults.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        return decodeRawValue(type, from: data)
     }
 
     private func encodeValue<T: Encodable>(_ value: T, forKey key: String) {
         guard let data = try? JSONEncoder().encode(value) else { return }
         defaults.set(data, forKey: key)
+    }
+
+    private func decodeRawValue<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
+        try? JSONDecoder().decode(T.self, from: data)
     }
 }
 
@@ -1637,6 +1707,22 @@ func buildNativePlayerAreaSnapshot(
             playerCallsPrepared: false,
             refereeBypassPrepared: true
         )
+    )
+}
+
+func buildSafeNativePlayerAreaSnapshot(
+    catalog: NativePublicCatalog,
+    leaderboard: [NativeLeaderboardEntry],
+    hallOfFame: [NativeHallOfFameEntry],
+    liveBundle: NativeTournamentBundle?,
+    store: NativePlayerPreviewStore
+) -> NativePlayerAreaSnapshot {
+    buildNativePlayerAreaSnapshot(
+        catalog: catalog,
+        leaderboard: leaderboard,
+        hallOfFame: hallOfFame,
+        liveBundle: liveBundle,
+        store: store
     )
 }
 

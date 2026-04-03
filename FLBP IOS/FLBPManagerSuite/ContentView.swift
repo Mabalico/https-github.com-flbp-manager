@@ -75,7 +75,7 @@ struct ContentView: View {
 
     private var playerSnapshot: NativePlayerAreaSnapshot {
         _ = playerPreviewToken
-        return buildNativePlayerAreaSnapshot(
+        return buildSafeNativePlayerAreaSnapshot(
             catalog: model.catalog,
             leaderboard: model.leaderboard,
             hallOfFame: model.hallOfFame,
@@ -252,6 +252,23 @@ struct ContentView: View {
             }
             refereesError = nil
         }
+        .task(id: playerPreviewToken) {
+            guard let repairMessage = playerStore.repairCorruptedState() else { return }
+            let repairedSnapshot = buildSafeNativePlayerAreaSnapshot(
+                catalog: model.catalog,
+                leaderboard: model.leaderboard,
+                hallOfFame: model.hallOfFame,
+                liveBundle: playerLiveBundle,
+                store: playerStore
+            )
+            if !repairedSnapshot.liveStatus.refereeBypassEligible &&
+                refereesAuthedTournamentId == model.catalog.liveTournament?.id {
+                refereesAuthedTournamentId = ""
+            }
+            playerPreviewToken = UUID()
+            playerInfoMessage = repairMessage
+            playerError = nil
+        }
         .onChange(of: model.catalog) { _ in
             guard let selectedTournament = publicState.selectedTournament else { return }
             if !model.containsTournament(id: selectedTournament.id) {
@@ -416,7 +433,17 @@ struct ContentView: View {
                         playerInfoMessage = nil
                     }
                 },
-                onOpenReferees: { selectedToolsRouteId = NativeRoute.refereesArea.rawValue }
+                onOpenReferees: { selectedToolsRouteId = NativeRoute.refereesArea.rawValue },
+                onResetPreviewData: {
+                    let liveTournamentId = model.catalog.liveTournament?.id ?? ""
+                    if !liveTournamentId.isEmpty && refereesAuthedTournamentId == liveTournamentId {
+                        refereesAuthedTournamentId = ""
+                    }
+                    playerStore.clearAllPreviewData()
+                    playerPreviewToken = UUID()
+                    playerInfoMessage = "Local preview data reset on this device."
+                    playerError = nil
+                }
             )
 
         case .admin:

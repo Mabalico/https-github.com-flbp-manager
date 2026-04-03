@@ -74,3 +74,6 @@ chat non affidabile, seguo il repository.
 - riallineata la schermata iOS `player_area` non autenticata allo stesso funnel del web: provider social mostrati in alto, CTA email in evidenza e form email/password raccolto sotto
 - mantenuta la distinzione tra preview locale e rollout live, con note esplicite su reset password e mittente amministratore reale ancora da configurare
 - il sorgente iOS e' stato aggiornato in parita' funzionale con Android/web per questo blocco UI, in attesa della compile reale su Mac/Xcode
+- irrobustito `NativePlayerPreviewStore` contro dati locali corrotti o orfani: sessione, account, profili e call preview vengono riparati automaticamente quando possibile
+- aggiunto bootstrap safe della `player_area` iOS, cosi' il render non deve piu' dipendere da un payload locale preview coerente al 100%
+- aggiunta anche una CTA esplicita `Reset local preview data` nella `player_area`, con pulizia del bypass arbitri se non piu' coerente col profilo locale

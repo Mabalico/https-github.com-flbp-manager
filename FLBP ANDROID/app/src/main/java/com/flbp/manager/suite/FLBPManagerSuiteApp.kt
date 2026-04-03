@@ -132,7 +132,7 @@ private fun NativeAppScreen() {
         hallOfFame,
         playerLiveBundle,
     ) {
-        buildNativePlayerAreaSnapshot(
+        buildSafeNativePlayerAreaSnapshot(
             catalog = catalog,
             leaderboard = leaderboard,
             hallOfFame = hallOfFame,
@@ -145,6 +145,25 @@ private fun NativeAppScreen() {
             leaderboard = leaderboard,
             hallOfFame = hallOfFame,
         )
+    }
+
+    LaunchedEffect(playerPreviewNonce) {
+        val repairMessage = playerStore.repairCorruptedState() ?: return@LaunchedEffect
+        val repairedSnapshot = buildSafeNativePlayerAreaSnapshot(
+            catalog = catalog,
+            leaderboard = leaderboard,
+            hallOfFame = hallOfFame,
+            liveBundle = playerLiveBundle,
+            store = playerStore,
+        )
+        if (!repairedSnapshot.liveStatus.refereeBypassEligible &&
+            refereesAuthedTournamentId == catalog.liveTournament?.id
+        ) {
+            refereesAuthedTournamentId = ""
+        }
+        playerPreviewNonce += 1
+        playerInfoMessage = repairMessage
+        playerError = null
     }
 
     LaunchedEffect(refreshNonce) {
@@ -567,10 +586,20 @@ private fun NativeAppScreen() {
                             .onFailure { error ->
                                 playerError = error.message ?: "Unable to clear the team call."
                                 playerInfoMessage = null
-                            }
+                        }
                     }
                 },
                 onOpenReferees = { selectedToolsRouteId = AppRoute.REFEREES_AREA.id },
+                onResetPreviewData = {
+                    val shouldClearBypass = refereesAuthedTournamentId == catalog.liveTournament?.id
+                    playerStore.clearAllPreviewData()
+                    if (shouldClearBypass) {
+                        refereesAuthedTournamentId = ""
+                    }
+                    playerPreviewNonce += 1
+                    playerInfoMessage = "Local preview data reset on this device."
+                    playerError = null
+                },
             )
 
             AppRoute.ADMIN -> AdminToolsScreen(

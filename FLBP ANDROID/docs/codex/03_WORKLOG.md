@@ -82,3 +82,6 @@ chat non affidabile, seguo il repository.
 - riallineata la schermata Android `player_area` non autenticata a un funnel piu' chiaro: scelta iniziale del provider, CTA primaria `Continue with email` e form email/password raccolto in un blocco dedicato
 - mantenuta la stessa logica preview locale / live-ready gia' presente, senza introdurre scorciatoie incoerenti col backend reale
 - verificata di nuovo la build Android con `:app:assembleDebug`
+- irrobustito `NativePlayerPreviewStore` contro dati locali corrotti o orfani: sessione, account, profili e call preview vengono riparati automaticamente quando possibile
+- aggiunto bootstrap safe della `player_area` Android, cosi' il render non deve piu' cadere se il payload locale preview e' incoerente sul device
+- aggiunta anche una CTA esplicita `Reset local preview data` nella `player_area`, con pulizia del bypass arbitri se non piu' coerente col profilo locale

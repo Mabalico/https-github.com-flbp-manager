@@ -1533,6 +1533,7 @@ struct PlayerAreaScreenView: View {
     let onAcknowledgeCall: (String) -> Void
     let onClearCall: (String) -> Void
     let onOpenReferees: () -> Void
+    let onResetPreviewData: () -> Void
 
     @State private var username: String
     @State private var password = ""
@@ -1564,7 +1565,8 @@ struct PlayerAreaScreenView: View {
         onSignOut: @escaping () -> Void,
         onAcknowledgeCall: @escaping (String) -> Void,
         onClearCall: @escaping (String) -> Void,
-        onOpenReferees: @escaping () -> Void
+        onOpenReferees: @escaping () -> Void,
+        onResetPreviewData: @escaping () -> Void
     ) {
         self.snapshot = snapshot
         self.infoMessage = infoMessage
@@ -1576,6 +1578,7 @@ struct PlayerAreaScreenView: View {
         self.onAcknowledgeCall = onAcknowledgeCall
         self.onClearCall = onClearCall
         self.onOpenReferees = onOpenReferees
+        self.onResetPreviewData = onResetPreviewData
         _username = State(initialValue: snapshot.session?.username ?? "")
         _firstName = State(initialValue: snapshot.profile?.firstName ?? "")
         _lastName = State(initialValue: snapshot.profile?.lastName ?? "")
@@ -1807,6 +1810,10 @@ struct PlayerAreaScreenView: View {
                     PlayerStatusRowView(label: "Player profile", value: snapshot.featureStatus.playerProfilesPrepared)
                     PlayerStatusRowView(label: "Live call alerts", value: snapshot.featureStatus.playerCallsPrepared)
                     PlayerStatusRowView(label: "Referee bypass", value: snapshot.featureStatus.refereeBypassPrepared)
+                    Button("Reset local preview data") {
+                        onResetPreviewData()
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
             .padding(16)

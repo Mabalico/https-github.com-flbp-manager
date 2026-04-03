@@ -31,6 +31,8 @@ chat non affidabile, seguo il repository.
 - account giocatore opzionale preview-only con profilo locale: SI
 - email reale come identificatore del preview account giocatore: SI
 - campi `First name` / `Last name` / `Birth date` gia' presenti nel flusso di registrazione preview: SI
+- riparazione safe dei dati locali corrotti/orfani della `player_area` preview: SI
+- reset esplicito dei dati preview locali della `player_area` sul device: SI
 - risultati personali e live status giocatore derivati dai dataset pubblici: SI
 - segnalazione nativa `Possible alias` su classifiche, albo, dettaglio torneo e player area: SI
 - alert di chiamata squadra preview-only sul device: SI
@@ -60,6 +62,7 @@ chat non affidabile, seguo il repository.
 - derivazione roster arbitri dai flag `player1_is_referee` / `player2_is_referee` / `is_referee` del bundle pubblico
 - selezione arbitro locale prima dell'apertura referto, con fallback manuale e persistenza per torneo sul device
 - `player_area` nativa con account preview locale, profilo, risultati personali, stato live, call state e route verso `referees_area`
+- bootstrap safe della `player_area` con riparazione di sessioni/account/profili/call orfani o corrotti
 - bypass password arbitri sul device quando il profilo giocatore collegato coincide con un arbitro del torneo live
 
 ## Rischi aperti reali
@@ -71,3 +74,4 @@ chat non affidabile, seguo il repository.
   - registrazione device/push reali
   - wiring native runtime oltre la preview locale
 - reset password reale ancora non attivo: serve collegare auth live + mittente email amministratore reale / SMTP reale
+- la `player_area` resta preview locale, ma ora ha fallback safe e reset dati esplicito per ridurre i blocchi lato device
