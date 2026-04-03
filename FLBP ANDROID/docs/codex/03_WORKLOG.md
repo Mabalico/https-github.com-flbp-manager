@@ -105,3 +105,5 @@ chat non affidabile, seguo il repository.
 - corretto il rendering WebView delle schermate storiche (`Leaderboard`, `HallOfFame`, `TournamentLeaderboard`): in shell nativa non usano piu' contenitori interni con `max-height + overflow + sticky header` che lasciavano le tabelle visivamente vuote su Android
 - allineato anche `GroupStandingsTable` al comportamento shell-aware: niente `fitToWidth` scalato nella shell nativa, meglio scorrimento regolare e contenuto sempre visibile
 - rebuild Android verificata green con `:app:assembleDebug` e reinstallazione reale sul device dopo il fix del web mirror
+- forzato anche il WebView Android a ignorare la cache locale (`LOAD_NO_CACHE`, clear cache/history/form data) e introdotto `shell_rev` nella URL del mirror per evitare che l'app continui a mostrare bundle web vecchi dopo i deploy
+- ridotta di circa il 10% la dimensione apparente del logo launcher Android tramite `inset` sull'adaptive icon background, cosi' il cerchio nero resta tutto nel quadratino

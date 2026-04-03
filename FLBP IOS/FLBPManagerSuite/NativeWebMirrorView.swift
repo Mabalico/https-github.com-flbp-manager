@@ -3,7 +3,7 @@ import WebKit
 
 enum NativeWebMirrorConfig {
     static let enabled = true
-    static let baseUrl = URL(string: "https://flbp-pages.pages.dev/?native_shell=ios")!
+    static let baseUrl = URL(string: "https://flbp-pages.pages.dev/?native_shell=ios&shell_rev=20260403c")!
 }
 
 struct NativeWebMirrorHostView<Fallback: View>: View {
@@ -76,14 +76,18 @@ private struct NativeWebMirrorWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: url))
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        webView.load(request)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         if context.coordinator.lastReloadToken != reloadToken {
             context.coordinator.lastReloadToken = reloadToken
-            webView.load(URLRequest(url: url))
+            var request = URLRequest(url: url)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            webView.load(request)
         }
     }
 

@@ -3,6 +3,7 @@ package com.flbp.manager.suite
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -33,7 +34,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 object NativeWebMirrorConfig {
     const val enabled: Boolean = true
-    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android"
+    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260403c"
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -73,6 +74,10 @@ fun NativeWebMirrorHost(
                         settings.loadsImagesAutomatically = true
                         settings.loadWithOverviewMode = true
                         settings.useWideViewPort = true
+                        settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                        clearCache(true)
+                        clearHistory()
+                        clearFormData()
                         webChromeClient = WebChromeClient()
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {

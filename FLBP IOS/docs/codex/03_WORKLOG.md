@@ -89,3 +89,4 @@ chat non affidabile, seguo il repository.
 - aggiunto anche su iOS il flag `?native_shell=ios` al web mirror primario, cosi' il frontend web puo' adattare il layout quando gira dentro la shell nativa
 - riallineati a sorgente i componenti web mirror-aware: le schermate storiche non devono piu' dipendere da contenitori interni con `max-height + overflow + sticky header`, che nei WebView possono risultare vuoti o non scorrere correttamente
 - mantenuto lo stesso fix architetturale anche su iOS per evitare divergenze future rispetto ad Android e `FLBP ONLINE`
+- forzato anche il WKWebView iOS a usare `reloadIgnoringLocalCacheData` e aggiornato `shell_rev`, cosi' il mirror nativo non resta inchiodato a risorse web obsolete dopo i deploy
