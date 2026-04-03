@@ -160,6 +160,11 @@ Eccezioni ancora volontarie, da ricordare:
   - build Cloudflare vecchia
   - oppure vista pubblica non ancora allineata alla single source of truth
 - Android e iOS ora riparano automaticamente dati preview player corrotti/orfani e offrono un reset esplicito locale, ma restano comunque preview-first finche' il runtime live completo non sostituisce quel percorso
+- web, Android e iOS ora devono ripartire da `home` all'avvio/riapertura, senza riaprire automaticamente l'ultima view pubblica salvata
+- l'area giocatore web e native va mantenuta non-bloccante:
+  - bootstrap safe
+  - fallback locale difensivo
+  - schermata ancora navigabile anche se la derivazione player/live fallisce o richiede piu' tempo
 
 ## Regola operativa cross-app
 

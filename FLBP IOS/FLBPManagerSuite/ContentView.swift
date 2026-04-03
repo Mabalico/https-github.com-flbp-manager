@@ -40,8 +40,12 @@ struct ContentView: View {
     @State private var toolsLiveBundle: NativeTournamentBundle?
     @State private var toolsLiveBundleLoading = false
     @State private var toolsLiveBundleError: String?
+    @State private var didForceLaunchHome = false
 
     private var publicState: PublicRouteState {
+        guard didForceLaunchHome else {
+            return PublicRouteState(route: .home, selectedTournament: nil)
+        }
         let route = NativeRoute(rawValue: storedPublicRouteId).flatMap { route in
             (route.group == .publicPrimary || route == .tournamentDetail) ? route : nil
         } ?? .home
@@ -56,6 +60,7 @@ struct ContentView: View {
     }
 
     private var selectedToolsRoute: NativeRoute? {
+        guard didForceLaunchHome else { return nil }
         NativeRoute(rawValue: selectedToolsRouteId).flatMap { $0.group == .tools ? $0 : nil }
     }
 
@@ -143,6 +148,15 @@ struct ContentView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(.stack)
+        .task {
+            guard !didForceLaunchHome else { return }
+            storedPublicRouteId = NativeRoute.home.rawValue
+            storedTournamentId = ""
+            storedTournamentIsLive = false
+            storedTvModeRaw = ""
+            selectedToolsRouteId = ""
+            didForceLaunchHome = true
+        }
         .task(id: refreshToken) {
             await model.refreshAll()
         }

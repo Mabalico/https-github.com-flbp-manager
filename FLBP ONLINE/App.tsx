@@ -240,7 +240,7 @@ const App: React.FC = () => {
         return `${year}-${month}-${day}`;
     };
 
-    const [view, setView] = useState(() => safeView(localStorage.getItem(VIEW_KEY)));
+    const [view, setView] = useState(() => 'home');
     const [tvMode, setTvMode] = useState<TvProjection | null>(() => {
         const stored = localStorage.getItem('flbp_tv_mode');
         return stored ? assertTvProjectionSafe(stored) : null;
@@ -788,8 +788,8 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        try { localStorage.setItem(VIEW_KEY, view); } catch {}
-    }, [view]);
+        try { localStorage.removeItem(VIEW_KEY); } catch {}
+    }, []);
 
     useEffect(() => {
         try { localStorage.setItem(LANG_KEY, language); } catch {}
@@ -1125,7 +1125,7 @@ const App: React.FC = () => {
                         <UiErrorBoundary
                             title={t('player_area')}
                             onReset={() => {
-                                try { localStorage.setItem(VIEW_KEY, 'home'); } catch {}
+                                try { localStorage.removeItem(VIEW_KEY); } catch {}
                                 try { localStorage.removeItem('flbp_player_preview_accounts_v1'); } catch {}
                                 try { localStorage.removeItem('flbp_player_preview_session_v1'); } catch {}
                                 try { localStorage.removeItem('flbp_player_preview_profiles_v1'); } catch {}

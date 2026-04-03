@@ -95,6 +95,7 @@ private fun NativeAppScreen() {
     var toolsLiveBundle by remember { mutableStateOf<NativeTournamentBundle?>(null) }
     var toolsLiveBundleLoading by remember { mutableStateOf(false) }
     var toolsLiveBundleError by remember { mutableStateOf<String?>(null) }
+    var didForceLaunchHome by remember { mutableStateOf(false) }
 
     fun readPublicState(): PublicRouteState {
         val route = AppRoute.fromId(storedPublicRouteId).takeIf {
@@ -117,9 +118,17 @@ private fun NativeAppScreen() {
         selectedToolsRouteId = ""
     }
 
-    val publicState = readPublicState()
+    val publicState = if (didForceLaunchHome) {
+        readPublicState()
+    } else {
+        PublicRouteState(route = AppRoute.HOME, selectedTournament = null)
+    }
     val tvMode = NativeTvProjection.fromId(tvModeId)
-    val selectedToolsRoute = AppRoute.fromId(selectedToolsRouteId).takeIf { it.group == RouteGroup.TOOLS }
+    val selectedToolsRoute = if (didForceLaunchHome) {
+        AppRoute.fromId(selectedToolsRouteId).takeIf { it.group == RouteGroup.TOOLS }
+    } else {
+        null
+    }
     val selectedRoute = selectedToolsRoute ?: publicState.resolvedRoute
     val playerLiveBundle = remember(catalog.liveTournament?.id, toolsLiveBundle) {
         val liveTournamentId = catalog.liveTournament?.id ?: return@remember null
@@ -145,6 +154,15 @@ private fun NativeAppScreen() {
             leaderboard = leaderboard,
             hallOfFame = hallOfFame,
         )
+    }
+
+    LaunchedEffect(Unit) {
+        storedPublicRouteId = AppRoute.HOME.id
+        storedTournamentId = ""
+        storedTournamentIsLive = false
+        selectedToolsRouteId = ""
+        tvModeId = null
+        didForceLaunchHome = true
     }
 
     LaunchedEffect(playerPreviewNonce) {

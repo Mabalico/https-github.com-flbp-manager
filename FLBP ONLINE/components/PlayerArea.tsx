@@ -33,7 +33,7 @@ import {
 } from '../services/supabaseRest';
 import {
   acknowledgePlayerPreviewCall,
-  buildPlayerAreaSnapshot,
+  buildPlayerAreaBootstrapSnapshot,
   buildPlayerCanonicalIdentity,
   buildPlayerRuntimeProfileSnapshot,
   buildPlayerRuntimeSessionFromSupabase,
@@ -67,6 +67,11 @@ const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hov
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500`;
 const PLAYER_WEB_DEVICE_ID_KEY = 'flbp_player_web_device_id_v1';
+
+const schedulePlayerAreaTask = (task: () => void) => {
+  const timerId = window.setTimeout(task, 0);
+  return () => window.clearTimeout(timerId);
+};
 
 const MetricCard: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div className={metricCardClass}>
@@ -139,23 +144,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     liveBackendEnabled ? 'loading' : 'disabled'
   );
   const [liveRuntimeError, setLiveRuntimeError] = React.useState<string | null>(null);
-  const snapshotState = React.useMemo(() => {
-    try {
-      return {
-        snapshot: buildPlayerAreaSnapshot(state),
-        bootstrapError: null as string | null,
-      };
-    } catch (error: any) {
-      const message = String(error?.message || error || t('player_area_preview_error'));
-      console.error('[PlayerArea] Safe bootstrap fallback', error);
-      return {
-        snapshot: buildSafePlayerAreaSnapshot(state, liveBackendEnabled),
-        bootstrapError: message,
-      };
-    }
-  }, [liveBackendEnabled, refreshNonce, state, t]);
-  const snapshot = snapshotState.snapshot;
-  const bootstrapError = snapshotState.bootstrapError;
+  const safeSnapshot = React.useMemo(() => buildSafePlayerAreaSnapshot(state, liveBackendEnabled), [liveBackendEnabled, state]);
+  const [snapshot, setSnapshot] = React.useState(() => safeSnapshot);
+  const [bootstrapError, setBootstrapError] = React.useState<string | null>(null);
+  const [bootstrapPending, setBootstrapPending] = React.useState(true);
+  const [liveDerivedPersonalProfile, setLiveDerivedPersonalProfile] =
+    React.useState<ReturnType<typeof buildPlayerRuntimeProfileSnapshot>>(null);
+  const [liveDerivedStatus, setLiveDerivedStatus] =
+    React.useState<ReturnType<typeof derivePlayerLiveStatus> | null>(null);
+  const [liveDerivedError, setLiveDerivedError] = React.useState<string | null>(null);
+  const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
 
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
@@ -166,6 +164,36 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
     };
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setBootstrapPending(true);
+    const cancel = schedulePlayerAreaTask(() => {
+      try {
+        const bootstrap = buildPlayerAreaBootstrapSnapshot();
+        const runtimeProfile = toPlayerRuntimeProfile(bootstrap.profile);
+        if (cancelled) return;
+        setSnapshot({
+          ...bootstrap,
+          personalProfile: buildPlayerRuntimeProfileSnapshot(state, runtimeProfile),
+          liveStatus: derivePlayerLiveStatus(state, runtimeProfile),
+        });
+        setBootstrapError(null);
+      } catch (error: any) {
+        const message = String(error?.message || error || t('player_area_preview_error'));
+        console.error('[PlayerArea] Safe bootstrap fallback', error);
+        if (cancelled) return;
+        setSnapshot(safeSnapshot);
+        setBootstrapError(message);
+      } finally {
+        if (!cancelled) setBootstrapPending(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+      cancel();
+    };
+  }, [refreshNonce, safeSnapshot, state, t]);
 
   const refreshLiveRuntime = React.useCallback(async (forcedSession?: PlayerSupabaseSession | null) => {
     if (!liveBackendEnabled) {
@@ -289,10 +317,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const previewRuntimeProfile = React.useMemo(() => toPlayerRuntimeProfile(snapshot.profile), [snapshot.profile]);
   const effectiveSession = liveRuntimeSession || snapshot.session;
   const effectiveProfile = liveRuntimeSession ? liveRuntimeProfile : previewRuntimeProfile;
-  const effectivePersonalProfile = React.useMemo(
-    () => (effectiveProfile ? buildPlayerRuntimeProfileSnapshot(state, effectiveProfile) : null),
-    [effectiveProfile, state]
-  );
   const activeLiveCall = React.useMemo(
     () =>
       [...liveCalls]
@@ -300,10 +324,48 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         .sort((a, b) => b.requestedAt - a.requestedAt)[0] || null,
     [liveCalls]
   );
-  const effectiveLiveStatus = React.useMemo(
-    () => (effectiveProfile ? derivePlayerLiveStatus(state, effectiveProfile, liveRuntimeSession ? activeLiveCall : undefined) : snapshot.liveStatus),
-    [effectiveProfile, state, liveRuntimeSession, activeLiveCall, snapshot.liveStatus]
-  );
+
+  React.useEffect(() => {
+    if (!liveRuntimeSession || !liveRuntimeProfile) {
+      setLiveDerivedPersonalProfile(null);
+      setLiveDerivedStatus(null);
+      setLiveDerivedError(null);
+      setLiveDerivedPending(false);
+      return;
+    }
+    let cancelled = false;
+    setLiveDerivedPending(true);
+    const cancel = schedulePlayerAreaTask(() => {
+      try {
+        const personalProfile = buildPlayerRuntimeProfileSnapshot(state, liveRuntimeProfile);
+        const liveStatus = derivePlayerLiveStatus(state, liveRuntimeProfile, activeLiveCall);
+        if (cancelled) return;
+        setLiveDerivedPersonalProfile(personalProfile);
+        setLiveDerivedStatus(liveStatus);
+        setLiveDerivedError(null);
+      } catch (error: any) {
+        const message = String(error?.message || error || t('player_area_preview_error'));
+        console.error('[PlayerArea] Deferred live derivation failed', error);
+        if (cancelled) return;
+        setLiveDerivedPersonalProfile(null);
+        setLiveDerivedStatus(null);
+        setLiveDerivedError(message);
+      } finally {
+        if (!cancelled) setLiveDerivedPending(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+      cancel();
+    };
+  }, [activeLiveCall, liveRuntimeProfile, liveRuntimeSession, state, t]);
+
+  const effectivePersonalProfile = liveRuntimeSession
+    ? liveDerivedPersonalProfile
+    : snapshot.personalProfile;
+  const effectiveLiveStatus = liveRuntimeSession
+    ? (liveDerivedStatus || safeSnapshot.liveStatus)
+    : snapshot.liveStatus;
   const effectiveFeatureStatus = React.useMemo(() => ({
     ...snapshot.featureStatus,
     supabaseConfigured: liveBackendEnabled,
@@ -510,9 +572,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
               </div>
             ) : null}
 
+            {bootstrapPending || liveDerivedPending ? (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
+                Sto preparando l'area giocatore senza bloccare l'interfaccia.
+              </div>
+            ) : null}
+
             {liveRuntimeError && effectiveSession?.mode === 'live' ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
                 {liveRuntimeError}
+              </div>
+            ) : null}
+
+            {liveDerivedError && effectiveSession?.mode === 'live' ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                Area giocatore ripristinata in modalita sicura. {liveDerivedError}
               </div>
             ) : null}
 

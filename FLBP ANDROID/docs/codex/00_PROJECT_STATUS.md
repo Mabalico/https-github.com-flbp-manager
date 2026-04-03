@@ -33,6 +33,7 @@ chat non affidabile, seguo il repository.
 - campi `First name` / `Last name` / `Birth date` gia' presenti nel flusso di registrazione preview: SI
 - riparazione safe dei dati locali corrotti/orfani della `player_area` preview: SI
 - reset esplicito dei dati preview locali della `player_area` sul device: SI
+- riapertura app forzata su Home invece che sull'ultima schermata pubblica: SI
 - risultati personali e live status giocatore derivati dai dataset pubblici: SI
 - segnalazione nativa `Possible alias` su classifiche, albo, dettaglio torneo e player area: SI
 - alert di chiamata squadra preview-only sul device: SI
@@ -63,6 +64,7 @@ chat non affidabile, seguo il repository.
 - selezione arbitro locale prima dell'apertura referto, con fallback manuale e persistenza per torneo sul device
 - `player_area` nativa con account preview locale, profilo, risultati personali, stato live, call state e route verso `referees_area`
 - bootstrap safe della `player_area` con riparazione di sessioni/account/profili/call orfani o corrotti
+- reset di bootstrap alla Home all'avvio per evitare resume impliciti dell'ultima route pubblica
 - bypass password arbitri sul device quando il profilo giocatore collegato coincide con un arbitro del torneo live
 
 ## Rischi aperti reali

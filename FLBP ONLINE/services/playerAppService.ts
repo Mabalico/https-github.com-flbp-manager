@@ -138,6 +138,12 @@ export interface PlayerAreaSnapshot {
   featureStatus: PlayerFeatureStatus;
 }
 
+export interface PlayerAreaBootstrapSnapshot {
+  session: PlayerPreviewSession | null;
+  profile: PlayerPreviewProfile | null;
+  featureStatus: PlayerFeatureStatus;
+}
+
 type PreviewProfilesMap = Record<string, PlayerPreviewProfile>;
 
 const nowTs = () => Date.now();
@@ -720,14 +726,23 @@ export const derivePlayerLiveStatus = (
 };
 
 export const buildPlayerAreaSnapshot = (state: AppState): PlayerAreaSnapshot => {
+  const bootstrap = buildPlayerAreaBootstrapSnapshot();
+  const runtimeProfile = toPlayerRuntimeProfile(bootstrap.profile);
+  return {
+    session: bootstrap.session,
+    profile: bootstrap.profile,
+    personalProfile: buildPlayerRuntimeProfileSnapshot(state, runtimeProfile),
+    liveStatus: derivePlayerLiveStatus(state, runtimeProfile),
+    featureStatus: bootstrap.featureStatus,
+  };
+};
+
+export const buildPlayerAreaBootstrapSnapshot = (): PlayerAreaBootstrapSnapshot => {
   const session = readPlayerPreviewSession();
   const profile = readPlayerPreviewProfile(session?.accountId || null);
-  const runtimeProfile = toPlayerRuntimeProfile(profile);
   return {
     session,
     profile,
-    personalProfile: buildPlayerRuntimeProfileSnapshot(state, runtimeProfile),
-    liveStatus: derivePlayerLiveStatus(state, runtimeProfile),
     featureStatus: readPlayerFeatureStatus(),
   };
 };
