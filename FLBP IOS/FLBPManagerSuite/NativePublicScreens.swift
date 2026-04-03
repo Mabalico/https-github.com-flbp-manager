@@ -1,5 +1,96 @@
 import SwiftUI
 
+private enum NativeFlbpPalette {
+    static let page = Color(red: 243 / 255, green: 245 / 255, blue: 250 / 255)
+    static let card = Color.white
+    static let ink = Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255)
+    static let muted = Color(red: 100 / 255, green: 116 / 255, blue: 139 / 255)
+    static let beer = Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
+    static let heroStart = Color(red: 23 / 255, green: 37 / 255, blue: 84 / 255)
+    static let heroMid = Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255)
+    static let heroEnd = Color(red: 17 / 255, green: 24 / 255, blue: 39 / 255)
+}
+
+private struct BrandStackLineView: View {
+    let accent: String
+    let word: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(accent)
+                .foregroundStyle(NativeFlbpPalette.beer)
+            Text(word)
+                .foregroundStyle(Color.white)
+        }
+        .font(.system(size: 28, weight: .black))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct PublicHomeHeroCard: View {
+    let liveTournament: NativeTournamentSummary?
+    let onOpenTournaments: () -> Void
+    let onOpenHistorical: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Image("HeroLogo")
+                .resizable()
+                .scaledToFit()
+                .renderingMode(.template)
+                .foregroundStyle(.white)
+                .frame(width: 210)
+                .offset(x: 34, y: -14)
+                .opacity(0.16)
+
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    BrandStackLineView(accent: "F", word: "EDERAZIONE")
+                    BrandStackLineView(accent: "L", word: "UCENSE")
+                    BrandStackLineView(accent: "B", word: "EER")
+                    BrandStackLineView(accent: "P", word: "ONG")
+                }
+
+                if let liveTournament {
+                    Text("LIVE NOW • \(liveTournament.name.uppercased())")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(NativeFlbpPalette.beer)
+                }
+
+                Text("Public tournaments, archive, leaderboard and Hall of Fame aligned with the same live snapshot used online.")
+                    .font(.body)
+                    .foregroundStyle(Color.white.opacity(0.8))
+
+                HStack(spacing: 10) {
+                    Button(liveTournament == nil ? "Tournament archive" : "Live tournament", action: onOpenTournaments)
+                        .buttonStyle(.borderedProminent)
+                        .tint(NativeFlbpPalette.beer)
+                        .foregroundStyle(NativeFlbpPalette.ink)
+
+                    Button("Historical tables", action: onOpenHistorical)
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .background(
+            LinearGradient(
+                colors: [
+                    NativeFlbpPalette.heroStart,
+                    NativeFlbpPalette.heroMid,
+                    NativeFlbpPalette.heroEnd,
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+}
+
 func visibleTeamCount(_ bundle: NativeTournamentBundle) -> Int {
     bundle.teams.filter { team in
         let label = team.name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -225,15 +316,18 @@ struct TopBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("FLBP Manager Suite")
+                    Text("FLBP")
                         .font(.title2.weight(.black))
-                    Text("Native public checkpoint wired to the same public workspace snapshot as FLBP ONLINE.")
+                        .foregroundStyle(NativeFlbpPalette.beer)
+                    Text("Federazione Lucense Beer Pong")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.white.opacity(0.8))
                 }
                 Spacer()
                 Button("Refresh", action: onRefresh)
                     .buttonStyle(.bordered)
+                    .tint(.white)
+                    .foregroundStyle(.white)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -247,6 +341,20 @@ struct TopBarView: View {
                 .padding(.horizontal, 1)
             }
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            LinearGradient(
+                colors: [
+                    NativeFlbpPalette.heroStart,
+                    NativeFlbpPalette.heroMid,
+                    NativeFlbpPalette.heroEnd,
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
@@ -260,6 +368,7 @@ struct HomeScreenView: View {
     let onOpenTournaments: () -> Void
     let onOpenLeaderboard: () -> Void
     let onOpenHof: () -> Void
+    let onOpenPlayerArea: () -> Void
     let onOpenAdmin: () -> Void
     let onOpenReferees: () -> Void
     let onRefresh: () -> Void
@@ -267,11 +376,10 @@ struct HomeScreenView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HeroCard(
-                    title: "Public home",
-                    body: liveTournament == nil
-                        ? "No live tournament is currently published. The native home stays empty-safe and falls back to archive, leaderboard and hall of fame."
-                        : "\(liveTournament!.name) is currently live."
+                PublicHomeHeroCard(
+                    liveTournament: liveTournament,
+                    onOpenTournaments: onOpenTournaments,
+                    onOpenHistorical: onOpenLeaderboard
                 )
 
                 if catalogLoading {
@@ -282,45 +390,42 @@ struct HomeScreenView: View {
                     PrimaryActionCard(
                         title: liveTournament.name,
                         subtitle: "\(formatDateLabel(liveTournament.startDate)) • \(formatTournamentType(liveTournament.type)) • LIVE",
-                        bodyText: "Open the current tournament detail derived from the same public workspace snapshot used by FLBP ONLINE.",
-                        primaryLabel: "Open tournaments",
+                        bodyText: "This is the same live tournament spotlight the public web app uses to drive tournament detail and TV access.",
+                        primaryLabel: "Open live detail",
                         onPrimary: onOpenTournaments,
-                        secondaryLabel: nil,
-                        onSecondary: nil
-                    )
-                } else {
-                    PrimaryActionCard(
-                        title: "No live event",
-                        subtitle: "Same fallback as the web app when liveTournament is nil.",
-                        bodyText: "Archive, leaderboard and hall of fame stay available even when the live hero is absent.",
-                        primaryLabel: "Open archive",
-                        onPrimary: onOpenTournaments,
-                        secondaryLabel: nil,
-                        onSecondary: nil
+                        secondaryLabel: "Refresh",
+                        onSecondary: onRefresh
                     )
                 }
 
                 QuickActionRow(
-                    first: ("Archive", "\(historyCount) tournaments", onOpenTournaments),
-                    second: ("Leaderboard", "\(leaderboardCount) players", onOpenLeaderboard)
+                    first: ("Tournaments", "\(historyCount) archived editions", onOpenTournaments),
+                    second: ("Historical", "\(leaderboardCount) ranked players", onOpenLeaderboard)
                 )
                 QuickActionRow(
-                    first: ("Hall of Fame", "\(hallCount) entries", onOpenHof),
-                    second: ("Admin", "Protected tools placeholder", onOpenAdmin)
+                    first: ("Hall of Fame", "\(hallCount) official awards", onOpenHof),
+                    second: ("Player area", "Profile, results and live status", onOpenPlayerArea)
                 )
 
-                PrimaryActionCard(
-                    title: "Referees area",
-                    subtitle: "Protected tools route",
-                    bodyText: "The web app includes OCR/report flows under Referees Area. This native checkpoint keeps the route but does not invent a mobile migration that is not already present in the native codebase.",
-                    primaryLabel: "Open referees route",
-                    onPrimary: onOpenReferees,
-                    secondaryLabel: nil,
-                    onSecondary: nil
-                )
+                SectionCard(title: "Admin shortcut") {
+                    Text("Protected tools stay available from the native shell, but the operational web admin still remains the most complete surface today.")
+                        .font(.footnote)
+                        .foregroundStyle(NativeFlbpPalette.muted)
+                    Button("Open admin", action: onOpenAdmin)
+                        .buttonStyle(.bordered)
+                }
+
+                SectionCard(title: "Referees route") {
+                    Text("Referees monitoring is already available natively. Full OCR and live write parity still depends on the remaining backend/runtime rollout.")
+                        .font(.footnote)
+                        .foregroundStyle(NativeFlbpPalette.muted)
+                    Button("Open referees area", action: onOpenReferees)
+                        .buttonStyle(.bordered)
+                }
             }
             .padding(16)
         }
+        .background(NativeFlbpPalette.page)
     }
 }
 
@@ -356,8 +461,8 @@ struct TournamentListScreenView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HeroCard(
-                    title: "Tournament list",
-                    body: "This surface mirrors FLBP ONLINE/components/PublicTournaments.tsx and derives archive/live tournaments from the same public workspace snapshot."
+                    title: "Tournaments",
+                    body: "Browse the same live and archive tournament catalog exposed by the web app, with the same public snapshot as source of truth."
                 )
 
                 if catalogLoading {
@@ -369,7 +474,7 @@ struct TournamentListScreenView: View {
                         PrimaryActionCard(
                             title: liveTournament.name,
                             subtitle: "\(formatDateLabel(liveTournament.startDate)) • \(formatTournamentType(liveTournament.type)) • LIVE",
-                            bodyText: "The live hero is shown only when the public dataset exposes a live tournament, exactly like the web route.",
+                            bodyText: "Open the published live tournament detail or jump into the same bracket-oriented public flow used online.",
                             primaryLabel: "Open live detail",
                             onPrimary: { onOpenTournament(liveTournament) },
                             secondaryLabel: nil,
@@ -400,6 +505,7 @@ struct TournamentListScreenView: View {
             }
             .padding(16)
         }
+        .background(NativeFlbpPalette.page)
     }
 }
 
@@ -1115,12 +1221,29 @@ struct HeroCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title2.weight(.black))
-            Text(body).font(.body)
+            Text(title)
+                .font(.title2.weight(.black))
+                .foregroundStyle(.white)
+            Text(body)
+                .font(.body)
+                .foregroundStyle(Color.white.opacity(0.8))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.secondarySystemBackground)))
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            NativeFlbpPalette.heroStart,
+                            NativeFlbpPalette.heroMid,
+                            NativeFlbpPalette.heroEnd,
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        )
     }
 }
 
@@ -1135,19 +1258,30 @@ struct PrimaryActionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.title3.weight(.black))
-            Text(subtitle).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-            Text(bodyText).font(.body)
+            Text(title)
+                .font(.title3.weight(.black))
+                .foregroundStyle(NativeFlbpPalette.ink)
+            Text(subtitle)
+                .font(.subheadline.weight(.black))
+                .foregroundStyle(NativeFlbpPalette.beer)
+            Text(bodyText)
+                .font(.body)
+                .foregroundStyle(NativeFlbpPalette.muted)
             HStack(spacing: 8) {
-                Button(primaryLabel, action: onPrimary).buttonStyle(.borderedProminent)
+                Button(primaryLabel, action: onPrimary)
+                    .buttonStyle(.borderedProminent)
+                    .tint(NativeFlbpPalette.beer)
+                    .foregroundStyle(NativeFlbpPalette.ink)
                 if let secondaryLabel, let onSecondary {
-                    Button(secondaryLabel, action: onSecondary).buttonStyle(.bordered)
+                    Button(secondaryLabel, action: onSecondary)
+                        .buttonStyle(.bordered)
+                        .tint(NativeFlbpPalette.ink)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.secondarySystemBackground)))
+        .background(RoundedRectangle(cornerRadius: 24).fill(NativeFlbpPalette.card))
     }
 }
 
@@ -1172,15 +1306,18 @@ struct QuickActionCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(NativeFlbpPalette.ink)
                 Text(subtitle)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(NativeFlbpPalette.muted)
+                Text("Open section")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(NativeFlbpPalette.beer)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
+            .background(RoundedRectangle(cornerRadius: 22).fill(NativeFlbpPalette.card))
         }
         .buttonStyle(.plain)
     }
@@ -1193,12 +1330,13 @@ struct SectionCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.headline)
+                .font(.headline.weight(.black))
+                .foregroundStyle(NativeFlbpPalette.ink)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.secondarySystemBackground)))
+        .background(RoundedRectangle(cornerRadius: 24).fill(NativeFlbpPalette.card))
     }
 }
 
@@ -1245,16 +1383,19 @@ struct TournamentSummaryCard: View {
     var body: some View {
         SectionCard(title: tournament.name) {
             Text("\(formatDateLabel(tournament.startDate)) • \(formatTournamentType(tournament.type))")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(.footnote.weight(.black))
+                .foregroundStyle(NativeFlbpPalette.beer)
             Text(tournament.isManual
                  ? "Manual archive sheet. Team and award data can exist even when matches are absent."
                  : "Structured public tournament.")
                 .font(.body)
+                .foregroundStyle(NativeFlbpPalette.muted)
             Button("Open detail") {
                 onOpenTournament(tournament)
             }
             .buttonStyle(.borderedProminent)
+            .tint(NativeFlbpPalette.beer)
+            .foregroundStyle(NativeFlbpPalette.ink)
         }
     }
 }
@@ -1507,13 +1648,13 @@ struct ChipButton: View {
         Button(action: action) {
             Text(label)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(selected ? Color.white : (enabled ? Color.primary : Color.secondary))
+                .foregroundStyle(selected ? Color.white : (enabled ? NativeFlbpPalette.ink : Color.secondary))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Capsule().fill(selected ? Color.accentColor : Color(.systemBackground)))
+                .background(Capsule().fill(selected ? NativeFlbpPalette.beer : NativeFlbpPalette.card))
                 .overlay(
                     Capsule()
-                        .stroke(enabled ? Color.accentColor.opacity(selected ? 0 : 0.35) : Color.gray.opacity(0.25), lineWidth: 1)
+                        .stroke(enabled ? NativeFlbpPalette.beer.opacity(selected ? 0 : 0.35) : Color.gray.opacity(0.25), lineWidth: 1)
                 )
                 .opacity(enabled ? 1 : 0.45)
         }

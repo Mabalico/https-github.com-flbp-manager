@@ -128,9 +128,12 @@ object NativePublicApi {
     suspend fun fetchPublicProjection(): NativePublicProjectionPayload = withContext(Dispatchers.IO) {
         val state = requestPublicWorkspaceState()
         NativePublicProjectionPayload(
-            catalog = buildCatalogFromState(state),
-            leaderboard = buildLeaderboardFromState(state),
-            hallOfFame = buildHallOfFameFromState(state),
+            catalog = runCatching { buildCatalogFromState(state) }
+                .getOrElse { NativePublicCatalog(liveTournament = null, history = emptyList()) },
+            leaderboard = runCatching { buildLeaderboardFromState(state) }
+                .getOrElse { emptyList() },
+            hallOfFame = runCatching { buildHallOfFameFromState(state) }
+                .getOrElse { emptyList() },
         )
     }
 
@@ -293,14 +296,14 @@ object NativePublicApi {
         val tournamentDates = linkedMapOf<String, String>()
         state.optNullableObject("tournament")?.let { tournament ->
             val id = tournament.optString("id").trim()
-            val startDate = tournament.optString("startDate").trim()
+            val startDate = normalizeIsoDateCandidate(tournament.optString("startDate"))
             if (id.isNotEmpty() && startDate.isNotEmpty()) {
                 tournamentDates[id] = startDate
             }
         }
         state.optObjectArray("tournamentHistory").forEach { tournament ->
             val id = tournament.optString("id").trim()
-            val startDate = tournament.optString("startDate").trim()
+            val startDate = normalizeIsoDateCandidate(tournament.optString("startDate"))
             if (id.isNotEmpty() && startDate.isNotEmpty()) {
                 tournamentDates[id] = startDate
             }
@@ -318,17 +321,19 @@ object NativePublicApi {
     private fun hallSortValue(entry: JSONObject, tournamentDates: Map<String, String>): Long {
         val tournamentId = entry.optString("tournamentId").trim()
         val sourceTournamentId = entry.optString("sourceTournamentId").trim()
-        val manualDate = entry.optString("sourceTournamentDate").trim()
-        val directDate = tournamentDates[tournamentId]
-            ?: tournamentDates[sourceTournamentId]
-            ?: manualDate.takeIf { isValidIsoDate(it) }
+        val manualDate = normalizeIsoDateCandidate(entry.optString("sourceTournamentDate"))
+        val directDate = normalizeIsoDateCandidate(tournamentDates[tournamentId])
+            ?: normalizeIsoDateCandidate(tournamentDates[sourceTournamentId])
+            ?: manualDate
             ?: extractIsoDateFromKey(tournamentId)
             ?: extractIsoDateFromKey(sourceTournamentId)
             ?: extractIsoDateFromKey(entry.optString("id"))
-        val parsed = directDate?.let { java.time.Instant.parse("${it}T00:00:00Z").toEpochMilli() }
+        val parsed = directDate?.let { runCatching { java.time.Instant.parse("${it}T00:00:00Z").toEpochMilli() }.getOrNull() }
         if (parsed != null) return parsed
         val year = entry.optString("year").toLongOrNull() ?: 0L
-        return if (year > 0L) java.time.Instant.parse("${year.toString().padStart(4, '0')}-01-01T00:00:00Z").toEpochMilli() else 0L
+        return if (year > 0L) runCatching {
+            java.time.Instant.parse("${year.toString().padStart(4, '0')}-01-01T00:00:00Z").toEpochMilli()
+        }.getOrDefault(0L) else 0L
     }
 
     private fun parseTournamentSummaryFromState(row: JSONObject): NativeTournamentSummary {
@@ -508,6 +513,13 @@ object NativePublicApi {
 
     private fun isValidIsoDate(value: String): Boolean =
         Regex("""^\d{4}-\d{2}-\d{2}$""").matches(value)
+
+    private fun normalizeIsoDateCandidate(value: String?): String {
+        val raw = value?.trim().orEmpty()
+        if (raw.isEmpty()) return ""
+        val direct = Regex("""\d{4}-\d{2}-\d{2}""").find(raw)?.value.orEmpty()
+        return direct.takeIf(::isValidIsoDate).orEmpty()
+    }
 
     private fun extractIsoDateFromKey(value: String?): String? {
         val raw = value?.trim().orEmpty()

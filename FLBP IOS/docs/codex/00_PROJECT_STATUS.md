@@ -5,6 +5,7 @@ chat non affidabile, seguo il repository.
 ## Stato attuale iOS
 - base nativa reale in Swift + SwiftUI: SI
 - Home pubblica data-driven: SI
+- shell visiva pubblica riallineata al web su top bar, hero home e cards tornei: SI a sorgente
 - Archivio tornei pubblico data-driven: SI
 - Dettaglio torneo pubblico data-driven: SI
 - sezione Turni read-only nel dettaglio torneo: SI

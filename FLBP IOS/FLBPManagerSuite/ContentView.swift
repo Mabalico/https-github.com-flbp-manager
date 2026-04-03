@@ -99,49 +99,52 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            Group {
-                if let activeTvMode {
-                    NativeTVModeScreenView(
-                        projection: activeTvMode,
-                        selection: publicState.selectedTournament,
-                        bundle: model.detailBundle,
-                        detailLoading: model.detailLoading,
-                        detailError: model.detailError,
-                        hallOfFame: model.hallOfFame,
-                        onProjectionSelected: { storedTvModeRaw = $0.rawValue },
-                        onExit: { storedTvModeRaw = "" },
-                        onRefresh: {
-                            refreshToken = UUID()
-                            detailRefreshToken = UUID()
-                        }
-                    )
-                } else {
-                    VStack(spacing: 0) {
-                        TopBarView(
-                            selectedRoute: selectedRoute,
-                            onRouteSelected: { route in
-                                if route.group == .tools {
-                                    selectedToolsRouteId = route.rawValue
-                                } else {
-                                    writePublicState(publicState.navigateToPrimary(route))
-                                }
-                            },
+            ZStack {
+                NativeFlbpPalette.page.ignoresSafeArea()
+                Group {
+                    if let activeTvMode {
+                        NativeTVModeScreenView(
+                            projection: activeTvMode,
+                            selection: publicState.selectedTournament,
+                            bundle: model.detailBundle,
+                            detailLoading: model.detailLoading,
+                            detailError: model.detailError,
+                            hallOfFame: model.hallOfFame,
+                            onProjectionSelected: { storedTvModeRaw = $0.rawValue },
+                            onExit: { storedTvModeRaw = "" },
                             onRefresh: {
-                                if selectedRoute.group == .tools {
-                                    toolsRefreshToken = UUID()
-                                } else if selectedRoute == .tournamentDetail {
-                                    refreshToken = UUID()
-                                    detailRefreshToken = UUID()
-                                } else {
-                                    refreshToken = UUID()
-                                }
+                                refreshToken = UUID()
+                                detailRefreshToken = UUID()
                             }
                         )
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
+                    } else {
+                        VStack(spacing: 0) {
+                            TopBarView(
+                                selectedRoute: selectedRoute,
+                                onRouteSelected: { route in
+                                    if route.group == .tools {
+                                        selectedToolsRouteId = route.rawValue
+                                    } else {
+                                        writePublicState(publicState.navigateToPrimary(route))
+                                    }
+                                },
+                                onRefresh: {
+                                    if selectedRoute.group == .tools {
+                                        toolsRefreshToken = UUID()
+                                    } else if selectedRoute == .tournamentDetail {
+                                        refreshToken = UUID()
+                                        detailRefreshToken = UUID()
+                                    } else {
+                                        refreshToken = UUID()
+                                    }
+                                }
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 8)
 
-                        currentScreen
+                            currentScreen
+                        }
                     }
                 }
             }
@@ -306,6 +309,7 @@ struct ContentView: View {
                 onOpenTournaments: { writePublicState(publicState.navigateToPrimary(.tournament)) },
                 onOpenLeaderboard: { writePublicState(publicState.navigateToPrimary(.leaderboard)) },
                 onOpenHof: { writePublicState(publicState.navigateToPrimary(.hof)) },
+                onOpenPlayerArea: { writePublicState(publicState.navigateToPrimary(.playerArea)) },
                 onOpenAdmin: { selectedToolsRouteId = NativeRoute.admin.rawValue },
                 onOpenReferees: { selectedToolsRouteId = NativeRoute.refereesArea.rawValue },
                 onRefresh: { refreshToken = UUID() }

@@ -21,12 +21,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +37,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import java.util.Calendar
 
@@ -103,12 +107,13 @@ fun TopBar(
     onRouteSelected: (AppRoute) -> Unit,
     onRefresh: () -> Unit,
 ) {
-    Surface(shadowElevation = 6.dp) {
+    Surface(shadowElevation = 8.dp, color = NativeFlbpPalette.page) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+                .background(NativeFlbpHeroBrush)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -116,18 +121,25 @@ fun TopBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "FLBP Manager Suite",
+                        text = "FLBP",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
+                        color = NativeFlbpPalette.beer,
                     )
                     Text(
-                        text = "Native public checkpoint wired to the same public workspace snapshot as FLBP ONLINE.",
+                        text = "Federazione Lucense Beer Pong",
                         style = MaterialTheme.typography.bodySmall,
+                        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.78f),
                     )
                 }
-                TextButton(onClick = onRefresh) {
+                TextButton(
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = androidx.compose.ui.graphics.Color.White,
+                    ),
+                ) {
                     Text("Refresh")
                 }
             }
@@ -143,6 +155,12 @@ fun TopBar(
                         selected = selectedRoute == route,
                         onClick = { onRouteSelected(route) },
                         label = { Text(route.label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f),
+                            labelColor = androidx.compose.ui.graphics.Color.White,
+                            selectedContainerColor = NativeFlbpPalette.beer,
+                            selectedLabelColor = NativeFlbpPalette.ink,
+                        ),
                     )
                 }
                 AppRoute.toolsRoutes.forEach { route ->
@@ -150,6 +168,12 @@ fun TopBar(
                         selected = selectedRoute == route,
                         onClick = { onRouteSelected(route) },
                         label = { Text(route.label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f),
+                            labelColor = androidx.compose.ui.graphics.Color.White,
+                            selectedContainerColor = NativeFlbpPalette.beer,
+                            selectedLabelColor = NativeFlbpPalette.ink,
+                        ),
                     )
                 }
             }
@@ -169,6 +193,7 @@ fun HomeScreen(
     onOpenTournaments: () -> Unit,
     onOpenLeaderboard: () -> Unit,
     onOpenHof: () -> Unit,
+    onOpenPlayerArea: () -> Unit,
     onOpenAdmin: () -> Unit,
     onOpenReferees: () -> Unit,
     onRefresh: () -> Unit,
@@ -176,64 +201,73 @@ fun HomeScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .background(NativeFlbpPalette.page)
             .padding(padding),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            HeroCard(
-                title = "Public home",
-                body = if (liveTournament == null) {
-                    "No live tournament is currently published. The native home stays empty-safe and falls back to archive, leaderboard and hall of fame."
-                } else {
-                    "${liveTournament.name} is currently live."
-                },
+            PublicHomeHeroCard(
+                liveTournament = liveTournament,
+                onOpenTournaments = onOpenTournaments,
+                onOpenHistorical = onOpenLeaderboard,
             )
         }
 
-        item {
-            when {
-                catalogLoading -> LoadingCard("Loading public data…")
-                catalogError != null -> ErrorCard(catalogError, onRefresh)
-                liveTournament != null -> PrimaryActionCard(
+        when {
+            catalogLoading -> item { LoadingCard("Loading public data…") }
+            catalogError != null -> item { ErrorCard(catalogError, onRefresh) }
+            liveTournament != null -> item {
+                PrimaryActionCard(
                     title = liveTournament.name,
                     subtitle = "${formatDateLabel(liveTournament.startDate)} • ${formatTournamentType(liveTournament.type)} • LIVE",
-                    body = "Open the current tournament detail derived from the same public workspace snapshot used by FLBP ONLINE.",
-                    primaryLabel = "Open tournaments",
+                    body = "This is the same live tournament spotlight the public web app uses to drive tournament detail and TV access.",
+                    primaryLabel = "Open live detail",
                     onPrimaryClick = onOpenTournaments,
-                )
-                else -> PrimaryActionCard(
-                    title = "No live event",
-                    subtitle = "Same fallback as the web app when liveTournament is null.",
-                    body = "Archive, leaderboard and hall of fame stay available even when the live hero is absent.",
-                    primaryLabel = "Open archive",
-                    onPrimaryClick = onOpenTournaments,
+                    secondaryLabel = "Refresh",
+                    onSecondaryClick = onRefresh,
                 )
             }
         }
 
         item {
             QuickActionRow(
-                first = Triple("Archive", "$historyCount tournaments", onOpenTournaments),
-                second = Triple("Leaderboard", "$leaderboardCount players", onOpenLeaderboard),
+                first = Triple("Tournaments", "$historyCount archived editions", onOpenTournaments),
+                second = Triple("Historical", "$leaderboardCount ranked players", onOpenLeaderboard),
             )
         }
 
         item {
             QuickActionRow(
-                first = Triple("Hall of Fame", "$hallCount entries", onOpenHof),
-                second = Triple("Admin", "Protected tools placeholder", onOpenAdmin),
+                first = Triple("Hall of Fame", "$hallCount official awards", onOpenHof),
+                second = Triple("Player area", "Profile, results and live status", onOpenPlayerArea),
             )
         }
 
         item {
-            PrimaryActionCard(
-                title = "Referees area",
-                subtitle = "Protected tools route",
-                body = "The web app includes OCR/report flows under Referees Area. This native checkpoint keeps the route but does not invent a mobile migration that is not already present in the native codebase.",
-                primaryLabel = "Open referees route",
-                onPrimaryClick = onOpenReferees,
-            )
+            SectionCard(title = "Admin shortcut") {
+                Text(
+                    text = "Protected tools stay available from the native shell, but the operational web admin still remains the most complete surface today.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NativeFlbpPalette.muted,
+                )
+                OutlinedButton(onClick = onOpenAdmin) {
+                    Text("Open admin")
+                }
+            }
+        }
+
+        item {
+            SectionCard(title = "Referees route") {
+                Text(
+                    text = "Referees monitoring is already available natively. Full OCR and live write parity still depends on the remaining backend/runtime rollout.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NativeFlbpPalette.muted,
+                )
+                OutlinedButton(onClick = onOpenReferees) {
+                    Text("Open referees area")
+                }
+            }
         }
     }
 }
@@ -270,14 +304,15 @@ fun TournamentListScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .background(NativeFlbpPalette.page)
             .padding(padding),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
             HeroCard(
-                title = "Tournament list",
-                body = "This surface mirrors FLBP ONLINE/components/PublicTournaments.tsx and derives archive/live tournaments from the same public workspace snapshot.",
+                title = "Tournaments",
+                body = "Browse the same live and archive tournament catalog exposed by the web app, with the same public snapshot as source of truth.",
             )
         }
 
@@ -290,7 +325,7 @@ fun TournamentListScreen(
                         PrimaryActionCard(
                             title = live.name,
                             subtitle = "${formatDateLabel(live.startDate)} • ${formatTournamentType(live.type)} • LIVE",
-                            body = "The live hero is shown only when the public dataset exposes a live tournament, exactly like the web route.",
+                            body = "Open the published live tournament detail or jump into the same bracket-oriented public flow used online.",
                             primaryLabel = "Open live detail",
                             onPrimaryClick = { onOpenTournament(live) },
                         )

@@ -1,10 +1,14 @@
 package com.flbp.manager.suite
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -26,8 +32,138 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+
+internal object NativeFlbpPalette {
+    val page = Color(0xFFF3F5FA)
+    val card = Color(0xFFFFFFFF)
+    val cardMuted = Color(0xFFF8FAFC)
+    val line = Color(0xFFE2E8F0)
+    val ink = Color(0xFF0F172A)
+    val muted = Color(0xFF64748B)
+    val beer = Color(0xFFF59E0B)
+    val beerSoft = Color(0xFFFEF3C7)
+    val heroStart = Color(0xFF172554)
+    val heroMid = Color(0xFF0F172A)
+    val heroEnd = Color(0xFF111827)
+}
+
+internal val NativeFlbpHeroBrush: Brush = Brush.horizontalGradient(
+    listOf(
+        NativeFlbpPalette.heroStart,
+        NativeFlbpPalette.heroMid,
+        NativeFlbpPalette.heroEnd,
+    ),
+)
+
+@Composable
+private fun BrandStackLine(
+    accent: String,
+    word: String,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = accent,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Black,
+            color = NativeFlbpPalette.beer,
+        )
+        Text(
+            text = word,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Black,
+            color = Color.White,
+        )
+    }
+}
+
+@Composable
+fun PublicHomeHeroCard(
+    liveTournament: NativeTournamentSummary?,
+    onOpenTournaments: () -> Unit,
+    onOpenHistorical: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(NativeFlbpHeroBrush),
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.flbp_logo_hero),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 34.dp, y = (-14).dp)
+                .width(210.dp)
+                .alpha(0.16f),
+            colorFilter = ColorFilter.tint(Color.White),
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                BrandStackLine(accent = "F", word = "EDERAZIONE")
+                BrandStackLine(accent = "L", word = "UCENSE")
+                BrandStackLine(accent = "B", word = "EER")
+                BrandStackLine(accent = "P", word = "ONG")
+            }
+
+            if (liveTournament != null) {
+                Text(
+                    text = "LIVE NOW • ${liveTournament.name.uppercase()}",
+                    color = NativeFlbpPalette.beer,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+
+            Text(
+                text = "Public tournaments, archive, leaderboard and Hall of Fame aligned with the same live snapshot used online.",
+                color = Color.White.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onOpenTournaments,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NativeFlbpPalette.beer,
+                        contentColor = NativeFlbpPalette.ink,
+                    ),
+                ) {
+                    Text(
+                        text = if (liveTournament == null) "Tournament archive" else "Live tournament",
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+                OutlinedButton(
+                    onClick = onOpenHistorical,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Text(
+                        text = "Historical tables",
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+        }
+    }
+}
 
 fun LazyListScope.tournamentOverviewItems(
     bundle: NativeTournamentBundle,
@@ -323,7 +459,12 @@ fun LazyListScope.tournamentScorersItems(
 
 @Composable
 fun HeroCard(title: String, body: String) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(NativeFlbpHeroBrush),
+    ) {
         Column(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -332,8 +473,13 @@ fun HeroCard(title: String, body: String) {
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Black,
+                color = Color.White,
             )
-            Text(text = body, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.76f),
+            )
         }
     }
 }
@@ -348,7 +494,12 @@ fun PrimaryActionCard(
     secondaryLabel: String? = null,
     onSecondaryClick: (() -> Unit)? = null,
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = NativeFlbpPalette.card),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+    ) {
         Column(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -357,15 +508,36 @@ fun PrimaryActionCard(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Black,
+                color = NativeFlbpPalette.ink,
             )
-            Text(text = subtitle, style = MaterialTheme.typography.labelLarge)
-            Text(text = body, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = NativeFlbpPalette.beer,
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NativeFlbpPalette.muted,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onPrimaryClick) {
+                Button(
+                    onClick = onPrimaryClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NativeFlbpPalette.beer,
+                        contentColor = NativeFlbpPalette.ink,
+                    ),
+                ) {
                     Text(primaryLabel)
                 }
                 if (secondaryLabel != null && onSecondaryClick != null) {
-                    OutlinedButton(onClick = onSecondaryClick) {
+                    OutlinedButton(
+                        onClick = onSecondaryClick,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = NativeFlbpPalette.ink,
+                        ),
+                    ) {
                         Text(secondaryLabel)
                     }
                 }
@@ -405,13 +577,35 @@ fun QuickActionCard(
     subtitle: String,
     onClick: () -> Unit,
 ) {
-    ElevatedCard(modifier = modifier.clickable(onClick = onClick)) {
+    ElevatedCard(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = NativeFlbpPalette.card),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = NativeFlbpPalette.ink,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = NativeFlbpPalette.muted,
+            )
+            Text(
+                text = "Open section",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Black,
+                color = NativeFlbpPalette.beer,
+            )
         }
     }
 }
@@ -421,7 +615,12 @@ fun SectionCard(
     title: String,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = NativeFlbpPalette.card),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -429,7 +628,8 @@ fun SectionCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Black,
+                color = NativeFlbpPalette.ink,
             )
             content()
         }
@@ -472,19 +672,26 @@ fun TournamentSummaryCard(
     tournament: NativeTournamentSummary,
     onOpenTournament: (NativeTournamentSummary) -> Unit,
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = NativeFlbpPalette.card),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+    ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = tournament.name,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Black,
+                color = NativeFlbpPalette.ink,
             )
             Text(
                 text = "${formatDateLabel(tournament.startDate)} • ${formatTournamentType(tournament.type)}",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelMedium,
+                color = NativeFlbpPalette.beer,
             )
             Text(
                 text = if (tournament.isManual) {
@@ -493,8 +700,15 @@ fun TournamentSummaryCard(
                     "Structured public tournament."
                 },
                 style = MaterialTheme.typography.bodySmall,
+                color = NativeFlbpPalette.muted,
             )
-            Button(onClick = { onOpenTournament(tournament) }) {
+            Button(
+                onClick = { onOpenTournament(tournament) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NativeFlbpPalette.beer,
+                    contentColor = NativeFlbpPalette.ink,
+                ),
+            ) {
                 Text("Open detail")
             }
         }

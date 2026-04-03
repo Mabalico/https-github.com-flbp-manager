@@ -633,9 +633,9 @@ enum NativePublicAPI {
     static func fetchPublicProjection() async throws -> NativePublicProjectionPayload {
         let state = try await fetchPublicWorkspaceState()
         return NativePublicProjectionPayload(
-            catalog: buildCatalog(from: state),
-            leaderboard: buildLeaderboard(from: state),
-            hallOfFame: buildHallOfFame(from: state)
+            catalog: (try? buildCatalog(from: state)) ?? NativePublicCatalog(liveTournament: nil, history: []),
+            leaderboard: (try? buildLeaderboard(from: state)) ?? [],
+            hallOfFame: (try? buildHallOfFame(from: state)) ?? []
         )
     }
 
@@ -664,7 +664,7 @@ enum NativePublicAPI {
         return row["state"] as? [String: Any] ?? [:]
     }
 
-    private static func buildCatalog(from state: [String: Any]) -> NativePublicCatalog {
+    private static func buildCatalog(from state: [String: Any]) throws -> NativePublicCatalog {
         let liveTournament = (state["tournament"] as? [String: Any]).flatMap { tournament -> NativeTournamentSummary? in
             let id = stringValue(tournament["id"]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty else { return nil }
@@ -752,7 +752,7 @@ enum NativePublicAPI {
         )
     }
 
-    private static func buildLeaderboard(from state: [String: Any]) -> [NativeLeaderboardEntry] {
+    private static func buildLeaderboard(from state: [String: Any]) throws -> [NativeLeaderboardEntry] {
         struct MutablePlayer {
             var id: String
             var name: String
@@ -856,18 +856,18 @@ enum NativePublicAPI {
         }
     }
 
-    private static func buildHallOfFame(from state: [String: Any]) -> [NativeHallOfFameEntry] {
+    private static func buildHallOfFame(from state: [String: Any]) throws -> [NativeHallOfFameEntry] {
         var tournamentDates: [String: String] = [:]
         if let liveTournament = state["tournament"] as? [String: Any] {
             let id = stringValue(liveTournament["id"]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let startDate = stringValue(liveTournament["startDate"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let startDate = normalizeIsoDateCandidate(stringValue(liveTournament["startDate"]))
             if !id.isEmpty, !startDate.isEmpty {
                 tournamentDates[id] = startDate
             }
         }
         for tournament in ((state["tournamentHistory"] as? [[String: Any]]) ?? []) {
             let id = stringValue(tournament["id"]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let startDate = stringValue(tournament["startDate"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let startDate = normalizeIsoDateCandidate(stringValue(tournament["startDate"]))
             if !id.isEmpty, !startDate.isEmpty {
                 tournamentDates[id] = startDate
             }
@@ -1012,10 +1012,10 @@ enum NativePublicAPI {
     private static func hallSortValue(entry: [String: Any], tournamentDates: [String: String]) -> TimeInterval {
         let tournamentId = stringValue(entry["tournamentId"]).trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceTournamentId = stringValue(entry["sourceTournamentId"]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let sourceTournamentDate = stringValue(entry["sourceTournamentDate"]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let directDate = tournamentDates[tournamentId]
-            ?? tournamentDates[sourceTournamentId]
-            ?? (isValidIsoDate(sourceTournamentDate) ? sourceTournamentDate : nil)
+        let sourceTournamentDate = normalizeIsoDateCandidate(stringValue(entry["sourceTournamentDate"]))
+        let directDate = normalizeIsoDateCandidate(tournamentDates[tournamentId] ?? "")
+            ?? normalizeIsoDateCandidate(tournamentDates[sourceTournamentId] ?? "")
+            ?? sourceTournamentDate
             ?? extractIsoDateFromKey(tournamentId)
             ?? extractIsoDateFromKey(sourceTournamentId)
             ?? extractIsoDateFromKey(stringValue(entry["id"]))
@@ -1032,6 +1032,14 @@ enum NativePublicAPI {
 
     private static func isValidIsoDate(_ value: String) -> Bool {
         value.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
+    }
+
+    private static func normalizeIsoDateCandidate(_ value: String) -> String? {
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        guard let match = raw.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression) else { return nil }
+        let iso = String(raw[match])
+        return isValidIsoDate(iso) ? iso : nil
     }
 
     private static func extractIsoDateFromKey(_ value: String?) -> String? {

@@ -77,3 +77,8 @@ chat non affidabile, seguo il repository.
 - irrobustito `NativePlayerPreviewStore` contro dati locali corrotti o orfani: sessione, account, profili e call preview vengono riparati automaticamente quando possibile
 - aggiunto bootstrap safe della `player_area` iOS, cosi' il render non deve piu' dipendere da un payload locale preview coerente al 100%
 - aggiunta anche una CTA esplicita `Reset local preview data` nella `player_area`, con pulizia del bypass arbitri se non piu' coerente col profilo locale
+- riallineata anche la shell pubblica iOS alla direzione visiva del web: top bar FLBP, hero home, shortcut cards e lista tornei con palette e gerarchia coerenti
+- aggiunta dalla home una scorciatoia esplicita a `player_area`, cosi' il funnel pubblico nativo resta piu' vicino alla struttura del sito
+- corretto anche a sorgente iOS il parsing delle date pubbliche per evitare che timestamp completi rompano Hall of Fame e projection pubblica
+- aggiunto il fallback parziale su `fetchPublicProjection()` e il watermark logo nella hero home iOS tramite `HeroLogo.imageset`
+- popolato anche `AppIcon.appiconset` con il logo FLBP rotondo, cosi' il branding launcher iOS resta allineato ad Android e al set icone del web

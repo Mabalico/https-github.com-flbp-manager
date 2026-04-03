@@ -34,7 +34,7 @@ private fun isMissingNativeRefereePullRpc(error: Throwable): Boolean {
 @Composable
 fun FLBPManagerSuiteApp() {
     MaterialTheme {
-        Surface(modifier = Modifier) {
+        Surface(modifier = Modifier, color = NativeFlbpPalette.page) {
             NativeAppScreen()
         }
     }
@@ -425,6 +425,7 @@ private fun NativeAppScreen() {
     }
 
     Scaffold(
+        containerColor = NativeFlbpPalette.page,
         topBar = {
             TopBar(
                 selectedRoute = selectedRoute,
@@ -460,6 +461,7 @@ private fun NativeAppScreen() {
                 onOpenTournaments = { writePublicState(publicState.navigateToPrimary(AppRoute.TOURNAMENT)) },
                 onOpenLeaderboard = { writePublicState(publicState.navigateToPrimary(AppRoute.LEADERBOARD)) },
                 onOpenHof = { writePublicState(publicState.navigateToPrimary(AppRoute.HOF)) },
+                onOpenPlayerArea = { writePublicState(publicState.navigateToPrimary(AppRoute.PLAYER_AREA)) },
                 onOpenAdmin = { selectedToolsRouteId = AppRoute.ADMIN.id },
                 onOpenReferees = { selectedToolsRouteId = AppRoute.REFEREES_AREA.id },
                 onRefresh = { refreshNonce += 1 },
