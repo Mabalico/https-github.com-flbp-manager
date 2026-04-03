@@ -34,7 +34,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 object NativeWebMirrorConfig {
     const val enabled: Boolean = true
-    const val baseUrl: String = "https://flbp.marcoxbaroncelli.workers.dev/?native_shell=android&shell_rev=20260403d"
+    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260403e"
 }
 
 @SuppressLint("SetJavaScriptEnabled")

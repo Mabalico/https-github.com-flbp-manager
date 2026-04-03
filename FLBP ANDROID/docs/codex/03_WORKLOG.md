@@ -107,4 +107,5 @@ chat non affidabile, seguo il repository.
 - rebuild Android verificata green con `:app:assembleDebug` e reinstallazione reale sul device dopo il fix del web mirror
 - forzato anche il WebView Android a ignorare la cache locale (`LOAD_NO_CACHE`, clear cache/history/form data) e introdotto `shell_rev` nella URL del mirror per evitare che l'app continui a mostrare bundle web vecchi dopo i deploy
 - ridotta di circa il 10% la dimensione apparente del logo launcher Android tramite `inset` sull'adaptive icon background, cosi' il cerchio nero resta tutto nel quadratino
-- riallineato il web mirror Android al dominio pubblico di produzione (`flbp.marcoxbaroncelli.workers.dev`) invece di `flbp-pages.pages.dev`, cosi' l'app segue la stessa frontend che il pubblico apre da browser
+- riportato il web mirror Android a `flbp-pages.pages.dev` come sorgente primaria voluta per il rollout finale, lasciando il Worker fuori dal flusso delle app native
+- ridotto ancora il logo launcher Android: l'adaptive icon usa ora un inset piu' ampio, cosi' il cerchio nero sta piu' comodamente dentro il quadratino
