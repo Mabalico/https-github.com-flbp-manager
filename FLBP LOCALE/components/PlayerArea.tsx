@@ -50,6 +50,14 @@ import {
 } from '../services/playerAppService';
 import { getMatchParticipantIds } from '../services/matchUtils';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
+import { isEmbeddedNativeShell } from '../services/nativeShell';
+import {
+  readNativePushRegistration,
+  refreshNativePushRegistration,
+  requestNativePushPermission,
+  subscribeNativePushRegistration,
+  type NativePushRegistrationSnapshot,
+} from '../services/nativePushBridge';
 
 interface PlayerAreaProps {
   state: AppState;
@@ -67,6 +75,7 @@ const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hov
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500`;
 const PLAYER_WEB_DEVICE_ID_KEY = 'flbp_player_web_device_id_v1';
+const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v1';
 
 const schedulePlayerAreaTask = (task: () => void) => {
   const timerId = window.setTimeout(task, 0);
@@ -127,6 +136,7 @@ const buildSafePlayerAreaSnapshot = (
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees }) => {
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
+  const embeddedNativeShell = isEmbeddedNativeShell();
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [authMode, setAuthMode] = React.useState<'login' | 'register'>('login');
   const [emailPanelOpen, setEmailPanelOpen] = React.useState(true);
@@ -154,6 +164,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     React.useState<ReturnType<typeof derivePlayerLiveStatus> | null>(null);
   const [liveDerivedError, setLiveDerivedError] = React.useState<string | null>(null);
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
+  const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
 
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
@@ -164,6 +175,56 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!embeddedNativeShell) {
+      setNativePushRegistration(null);
+      return;
+    }
+    setNativePushRegistration(readNativePushRegistration());
+    return subscribeNativePushRegistration(setNativePushRegistration);
+  }, [embeddedNativeShell]);
+
+  const syncLiveDeviceRegistration = React.useCallback(async () => {
+    if (!liveBackendEnabled) return null;
+    if (!embeddedNativeShell) {
+      return registerPlayerAppDevice({ id: getPlayerWebDeviceId(), platform: 'web', pushEnabled: true });
+    }
+
+    let registration = await refreshNativePushRegistration();
+    if (!registration) {
+      return null;
+    }
+
+    if (registration.permission === 'prompt') {
+      const hasPrompted = (() => {
+        try {
+          return localStorage.getItem(PLAYER_NATIVE_PUSH_PROMPT_KEY) === '1';
+        } catch {
+          return false;
+        }
+      })();
+      if (!hasPrompted) {
+        try {
+          localStorage.setItem(PLAYER_NATIVE_PUSH_PROMPT_KEY, '1');
+        } catch {
+          // ignore
+        }
+        registration = await requestNativePushPermission();
+      }
+    }
+
+    registration = registration || readNativePushRegistration();
+    if (!registration?.deviceId) return null;
+
+    setNativePushRegistration(registration);
+    return registerPlayerAppDevice({
+      id: registration.deviceId,
+      platform: registration.platform,
+      deviceToken: registration.deviceToken,
+      pushEnabled: registration.permission === 'granted' && !!registration.deviceToken,
+    });
+  }, [embeddedNativeShell, liveBackendEnabled]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -225,7 +286,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       let nextCalls: ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>[] = [];
 
       try {
-        await registerPlayerAppDevice({ id: getPlayerWebDeviceId(), platform: 'web', pushEnabled: true });
+        await syncLiveDeviceRegistration();
       } catch (error: any) {
         const message = String(error?.message || error || '').trim();
         if (isPlayerBackendPendingError(message)) {
@@ -272,7 +333,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setLiveRuntimeStatus('error');
       setLiveRuntimeError(message);
     }
-  }, [liveBackendEnabled, t]);
+  }, [liveBackendEnabled, syncLiveDeviceRegistration, t]);
 
   React.useEffect(() => {
     if (!liveBackendEnabled) return;

@@ -437,6 +437,7 @@ enum NativeProtectedAPI {
         session: NativePlayerSupabaseSession,
         deviceId: String,
         platform: String = "ios",
+        deviceToken: String? = nil,
         pushEnabled: Bool = true
     ) async throws {
         guard let userId = resolvePlayerSessionUserId(session), !userId.isEmpty else {
@@ -456,7 +457,7 @@ enum NativeProtectedAPI {
                 "workspace_id": workspaceId,
                 "user_id": userId,
                 "platform": platform,
-                "device_token": NSNull(),
+                "device_token": deviceToken?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: nil) as Any? ?? NSNull(),
                 "push_enabled": pushEnabled
             ],
             extraHeaders: [

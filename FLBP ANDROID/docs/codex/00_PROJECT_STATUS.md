@@ -38,6 +38,9 @@ chat non affidabile, seguo il repository.
 - riparazione safe dei dati locali corrotti/orfani della `player_area` preview: SI
 - reset esplicito dei dati preview locali della `player_area` sul device: SI
 - riapertura app forzata su Home invece che sull'ultima schermata pubblica: SI
+- bridge nativo push verso il web mirror (`FLBPNativePushBridge`): SI
+- registrazione reale del device Android su `player_app_devices` con `device_token` FCM quando disponibile: SI a codice
+- ricezione push Android via `FirebaseMessagingService`: SI a codice
 - risultati personali e live status giocatore derivati dai dataset pubblici: SI
 - segnalazione nativa `Possible alias` su classifiche, albo, dettaglio torneo e player area: SI
 - alert di chiamata squadra preview-only sul device: SI
@@ -71,6 +74,9 @@ chat non affidabile, seguo il repository.
 - bootstrap safe della `player_area` con riparazione di sessioni/account/profili/call orfani o corrotti
 - reset di bootstrap alla Home all'avvio per evitare resume impliciti dell'ultima route pubblica
 - bypass password arbitri sul device quando il profilo giocatore collegato coincide con un arbitro del torneo live
+- `NativePushRegistry.kt`, `NativeFirebaseMessagingService.kt` e `FLBPApplication.kt` aggiunti per il path push reale
+- `AndroidWebMirrorUi.kt` ora espone un bridge JS con snapshot push, richiesta permesso e refresh token
+- `NativeProtectedApi.registerPlayerDevice(...)` ora invia anche `device_token` reale al backend quando disponibile
 
 ## Rischi aperti reali
 - smoke test visivo finale sul device con il web mirror ancora da chiudere del tutto
@@ -78,6 +84,8 @@ chat non affidabile, seguo il repository.
 - il fallback nativo puro continua a non coprire scritture Admin, scritture arbitri, referti e OCR
 - backend SQL `player/call` ora applicato sul progetto Supabase reale, ma il live completo resta da chiudere su:
   - provider auth reali
+  - secret/config FCM reali nei resource values Android
+  - deploy funzione Edge `player-call-push`
   - registrazione device/push reali
   - wiring native runtime oltre la preview locale quando non passi dal web mirror primario
 - reset password reale ancora non attivo: serve collegare auth live + mittente email amministratore reale / SMTP reale

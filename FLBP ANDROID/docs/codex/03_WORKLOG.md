@@ -79,6 +79,13 @@ chat non affidabile, seguo il repository.
 - allineata la documentazione Android: i wrapper/public flow restano coerenti col modello DB-first e il prossimo cablaggio nativo dovra' appoggiarsi alle stesse tabelle/RPC (`player_app_profiles`, `player_app_devices`, `player_app_calls`, `flbp_admin_list_player_accounts`, `flbp_referee_pull_live_state`)
 
 ## 2026-04-03
+- aggiunto cablaggio push reale Android con `NativePushRegistry`, `FLBPApplication` e `NativeFirebaseMessagingService`
+- il web mirror Android ora espone `FLBPNativePushBridge` con snapshot device/token, richiesta permesso e refresh registrazione
+- il fallback nativo Android ora registra `device_token` vero su `player_app_devices` invece del placeholder nullo
+- build Android verificata di nuovo green con `:app:assembleDebug` dopo il wiring Firebase Messaging
+- restano da inserire solo i valori FCM reali e il deploy della funzione Edge backend
+
+## 2026-04-03
 - riallineata la shell pubblica Android al linguaggio visivo del web senza perdere la natura nativa Compose
 - top bar, hero home e cards pubbliche adesso usano palette FLBP, gerarchia piu' marcata e copy meno "checkpoint"
 - aggiunta una scorciatoia esplicita a `player_area` dalla home, accanto a tornei, storico e Hall of Fame

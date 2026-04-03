@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">FLBP</string>
+    <string name="fcm_application_id"></string>
+    <string name="fcm_project_id"></string>
+    <string name="fcm_api_key"></string>
+    <string name="fcm_sender_id"></string>
+    <string name="notification_channel_team_calls">Chiamate squadra</string>
+    <string name="notification_channel_team_calls_description">Convocazioni partita e aggiornamenti live squadra.</string>
 </resources>

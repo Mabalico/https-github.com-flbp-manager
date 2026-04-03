@@ -232,10 +232,13 @@ private fun NativeAppScreen() {
         }
 
         var backendPending = false
+        val pushSnapshot = NativePushRegistry.readSnapshot(context)
         runCatching {
             NativeProtectedApi.registerPlayerDevice(
                 session = refreshedSession,
                 deviceId = protectedCache.readOrCreatePlayerDeviceId(),
+                deviceToken = pushSnapshot.deviceToken,
+                pushEnabled = pushSnapshot.permission == "granted" && !pushSnapshot.deviceToken.isNullOrBlank(),
             )
         }.onFailure { error ->
             if (NativeProtectedApi.isPlayerBackendPendingError(error.message.orEmpty())) {
@@ -614,6 +617,7 @@ private fun NativeAppScreen() {
                     uiScope.launch {
                         runCatching {
                             val liveSession = NativeProtectedApi.signUpPlayerWithPassword(email, password)
+                            val pushSnapshot = NativePushRegistry.readSnapshot(context)
                             protectedCache.writePlayerSession(liveSession)
                             playerLiveSession = liveSession
                             if (firstName.isNotBlank() && lastName.isNotBlank() && birthDate.isNotBlank()) {
@@ -628,6 +632,8 @@ private fun NativeAppScreen() {
                             NativeProtectedApi.registerPlayerDevice(
                                 session = liveSession,
                                 deviceId = protectedCache.readOrCreatePlayerDeviceId(),
+                                deviceToken = pushSnapshot.deviceToken,
+                                pushEnabled = pushSnapshot.permission == "granted" && !pushSnapshot.deviceToken.isNullOrBlank(),
                             )
                             playerLiveCalls = NativeProtectedApi.pullPlayerCalls(liveSession)
                             playerBackendReady = true
@@ -646,11 +652,14 @@ private fun NativeAppScreen() {
                     uiScope.launch {
                         runCatching {
                             val liveSession = NativeProtectedApi.signInPlayerWithPassword(username, password)
+                            val pushSnapshot = NativePushRegistry.readSnapshot(context)
                             protectedCache.writePlayerSession(liveSession)
                             playerLiveSession = liveSession
                             NativeProtectedApi.registerPlayerDevice(
                                 session = liveSession,
                                 deviceId = protectedCache.readOrCreatePlayerDeviceId(),
+                                deviceToken = pushSnapshot.deviceToken,
+                                pushEnabled = pushSnapshot.permission == "granted" && !pushSnapshot.deviceToken.isNullOrBlank(),
                             )
                             playerLiveProfile = NativeProtectedApi.pullPlayerProfile(liveSession)
                             playerLiveCalls = NativeProtectedApi.pullPlayerCalls(liveSession)

@@ -15,7 +15,7 @@ import {
     type PlayerCallRequest,
 } from '../../../services/playerAppService';
 import { isLocalOnlyMode } from '../../../services/repository/featureFlags';
-import { callPlayerAppTeam, cancelPlayerAppCall, getSupabaseConfig, pullAdminPlayerCalls, pullAdminPlayerCallTargets } from '../../../services/supabaseRest';
+import { callPlayerAppTeam, cancelPlayerAppCall, dispatchPlayerCallPush, getSupabaseConfig, pullAdminPlayerCalls, pullAdminPlayerCallTargets } from '../../../services/supabaseRest';
 
 export interface ReportsTabProps {
     state: AppState;
@@ -319,8 +319,16 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         if (useLiveCalls) {
                                             if (activeCall) {
                                                 await cancelPlayerAppCall(activeCall.id);
+                                                try {
+                                                    await dispatchPlayerCallPush({
+                                                        callId: activeCall.id,
+                                                        action: 'cancelled',
+                                                    });
+                                                } catch (pushError) {
+                                                    console.warn('FLBP call push dispatch failed after cancel', pushError);
+                                                }
                                             } else if (liveTarget) {
-                                                await callPlayerAppTeam({
+                                                const result = await callPlayerAppTeam({
                                                     tournamentId: state.tournament!.id,
                                                     teamId: team.id,
                                                     teamName: team.name || team.id,
@@ -328,6 +336,17 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                     targetPlayerId: liveTarget.playerId,
                                                     targetPlayerName: liveTarget.playerName,
                                                 });
+                                                const callId = String((result as any)?.call_id || '').trim();
+                                                if (callId) {
+                                                    try {
+                                                        await dispatchPlayerCallPush({
+                                                            callId,
+                                                            action: 'ringing',
+                                                        });
+                                                    } catch (pushError) {
+                                                        console.warn('FLBP call push dispatch failed after ring', pushError);
+                                                    }
+                                                }
                                             }
                                         } else if (activeCall) {
                                             cancelPreviewTeamCall(state.tournament!.id, team.id);

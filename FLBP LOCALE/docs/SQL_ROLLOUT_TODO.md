@@ -73,6 +73,82 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - dopo il check password reale possono ora usare anche loro il `pull live state` additivo
   - restano compatibili se il runtime native non usa ancora il percorso completo
 
+## Push reale ora cablato nel repo
+
+- web `player_area`
+  - legge la registrazione push nativa da bridge (`nativePushBridge.ts`)
+  - registra su `player_app_devices` il vero `device_token` Android/iOS quando disponibile
+  - se il permesso push e' ancora `prompt`, prova a richiederlo una sola volta lato shell nativa
+- web `ReportsTab`
+  - dopo `flbp_player_call_team(...)` prova anche il dispatch push backend
+  - dopo `flbp_player_cancel_call(...)` prova anche il dispatch push backend
+  - eventuali errori della funzione push non rompono il flusso referti/admin
+- Supabase Edge Function
+  - sorgente pronto in `supabase/functions/player-call-push/index.ts`
+  - verifica admin reale via JWT + tabella `admin_users`
+  - legge `player_app_calls` e `player_app_devices`
+  - dispatch provider-specifico:
+    - Android `FCM HTTP v1`
+    - iOS `APNs token auth`
+- Android
+  - `FLBPApplication` + `NativeFirebaseMessagingService` + `NativePushRegistry` pronti nel repo
+  - web mirror espone `FLBPNativePushBridge` al frontend
+  - build locale verificata con dipendenza `firebase-messaging`
+- iOS
+  - `NativePushRegistry.swift` + `NativeAppDelegate` + bridge `WKWebView` pronti a sorgente
+  - entitlements APNs aggiunti al progetto
+  - device registration live ora passa anche il vero `device_token` al backend quando disponibile
+
+## Configurazioni esterne non-SQL ancora necessarie
+
+- deploy funzione Edge `player-call-push` sul progetto Supabase reale
+- secret funzione Edge:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+  - `FCM_PROJECT_ID`
+  - `FCM_CLIENT_EMAIL`
+  - `FCM_PRIVATE_KEY`
+  - `APNS_TEAM_ID`
+  - `APNS_KEY_ID`
+  - `APNS_PRIVATE_KEY`
+  - `APNS_BUNDLE_ID`
+  - opzionale `APNS_USE_SANDBOX`
+- Android
+  - compilare con i valori veri in `app/src/main/res/values/strings.xml`:
+    - `fcm_application_id`
+    - `fcm_project_id`
+    - `fcm_api_key`
+    - `fcm_sender_id`
+- iOS
+  - compile reale da Mac/Xcode
+  - signing/provisioning con capability Push Notifications effettiva
+- prodotto
+  - le push di chiamata squadra non sono da considerare attive in produzione finche' i punti sopra non sono chiusi
+
+## Regola architetturale native
+
+- Android e iOS ora usano come percorso primario una shell nativa con web mirror full-screen di `FLBP ONLINE` (`https://flbp-pages.pages.dev`)
+- il fallback nativo legacy resta nel repo solo come backup tecnico locale e come base per eventuali recuperi offline / debug
+- quando tocchiamo il web, va sempre verificato se il cambiamento impatta anche:
+  - il web mirror primario sulle native
+  - il fallback nativo legacy ancora mantenuto nel repo
+
+## Regola deploy web canonica
+
+- il frontend web canonico e' **Cloudflare Pages**
+- progetto canonico: `flbp-pages`
+- branch di produzione canonico: `main`
+- flusso canonico: `GitHub -> main -> Cloudflare Pages Git integration`
+- `flbp-pages.pages.dev` e' il riferimento stabile da usare per:
+  - web mirror Android
+  - web mirror iOS
+  - test di produzione sul frontend pubblico corrente
+- il vecchio `Worker` resta solo come residuo legacy / fallback esterno temporaneo:
+  - non e' piu' la fonte di verita'
+  - non va piu' usato come target per nuove modifiche applicative
+  - l'operativita' del progetto non deve dipendere dal suo aggiornamento
+
 ## Regole di allineamento copie web
 
 - `FLBP ONLINE/` e' la fonte di verita' web.
@@ -208,8 +284,9 @@ Questa sezione raccoglie il resto delle cose ancora da fare che non sono solo SQ
 
 ### Deploy / dati / rollout web
 
-- rigenerare la `dist` aggiornata di `FLBP ONLINE`
-- pubblicare su Cloudflare la build nuova, cosi' l'online smette di usare la UI vecchia
+- mantenere `Cloudflare Pages` come unico frontend canonico da produzione
+- verificare periodicamente che `main` deployi davvero su `flbp-pages`
+- evitare nuove dipendenze operative dal vecchio Worker legacy
 - importare il backup dati corretto finale:
   - `backups/flbp_backup_2026-03-29_codex-fixed-v7.json`
 - fare hard refresh / cache refresh della build pubblica dopo il deploy
@@ -235,6 +312,8 @@ Questa sezione raccoglie il resto delle cose ancora da fare che non sono solo SQ
   - area risultati personali live
   - schermata live giocatore
   - convocazione squadra push/live con conferma ricezione
+  - push OS reali ai device registrati (`FCM` Android, `APNs` iOS o equivalente orchestrato backend)
+  - gestione token/device registration reale lato app, non solo struttura dati `player_app_devices`
 - collegare in Admin la quinta sezione `Account giocatori` al catalogo reale account/provider, non solo alla preparazione repo
 - ricordare la decisione prodotto:
   - `instagram` resta fuori dalla v1

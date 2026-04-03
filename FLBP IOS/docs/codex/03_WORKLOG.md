@@ -78,6 +78,10 @@ chat non affidabile, seguo il repository.
 - aggiunto bootstrap safe della `player_area` iOS, cosi' il render non deve piu' dipendere da un payload locale preview coerente al 100%
 - aggiunta anche una CTA esplicita `Reset local preview data` nella `player_area`, con pulizia del bypass arbitri se non piu' coerente col profilo locale
 - riallineata anche la shell pubblica iOS alla direzione visiva del web: top bar FLBP, hero home, shortcut cards e lista tornei con palette e gerarchia coerenti
+- aggiunto `NativePushRegistry.swift` con gestione permesso push, token APNs, bridge JS e `NativeAppDelegate`
+- collegato il progetto iOS agli entitlements APNs e alla registrazione device live su `player_app_devices`
+- preparato anche il web mirror iOS per pubblicare il snapshot push nella pagina e rispondere a `requestPermission` / `refreshRegistration`
+- resta da fare solo la verifica reale su Mac/Xcode con signing valido
 - aggiunta dalla home una scorciatoia esplicita a `player_area`, cosi' il funnel pubblico nativo resta piu' vicino alla struttura del sito
 - corretto anche a sorgente iOS il parsing delle date pubbliche per evitare che timestamp completi rompano Hall of Fame e projection pubblica
 - aggiunto il fallback parziale su `fetchPublicProjection()` e il watermark logo nella hero home iOS tramite `HeroLogo.imageset`

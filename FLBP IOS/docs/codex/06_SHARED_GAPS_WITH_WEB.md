@@ -31,5 +31,9 @@ chat non affidabile, seguo il repository.
 - bypass password arbitri sul device se il profilo giocatore collegato e' arbitro del live
 - stesso perimetro dati pubblici Supabase del web
 - percorso backend additivo gia' preparato nel repo web per leggere lo snapshot live completo via password arbitri, senza cambiare il flusso web attuale
-- percorso backend additivo gia' preparato nel repo web anche per profili player, device tokens e call alerts, ma ancora non applicato al progetto reale
-- il web ha gia' chiuso il wiring `live-when-available` per quei percorsi; iOS lo eredita gia' sul percorso primario tramite web mirror e mantiene il `pull live state` arbitri sul fallback legacy
+- percorso backend additivo per profili player, device tokens e call alerts ora applicato sul progetto reale
+- iOS registra ora anche il `device_token` vero a sorgente e puo' ricevere APNs a codice, ma il dispatch reale resta in attesa di:
+  - build/signing Xcode con capability Push Notifications effettiva
+  - deploy della funzione Edge `player-call-push`
+  - secret backend FCM/APNs configurati sul progetto Supabase
+- il web ha gia' chiuso il wiring `live-when-available` per quei percorsi; iOS lo eredita sul percorso primario tramite web mirror e mantiene il `pull live state` arbitri sul fallback legacy

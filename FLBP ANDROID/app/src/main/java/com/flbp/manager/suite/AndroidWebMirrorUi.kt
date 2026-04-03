@@ -1,15 +1,20 @@
 package com.flbp.manager.suite
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.os.Build
 import android.webkit.CookieManager
-import android.webkit.WebSettings
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,12 +35,52 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import org.json.JSONObject
 
 object NativeWebMirrorConfig {
     const val enabled: Boolean = true
-    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260403e"
+    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260403f"
+}
+
+private class NativePushJavascriptBridge(
+    private val context: android.content.Context,
+    private val onRequestPermission: () -> Unit,
+    private val onRefreshRegistration: () -> Unit,
+) {
+    @JavascriptInterface
+    fun getRegistrationJson(): String = NativePushRegistry.registrationJson(context)
+
+    @JavascriptInterface
+    fun requestPermission(): String {
+        onRequestPermission()
+        return NativePushRegistry.registrationJson(context)
+    }
+
+    @JavascriptInterface
+    fun refreshRegistration(): String {
+        onRefreshRegistration()
+        return NativePushRegistry.registrationJson(context)
+    }
+}
+
+private fun pushNativeRegistrationIntoWebView(webView: WebView?, context: android.content.Context) {
+    val target = webView ?: return
+    val escapedJson = JSONObject.quote(NativePushRegistry.registrationJson(context))
+    val script = """
+        (function () {
+          try {
+            var snapshot = JSON.parse($escapedJson);
+            window.__flbpNativePushRegistration = snapshot;
+            window.dispatchEvent(new CustomEvent('${NativePushRegistry.eventName}', { detail: snapshot }));
+          } catch (error) {
+            console.warn('FLBP native push sync failed', error);
+          }
+        })();
+    """.trimIndent()
+    target.evaluateJavascript(script, null)
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -42,12 +88,39 @@ object NativeWebMirrorConfig {
 fun NativeWebMirrorHost(
     fallback: @Composable (() -> Unit)? = null,
 ) {
+    val context = LocalContext.current
     var reloadNonce by rememberSaveable { mutableIntStateOf(0) }
     var initialLoadComplete by rememberSaveable { mutableStateOf(false) }
     var fatalError by rememberSaveable { mutableStateOf<String?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var useFallback by rememberSaveable { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) {
+        NativePushRegistry.refreshRegistration(context)
+    }
+
+    val requestNotificationPermission = remember(context) {
+        {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                NativePushRegistry.refreshRegistration(context)
+            }
+        }
+    }
+
+    DisposableEffect(context, webViewRef) {
+        val listener: (NativePushRegistrationSnapshot) -> Unit = {
+            webViewRef?.post { pushNativeRegistrationIntoWebView(webViewRef, context) }
+        }
+        NativePushRegistry.addListener(listener)
+        onDispose {
+            NativePushRegistry.removeListener(listener)
+        }
+    }
 
     if (useFallback && fallback != null) {
         fallback()
@@ -62,9 +135,11 @@ fun NativeWebMirrorHost(
         key(reloadNonce) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
-                factory = { context ->
+                factory = { factoryContext ->
                     CookieManager.getInstance().setAcceptCookie(true)
-                    WebView(context).apply {
+                    NativePushRegistry.createNotificationChannel(factoryContext)
+                    NativePushRegistry.refreshRegistration(factoryContext)
+                    WebView(factoryContext).apply {
                         webViewRef = this
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                         settings.javaScriptEnabled = true
@@ -75,6 +150,14 @@ fun NativeWebMirrorHost(
                         settings.loadWithOverviewMode = true
                         settings.useWideViewPort = true
                         settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                        addJavascriptInterface(
+                            NativePushJavascriptBridge(
+                                context = factoryContext,
+                                onRequestPermission = requestNotificationPermission,
+                                onRefreshRegistration = { NativePushRegistry.refreshRegistration(factoryContext) },
+                            ),
+                            "FLBPNativePushBridge",
+                        )
                         clearCache(true)
                         clearHistory()
                         clearFormData()
@@ -88,6 +171,7 @@ fun NativeWebMirrorHost(
                                 initialLoadComplete = true
                                 fatalError = null
                                 canGoBack = view?.canGoBack() == true
+                                pushNativeRegistrationIntoWebView(view, factoryContext)
                             }
 
                             override fun onReceivedError(

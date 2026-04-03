@@ -347,9 +347,12 @@ struct ContentView: View {
             var backendPending = false
 
             do {
+                let pushSnapshot = NativePushRegistry.currentSnapshot()
                 try await NativeProtectedAPI.registerPlayerDevice(
                     session: refreshedSession!,
-                    deviceId: protectedCache.readOrCreatePlayerDeviceId()
+                    deviceId: protectedCache.readOrCreatePlayerDeviceId(),
+                    deviceToken: pushSnapshot.deviceToken,
+                    pushEnabled: pushSnapshot.permission == "granted" && pushSnapshot.deviceToken != nil
                 )
             } catch {
                 if NativeProtectedAPI.isPlayerBackendPendingError(error.localizedDescription) {
@@ -478,9 +481,12 @@ struct ContentView: View {
                             } else {
                                 playerLiveProfile = try await NativeProtectedAPI.pullPlayerProfile(session: liveSession)
                             }
+                            let pushSnapshot = NativePushRegistry.currentSnapshot()
                             try await NativeProtectedAPI.registerPlayerDevice(
                                 session: liveSession,
-                                deviceId: protectedCache.readOrCreatePlayerDeviceId()
+                                deviceId: protectedCache.readOrCreatePlayerDeviceId(),
+                                deviceToken: pushSnapshot.deviceToken,
+                                pushEnabled: pushSnapshot.permission == "granted" && pushSnapshot.deviceToken != nil
                             )
                             playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: liveSession)
                             playerBackendReady = true
@@ -500,9 +506,12 @@ struct ContentView: View {
                             let liveSession = try await NativeProtectedAPI.signInPlayerWithPassword(email: username, password: password)
                             protectedCache.writePlayerSession(liveSession)
                             playerLiveSession = liveSession
+                            let pushSnapshot = NativePushRegistry.currentSnapshot()
                             try await NativeProtectedAPI.registerPlayerDevice(
                                 session: liveSession,
-                                deviceId: protectedCache.readOrCreatePlayerDeviceId()
+                                deviceId: protectedCache.readOrCreatePlayerDeviceId(),
+                                deviceToken: pushSnapshot.deviceToken,
+                                pushEnabled: pushSnapshot.permission == "granted" && pushSnapshot.deviceToken != nil
                             )
                             playerLiveProfile = try await NativeProtectedAPI.pullPlayerProfile(session: liveSession)
                             playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: liveSession)

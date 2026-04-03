@@ -479,6 +479,7 @@ object NativeProtectedApi {
         session: NativePlayerSupabaseSession,
         deviceId: String,
         platform: String = "android",
+        deviceToken: String? = null,
         pushEnabled: Boolean = true,
     ) = withContext(Dispatchers.IO) {
         val userId = resolvePlayerSessionUserId(session)
@@ -490,7 +491,7 @@ object NativeProtectedApi {
             put("workspace_id", PROTECTED_SUPABASE_WORKSPACE_ID)
             put("user_id", userId)
             put("platform", platform)
-            put("device_token", JSONObject.NULL)
+            put("device_token", deviceToken?.trim()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL)
             put("push_enabled", pushEnabled)
         }
         requestArray(

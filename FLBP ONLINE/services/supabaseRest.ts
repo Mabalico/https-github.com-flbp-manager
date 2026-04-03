@@ -390,6 +390,11 @@ const authUrl = (cfg: SupabaseConfig, pathAndQuery: string) => {
     return `${base}/auth/v1/${pathAndQuery.replace(/^\//, '')}`;
 };
 
+const functionsUrl = (cfg: SupabaseConfig, fnName: string) => {
+    const base = cfg.url.replace(/\/$/, '');
+    return `${base}/functions/v1/${fnName.replace(/^\//, '')}`;
+};
+
 const readErrorBody = async (res: Response) => {
     try {
         const text = await res.text();
@@ -929,6 +934,56 @@ export const callPlayerAppTeam = async (input: {
     }, 4000, { source: 'callPlayerAppTeam', kind: 'sync' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     return await res.json();
+};
+
+export type PlayerCallPushDispatchAction = 'ringing' | 'cancelled' | 'acknowledged';
+
+export interface PlayerCallPushDispatchResult {
+    ok: boolean;
+    callId: string;
+    action: PlayerCallPushDispatchAction;
+    skipped?: boolean;
+    reason?: string | null;
+    deliveries?: Array<{
+        deviceId: string;
+        platform: string;
+        provider: string;
+        ok: boolean;
+        status?: number | null;
+        reason?: string | null;
+    }>;
+}
+
+export const dispatchPlayerCallPush = async (input: {
+    callId: string;
+    action: PlayerCallPushDispatchAction;
+}): Promise<PlayerCallPushDispatchResult> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const callId = String(input.callId || '').trim();
+    if (!callId) throw new Error('Convocazione non valida.');
+    const action = String(input.action || '').trim().toLowerCase() as PlayerCallPushDispatchAction;
+    if (action !== 'ringing' && action !== 'cancelled' && action !== 'acknowledged') {
+        throw new Error('Azione push non valida.');
+    }
+
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-call-push'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                workspaceId: cfg.workspaceId,
+                callId,
+                action,
+            }),
+        },
+        8000,
+        { source: 'dispatchPlayerCallPush', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as PlayerCallPushDispatchResult;
 };
 
 export const pullAdminPlayerAccounts = async (origin?: string | null): Promise<AdminPlayerAccountCatalogRow[]> => {

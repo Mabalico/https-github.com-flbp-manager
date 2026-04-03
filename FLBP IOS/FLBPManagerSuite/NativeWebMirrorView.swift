@@ -3,7 +3,7 @@ import WebKit
 
 enum NativeWebMirrorConfig {
     static let enabled = true
-    static let baseUrl = URL(string: "https://flbp-pages.pages.dev/?native_shell=ios&shell_rev=20260403e")!
+    static let baseUrl = URL(string: "https://flbp-pages.pages.dev/?native_shell=ios&shell_rev=20260403f")!
 }
 
 struct NativeWebMirrorHostView<Fallback: View>: View {
@@ -72,10 +72,20 @@ private struct NativeWebMirrorWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        let contentController = configuration.userContentController
+        contentController.addUserScript(
+            WKUserScript(
+                source: NativePushRegistry.bridgeBootstrapScript(),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+        contentController.add(context.coordinator, name: "flbpNativePush")
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = true
+        context.coordinator.attach(webView)
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         webView.load(request)
@@ -91,19 +101,61 @@ private struct NativeWebMirrorWebView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         @Binding var firstLoadCompleted: Bool
         @Binding var fatalError: String?
         var lastReloadToken = UUID()
+        private weak var webView: WKWebView?
+        private var registrationObserver: NSObjectProtocol?
 
         init(firstLoadCompleted: Binding<Bool>, fatalError: Binding<String?>) {
             _firstLoadCompleted = firstLoadCompleted
             _fatalError = fatalError
+            super.init()
+            registrationObserver = NotificationCenter.default.addObserver(
+                forName: .flbpNativePushRegistrationDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.pushRegistrationSnapshot()
+            }
+        }
+
+        deinit {
+            if let registrationObserver {
+                NotificationCenter.default.removeObserver(registrationObserver)
+            }
+        }
+
+        func attach(_ webView: WKWebView) {
+            self.webView = webView
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "flbpNativePush" else { return }
+            let body = message.body as? [String: Any]
+            let type = (body?["type"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? ""
+            switch type {
+            case "requestpermission":
+                NativePushRegistry.requestPermission()
+            case "refreshregistration":
+                NativePushRegistry.refreshRegistration()
+            default:
+                break
+            }
+        }
+
+        private func pushRegistrationSnapshot() {
+            guard let webView else { return }
+            webView.evaluateJavaScript(NativePushRegistry.syncScript(), completionHandler: nil)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             firstLoadCompleted = true
             fatalError = nil
+            pushRegistrationSnapshot()
         }
 
         func webView(

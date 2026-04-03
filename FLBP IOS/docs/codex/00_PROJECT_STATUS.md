@@ -38,6 +38,9 @@ chat non affidabile, seguo il repository.
 - riparazione safe dei dati locali corrotti/orfani della `player_area` preview: SI
 - reset esplicito dei dati preview locali della `player_area` sul device: SI
 - riapertura app forzata su Home invece che sull'ultima schermata pubblica: SI
+- bridge nativo push verso il web mirror (`window.__flbpNativePushBridge` via WKWebView): SI a sorgente
+- registrazione reale del device iOS su `player_app_devices` con `device_token` APNs quando disponibile: SI a sorgente
+- ricezione push iOS via `UIApplicationDelegate` + `UNUserNotificationCenter`: SI a sorgente
 - risultati personali e live status giocatore derivati dai dataset pubblici: SI
 - segnalazione nativa `Possible alias` su classifiche, albo, dettaglio torneo e player area: SI
 - alert di chiamata squadra preview-only sul device: SI
@@ -72,12 +75,17 @@ chat non affidabile, seguo il repository.
 - reset di bootstrap alla Home all'avvio per evitare resume impliciti dell'ultima route pubblica
 - bypass password arbitri sul device quando il profilo giocatore collegato coincide con un arbitro del torneo live
 - wiring progetto in `FLBPManagerSuite.xcodeproj/project.pbxproj`
+- `NativePushRegistry.swift` aggiunto al progetto con entitlements APNs e bridge WKWebView
+- `NativeProtectedData.registerPlayerDevice(...)` ora invia anche `device_token` reale al backend quando disponibile
 
 ## Rischi aperti reali
 - da questa macchina non posso certificare compile/run Xcode
 - nessun signing release / `.ipa` generato ancora
 - il fallback nativo puro continua a non coprire scritture Admin, scritture arbitri, referti e OCR
 - backend SQL `player/call` ora applicato sul progetto Supabase reale, ma il live completo resta da chiudere su:
+  - deploy funzione Edge `player-call-push`
+  - secret/config APNs reali
+  - compile/signing Xcode per attivare davvero il path APNs
   - provider auth reali
   - registrazione device/push reali
   - wiring native runtime oltre la preview locale quando non passi dal web mirror primario
