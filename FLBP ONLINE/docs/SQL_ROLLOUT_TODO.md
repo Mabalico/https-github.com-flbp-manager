@@ -81,6 +81,21 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - il web mirror primario sulle native
   - il fallback nativo legacy ancora mantenuto nel repo
 
+## Regola deploy web canonica
+
+- il frontend web canonico e' **Cloudflare Pages**
+- progetto canonico: `flbp-pages`
+- branch di produzione canonico: `main`
+- flusso canonico: `GitHub -> main -> Cloudflare Pages Git integration`
+- `flbp-pages.pages.dev` e' il riferimento stabile da usare per:
+  - web mirror Android
+  - web mirror iOS
+  - test di produzione sul frontend pubblico corrente
+- il vecchio `Worker` resta solo come residuo legacy / fallback esterno temporaneo:
+  - non e' piu' la fonte di verita'
+  - non va piu' usato come target per nuove modifiche applicative
+  - l'operativita' del progetto non deve dipendere dal suo aggiornamento
+
 ## Regole di allineamento copie web
 
 - `FLBP ONLINE/` e' la fonte di verita' web.
@@ -216,8 +231,9 @@ Questa sezione raccoglie il resto delle cose ancora da fare che non sono solo SQ
 
 ### Deploy / dati / rollout web
 
-- rigenerare la `dist` aggiornata di `FLBP ONLINE`
-- pubblicare su Cloudflare la build nuova, cosi' l'online smette di usare la UI vecchia
+- mantenere `Cloudflare Pages` come unico frontend canonico da produzione
+- verificare periodicamente che `main` deployi davvero su `flbp-pages`
+- evitare nuove dipendenze operative dal vecchio Worker legacy
 - importare il backup dati corretto finale:
   - `backups/flbp_backup_2026-03-29_codex-fixed-v7.json`
 - fare hard refresh / cache refresh della build pubblica dopo il deploy
@@ -243,6 +259,8 @@ Questa sezione raccoglie il resto delle cose ancora da fare che non sono solo SQ
   - area risultati personali live
   - schermata live giocatore
   - convocazione squadra push/live con conferma ricezione
+  - push OS reali ai device registrati (`FCM` Android, `APNs` iOS o equivalente orchestrato backend)
+  - gestione token/device registration reale lato app, non solo struttura dati `player_app_devices`
 - collegare in Admin la quinta sezione `Account giocatori` al catalogo reale account/provider, non solo alla preparazione repo
 - ricordare la decisione prodotto:
   - `instagram` resta fuori dalla v1

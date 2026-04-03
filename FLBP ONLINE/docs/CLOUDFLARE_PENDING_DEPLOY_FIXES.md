@@ -129,14 +129,23 @@ Due cause possono essersi sommate:
 - in passato il flusso admin poteva lasciare disallineati roster live e stats gia' registrate
 - nel repo attuale il flusso e' stato irrigidito per propagare meglio le correzioni identita'/roster
 
-## Cosa manca ancora fuori dal repo
+## Regola deploy attuale
 
-Per vedere questi fix online servono ancora:
+Il frontend canonico non e' piu' il vecchio Worker/manual upload.
 
-1. rigenerare `dist` da `FLBP ONLINE`
-2. pubblicare la nuova build su Cloudflare
-3. importare il backup corretto (`v7`) se vuoi allineare anche i dati storici mancanti
-4. fare hard refresh / cache refresh sulla build pubblica
+Stato corretto da mantenere:
+- progetto canonico: `Cloudflare Pages -> flbp-pages`
+- sorgente canonica: branch `main`
+- le app native devono agganciarsi a `flbp-pages.pages.dev`
+- il vecchio Worker va trattato solo come residuo legacy esterno, non come dipendenza operativa
+
+## Cosa puo' ancora servire fuori dal repo
+
+Per vedere questi fix sul frontend canonico possono servire ancora:
+
+1. verificare che il deploy di `main` su `flbp-pages` sia andato davvero a buon fine
+2. importare il backup corretto (`v7`) se vuoi allineare anche i dati storici mancanti
+3. fare hard refresh / cache refresh sulla build pubblica
 
 ## Stato da tenere a mente
 
@@ -147,4 +156,4 @@ Se sull'online pubblico compaiono ancora sintomi come:
 - tabellone TV che non recepisce il referto arbitri
 
 allora il segnale piu' probabile e':
-- **build Cloudflare non ancora aggiornata ai fix del repo**
+- **deploy di Cloudflare Pages non ancora allineato ai fix del repo**

@@ -226,6 +226,11 @@ Conseguenza operativa:
 - il vecchio flusso manuale `Direct Upload` / Worker non e' piu' il percorso raccomandato
 - l'eventuale workflow GitHub Actions provato in precedenza e' stato rimosso per evitare doppio deploy
 
+Regola pratica da mantenere:
+- `Cloudflare Pages` e' il frontend canonico
+- `flbp-pages.pages.dev` e' il riferimento stabile per web mirror Android/iOS
+- il vecchio `Worker` va considerato solo legacy esterno temporaneo, non dipendenza operativa
+
 Nota:
 - `VITE_SUPABASE_ANON_KEY` e' una chiave publishable/publica lato client
 - resta consigliato ruotare l'eventuale token Cloudflare mostrato in screenshot durante il setup iniziale
