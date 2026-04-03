@@ -1,5 +1,5 @@
 {
-  "name": "aaFLBP Manager Suite",
-  "description": "A comprehensive suite for the Federazione Lucense Beer Pong. Combines public leaderboards, match administration, TV broadcasting mode, and tournament bracket generation into a single unified React application.",
+  "name": "FLBP",
+  "description": "Federazione Lucense Beer Pong: public leaderboards, match administration, TV mode, player area, and tournament bracket management in one app.",
   "requestFramePermissions": []
 }

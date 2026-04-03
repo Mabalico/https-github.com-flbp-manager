@@ -82,3 +82,4 @@ chat non affidabile, seguo il repository.
 - corretto anche a sorgente iOS il parsing delle date pubbliche per evitare che timestamp completi rompano Hall of Fame e projection pubblica
 - aggiunto il fallback parziale su `fetchPublicProjection()` e il watermark logo nella hero home iOS tramite `HeroLogo.imageset`
 - popolato anche `AppIcon.appiconset` con il logo FLBP rotondo, cosi' il branding launcher iOS resta allineato ad Android e al set icone del web
+- rinominata anche l'app iOS lato utente in `FLBP`, aggiungendo `CFBundleSpokenName` con `Federazione Lucense Beer Pong` per mantenere il nome esteso come riferimento parlato di sistema

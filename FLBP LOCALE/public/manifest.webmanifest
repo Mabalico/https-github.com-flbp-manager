@@ -1,7 +1,7 @@
 {
-  "name": "FLBP Manager Suite",
+  "name": "FLBP",
   "short_name": "FLBP",
-  "description": "Gestionale per tornei live di Beer Pong (Admin, Arbitri, TV Mode).",
+  "description": "Federazione Lucense Beer Pong: tornei live, admin, arbitri, classifiche e TV mode in un'unica app.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
