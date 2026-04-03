@@ -1,8 +1,5 @@
 param(
     [string]$ProjectRef = "kgwhcemqkgqvtsctnwql",
-    [string]$SupabaseUrl = "",
-    [string]$SupabaseAnonKey = "",
-    [string]$SupabaseServiceRoleKey = "",
     [string]$FcmServiceAccountJsonPath = "",
     [string]$FcmProjectId = "",
     [string]$FcmClientEmail = "",
@@ -70,14 +67,6 @@ function Normalize-MultilineSecret {
 }
 
 $onlineRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$envLocalPath = Join-Path $onlineRoot ".env.local"
-
-if (-not $SupabaseUrl) {
-    $SupabaseUrl = Read-DotEnvValue -Path $envLocalPath -Name "VITE_SUPABASE_URL"
-}
-if (-not $SupabaseAnonKey) {
-    $SupabaseAnonKey = Read-DotEnvValue -Path $envLocalPath -Name "VITE_SUPABASE_ANON_KEY"
-}
 
 $fcmPrivateKey = ""
 if (-not [string]::IsNullOrWhiteSpace($FcmServiceAccountJsonPath)) {
@@ -99,9 +88,6 @@ if (-not $fcmPrivateKey) {
 $apnsPrivateKey = Read-SecretFileAsSingleLine -Path $ApnsPrivateKeyPath
 
 Require-Value -Name "SUPABASE_ACCESS_TOKEN environment variable" -Value $env:SUPABASE_ACCESS_TOKEN
-Require-Value -Name "SUPABASE_URL" -Value $SupabaseUrl
-Require-Value -Name "SUPABASE_ANON_KEY" -Value $SupabaseAnonKey
-Require-Value -Name "SUPABASE_SERVICE_ROLE_KEY" -Value $SupabaseServiceRoleKey
 Require-Value -Name "FCM_PROJECT_ID" -Value $FcmProjectId
 Require-Value -Name "FCM_CLIENT_EMAIL" -Value $FcmClientEmail
 Require-Value -Name "FCM private key" -Value $fcmPrivateKey
@@ -112,9 +98,6 @@ Require-Value -Name "APNS_BUNDLE_ID" -Value $ApnsBundleId
 
 $tempEnv = Join-Path $env:TEMP "flbp-player-call-push-secrets.env"
 @(
-    "SUPABASE_URL=$SupabaseUrl"
-    "SUPABASE_ANON_KEY=$SupabaseAnonKey"
-    "SUPABASE_SERVICE_ROLE_KEY=$SupabaseServiceRoleKey"
     "FCM_PROJECT_ID=$FcmProjectId"
     "FCM_CLIENT_EMAIL=$FcmClientEmail"
     "FCM_PRIVATE_KEY=$fcmPrivateKey"
@@ -135,4 +118,5 @@ Write-Host ""
 Write-Host "Done."
 Write-Host "- Function deployed: player-call-push"
 Write-Host "- Secrets applied from: $tempEnv"
+Write-Host "- Supabase runtime envs (SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) are provided by hosted Edge Functions"
 Write-Host "- Android package / iOS bundle expected by this rollout: com.flbp.manager.suite"

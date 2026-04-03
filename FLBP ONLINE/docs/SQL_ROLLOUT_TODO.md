@@ -106,9 +106,6 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - [20260403_player_call_push_deploy.ps1](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE/supabase/rollouts/20260403_player_call_push_deploy.ps1)
   - [20260403_player_call_push_secrets.env.example](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE/supabase/rollouts/20260403_player_call_push_secrets.env.example)
 - secret funzione Edge:
-  - `SUPABASE_URL`
-  - `SUPABASE_ANON_KEY`
-  - `SUPABASE_SERVICE_ROLE_KEY`
   - `FCM_PROJECT_ID`
   - `FCM_CLIENT_EMAIL`
   - `FCM_PRIVATE_KEY`
@@ -117,6 +114,7 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - `APNS_PRIVATE_KEY`
   - `APNS_BUNDLE_ID`
   - opzionale `APNS_USE_SANDBOX`
+  - nota: `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` sono gia' disponibili come runtime env della hosted Edge Function, non vanno impostati a mano
 - Android
   - compilare con i valori veri in `app/src/main/res/values/strings.xml`:
     - `fcm_application_id`
