@@ -4,6 +4,9 @@ chat non affidabile, seguo il repository.
 
 ## Stato attuale iOS
 - base nativa reale in Swift + SwiftUI: SI
+- shell nativa primaria con FLBP ONLINE mobile in WKWebView full-screen: SI a sorgente
+- parita' grafica e funzionale user-facing col web mobile: SI a sorgente, via web mirror primario
+- percorso SwiftUI legacy preservato come fallback tecnico locale: SI a sorgente
 - Home pubblica data-driven: SI
 - shell visiva pubblica riallineata al web su top bar, hero home e cards tornei: SI a sorgente
 - Archivio tornei pubblico data-driven: SI
@@ -39,14 +42,15 @@ chat non affidabile, seguo il repository.
 - segnalazione nativa `Possible alias` su classifiche, albo, dettaglio torneo e player area: SI
 - alert di chiamata squadra preview-only sul device: SI
 - bypass password arbitri se il profilo giocatore collegato e' arbitro del live: SI
-- dashboard Admin nativa completa: NO
-- referti/OCR nativi completi: NO
+- dashboard Admin nativa completa senza web mirror: NO
+- referti/OCR nativi completi senza web mirror: NO
 - build locale verificata qui: NO
 
 ## Verificato davvero
 - source of truth web in `FLBP ONLINE/App.tsx`, `types.ts`, `services/supabasePublic.ts`
 - regole hard in `FLBP ONLINE/services/tournamentEngine.ts`
 - shell pubbliche iOS in `ContentView.swift` e `NativePublicScreens.swift`
+- shell primaria iOS in `NativeWebMirrorView.swift`, che carica `https://flbp-pages.pages.dev` a schermo pieno e lascia il percorso SwiftUI legacy come fallback
 - TV iOS in `ContentView.swift` e `NativePublicScreens.swift`
 - rete pubblica iOS in `NativePublicData.swift`
 - derivazione catalogo/leaderboard/HoF/bundle dal singolo snapshot pubblico in `NativePublicData.swift`
@@ -72,10 +76,11 @@ chat non affidabile, seguo il repository.
 ## Rischi aperti reali
 - da questa macchina non posso certificare compile/run Xcode
 - nessun signing release / `.ipa` generato ancora
-- scritture Admin, scritture arbitri, referti e OCR restano non migrati nativamente
+- il fallback nativo puro continua a non coprire scritture Admin, scritture arbitri, referti e OCR
 - backend SQL `player/call` ora applicato sul progetto Supabase reale, ma il live completo resta da chiudere su:
   - provider auth reali
   - registrazione device/push reali
-  - wiring native runtime oltre la preview locale
+  - wiring native runtime oltre la preview locale quando non passi dal web mirror primario
 - reset password reale ancora non attivo: serve collegare auth live + mittente email amministratore reale / SMTP reale
-- la `player_area` resta preview locale, ma ora ha fallback safe e reset dati esplicito per ridurre i blocchi lato device
+- la `player_area` legacy resta preview locale, ma ora ha fallback safe e reset dati esplicito per ridurre i blocchi lato device
+- la parita' primaria dipende dal raggiungimento dell'istanza web `flbp-pages.pages.dev`

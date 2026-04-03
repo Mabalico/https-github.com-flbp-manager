@@ -6,6 +6,12 @@ private func isMissingNativeRefereePullRPC(_ error: Error) -> Bool {
         message.localizedCaseInsensitiveContains("PGRST202")
 }
 
+private func buildNativeRuntimeCanonicalName(firstNameRaw: String, lastNameRaw: String) -> String {
+    "\(lastNameRaw.trimmingCharacters(in: .whitespacesAndNewlines)) \(firstNameRaw.trimmingCharacters(in: .whitespacesAndNewlines))"
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+}
+
 struct ContentView: View {
     @StateObject private var model = NativeAppModel()
     private let protectedCache = NativeProtectedCache()
@@ -35,8 +41,14 @@ struct ContentView: View {
     @State private var refereesError: String?
     @State private var refereesAuthedTournamentId = ""
     @State private var playerPreviewToken = UUID()
+    @State private var playerLiveToken = UUID()
     @State private var playerInfoMessage: String?
     @State private var playerError: String?
+    @State private var playerLiveSession: NativePlayerSupabaseSession? = NativeProtectedCache().readPlayerSession()
+    @State private var playerLiveProfile: NativePlayerSupabaseProfileRow?
+    @State private var playerLiveCalls: [NativePlayerSupabaseCallRow] = []
+    @State private var playerLiveAdminRows: [NativeAdminPlayerAccountCatalogRow] = []
+    @State private var playerBackendReady = true
     @State private var toolsLiveBundle: NativeTournamentBundle?
     @State private var toolsLiveBundleLoading = false
     @State private var toolsLiveBundleError: String?
@@ -80,24 +92,46 @@ struct ContentView: View {
 
     private var playerSnapshot: NativePlayerAreaSnapshot {
         _ = playerPreviewToken
+        _ = playerLiveToken
         return buildSafeNativePlayerAreaSnapshot(
             catalog: model.catalog,
             leaderboard: model.leaderboard,
             hallOfFame: model.hallOfFame,
             liveBundle: playerLiveBundle,
-            store: playerStore
+            store: playerStore,
+            liveSession: playerLiveSession,
+            liveProfile: playerLiveProfile,
+            liveCalls: playerLiveCalls,
+            backendReady: playerBackendReady
         )
     }
 
     private var adminPlayerAccountRows: [NativePlayerAdminAccountRow] {
         _ = playerPreviewToken
-        return playerStore.listAdminRows(
+        _ = playerLiveToken
+        return buildNativePlayerAdminRows(
             leaderboard: model.leaderboard,
-            hallOfFame: model.hallOfFame
+            hallOfFame: model.hallOfFame,
+            store: playerStore,
+            liveRows: accessCanUseLivePlayerRows ? playerLiveAdminRows : []
         )
     }
 
+    private var accessCanUseLivePlayerRows: Bool {
+        adminAccess?.ok == true
+    }
+
     var body: some View {
+        Group {
+            if NativeWebMirrorConfig.enabled {
+                NativeWebMirrorHostView(fallback: legacyBody)
+            } else {
+                legacyBody
+            }
+        }
+    }
+
+    private var legacyBody: some View {
         NavigationView {
             ZStack {
                 NativeFlbpPalette.page.ignoresSafeArea()
@@ -189,13 +223,22 @@ struct ContentView: View {
                     startDate: siteViewsWindow.startDate,
                     endDate: siteViewsWindow.endDate
                 )
-                let (access, overview, trafficRows, viewsRows) = try await (accessRequest, overviewRequest, trafficRequest, viewsRequest)
+                async let playerAccountsRequest = NativeProtectedAPI.pullAdminPlayerAccounts(session: adminSession)
+                let (access, overview, trafficRows, viewsRows, playerAccountsRows) = try await (
+                    accessRequest,
+                    overviewRequest,
+                    trafficRequest,
+                    viewsRequest,
+                    playerAccountsRequest
+                )
                 adminAccess = access
                 adminOverview = overview
                 adminTrafficRows = trafficRows
                 adminTrafficError = nil
                 adminViewsRows = viewsRows
                 adminViewsError = nil
+                playerLiveAdminRows = playerAccountsRows
+                playerLiveToken = UUID()
                 if access.ok {
                     let nextSession = NativeAdminSession(
                         accessToken: adminSession.accessToken,
@@ -216,6 +259,7 @@ struct ContentView: View {
                 adminTrafficError = error.localizedDescription
                 adminViewsRows = []
                 adminViewsError = error.localizedDescription
+                playerLiveAdminRows = []
                 adminError = error.localizedDescription
             }
             adminBusy = false
@@ -276,7 +320,11 @@ struct ContentView: View {
                 leaderboard: model.leaderboard,
                 hallOfFame: model.hallOfFame,
                 liveBundle: playerLiveBundle,
-                store: playerStore
+                store: playerStore,
+                liveSession: playerLiveSession,
+                liveProfile: playerLiveProfile,
+                liveCalls: playerLiveCalls,
+                backendReady: playerBackendReady
             )
             if !repairedSnapshot.liveStatus.refereeBypassEligible &&
                 refereesAuthedTournamentId == model.catalog.liveTournament?.id {
@@ -285,6 +333,49 @@ struct ContentView: View {
             playerPreviewToken = UUID()
             playerInfoMessage = repairMessage
             playerError = nil
+        }
+        .task(id: playerLiveTaskKey) {
+            let refreshedSession = await NativeProtectedAPI.ensureFreshPlayerSession(cache: protectedCache)
+            playerLiveSession = refreshedSession
+            if refreshedSession == nil {
+                playerLiveProfile = nil
+                playerLiveCalls = []
+                playerBackendReady = true
+                return
+            }
+
+            var backendPending = false
+
+            do {
+                try await NativeProtectedAPI.registerPlayerDevice(
+                    session: refreshedSession!,
+                    deviceId: protectedCache.readOrCreatePlayerDeviceId()
+                )
+            } catch {
+                if NativeProtectedAPI.isPlayerBackendPendingError(error.localizedDescription) {
+                    backendPending = true
+                }
+            }
+
+            do {
+                playerLiveProfile = try await NativeProtectedAPI.pullPlayerProfile(session: refreshedSession!)
+            } catch {
+                if NativeProtectedAPI.isPlayerBackendPendingError(error.localizedDescription) {
+                    backendPending = true
+                }
+                playerLiveProfile = nil
+            }
+
+            do {
+                playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: refreshedSession!)
+            } catch {
+                if NativeProtectedAPI.isPlayerBackendPendingError(error.localizedDescription) {
+                    backendPending = true
+                }
+                playerLiveCalls = []
+            }
+
+            playerBackendReady = !backendPending
         }
         .onChange(of: model.catalog) { _ in
             guard let selectedTournament = publicState.selectedTournament else { return }
@@ -364,46 +455,117 @@ struct ContentView: View {
                 infoMessage: playerInfoMessage,
                 errorMessage: playerError,
                 onRegister: { username, password, firstName, lastName, birthDate in
-                    do {
-                        let session = try playerStore.registerAccount(username: username, password: password)
-                        if !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                            !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                            !birthDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            _ = try playerStore.saveProfile(session: session, firstName: firstName, lastName: lastName, birthDate: birthDate)
+                    Task {
+                        do {
+                            let liveSession = try await NativeProtectedAPI.signUpPlayerWithPassword(
+                                email: username,
+                                password: password,
+                                metadata: ["origin": "in_app"]
+                            )
+                            protectedCache.writePlayerSession(liveSession)
+                            playerLiveSession = liveSession
+                            if !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                !birthDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                playerLiveProfile = try await NativeProtectedAPI.pushPlayerProfile(
+                                    session: liveSession,
+                                    firstName: firstName,
+                                    lastName: lastName,
+                                    birthDate: birthDate,
+                                    canonicalPlayerId: playerLiveProfile?.canonicalPlayerId,
+                                    canonicalPlayerName: buildNativeRuntimeCanonicalName(firstNameRaw: firstName, lastNameRaw: lastName)
+                                )
+                            } else {
+                                playerLiveProfile = try await NativeProtectedAPI.pullPlayerProfile(session: liveSession)
+                            }
+                            try await NativeProtectedAPI.registerPlayerDevice(
+                                session: liveSession,
+                                deviceId: protectedCache.readOrCreatePlayerDeviceId()
+                            )
+                            playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: liveSession)
+                            playerBackendReady = true
+                            playerPreviewToken = UUID()
+                            playerLiveToken = UUID()
+                            playerInfoMessage = "Account player live creato."
+                            playerError = nil
+                        } catch {
+                            playerError = error.localizedDescription
+                            playerInfoMessage = nil
                         }
-                        playerPreviewToken = UUID()
-                        playerInfoMessage = "Preview account created on this device."
-                        playerError = nil
-                    } catch {
-                        playerError = error.localizedDescription
-                        playerInfoMessage = nil
                     }
                 },
                 onSignIn: { username, password in
-                    do {
-                        _ = try playerStore.signIn(username: username, password: password)
-                        playerPreviewToken = UUID()
-                        playerInfoMessage = "Preview sign-in completed."
-                        playerError = nil
-                    } catch {
-                        playerError = error.localizedDescription
-                        playerInfoMessage = nil
+                    Task {
+                        do {
+                            let liveSession = try await NativeProtectedAPI.signInPlayerWithPassword(email: username, password: password)
+                            protectedCache.writePlayerSession(liveSession)
+                            playerLiveSession = liveSession
+                            try await NativeProtectedAPI.registerPlayerDevice(
+                                session: liveSession,
+                                deviceId: protectedCache.readOrCreatePlayerDeviceId()
+                            )
+                            playerLiveProfile = try await NativeProtectedAPI.pullPlayerProfile(session: liveSession)
+                            playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: liveSession)
+                            playerBackendReady = true
+                            playerPreviewToken = UUID()
+                            playerLiveToken = UUID()
+                            playerInfoMessage = "Accesso player live completato."
+                            playerError = nil
+                        } catch {
+                            playerError = error.localizedDescription
+                            playerInfoMessage = nil
+                        }
+                    }
+                },
+                onRequestPasswordReset: { email in
+                    Task {
+                        do {
+                            try await NativeProtectedAPI.requestPlayerPasswordReset(email)
+                            playerInfoMessage = "Password reset email requested."
+                            playerError = nil
+                        } catch {
+                            playerError = error.localizedDescription
+                            playerInfoMessage = nil
+                        }
                     }
                 },
                 onSaveProfile: { firstName, lastName, birthDate in
-                    guard let session = playerStore.readSession() else {
-                        playerError = "Sign in first to save the player profile."
-                        playerInfoMessage = nil
-                        return
-                    }
-                    do {
-                        _ = try playerStore.saveProfile(session: session, firstName: firstName, lastName: lastName, birthDate: birthDate)
-                        playerPreviewToken = UUID()
-                        playerInfoMessage = "Player profile saved."
-                        playerError = nil
-                    } catch {
-                        playerError = error.localizedDescription
-                        playerInfoMessage = nil
+                    if let liveSession = playerLiveSession {
+                        Task {
+                            do {
+                                playerLiveProfile = try await NativeProtectedAPI.pushPlayerProfile(
+                                    session: liveSession,
+                                    firstName: firstName,
+                                    lastName: lastName,
+                                    birthDate: birthDate,
+                                    canonicalPlayerId: playerLiveProfile?.canonicalPlayerId,
+                                    canonicalPlayerName: buildNativeRuntimeCanonicalName(firstNameRaw: firstName, lastNameRaw: lastName)
+                                )
+                                playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: liveSession)
+                                playerPreviewToken = UUID()
+                                playerLiveToken = UUID()
+                                playerInfoMessage = "Profilo player live salvato."
+                                playerError = nil
+                            } catch {
+                                playerError = error.localizedDescription
+                                playerInfoMessage = nil
+                            }
+                        }
+                    } else {
+                        guard let session = playerStore.readSession() else {
+                            playerError = "Sign in first to save the player profile."
+                            playerInfoMessage = nil
+                            return
+                        }
+                        do {
+                            _ = try playerStore.saveProfile(session: session, firstName: firstName, lastName: lastName, birthDate: birthDate)
+                            playerPreviewToken = UUID()
+                            playerInfoMessage = "Player profile saved."
+                            playerError = nil
+                        } catch {
+                            playerError = error.localizedDescription
+                            playerInfoMessage = nil
+                        }
                     }
                 },
                 onSignOut: {
@@ -411,44 +573,77 @@ struct ContentView: View {
                     let shouldClearBypass = playerSnapshot.liveStatus.refereeBypassEligible &&
                         !liveTournamentId.isEmpty &&
                         refereesAuthedTournamentId == liveTournamentId
-                    playerStore.signOut()
-                    if shouldClearBypass {
-                        refereesAuthedTournamentId = ""
+                    Task {
+                        let hadLiveSession = playerLiveSession != nil
+                        if let liveSession = playerLiveSession {
+                            await NativeProtectedAPI.signOutPlayer(session: liveSession)
+                            protectedCache.writePlayerSession(nil)
+                            playerLiveSession = nil
+                            playerLiveProfile = nil
+                            playerLiveCalls = []
+                        } else {
+                            playerStore.signOut()
+                        }
+                        if shouldClearBypass {
+                            refereesAuthedTournamentId = ""
+                        }
+                        playerPreviewToken = UUID()
+                        playerLiveToken = UUID()
+                        playerInfoMessage = hadLiveSession ? "Signed out from the live player account." : "Signed out from the preview account."
+                        playerError = nil
                     }
-                    playerPreviewToken = UUID()
-                    playerInfoMessage = "Signed out from the preview account."
-                    playerError = nil
                 },
                 onAcknowledgeCall: { callId in
-                    guard let session = playerStore.readSession() else {
-                        playerError = "Sign in first to confirm the team call."
-                        playerInfoMessage = nil
-                        return
-                    }
-                    do {
-                        _ = try playerStore.acknowledgeCall(session: session, callId: callId)
-                        playerPreviewToken = UUID()
-                        playerInfoMessage = "Team call receipt confirmed."
-                        playerError = nil
-                    } catch {
-                        playerError = error.localizedDescription
-                        playerInfoMessage = nil
+                    if let liveSession = playerLiveSession {
+                        Task {
+                            do {
+                                try await NativeProtectedAPI.acknowledgePlayerCall(session: liveSession, callId: callId)
+                                playerLiveCalls = try await NativeProtectedAPI.pullPlayerCalls(session: liveSession)
+                                playerPreviewToken = UUID()
+                                playerLiveToken = UUID()
+                                playerInfoMessage = "Team call receipt confirmed."
+                                playerError = nil
+                            } catch {
+                                playerError = error.localizedDescription
+                                playerInfoMessage = nil
+                            }
+                        }
+                    } else {
+                        guard let session = playerStore.readSession() else {
+                            playerError = "Sign in first to confirm the team call."
+                            playerInfoMessage = nil
+                            return
+                        }
+                        do {
+                            _ = try playerStore.acknowledgeCall(session: session, callId: callId)
+                            playerPreviewToken = UUID()
+                            playerInfoMessage = "Team call receipt confirmed."
+                            playerError = nil
+                        } catch {
+                            playerError = error.localizedDescription
+                            playerInfoMessage = nil
+                        }
                     }
                 },
                 onClearCall: { callId in
-                    guard let session = playerStore.readSession() else {
-                        playerError = "Sign in first to clear the team call."
+                    if playerSnapshot.liveStatus.activeCall?.previewOnly == false {
+                        playerError = "Live team calls can be cancelled only from Admin."
                         playerInfoMessage = nil
-                        return
-                    }
-                    do {
-                        _ = try playerStore.clearCall(session: session, callId: callId)
-                        playerPreviewToken = UUID()
-                        playerInfoMessage = "Team call cleared."
-                        playerError = nil
-                    } catch {
-                        playerError = error.localizedDescription
-                        playerInfoMessage = nil
+                    } else {
+                        guard let session = playerStore.readSession() else {
+                            playerError = "Sign in first to clear the team call."
+                            playerInfoMessage = nil
+                            return
+                        }
+                        do {
+                            _ = try playerStore.clearCall(session: session, callId: callId)
+                            playerPreviewToken = UUID()
+                            playerInfoMessage = "Team call cleared."
+                            playerError = nil
+                        } catch {
+                            playerError = error.localizedDescription
+                            playerInfoMessage = nil
+                        }
                     }
                 },
                 onOpenReferees: { selectedToolsRouteId = NativeRoute.refereesArea.rawValue },
@@ -514,6 +709,7 @@ struct ContentView: View {
                                 startDate: viewsWindow.startDate,
                                 endDate: viewsWindow.endDate
                             )
+                            let accountRows = try await NativeProtectedAPI.pullAdminPlayerAccounts(session: session)
                             let nextSession = NativeAdminSession(
                                 accessToken: session.accessToken,
                                 refreshToken: session.refreshToken,
@@ -528,6 +724,8 @@ struct ContentView: View {
                             adminTrafficError = nil
                             adminViewsRows = viewsRows
                             adminViewsError = nil
+                            playerLiveAdminRows = accountRows
+                            playerLiveToken = UUID()
                             protectedCache.writeAdminSession(nextSession)
                         } catch {
                             adminSession = nil
@@ -537,6 +735,7 @@ struct ContentView: View {
                             adminTrafficError = nil
                             adminViewsRows = []
                             adminViewsError = nil
+                            playerLiveAdminRows = []
                             adminError = error.localizedDescription
                             protectedCache.writeAdminSession(nil)
                         }
@@ -555,6 +754,7 @@ struct ContentView: View {
                         adminTrafficError = nil
                         adminViewsRows = []
                         adminViewsError = nil
+                        playerLiveAdminRows = []
                         adminError = nil
                         protectedCache.writeAdminSession(nil)
                     }
@@ -562,6 +762,25 @@ struct ContentView: View {
                 onRefreshAccess: { toolsRefreshToken = UUID() },
                 onRefreshLiveBundle: { toolsRefreshToken = UUID() },
                 onSavePlayerAccount: { accountId, email, firstName, lastName, birthDate in
+                    if let liveRow = playerLiveAdminRows.first(where: { $0.userId == accountId }),
+                       let adminSession {
+                        let saved = try await NativeProtectedAPI.pushAdminPlayerProfile(
+                            session: adminSession,
+                            userId: accountId,
+                            firstName: firstName,
+                            lastName: lastName,
+                            birthDate: birthDate,
+                            canonicalPlayerId: liveRow.canonicalPlayerId,
+                            canonicalPlayerName: buildNativeRuntimeCanonicalName(firstNameRaw: firstName, lastNameRaw: lastName)
+                        )
+                        playerLiveAdminRows = try await NativeProtectedAPI.pullAdminPlayerAccounts(session: adminSession)
+                        if playerLiveSession?.userId == accountId {
+                            playerLiveProfile = saved
+                        }
+                        playerLiveToken = UUID()
+                        return "Live player account updated from Admin."
+                    }
+
                     _ = try playerStore.updateAdminAccount(
                         accountId: accountId,
                         email: email,
@@ -570,6 +789,7 @@ struct ContentView: View {
                         birthDate: birthDate
                     )
                     playerPreviewToken = UUID()
+                    return "Preview player account updated from Admin."
                 }
             )
 
@@ -642,6 +862,10 @@ struct ContentView: View {
 
     private var playerBypassTaskKey: String {
         "\(selectedRoute.rawValue)|\(model.catalog.liveTournament?.id ?? "none")|\(playerSnapshot.liveStatus.refereeBypassEligible)|\(playerSnapshot.profile?.canonicalPlayerName ?? "none")|\(playerPreviewToken.uuidString)"
+    }
+
+    private var playerLiveTaskKey: String {
+        "\(playerPreviewToken.uuidString)|\(playerLiveToken.uuidString)"
     }
 
     private func writePublicState(_ next: PublicRouteState) {

@@ -1669,6 +1669,7 @@ struct PlayerAreaScreenView: View {
     let errorMessage: String?
     let onRegister: (String, String, String, String, String) -> Void
     let onSignIn: (String, String) -> Void
+    let onRequestPasswordReset: (String) -> Void
     let onSaveProfile: (String, String, String) -> Void
     let onSignOut: () -> Void
     let onAcknowledgeCall: (String) -> Void
@@ -1702,6 +1703,7 @@ struct PlayerAreaScreenView: View {
         errorMessage: String?,
         onRegister: @escaping (String, String, String, String, String) -> Void,
         onSignIn: @escaping (String, String) -> Void,
+        onRequestPasswordReset: @escaping (String) -> Void,
         onSaveProfile: @escaping (String, String, String) -> Void,
         onSignOut: @escaping () -> Void,
         onAcknowledgeCall: @escaping (String) -> Void,
@@ -1714,6 +1716,7 @@ struct PlayerAreaScreenView: View {
         self.errorMessage = errorMessage
         self.onRegister = onRegister
         self.onSignIn = onSignIn
+        self.onRequestPasswordReset = onRequestPasswordReset
         self.onSaveProfile = onSaveProfile
         self.onSignOut = onSignOut
         self.onAcknowledgeCall = onAcknowledgeCall
@@ -1776,6 +1779,10 @@ struct PlayerAreaScreenView: View {
                             Text("Password recovery will use this email address once live auth plus a real administrator sender email are enabled.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
+                            Button("Request password reset") {
+                                onRequestPasswordReset(username)
+                            }
+                            .buttonStyle(.bordered)
                             TextField("First name", text: $firstName)
                                 .textFieldStyle(.roundedBorder)
                             TextField("Last name", text: $lastName)
@@ -1804,7 +1811,11 @@ struct PlayerAreaScreenView: View {
                         Text("Provider: \(snapshot.session?.provider ?? "preview_password") - Mode: \(snapshot.session?.mode ?? "preview")")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        Text("This preview keeps the email locally on device. Real password reset stays backend-pending until SMTP / administrator sender email are configured.")
+                        Text(
+                            snapshot.session?.mode == "live"
+                                ? "This linked account already uses the live Supabase player session. Password reset now follows the live email flow once SMTP / administrator sender email are configured."
+                                : "This preview keeps the email locally on device. Real password reset stays backend-pending until SMTP / administrator sender email are configured."
+                        )
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         if let profile = snapshot.profile {
@@ -1934,11 +1945,11 @@ struct PlayerAreaScreenView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .disabled(activeCall.status != "ringing")
-                            Button("Clear") {
+                            Button(activeCall.previewOnly ? "Clear" : "Admin cancels live call") {
                                 onClearCall(activeCall.id)
                             }
                             .buttonStyle(.bordered)
-                            .disabled(!(activeCall.status == "ringing" || activeCall.status == "acknowledged"))
+                            .disabled(!activeCall.previewOnly || !(activeCall.status == "ringing" || activeCall.status == "acknowledged"))
                         }
                     } else {
                         Text("No active team call is available. Real push/live alerts remain backend-pending; this screen is already shaped for the final flow.")
@@ -1951,7 +1962,7 @@ struct PlayerAreaScreenView: View {
                     PlayerStatusRowView(label: "Player profile", value: snapshot.featureStatus.playerProfilesPrepared)
                     PlayerStatusRowView(label: "Live call alerts", value: snapshot.featureStatus.playerCallsPrepared)
                     PlayerStatusRowView(label: "Referee bypass", value: snapshot.featureStatus.refereeBypassPrepared)
-                    Button("Reset local preview data") {
+                    Button("Reset local preview fallback") {
                         onResetPreviewData()
                     }
                     .buttonStyle(.bordered)

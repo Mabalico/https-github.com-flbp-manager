@@ -8,11 +8,60 @@ struct NativeAdminSession: Codable, Equatable {
     let userId: String?
 }
 
+struct NativePlayerSupabaseSession: Codable, Equatable {
+    let accessToken: String
+    let refreshToken: String?
+    let expiresAtEpochMs: Int64?
+    let email: String?
+    let userId: String?
+    let provider: String
+}
+
 struct NativeAdminAccessResult: Equatable {
     let ok: Bool
     let email: String?
     let userId: String?
     let reason: String?
+}
+
+struct NativePlayerSupabaseProfileRow: Equatable {
+    let workspaceId: String
+    let userId: String
+    let firstName: String
+    let lastName: String
+    let birthDate: String?
+    let canonicalPlayerId: String?
+    let canonicalPlayerName: String?
+    let createdAt: String?
+    let updatedAt: String?
+}
+
+struct NativePlayerSupabaseCallRow: Equatable {
+    let id: String
+    let workspaceId: String
+    let tournamentId: String
+    let teamId: String
+    let teamName: String?
+    let targetUserId: String
+    let targetPlayerId: String?
+    let targetPlayerName: String?
+    let status: String
+    let requestedAt: String?
+    let acknowledgedAt: String?
+    let cancelledAt: String?
+}
+
+struct NativeAdminPlayerAccountCatalogRow: Equatable {
+    let userId: String
+    let email: String?
+    let primaryProvider: String?
+    let providers: [String]
+    let createdAt: String?
+    let lastLoginAt: String?
+    let hasProfile: Bool
+    let linkedPlayerName: String?
+    let birthDate: String?
+    let canonicalPlayerId: String?
 }
 
 struct NativeRefereeAuthCheckResult: Equatable {
@@ -170,6 +219,32 @@ final class NativeProtectedCache {
         }
     }
 
+    func readPlayerSession() -> NativePlayerSupabaseSession? {
+        guard let data = defaults.data(forKey: "flbp.native.player.live.session") else { return nil }
+        return try? JSONDecoder().decode(NativePlayerSupabaseSession.self, from: data)
+    }
+
+    func writePlayerSession(_ session: NativePlayerSupabaseSession?) {
+        if let session, let data = try? JSONEncoder().encode(session) {
+            defaults.set(data, forKey: "flbp.native.player.live.session")
+        } else {
+            defaults.removeObject(forKey: "flbp.native.player.live.session")
+        }
+    }
+
+    func readOrCreatePlayerDeviceId() -> String {
+        let key = "flbp.native.player.device.id"
+        if let existing = defaults.string(forKey: key)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !existing.isEmpty {
+            return existing
+        }
+        let next = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)
+        let value = String(next)
+        defaults.set(value, forKey: key)
+        return value
+    }
+
     func readSelectedRefereeName(tournamentId: String) -> String? {
         let safeTournamentId = tournamentId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !safeTournamentId.isEmpty else { return nil }
@@ -198,6 +273,13 @@ enum NativeProtectedAPI {
     private static let adminEmail = "admin@flbp.local"
 
     static func defaultAdminEmail() -> String { adminEmail }
+
+    static func isPlayerBackendPendingError(_ message: String) -> Bool {
+        let safeMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeMessage.isEmpty else { return false }
+        let pattern = "player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_cancel_call|flbp_player_call_team|flbp_admin_list_player_accounts|relation .*player_app_|function .*flbp_player_"
+        return safeMessage.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
 
     static func signInWithPassword(email: String, password: String) async throws -> NativeAdminSession {
         let safeEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,6 +325,279 @@ enum NativeProtectedAPI {
             bearer: session.accessToken,
             body: nil
         )
+    }
+
+    static func signInPlayerWithPassword(email: String, password: String) async throws -> NativePlayerSupabaseSession {
+        let safeEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safePassword = password
+        guard !safeEmail.isEmpty, !safePassword.isEmpty else {
+            throw NSError(domain: "FLBP", code: 100, userInfo: [NSLocalizedDescriptionKey: "Inserisci email e password."])
+        }
+
+        let response = try await requestObject(
+            path: "auth/v1/token?grant_type=password",
+            method: "POST",
+            bearer: nil,
+            body: [
+                "email": safeEmail,
+                "password": safePassword
+            ]
+        )
+
+        return parsePlayerSession(response: response, fallbackEmail: safeEmail, providerHint: "password")
+    }
+
+    static func signUpPlayerWithPassword(
+        email: String,
+        password: String,
+        metadata: [String: Any] = [:]
+    ) async throws -> NativePlayerSupabaseSession {
+        let safeEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safePassword = password
+        guard !safeEmail.isEmpty, !safePassword.isEmpty else {
+            throw NSError(domain: "FLBP", code: 101, userInfo: [NSLocalizedDescriptionKey: "Inserisci email e password."])
+        }
+
+        let response = try await requestObject(
+            path: "auth/v1/signup",
+            method: "POST",
+            bearer: nil,
+            body: [
+                "email": safeEmail,
+                "password": safePassword,
+                "data": metadata
+            ]
+        )
+
+        return parsePlayerSession(response: response, fallbackEmail: safeEmail, providerHint: "password")
+    }
+
+    static func ensureFreshPlayerSession(cache: NativeProtectedCache) async -> NativePlayerSupabaseSession? {
+        guard let session = cache.readPlayerSession() else { return nil }
+        if let expiresAtEpochMs = session.expiresAtEpochMs,
+           expiresAtEpochMs > Int64(Date().timeIntervalSince1970 * 1000) + 60_000 {
+            return session
+        }
+
+        let refreshToken = session.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !refreshToken.isEmpty else {
+            cache.writePlayerSession(nil)
+            return nil
+        }
+
+        do {
+            let response = try await requestObject(
+                path: "auth/v1/token?grant_type=refresh_token",
+                method: "POST",
+                bearer: nil,
+                body: [
+                    "refresh_token": refreshToken
+                ]
+            )
+            let refreshed = try parsePlayerSession(
+                response: response,
+                fallbackEmail: session.email,
+                providerHint: session.provider
+            )
+            cache.writePlayerSession(refreshed)
+            return refreshed
+        } catch {
+            cache.writePlayerSession(nil)
+            return nil
+        }
+    }
+
+    static func requestPlayerPasswordReset(_ email: String) async throws {
+        let safeEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeEmail.isEmpty else {
+            throw NSError(domain: "FLBP", code: 102, userInfo: [NSLocalizedDescriptionKey: "Inserisci una email valida."])
+        }
+
+        _ = try await requestObject(
+            path: "auth/v1/recover",
+            method: "POST",
+            bearer: nil,
+            body: [
+                "email": safeEmail
+            ]
+        )
+    }
+
+    static func signOutPlayer(session: NativePlayerSupabaseSession?) async {
+        guard let session, !session.accessToken.isEmpty else { return }
+        _ = try? await requestObject(
+            path: "auth/v1/logout",
+            method: "POST",
+            bearer: session.accessToken,
+            body: nil
+        )
+    }
+
+    static func registerPlayerDevice(
+        session: NativePlayerSupabaseSession,
+        deviceId: String,
+        platform: String = "ios",
+        pushEnabled: Bool = true
+    ) async throws {
+        guard let userId = resolvePlayerSessionUserId(session), !userId.isEmpty else {
+            throw NSError(domain: "FLBP", code: 103, userInfo: [NSLocalizedDescriptionKey: "Sessione player non valida."])
+        }
+        let safeDeviceId = deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeDeviceId.isEmpty else {
+            throw NSError(domain: "FLBP", code: 104, userInfo: [NSLocalizedDescriptionKey: "Device id mancante."])
+        }
+
+        _ = try await requestArray(
+            path: "rest/v1/player_app_devices?on_conflict=id&select=id",
+            method: "POST",
+            bearer: session.accessToken,
+            body: [
+                "id": safeDeviceId,
+                "workspace_id": workspaceId,
+                "user_id": userId,
+                "platform": platform,
+                "device_token": NSNull(),
+                "push_enabled": pushEnabled
+            ],
+            extraHeaders: [
+                "Prefer": "resolution=merge-duplicates,return=representation"
+            ]
+        )
+    }
+
+    static func pullPlayerProfile(session: NativePlayerSupabaseSession) async throws -> NativePlayerSupabaseProfileRow? {
+        guard let userId = resolvePlayerSessionUserId(session), !userId.isEmpty else { return nil }
+        let rows = try await requestArray(
+            path: "rest/v1/player_app_profiles" +
+                "?workspace_id=eq.\(encode(workspaceId))" +
+                "&user_id=eq.\(encode(userId))" +
+                "&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at" +
+                "&limit=1",
+            bearer: session.accessToken
+        )
+        return rows.first.map(playerProfileRowFromJson)
+    }
+
+    static func pushPlayerProfile(
+        session: NativePlayerSupabaseSession,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        canonicalPlayerId: String? = nil,
+        canonicalPlayerName: String? = nil
+    ) async throws -> NativePlayerSupabaseProfileRow {
+        guard let userId = resolvePlayerSessionUserId(session), !userId.isEmpty else {
+            throw NSError(domain: "FLBP", code: 105, userInfo: [NSLocalizedDescriptionKey: "Sessione player non valida."])
+        }
+        let rows = try await requestArray(
+            path: "rest/v1/player_app_profiles?on_conflict=workspace_id,user_id&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at",
+            method: "POST",
+            bearer: session.accessToken,
+            body: [
+                "workspace_id": workspaceId,
+                "user_id": userId,
+                "first_name": firstName.trimmingCharacters(in: .whitespacesAndNewlines),
+                "last_name": lastName.trimmingCharacters(in: .whitespacesAndNewlines),
+                "birth_date": birthDate.trimmingCharacters(in: .whitespacesAndNewlines),
+                "canonical_player_id": canonicalPlayerId?.trimmingCharacters(in: .whitespacesAndNewlines) as Any? ?? NSNull(),
+                "canonical_player_name": canonicalPlayerName?.trimmingCharacters(in: .whitespacesAndNewlines) as Any? ?? NSNull()
+            ],
+            extraHeaders: [
+                "Prefer": "resolution=merge-duplicates,return=representation"
+            ]
+        )
+        guard let first = rows.first else {
+            throw NSError(domain: "FLBP", code: 106, userInfo: [NSLocalizedDescriptionKey: "Profilo player non restituito."])
+        }
+        return playerProfileRowFromJson(first)
+    }
+
+    static func pullPlayerCalls(session: NativePlayerSupabaseSession) async throws -> [NativePlayerSupabaseCallRow] {
+        guard let userId = resolvePlayerSessionUserId(session), !userId.isEmpty else { return [] }
+        let rows = try await requestArray(
+            path: "rest/v1/player_app_calls" +
+                "?workspace_id=eq.\(encode(workspaceId))" +
+                "&target_user_id=eq.\(encode(userId))" +
+                "&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,status,requested_at,acknowledged_at,cancelled_at" +
+                "&order=requested_at.desc",
+            bearer: session.accessToken
+        )
+        return rows.map(playerCallRowFromJson)
+    }
+
+    static func acknowledgePlayerCall(session: NativePlayerSupabaseSession, callId: String) async throws {
+        _ = try await requestObject(
+            path: "rest/v1/rpc/flbp_player_ack_call",
+            method: "POST",
+            bearer: session.accessToken,
+            body: [
+                "p_workspace_id": workspaceId,
+                "p_call_id": callId.trimmingCharacters(in: .whitespacesAndNewlines)
+            ]
+        )
+    }
+
+    static func cancelPlayerCall(session: NativePlayerSupabaseSession, callId: String) async throws {
+        _ = try await requestObject(
+            path: "rest/v1/rpc/flbp_player_cancel_call",
+            method: "POST",
+            bearer: session.accessToken,
+            body: [
+                "p_workspace_id": workspaceId,
+                "p_call_id": callId.trimmingCharacters(in: .whitespacesAndNewlines)
+            ]
+        )
+    }
+
+    static func pullAdminPlayerAccounts(
+        session: NativeAdminSession,
+        origin: String? = nil
+    ) async throws -> [NativeAdminPlayerAccountCatalogRow] {
+        let rows = try await requestArray(
+            path: "rest/v1/rpc/flbp_admin_list_player_accounts",
+            method: "POST",
+            bearer: session.accessToken,
+            body: [
+                "p_workspace_id": workspaceId,
+                "p_origin": origin?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() as Any? ?? NSNull()
+            ],
+            extraHeaders: [
+                "Prefer": "params=single-object"
+            ]
+        )
+        return rows.map(adminPlayerAccountRowFromJson)
+    }
+
+    static func pushAdminPlayerProfile(
+        session: NativeAdminSession,
+        userId: String,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        canonicalPlayerId: String? = nil,
+        canonicalPlayerName: String? = nil
+    ) async throws -> NativePlayerSupabaseProfileRow {
+        let rows = try await requestArray(
+            path: "rest/v1/player_app_profiles?on_conflict=workspace_id,user_id&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at",
+            method: "POST",
+            bearer: session.accessToken,
+            body: [
+                "workspace_id": workspaceId,
+                "user_id": userId.trimmingCharacters(in: .whitespacesAndNewlines),
+                "first_name": firstName.trimmingCharacters(in: .whitespacesAndNewlines),
+                "last_name": lastName.trimmingCharacters(in: .whitespacesAndNewlines),
+                "birth_date": birthDate.trimmingCharacters(in: .whitespacesAndNewlines),
+                "canonical_player_id": canonicalPlayerId?.trimmingCharacters(in: .whitespacesAndNewlines) as Any? ?? NSNull(),
+                "canonical_player_name": canonicalPlayerName?.trimmingCharacters(in: .whitespacesAndNewlines) as Any? ?? NSNull()
+            ],
+            extraHeaders: [
+                "Prefer": "resolution=merge-duplicates,return=representation"
+            ]
+        )
+        guard let first = rows.first else {
+            throw NSError(domain: "FLBP", code: 107, userInfo: [NSLocalizedDescriptionKey: "Profilo player live non restituito."])
+        }
+        return playerProfileRowFromJson(first)
     }
 
     static func ensureAdminAccess(session: NativeAdminSession) async throws -> NativeAdminAccessResult {
@@ -426,17 +781,44 @@ enum NativeProtectedAPI {
         )
     }
 
-    private static func requestArray(path: String, bearer: String?) async throws -> [[String: Any]] {
-        let json = try await requestJSON(path: path, method: "GET", bearer: bearer, body: nil)
-        return json as? [[String: Any]] ?? []
+    private static func requestArray(
+        path: String,
+        bearer: String?
+    ) async throws -> [[String: Any]] {
+        try await requestArray(path: path, method: "GET", bearer: bearer, body: nil, extraHeaders: [:])
     }
 
-    private static func requestObject(path: String, method: String, bearer: String?, body: [String: Any]?) async throws -> [String: Any] {
-        let json = try await requestJSON(path: path, method: method, bearer: bearer, body: body)
+    private static func requestArray(
+        path: String,
+        method: String,
+        bearer: String?,
+        body: [String: Any]?,
+        extraHeaders: [String: String] = [:]
+    ) async throws -> [[String: Any]] {
+        let json = try await requestJSON(path: path, method: method, bearer: bearer, body: body, extraHeaders: extraHeaders)
+        if let rows = json as? [[String: Any]] { return rows }
+        if let row = json as? [String: Any] { return [row] }
+        return []
+    }
+
+    private static func requestObject(
+        path: String,
+        method: String,
+        bearer: String?,
+        body: [String: Any]?,
+        extraHeaders: [String: String] = [:]
+    ) async throws -> [String: Any] {
+        let json = try await requestJSON(path: path, method: method, bearer: bearer, body: body, extraHeaders: extraHeaders)
         return json as? [String: Any] ?? [:]
     }
 
-    private static func requestJSON(path: String, method: String, bearer: String?, body: [String: Any]?) async throws -> Any {
+    private static func requestJSON(
+        path: String,
+        method: String,
+        bearer: String?,
+        body: [String: Any]?,
+        extraHeaders: [String: String] = [:]
+    ) async throws -> Any {
         guard let url = URL(string: "\(supabaseURL)/\(path)") else {
             throw NSError(domain: "FLBP", code: 10, userInfo: [NSLocalizedDescriptionKey: "Invalid Supabase URL."])
         }
@@ -449,6 +831,9 @@ enum NativeProtectedAPI {
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (key, value) in extraHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
 
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
@@ -486,6 +871,107 @@ enum NativeProtectedAPI {
 
     private static func encode(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+    }
+
+    private static func resolvePlayerSessionUserId(_ session: NativePlayerSupabaseSession) -> String? {
+        let direct = session.userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let direct, !direct.isEmpty { return direct }
+        return decodeJWTSub(token: session.accessToken)
+    }
+
+    private static func parsePlayerSession(
+        response: [String: Any],
+        fallbackEmail: String?,
+        providerHint: String
+    ) throws -> NativePlayerSupabaseSession {
+        let accessToken = stringValue(response["access_token"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if accessToken.isEmpty {
+            let user = response["user"] as? [String: Any]
+            let userEmail = optionalString(user?["email"])
+            let message = (userEmail?.isEmpty == false || fallbackEmail?.isEmpty == false)
+                ? "Supabase ha creato l'account ma non ha restituito una sessione attiva. Verifica se il provider email richiede conferma."
+                : "Login/registrazione player falliti (token mancante)."
+            throw NSError(domain: "FLBP", code: 108, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+
+        let refreshToken = optionalString(response["refresh_token"])
+        let expiresAtEpochMs: Int64? = {
+            if let raw = int64Value(response["expires_at"]), raw > 0 {
+                return raw > 1_000_000_000_000 ? raw : raw * 1000
+            }
+            if let expiresIn = int64Value(response["expires_in"]), expiresIn > 0 {
+                return Int64(Date().timeIntervalSince1970 * 1000) + (expiresIn * 1000)
+            }
+            return nil
+        }()
+        let user = response["user"] as? [String: Any]
+        let appMetadata = user?["app_metadata"] as? [String: Any]
+        let provider = optionalString(appMetadata?["provider"]) ?? providerHint.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: "password")
+
+        return NativePlayerSupabaseSession(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresAtEpochMs: expiresAtEpochMs,
+            email: optionalString(user?["email"]) ?? fallbackEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+            userId: optionalString(user?["id"]) ?? decodeJWTSub(token: accessToken),
+            provider: provider
+        )
+    }
+
+    private static func playerProfileRowFromJson(_ json: [String: Any]) -> NativePlayerSupabaseProfileRow {
+        NativePlayerSupabaseProfileRow(
+            workspaceId: optionalString(json["workspace_id"]) ?? "",
+            userId: optionalString(json["user_id"]) ?? "",
+            firstName: optionalString(json["first_name"]) ?? "",
+            lastName: optionalString(json["last_name"]) ?? "",
+            birthDate: optionalString(json["birth_date"]),
+            canonicalPlayerId: optionalString(json["canonical_player_id"]),
+            canonicalPlayerName: optionalString(json["canonical_player_name"]),
+            createdAt: optionalString(json["created_at"]),
+            updatedAt: optionalString(json["updated_at"])
+        )
+    }
+
+    private static func playerCallRowFromJson(_ json: [String: Any]) -> NativePlayerSupabaseCallRow {
+        NativePlayerSupabaseCallRow(
+            id: optionalString(json["id"]) ?? "",
+            workspaceId: optionalString(json["workspace_id"]) ?? "",
+            tournamentId: optionalString(json["tournament_id"]) ?? "",
+            teamId: optionalString(json["team_id"]) ?? "",
+            teamName: optionalString(json["team_name"]),
+            targetUserId: optionalString(json["target_user_id"]) ?? "",
+            targetPlayerId: optionalString(json["target_player_id"]),
+            targetPlayerName: optionalString(json["target_player_name"]),
+            status: optionalString(json["status"]) ?? "ringing",
+            requestedAt: optionalString(json["requested_at"]),
+            acknowledgedAt: optionalString(json["acknowledged_at"]),
+            cancelledAt: optionalString(json["cancelled_at"])
+        )
+    }
+
+    private static func adminPlayerAccountRowFromJson(_ json: [String: Any]) -> NativeAdminPlayerAccountCatalogRow {
+        NativeAdminPlayerAccountCatalogRow(
+            userId: optionalString(json["user_id"]) ?? "",
+            email: optionalString(json["email"]),
+            primaryProvider: optionalString(json["primary_provider"]),
+            providers: parsePlayerProviders(json["providers"]),
+            createdAt: optionalString(json["created_at"]),
+            lastLoginAt: optionalString(json["last_login_at"]),
+            hasProfile: boolValue(json["has_profile"]),
+            linkedPlayerName: optionalString(json["linked_player_name"]),
+            birthDate: optionalString(json["birth_date"]),
+            canonicalPlayerId: optionalString(json["canonical_player_id"])
+        )
+    }
+
+    private static func parsePlayerProviders(_ value: Any?) -> [String] {
+        if let items = value as? [Any] {
+            return items.compactMap(optionalString)
+        }
+        if let text = optionalString(value) {
+            return [text]
+        }
+        return []
     }
 }
 
@@ -561,11 +1047,26 @@ private func intValue(_ value: Any?) -> Int? {
     return nil
 }
 
+private func int64Value(_ value: Any?) -> Int64? {
+    if let number = value as? Int64 { return number }
+    if let number = value as? Int { return Int64(number) }
+    if let number = value as? NSNumber { return number.int64Value }
+    if let text = value as? String { return Int64(text) }
+    return nil
+}
+
 private func boolValue(_ value: Any?) -> Bool {
     if let bool = value as? Bool { return bool }
     if let number = value as? NSNumber { return number.boolValue }
     if let text = value as? String { return ["true", "1", "yes"].contains(text.lowercased()) }
     return false
+}
+
+private extension String {
+    func nonEmpty(or fallback: String) -> String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
 }
 
 func buildProtectedTournamentSnapshot(bundle: NativeTournamentBundle) -> NativeProtectedTournamentSnapshot {

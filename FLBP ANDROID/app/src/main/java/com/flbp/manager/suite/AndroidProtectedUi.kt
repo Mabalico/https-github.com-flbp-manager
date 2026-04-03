@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private const val PROTECTED_MONTHLY_BUDGET_BYTES = 5L * 1024L * 1024L * 1024L
 
@@ -59,8 +61,9 @@ fun AdminToolsScreen(
     onLogout: () -> Unit,
     onRefreshAccess: () -> Unit,
     onRefreshLiveBundle: () -> Unit,
-    onSavePlayerAccount: (String, String, String, String, String) -> Unit,
+    onSavePlayerAccount: suspend (String, String, String, String, String) -> String,
 ) {
+    val uiScope = rememberCoroutineScope()
     var email by rememberSaveable(session?.email) {
         mutableStateOf((session?.email ?: NativeProtectedApi.defaultAdminEmail()).trim())
     }
@@ -334,7 +337,7 @@ fun AdminToolsScreen(
             item {
                 SectionCard(title = "Player accounts") {
                     Text(
-                        text = "Native preview catalog mirroring the web 'Account giocatori' section. Password reset stays disabled here until Supabase Auth + SMTP are activated live.",
+                        text = "This native catalog mirrors the web 'Account giocatori' section and prefers live Supabase data when available. Password reset stays disabled here until Supabase Auth + SMTP are activated live.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -371,7 +374,7 @@ fun AdminToolsScreen(
                     if (filteredAccountRows.isEmpty()) {
                         Text(
                             text = if (playerAccountRows.isEmpty()) {
-                                "No preview player accounts exist on this device yet."
+                                "No player accounts are available yet."
                             } else {
                                 "No player accounts match the current filter."
                             },
@@ -401,7 +404,10 @@ fun AdminToolsScreen(
                             style = MaterialTheme.typography.labelLarge,
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        MetadataRow("Mode", "${selectedAccount.mode} • ${selectedAccount.providers.joinToString(separator = ", ")}")
+                        MetadataRow(
+                            "Mode",
+                            "${selectedAccount.mode} • ${selectedAccount.providers.joinToString(separator = ", ") { formatAdminProviderLabel(it) }}"
+                        )
                         MetadataRow("Created", formatProtectedTimestamp(selectedAccount.createdAt))
                         MetadataRow("Last login", formatProtectedTimestamp(selectedAccount.lastLoginAt))
                         MetadataRow(
@@ -468,20 +474,22 @@ fun AdminToolsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = {
-                                runCatching {
-                                    onSavePlayerAccount(
-                                        selectedAccount.id,
-                                        selectedAccountEmail,
-                                        selectedAccountFirstName,
-                                        selectedAccountLastName,
-                                        selectedAccountBirthDate,
-                                    )
-                                }.onSuccess {
-                                    playerAccountsInfo = "Preview account updated from Admin."
-                                    playerAccountsError = null
-                                }.onFailure { editError ->
-                                    playerAccountsError = editError.message ?: "Unable to update the preview account."
-                                    playerAccountsInfo = null
+                                uiScope.launch {
+                                    runCatching {
+                                        onSavePlayerAccount(
+                                            selectedAccount.id,
+                                            selectedAccountEmail,
+                                            selectedAccountFirstName,
+                                            selectedAccountLastName,
+                                            selectedAccountBirthDate,
+                                        )
+                                    }.onSuccess { message ->
+                                        playerAccountsInfo = message
+                                        playerAccountsError = null
+                                    }.onFailure { editError ->
+                                        playerAccountsError = editError.message ?: "Unable to update the player account."
+                                        playerAccountsInfo = null
+                                    }
                                 }
                             },
                         ) {
@@ -608,6 +616,15 @@ private fun buildFilteredAdminAccountRows(
 private fun buildAdminAccountButtonLabel(row: NativePlayerAdminAccountRow): String {
     val linkedLabel = row.canonicalPlayerName ?: row.linkedPlayerName ?: "Profile pending"
     return "${row.email} • $linkedLabel"
+}
+
+private fun formatAdminProviderLabel(value: String): String = when (value.trim().lowercase(Locale.ROOT)) {
+    "in_app", "password", "preview_password" -> "Email/Password"
+    "google" -> "Google"
+    "facebook" -> "Facebook"
+    "apple" -> "Apple"
+    "" -> "Other"
+    else -> value
 }
 
 private fun splitCanonicalPlayerName(name: String?): Pair<String, String> {

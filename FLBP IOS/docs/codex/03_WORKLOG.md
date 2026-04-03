@@ -83,3 +83,6 @@ chat non affidabile, seguo il repository.
 - aggiunto il fallback parziale su `fetchPublicProjection()` e il watermark logo nella hero home iOS tramite `HeroLogo.imageset`
 - popolato anche `AppIcon.appiconset` con il logo FLBP rotondo, cosi' il branding launcher iOS resta allineato ad Android e al set icone del web
 - rinominata anche l'app iOS lato utente in `FLBP`, aggiungendo `CFBundleSpokenName` con `Federazione Lucense Beer Pong` per mantenere il nome esteso come riferimento parlato di sistema
+- chiuso anche il bridge live-first iOS per `player_area` e `Account giocatori`, cosi' i sorgenti non restano preview-only dove il backend additivo e' gia' disponibile
+- completata la chiusura pragmatica della parita' grafica/funzionale: iOS ora usa a sorgente una shell nativa con FLBP ONLINE mobile in WKWebView full-screen
+- il percorso SwiftUI legacy resta nel progetto solo come fallback tecnico quando il web mirror non si carica

@@ -2,7 +2,15 @@
 
 chat non affidabile, seguo il repository.
 
-Questa cartella contiene un'app Android nativa reale in Kotlin + Jetpack Compose, allineata alla surface pubblica di `FLBP ONLINE`:
+Questa cartella contiene un'app Android nativa reale in Kotlin + Jetpack Compose.
+
+Percorso primario attuale:
+- shell nativa con FLBP ONLINE mobile in WebView full-screen, per ottenere grafica e funzioni uguali al sito su smartphone
+
+Percorso secondario/fallback:
+- schermate Compose legacy, ancora utili come backup tecnico locale
+
+Il fallback legacy resta allineato alla surface pubblica di `FLBP ONLINE`:
 - Home
 - Archivio tornei
 - Dettaglio torneo pubblico
@@ -17,6 +25,7 @@ Questa cartella contiene un'app Android nativa reale in Kotlin + Jetpack Compose
 
 Stato attuale reale:
 - usa `public_workspace_state` come fonte pubblica primaria, coerente con FLBP ONLINE
+- usa `https://flbp-pages.pages.dev` come web mirror primario dentro la shell Android
 - mantiene `tournament_detail` come child flow con ref `{ id, isLive }`
 - deriva catalogo, dettaglio torneo, leaderboard e Hall of Fame dallo stesso snapshot pubblico per evitare rimbalzi tra fonti diverse
 - espone la sezione Turni con filtri `All/Live/Next/Played/TBD` e dettaglio match read-only
@@ -45,9 +54,10 @@ Stato attuale reale:
 - espone anche il save draft arbitri con validazione locale e blocco backend esplicito
 - permette anche di aprire un referto tramite codice match, con gestione dei duplicati e blocchi BYE/TBD coerenti con il web
 - espone anche la scelta identità arbitro sul device, derivata dai flag arbitro dei team pubblici con fallback manuale locale e persistenza locale per torneo
-- mantiene Admin dashboard completa e OCR/referti ancora fuori scope nativo
+- mantiene Admin dashboard completa e OCR/referti ancora fuori scope solo nel fallback nativo legacy
 
 File chiave:
+- `app/src/main/java/com/flbp/manager/suite/AndroidWebMirrorUi.kt`
 - `app/src/main/java/com/flbp/manager/suite/NativePublicApi.kt`
 - `app/src/main/java/com/flbp/manager/suite/FLBPManagerSuiteApp.kt`
 - `app/src/main/java/com/flbp/manager/suite/AndroidPublicUi.kt`
@@ -58,10 +68,10 @@ File chiave:
 - `app/src/main/java/com/flbp/manager/suite/AndroidProtectedUi.kt`
 
 Limiti ancora aperti:
-- runtime Android non ancora confermato visivamente su emulatore/device, anche se la build debug ora è verde
-- nessun OCR/referti nativo
-- nessuna dashboard Admin nativa completa con scritture
-- nessun export/azione admin nativa oltre alla consultazione avanzata
+- runtime Android del web mirror ancora da chiudere con smoke test finale sul device
+- nessun OCR/referti nativo puro nel fallback legacy
+- nessuna dashboard Admin nativa completa con scritture nel fallback legacy
+- nessun export/azione admin nativa oltre alla consultazione avanzata nel fallback legacy
 - reset password Admin -> player account ancora solo documentato/preparato: serve auth live + mittente amministratore reale / SMTP reale
 - nessun save remoto arbitri: il delta referto è pronto lato UI, ma il backend live richiede ancora una nuova RPC additiva oppure una lettura protetta del `workspace_state` completo
 - nessun backend player/call live attivato ancora: la parte account/call resta preview locale finche' le migration additive non vengono applicate sul progetto reale

@@ -34,6 +34,7 @@ fun PlayerAreaScreen(
     errorMessage: String?,
     onRegister: (String, String, String, String, String) -> Unit,
     onSignIn: (String, String) -> Unit,
+    onRequestPasswordReset: (String) -> Unit,
     onSaveProfile: (String, String, String) -> Unit,
     onSignOut: () -> Unit,
     onAcknowledgeCall: (String) -> Unit,
@@ -132,7 +133,7 @@ fun PlayerAreaScreen(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Google/Facebook live auth stays backend-pending. Email/password is already prepared as the primary path.",
+                        text = "Email/password is already the primary live path. Google/Facebook/Apple stay staged until the production providers are enabled.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     if (emailPanelExpanded) {
@@ -158,6 +159,13 @@ fun PlayerAreaScreen(
                             text = "Password recovery will use this email address once live auth plus a real administrator sender email are enabled.",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { onRequestPasswordReset(username) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Request password reset")
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = firstName,
@@ -205,7 +213,11 @@ fun PlayerAreaScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        text = "This preview keeps the email locally on device. Real password reset stays backend-pending until SMTP / administrator sender email are configured.",
+                        text = if (snapshot.session.mode == "live") {
+                            "This account is using the live player session. Password reset stays email-based and depends on the real SMTP / administrator sender rollout."
+                        } else {
+                            "This preview keeps the email locally on device. Real password reset stays backend-pending until SMTP / administrator sender email are configured."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                     )
                     snapshot.profile?.let { profile ->
@@ -402,9 +414,9 @@ fun PlayerAreaScreen(
                         }
                         OutlinedButton(
                             onClick = { onClearCall(activeCall.id) },
-                            enabled = activeCall.status == "ringing" || activeCall.status == "acknowledged",
+                            enabled = activeCall.previewOnly && (activeCall.status == "ringing" || activeCall.status == "acknowledged"),
                         ) {
-                            Text("Clear")
+                            Text(if (activeCall.previewOnly) "Clear" else "Admin cancels live call")
                         }
                     }
                 }
@@ -423,7 +435,7 @@ fun PlayerAreaScreen(
                     onClick = onResetPreviewData,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Reset local preview data")
+                    Text("Reset local preview fallback")
                 }
             }
         }

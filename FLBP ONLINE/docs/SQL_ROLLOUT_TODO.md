@@ -73,6 +73,14 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - dopo il check password reale possono ora usare anche loro il `pull live state` additivo
   - restano compatibili se il runtime native non usa ancora il percorso completo
 
+## Regola architetturale native
+
+- Android e iOS ora usano come percorso primario una shell nativa con web mirror full-screen di `FLBP ONLINE` (`https://flbp-pages.pages.dev`)
+- il fallback nativo legacy resta nel repo solo come backup tecnico locale e come base per eventuali recuperi offline / debug
+- quando tocchiamo il web, va sempre verificato se il cambiamento impatta anche:
+  - il web mirror primario sulle native
+  - il fallback nativo legacy ancora mantenuto nel repo
+
 ## Regole di allineamento copie web
 
 - `FLBP ONLINE/` e' la fonte di verita' web.

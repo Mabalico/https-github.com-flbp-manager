@@ -4,6 +4,9 @@ chat non affidabile, seguo il repository.
 
 ## Stato attuale Android
 - base nativa reale in Kotlin + Jetpack Compose: SI
+- shell nativa primaria con FLBP ONLINE mobile in WebView full-screen: SI
+- parita' grafica e funzionale user-facing col web mobile: SI, via web mirror primario
+- percorso nativo Compose legacy preservato come fallback tecnico locale: SI
 - Home pubblica data-driven: SI
 - shell visiva pubblica riallineata al web su top bar, hero home e cards tornei: SI
 - Archivio tornei pubblico data-driven: SI
@@ -39,14 +42,15 @@ chat non affidabile, seguo il repository.
 - segnalazione nativa `Possible alias` su classifiche, albo, dettaglio torneo e player area: SI
 - alert di chiamata squadra preview-only sul device: SI
 - bypass password arbitri se il profilo giocatore collegato e' arbitro del live: SI
-- dashboard Admin nativa completa: NO
-- referti/OCR nativi completi: NO
+- dashboard Admin nativa completa senza web mirror: NO
+- referti/OCR nativi completi senza web mirror: NO
 - build locale verificata qui: SI, `:app:assembleDebug`
 
 ## Verificato davvero
 - source of truth web in `FLBP ONLINE/App.tsx`, `types.ts`, `services/supabasePublic.ts`
 - regole hard in `FLBP ONLINE/services/tournamentEngine.ts`
 - shell pubbliche Android in `FLBPManagerSuiteApp.kt`, `AndroidPublicUi.kt`, `AndroidPublicUiDetails.kt`, `AndroidPublicLogic.kt`
+- shell primaria Android in `AndroidWebMirrorUi.kt`, che carica `https://flbp-pages.pages.dev` a schermo pieno e lascia il Compose legacy come fallback
 - TV Android in `AndroidTvUi.kt`
 - rete pubblica Android in `NativePublicApi.kt`
 - derivazione catalogo/leaderboard/HoF/bundle dal singolo snapshot pubblico in `NativePublicApi.kt`
@@ -69,12 +73,13 @@ chat non affidabile, seguo il repository.
 - bypass password arbitri sul device quando il profilo giocatore collegato coincide con un arbitro del torneo live
 
 ## Rischi aperti reali
-- smoke test visivo su emulatore/device ancora da chiudere del tutto
+- smoke test visivo finale sul device con il web mirror ancora da chiudere del tutto
 - nessun signing release / `.aab` generato ancora
-- scritture Admin, scritture arbitri, referti e OCR restano non migrati nativamente
+- il fallback nativo puro continua a non coprire scritture Admin, scritture arbitri, referti e OCR
 - backend SQL `player/call` ora applicato sul progetto Supabase reale, ma il live completo resta da chiudere su:
   - provider auth reali
   - registrazione device/push reali
-  - wiring native runtime oltre la preview locale
+  - wiring native runtime oltre la preview locale quando non passi dal web mirror primario
 - reset password reale ancora non attivo: serve collegare auth live + mittente email amministratore reale / SMTP reale
-- la `player_area` resta preview locale, ma ora ha fallback safe e reset dati esplicito per ridurre i blocchi lato device
+- la `player_area` legacy resta preview locale, ma ora ha fallback safe e reset dati esplicito per ridurre i blocchi lato device
+- la parita' primaria dipende dal raggiungimento dell'istanza web `flbp-pages.pages.dev`

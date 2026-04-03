@@ -3,6 +3,7 @@ package com.flbp.manager.suite
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
 import kotlin.math.max
 import kotlin.random.Random
 
@@ -489,11 +490,24 @@ fun buildNativePlayerAreaSnapshot(
     hallOfFame: List<NativeHallOfFameEntry>,
     liveBundle: NativeTournamentBundle?,
     store: NativePlayerPreviewStore,
+    liveSession: NativePlayerSupabaseSession? = null,
+    liveProfile: NativePlayerSupabaseProfileRow? = null,
+    liveCalls: List<NativePlayerSupabaseCallRow> = emptyList(),
+    backendReady: Boolean = true,
 ): NativePlayerAreaSnapshot {
-    val session = store.readSession()
-    val profile = store.readProfile(session?.accountId)
+    val session = liveSession?.toNativePlayerRuntimeSession() ?: store.readSession()
+    val profile = liveProfile?.toNativePlayerRuntimeProfile() ?: store.readProfile(session?.accountId)
     val results = profile?.let { buildNativePlayerResultSnapshot(it, leaderboard, hallOfFame) }
-    val liveStatus = buildNativePlayerLiveStatus(catalog, liveBundle, profile, store)
+    val liveStatus = buildNativePlayerLiveStatus(
+        catalog = catalog,
+        liveBundle = liveBundle,
+        profile = profile,
+        store = store,
+        activeCallOverride = liveCalls
+            .map(::toNativePlayerRuntimeCall)
+            .filter { it.status == "ringing" || it.status == "acknowledged" }
+            .maxByOrNull { it.requestedAt },
+    )
     return NativePlayerAreaSnapshot(
         session = session,
         profile = profile,
@@ -501,10 +515,10 @@ fun buildNativePlayerAreaSnapshot(
         liveStatus = liveStatus,
         featureStatus = NativePlayerFeatureStatus(
             previewEnabled = true,
-            remoteAuthPrepared = false,
+            remoteAuthPrepared = backendReady,
             socialProvidersPrepared = listOf("Google", "Facebook", "Apple"),
-            playerProfilesPrepared = true,
-            playerCallsPrepared = false,
+            playerProfilesPrepared = backendReady,
+            playerCallsPrepared = backendReady,
             refereeBypassPrepared = true,
         ),
     )
@@ -516,6 +530,10 @@ fun buildSafeNativePlayerAreaSnapshot(
     hallOfFame: List<NativeHallOfFameEntry>,
     liveBundle: NativeTournamentBundle?,
     store: NativePlayerPreviewStore,
+    liveSession: NativePlayerSupabaseSession? = null,
+    liveProfile: NativePlayerSupabaseProfileRow? = null,
+    liveCalls: List<NativePlayerSupabaseCallRow> = emptyList(),
+    backendReady: Boolean = true,
 ): NativePlayerAreaSnapshot =
     runCatching {
         buildNativePlayerAreaSnapshot(
@@ -524,23 +542,56 @@ fun buildSafeNativePlayerAreaSnapshot(
             hallOfFame = hallOfFame,
             liveBundle = liveBundle,
             store = store,
+            liveSession = liveSession,
+            liveProfile = liveProfile,
+            liveCalls = liveCalls,
+            backendReady = backendReady,
         )
     }.getOrElse {
         NativePlayerAreaSnapshot(
-            session = null,
-            profile = null,
+            session = liveSession?.toNativePlayerRuntimeSession(),
+            profile = liveProfile?.toNativePlayerRuntimeProfile(),
             results = null,
-            liveStatus = buildNativePlayerLiveStatus(catalog, liveBundle, null, store),
+            liveStatus = buildNativePlayerLiveStatus(
+                catalog = catalog,
+                liveBundle = liveBundle,
+                profile = liveProfile?.toNativePlayerRuntimeProfile(),
+                store = store,
+                activeCallOverride = liveCalls
+                    .map(::toNativePlayerRuntimeCall)
+                    .filter { it.status == "ringing" || it.status == "acknowledged" }
+                    .maxByOrNull { it.requestedAt },
+            ),
             featureStatus = NativePlayerFeatureStatus(
                 previewEnabled = true,
-                remoteAuthPrepared = false,
+                remoteAuthPrepared = backendReady,
                 socialProvidersPrepared = listOf("Google", "Facebook", "Apple"),
-                playerProfilesPrepared = true,
-                playerCallsPrepared = false,
+                playerProfilesPrepared = backendReady,
+                playerCallsPrepared = backendReady,
                 refereeBypassPrepared = true,
             ),
         )
     }
+
+fun buildNativePlayerAdminRows(
+    leaderboard: List<NativeLeaderboardEntry>,
+    hallOfFame: List<NativeHallOfFameEntry>,
+    store: NativePlayerPreviewStore,
+    liveRows: List<NativeAdminPlayerAccountCatalogRow> = emptyList(),
+): List<NativePlayerAdminAccountRow> {
+    if (liveRows.isEmpty()) {
+        return store.listAdminRows(
+            leaderboard = leaderboard,
+            hallOfFame = hallOfFame,
+        )
+    }
+    return liveRows
+        .map { row -> buildNativePlayerAdminRowFromLive(row, leaderboard, hallOfFame) }
+        .sortedWith(
+            compareByDescending<NativePlayerAdminAccountRow> { it.lastLoginAt ?: it.createdAt }
+                .thenBy { it.email.lowercase() }
+        )
+}
 
 private fun buildNativePlayerResultSnapshot(
     profile: NativePlayerPreviewProfile,
@@ -573,6 +624,7 @@ private fun buildNativePlayerLiveStatus(
     liveBundle: NativeTournamentBundle?,
     profile: NativePlayerPreviewProfile?,
     store: NativePlayerPreviewStore,
+    activeCallOverride: NativePlayerPreviewCall? = null,
 ): NativePlayerLiveStatus {
     val liveTournament = catalog.liveTournament
     if (profile == null || liveBundle == null || liveTournament == null || liveBundle.tournament.id != liveTournament.id) {
@@ -586,7 +638,7 @@ private fun buildNativePlayerLiveStatus(
             nextMatchTurn = null,
             turnsUntilPlay = null,
             refereeBypassEligible = false,
-            activeCall = store.readActiveCall(profile?.accountId, liveTournament?.id),
+            activeCall = activeCallOverride ?: store.readActiveCall(profile?.accountId, liveTournament?.id),
         )
     }
 
@@ -607,7 +659,7 @@ private fun buildNativePlayerLiveStatus(
             nextMatchTurn = null,
             turnsUntilPlay = null,
             refereeBypassEligible = false,
-            activeCall = store.readActiveCall(profile.accountId, liveTournament.id),
+            activeCall = activeCallOverride ?: store.readActiveCall(profile.accountId, liveTournament.id),
         )
     }
 
@@ -652,8 +704,123 @@ private fun buildNativePlayerLiveStatus(
         nextMatchTurn = nextTurn,
         turnsUntilPlay = turnsUntilPlay,
         refereeBypassEligible = isPlayer1Referee || isPlayer2Referee,
-        activeCall = store.readActiveCall(profile.accountId, liveTournament.id),
+        activeCall = activeCallOverride ?: store.readActiveCall(profile.accountId, liveTournament.id),
     )
+}
+
+private fun NativePlayerSupabaseSession.toNativePlayerRuntimeSession(): NativePlayerPreviewSession {
+    val fallbackNow = System.currentTimeMillis()
+    return NativePlayerPreviewSession(
+        accountId = userId?.trim().takeUnless { it.isNullOrEmpty() } ?: accessToken.takeLast(12),
+        username = email?.trim().takeUnless { it.isNullOrEmpty() } ?: "player@live",
+        provider = provider.trim().ifEmpty { "password" },
+        mode = "live",
+        createdAt = fallbackNow,
+        lastActiveAt = fallbackNow,
+    )
+}
+
+private fun NativePlayerSupabaseProfileRow.toNativePlayerRuntimeProfile(): NativePlayerPreviewProfile {
+    val canonicalName = canonicalPlayerName?.trim().takeUnless { it.isNullOrEmpty() }
+        ?: buildCanonicalPlayerName(firstName, lastName)
+    val createdAtMs = parseRuntimeTimestamp(createdAt) ?: System.currentTimeMillis()
+    val updatedAtMs = parseRuntimeTimestamp(updatedAt) ?: createdAtMs
+    return NativePlayerPreviewProfile(
+        accountId = userId,
+        firstName = firstName,
+        lastName = lastName,
+        birthDate = birthDate?.trim().orEmpty(),
+        canonicalPlayerName = canonicalName,
+        createdAt = createdAtMs,
+        updatedAt = updatedAtMs,
+    )
+}
+
+private fun toNativePlayerRuntimeCall(row: NativePlayerSupabaseCallRow): NativePlayerPreviewCall =
+    NativePlayerPreviewCall(
+        id = row.id,
+        tournamentId = row.tournamentId,
+        teamId = row.teamId,
+        teamName = row.teamName?.trim().takeUnless { it.isNullOrEmpty() } ?: row.teamId,
+        targetAccountId = row.targetUserId,
+        targetPlayerName = row.targetPlayerName?.trim().takeUnless { it.isNullOrEmpty() } ?: row.targetPlayerId.orEmpty(),
+        requestedAt = parseRuntimeTimestamp(row.requestedAt) ?: System.currentTimeMillis(),
+        acknowledgedAt = parseRuntimeTimestamp(row.acknowledgedAt),
+        cancelledAt = parseRuntimeTimestamp(row.cancelledAt),
+        status = when (row.status.lowercase()) {
+            "acknowledged" -> "acknowledged"
+            "cancelled", "expired" -> "cancelled"
+            else -> "ringing"
+        },
+        previewOnly = false,
+    )
+
+private fun buildNativePlayerAdminRowFromLive(
+    row: NativeAdminPlayerAccountCatalogRow,
+    leaderboard: List<NativeLeaderboardEntry>,
+    hallOfFame: List<NativeHallOfFameEntry>,
+): NativePlayerAdminAccountRow {
+    val canonicalName = row.linkedPlayerName?.trim().takeUnless { it.isNullOrEmpty() }
+    val nameParts = splitCanonicalRuntimeName(canonicalName)
+    val profile = canonicalName?.let {
+        NativePlayerPreviewProfile(
+            accountId = row.userId,
+            firstName = nameParts.second,
+            lastName = nameParts.first,
+            birthDate = row.birthDate?.trim().orEmpty(),
+            canonicalPlayerName = it,
+            createdAt = parseRuntimeTimestamp(row.createdAt) ?: System.currentTimeMillis(),
+            updatedAt = parseRuntimeTimestamp(row.lastLoginAt)
+                ?: parseRuntimeTimestamp(row.createdAt)
+                ?: System.currentTimeMillis(),
+        )
+    }
+    val results = profile?.let { buildNativePlayerResultSnapshot(it, leaderboard, hallOfFame) }
+    val providers = row.providers
+        .mapNotNull { it.trim().takeIf { value -> value.isNotEmpty() } }
+        .ifEmpty { listOf(row.primaryProvider?.trim().takeUnless { it.isNullOrEmpty() } ?: "other") }
+    val origin = when (row.primaryProvider?.trim()?.lowercase()) {
+        "google" -> "google"
+        "facebook" -> "facebook"
+        "apple" -> "apple"
+        "in_app", "password" -> "in_app"
+        else -> "other"
+    }
+    return NativePlayerAdminAccountRow(
+        id = row.userId,
+        email = row.email?.trim().orEmpty(),
+        provider = row.primaryProvider?.trim()?.ifEmpty { "other" } ?: "other",
+        origin = origin,
+        mode = "live",
+        providers = providers,
+        createdAt = parseRuntimeTimestamp(row.createdAt) ?: System.currentTimeMillis(),
+        lastLoginAt = parseRuntimeTimestamp(row.lastLoginAt),
+        linkedPlayerName = canonicalName,
+        birthDate = row.birthDate,
+        canonicalPlayerName = canonicalName,
+        totalTitles = results?.awards?.size ?: 0,
+        totalCanestri = results?.totalPoints ?: 0,
+        totalSoffi = results?.totalSoffi ?: 0,
+        hasProfile = row.hasProfile,
+        hasPasswordRecovery = origin == "in_app" && !row.email.isNullOrBlank(),
+    )
+}
+
+private fun splitCanonicalRuntimeName(name: String?): Pair<String, String> {
+    val safeName = name
+        ?.trim()
+        ?.replace(Regex("\\s+"), " ")
+        .orEmpty()
+    if (safeName.isBlank()) return "" to ""
+    val firstSpace = safeName.indexOf(' ')
+    if (firstSpace <= 0) return safeName to ""
+    return safeName.substring(0, firstSpace).trim() to safeName.substring(firstSpace + 1).trim()
+}
+
+private fun parseRuntimeTimestamp(raw: String?): Long? {
+    val safeRaw = raw?.trim().orEmpty()
+    if (safeRaw.isEmpty()) return null
+    return runCatching { Instant.parse(safeRaw).toEpochMilli() }.getOrNull()
 }
 
 private fun matchContainsTeam(match: NativeMatchInfo, teamId: String): Boolean =

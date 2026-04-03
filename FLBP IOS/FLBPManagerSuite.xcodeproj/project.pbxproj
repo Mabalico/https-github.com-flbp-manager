@@ -17,6 +17,7 @@
 		A00000010000000000000008 /* NativePublicCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000010000000000000009 /* NativePublicCache.swift */; };
 		A00000010000000000000009 /* NativeProtectedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000010000000000000010 /* NativeProtectedData.swift */; };
 		A00000010000000000000010 /* NativeProtectedScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000010000000000000011 /* NativeProtectedScreens.swift */; };
+		A00000010000000000000011 /* NativeWebMirrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000010000000000000012 /* NativeWebMirrorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 		B00000010000000000000009 /* NativePublicCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePublicCache.swift; sourceTree = "<group>"; };
 		B00000010000000000000010 /* NativeProtectedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProtectedData.swift; sourceTree = "<group>"; };
 		B00000010000000000000011 /* NativeProtectedScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProtectedScreens.swift; sourceTree = "<group>"; };
+		B00000010000000000000012 /* NativeWebMirrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWebMirrorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +67,7 @@
 				B00000010000000000000009 /* NativePublicCache.swift */,
 				B00000010000000000000010 /* NativeProtectedData.swift */,
 				B00000010000000000000011 /* NativeProtectedScreens.swift */,
+				B00000010000000000000012 /* NativeWebMirrorView.swift */,
 				B00000010000000000000004 /* Assets.xcassets */,
 				B00000010000000000000005 /* Info.plist */,
 			);
@@ -157,6 +160,7 @@
 				A00000010000000000000008 /* NativePublicCache.swift in Sources */,
 				A00000010000000000000009 /* NativeProtectedData.swift in Sources */,
 				A00000010000000000000010 /* NativeProtectedScreens.swift in Sources */,
+				A00000010000000000000011 /* NativeWebMirrorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

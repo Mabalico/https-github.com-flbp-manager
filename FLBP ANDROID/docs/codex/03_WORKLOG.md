@@ -96,3 +96,6 @@ chat non affidabile, seguo il repository.
 - aggiunta anche una CTA esplicita `Reset local preview data` nella `player_area`, con pulizia del bypass arbitri se non piu' coerente col profilo locale
 - sostituita anche l'icona launcher Android con il logo FLBP rotondo preso dal set icone web, con riferimenti espliciti `android:icon` e `android:roundIcon` nel manifest
 - rinominata anche l'app Android lato utente in `FLBP`; il nome esteso resta nel branding UI, mentre il launcher usa il nome corto per restare pulito
+- completata la chiusura pragmatica della parita' grafica/funzionale: Android ora usa di default una shell nativa con FLBP ONLINE mobile in WebView full-screen
+- il percorso Compose legacy resta nel pacchetto solo come fallback tecnico quando il web mirror non si carica
+- build Android verificata green anche dopo l'introduzione del web mirror (`:app:assembleDebug`)

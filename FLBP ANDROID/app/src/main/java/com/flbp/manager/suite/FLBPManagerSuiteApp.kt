@@ -31,11 +31,20 @@ private fun isMissingNativeRefereePullRpc(error: Throwable): Boolean {
         message.contains("PGRST202", ignoreCase = true)
 }
 
+private fun buildNativeRuntimeCanonicalName(firstNameRaw: String, lastNameRaw: String): String =
+    "${lastNameRaw.trim()} ${firstNameRaw.trim()}".trim().replace(Regex("\\s+"), " ")
+
 @Composable
 fun FLBPManagerSuiteApp() {
     MaterialTheme {
         Surface(modifier = Modifier, color = NativeFlbpPalette.page) {
-            NativeAppScreen()
+            if (NativeWebMirrorConfig.enabled) {
+                NativeWebMirrorHost(
+                    fallback = { NativeAppScreen() },
+                )
+            } else {
+                NativeAppScreen()
+            }
         }
     }
 }
@@ -90,8 +99,14 @@ private fun NativeAppScreen() {
     var refereesError by remember { mutableStateOf<String?>(null) }
     var refereesAuthedTournamentId by rememberSaveable { mutableStateOf("") }
     var playerPreviewNonce by rememberSaveable { mutableIntStateOf(0) }
+    var playerLiveNonce by rememberSaveable { mutableIntStateOf(0) }
     var playerInfoMessage by remember { mutableStateOf<String?>(null) }
     var playerError by remember { mutableStateOf<String?>(null) }
+    var playerLiveSession by remember { mutableStateOf(protectedCache.readPlayerSession()) }
+    var playerLiveProfile by remember { mutableStateOf<NativePlayerSupabaseProfileRow?>(null) }
+    var playerLiveCalls by remember { mutableStateOf<List<NativePlayerSupabaseCallRow>>(emptyList()) }
+    var playerLiveAdminRows by remember { mutableStateOf<List<NativeAdminPlayerAccountCatalogRow>>(emptyList()) }
+    var playerBackendReady by remember { mutableStateOf(true) }
     var toolsLiveBundle by remember { mutableStateOf<NativeTournamentBundle?>(null) }
     var toolsLiveBundleLoading by remember { mutableStateOf(false) }
     var toolsLiveBundleError by remember { mutableStateOf<String?>(null) }
@@ -136,10 +151,15 @@ private fun NativeAppScreen() {
     }
     val playerSnapshot = remember(
         playerPreviewNonce,
+        playerLiveNonce,
         catalog,
         leaderboard,
         hallOfFame,
         playerLiveBundle,
+        playerLiveSession,
+        playerLiveProfile,
+        playerLiveCalls,
+        playerBackendReady,
     ) {
         buildSafeNativePlayerAreaSnapshot(
             catalog = catalog,
@@ -147,12 +167,25 @@ private fun NativeAppScreen() {
             hallOfFame = hallOfFame,
             liveBundle = playerLiveBundle,
             store = playerStore,
+            liveSession = playerLiveSession,
+            liveProfile = playerLiveProfile,
+            liveCalls = playerLiveCalls,
+            backendReady = playerBackendReady,
         )
     }
-    val adminPlayerAccountRows = remember(playerPreviewNonce, leaderboard, hallOfFame) {
-        playerStore.listAdminRows(
+    val adminPlayerAccountRows = remember(
+        playerPreviewNonce,
+        playerLiveNonce,
+        leaderboard,
+        hallOfFame,
+        adminAccess?.ok,
+        playerLiveAdminRows,
+    ) {
+        buildNativePlayerAdminRows(
             leaderboard = leaderboard,
             hallOfFame = hallOfFame,
+            store = playerStore,
+            liveRows = if (adminAccess?.ok == true) playerLiveAdminRows else emptyList(),
         )
     }
 
@@ -173,6 +206,10 @@ private fun NativeAppScreen() {
             hallOfFame = hallOfFame,
             liveBundle = playerLiveBundle,
             store = playerStore,
+            liveSession = playerLiveSession,
+            liveProfile = playerLiveProfile,
+            liveCalls = playerLiveCalls,
+            backendReady = playerBackendReady,
         )
         if (!repairedSnapshot.liveStatus.refereeBypassEligible &&
             refereesAuthedTournamentId == catalog.liveTournament?.id
@@ -182,6 +219,49 @@ private fun NativeAppScreen() {
         playerPreviewNonce += 1
         playerInfoMessage = repairMessage
         playerError = null
+    }
+
+    LaunchedEffect(playerPreviewNonce, playerLiveNonce) {
+        val refreshedSession = NativeProtectedApi.ensureFreshPlayerSession(protectedCache)
+        playerLiveSession = refreshedSession
+        if (refreshedSession == null) {
+            playerLiveProfile = null
+            playerLiveCalls = emptyList()
+            playerBackendReady = true
+            return@LaunchedEffect
+        }
+
+        var backendPending = false
+        runCatching {
+            NativeProtectedApi.registerPlayerDevice(
+                session = refreshedSession,
+                deviceId = protectedCache.readOrCreatePlayerDeviceId(),
+            )
+        }.onFailure { error ->
+            if (NativeProtectedApi.isPlayerBackendPendingError(error.message.orEmpty())) {
+                backendPending = true
+            }
+        }
+
+        playerLiveProfile = runCatching {
+            NativeProtectedApi.pullPlayerProfile(refreshedSession)
+        }.getOrElse { error ->
+            if (NativeProtectedApi.isPlayerBackendPendingError(error.message.orEmpty())) {
+                backendPending = true
+            }
+            null
+        }
+
+        playerLiveCalls = runCatching {
+            NativeProtectedApi.pullPlayerCalls(refreshedSession)
+        }.getOrElse { error ->
+            if (NativeProtectedApi.isPlayerBackendPendingError(error.message.orEmpty())) {
+                backendPending = true
+            }
+            emptyList()
+        }
+
+        playerBackendReady = !backendPending
     }
 
     LaunchedEffect(refreshNonce) {
@@ -303,10 +383,16 @@ private fun NativeAppScreen() {
                     )
                 }
             }
+            val playerAccountsRequest = async {
+                runCatching {
+                    NativeProtectedApi.pullAdminPlayerAccounts(adminSession!!)
+                }
+            }
             val accessResult = accessRequest.await()
             val overviewResult = overviewRequest.await()
             val trafficResult = trafficRequest.await()
             val viewsResult = viewsRequest.await()
+            val playerAccountsResult = playerAccountsRequest.await()
 
             accessResult.onSuccess { access ->
                 adminAccess = access
@@ -342,6 +428,15 @@ private fun NativeAppScreen() {
             }.onFailure { error ->
                 adminViewsRows = emptyList()
                 adminViewsError = error.message ?: "Unable to load public views."
+            }
+            playerAccountsResult.onSuccess { rows ->
+                playerLiveAdminRows = rows
+                playerLiveNonce += 1
+            }.onFailure { error ->
+                playerLiveAdminRows = emptyList()
+                if (!NativeProtectedApi.isPlayerBackendPendingError(error.message.orEmpty())) {
+                    adminError = adminError ?: error.message ?: "Unable to load live player accounts."
+                }
             }
         }
         adminBusy = false
@@ -516,96 +611,200 @@ private fun NativeAppScreen() {
                 infoMessage = playerInfoMessage,
                 errorMessage = playerError,
                 onRegister = { email, password, firstName, lastName, birthDate ->
-                    runCatching {
-                        val session = playerStore.registerAccount(email, password)
-                        if (firstName.isNotBlank() && lastName.isNotBlank() && birthDate.isNotBlank()) {
-                            playerStore.saveProfile(session, firstName, lastName, birthDate)
-                        }
-                    }
-                        .onSuccess {
+                    uiScope.launch {
+                        runCatching {
+                            val liveSession = NativeProtectedApi.signUpPlayerWithPassword(email, password)
+                            protectedCache.writePlayerSession(liveSession)
+                            playerLiveSession = liveSession
+                            if (firstName.isNotBlank() && lastName.isNotBlank() && birthDate.isNotBlank()) {
+                                playerLiveProfile = NativeProtectedApi.pushPlayerProfile(
+                                    session = liveSession,
+                                    firstName = firstName,
+                                    lastName = lastName,
+                                    birthDate = birthDate,
+                                    canonicalPlayerName = buildNativeRuntimeCanonicalName(firstName, lastName),
+                                )
+                            }
+                            NativeProtectedApi.registerPlayerDevice(
+                                session = liveSession,
+                                deviceId = protectedCache.readOrCreatePlayerDeviceId(),
+                            )
+                            playerLiveCalls = NativeProtectedApi.pullPlayerCalls(liveSession)
+                            playerBackendReady = true
+                        }.onSuccess {
                             playerPreviewNonce += 1
-                            playerInfoMessage = "Preview account created on this device."
+                            playerLiveNonce += 1
+                            playerInfoMessage = "Account player live creato."
                             playerError = null
-                        }
-                        .onFailure { error ->
-                            playerError = error.message ?: "Unable to create the preview account."
+                        }.onFailure { error ->
+                            playerError = error.message ?: "Unable to create the player account."
                             playerInfoMessage = null
                         }
+                    }
                 },
                 onSignIn = { username, password ->
-                    runCatching { playerStore.signIn(username, password) }
-                        .onSuccess {
+                    uiScope.launch {
+                        runCatching {
+                            val liveSession = NativeProtectedApi.signInPlayerWithPassword(username, password)
+                            protectedCache.writePlayerSession(liveSession)
+                            playerLiveSession = liveSession
+                            NativeProtectedApi.registerPlayerDevice(
+                                session = liveSession,
+                                deviceId = protectedCache.readOrCreatePlayerDeviceId(),
+                            )
+                            playerLiveProfile = NativeProtectedApi.pullPlayerProfile(liveSession)
+                            playerLiveCalls = NativeProtectedApi.pullPlayerCalls(liveSession)
+                            playerBackendReady = true
+                        }.onSuccess {
                             playerPreviewNonce += 1
-                            playerInfoMessage = "Preview sign-in completed."
+                            playerLiveNonce += 1
+                            playerInfoMessage = "Accesso player live completato."
                             playerError = null
-                        }
-                        .onFailure { error ->
+                        }.onFailure { error ->
                             playerError = error.message ?: "Unable to sign in."
                             playerInfoMessage = null
                         }
+                    }
+                },
+                onRequestPasswordReset = { email ->
+                    uiScope.launch {
+                        runCatching {
+                            NativeProtectedApi.requestPlayerPasswordReset(email)
+                        }.onSuccess {
+                            playerInfoMessage = "Password reset email requested."
+                            playerError = null
+                        }.onFailure { error ->
+                            playerError = error.message ?: "Unable to request password reset."
+                            playerInfoMessage = null
+                        }
+                    }
                 },
                 onSaveProfile = { firstName, lastName, birthDate ->
-                    val session = playerStore.readSession()
-                    if (session == null) {
-                        playerError = "Sign in first to save the player profile."
-                        playerInfoMessage = null
-                    } else {
-                        runCatching { playerStore.saveProfile(session, firstName, lastName, birthDate) }
-                            .onSuccess {
+                    val liveSession = playerLiveSession
+                    if (liveSession != null) {
+                        uiScope.launch {
+                            runCatching {
+                                playerLiveProfile = NativeProtectedApi.pushPlayerProfile(
+                                    session = liveSession,
+                                    firstName = firstName,
+                                    lastName = lastName,
+                                    birthDate = birthDate,
+                                    canonicalPlayerId = playerLiveProfile?.canonicalPlayerId,
+                                    canonicalPlayerName = buildNativeRuntimeCanonicalName(firstName, lastName),
+                                )
+                                playerLiveCalls = NativeProtectedApi.pullPlayerCalls(liveSession)
+                            }.onSuccess {
                                 playerPreviewNonce += 1
-                                playerInfoMessage = "Player profile saved."
+                                playerLiveNonce += 1
+                                playerInfoMessage = "Profilo player live salvato."
                                 playerError = null
-                            }
-                            .onFailure { error ->
+                            }.onFailure { error ->
                                 playerError = error.message ?: "Unable to save the player profile."
                                 playerInfoMessage = null
                             }
+                        }
+                    } else {
+                        val session = playerStore.readSession()
+                        if (session == null) {
+                            playerError = "Sign in first to save the player profile."
+                            playerInfoMessage = null
+                        } else {
+                            runCatching { playerStore.saveProfile(session, firstName, lastName, birthDate) }
+                                .onSuccess {
+                                    playerPreviewNonce += 1
+                                    playerInfoMessage = "Player profile saved."
+                                    playerError = null
+                                }
+                                .onFailure { error ->
+                                    playerError = error.message ?: "Unable to save the player profile."
+                                    playerInfoMessage = null
+                                }
+                        }
                     }
                 },
                 onSignOut = {
-                    val shouldClearBypass = playerSnapshot.liveStatus.refereeBypassEligible &&
-                        refereesAuthedTournamentId == catalog.liveTournament?.id
-                    playerStore.signOut()
-                    if (shouldClearBypass) {
-                        refereesAuthedTournamentId = ""
+                    uiScope.launch {
+                        val hadLiveSession = playerLiveSession != null
+                        val shouldClearBypass = playerSnapshot.liveStatus.refereeBypassEligible &&
+                            refereesAuthedTournamentId == catalog.liveTournament?.id
+                        if (playerLiveSession != null) {
+                            NativeProtectedApi.signOutPlayer(playerLiveSession)
+                            protectedCache.writePlayerSession(null)
+                            playerLiveSession = null
+                            playerLiveProfile = null
+                            playerLiveCalls = emptyList()
+                        } else {
+                            playerStore.signOut()
+                        }
+                        if (shouldClearBypass) {
+                            refereesAuthedTournamentId = ""
+                        }
+                        playerPreviewNonce += 1
+                        playerLiveNonce += 1
+                        playerInfoMessage = if (hadLiveSession) {
+                            "Signed out from the live player account."
+                        } else {
+                            "Signed out from the preview account."
+                        }
+                        playerError = null
                     }
-                    playerPreviewNonce += 1
-                    playerInfoMessage = "Signed out from the preview account."
-                    playerError = null
                 },
                 onAcknowledgeCall = { callId ->
-                    val session = playerStore.readSession()
-                    if (session == null) {
-                        playerError = "Sign in first to confirm the team call."
-                        playerInfoMessage = null
-                    } else {
-                        runCatching { playerStore.acknowledgeCall(session, callId) }
-                            .onSuccess {
+                    val liveSession = playerLiveSession
+                    if (liveSession != null) {
+                        uiScope.launch {
+                            runCatching {
+                                NativeProtectedApi.acknowledgePlayerCall(liveSession, callId)
+                                playerLiveCalls = NativeProtectedApi.pullPlayerCalls(liveSession)
+                            }.onSuccess {
                                 playerPreviewNonce += 1
+                                playerLiveNonce += 1
                                 playerInfoMessage = "Team call receipt confirmed."
                                 playerError = null
-                            }
-                            .onFailure { error ->
+                            }.onFailure { error ->
                                 playerError = error.message ?: "Unable to confirm the team call."
                                 playerInfoMessage = null
                             }
+                        }
+                    } else {
+                        val session = playerStore.readSession()
+                        if (session == null) {
+                            playerError = "Sign in first to confirm the team call."
+                            playerInfoMessage = null
+                        } else {
+                            runCatching { playerStore.acknowledgeCall(session, callId) }
+                                .onSuccess {
+                                    playerPreviewNonce += 1
+                                    playerInfoMessage = "Team call receipt confirmed."
+                                    playerError = null
+                                }
+                                .onFailure { error ->
+                                    playerError = error.message ?: "Unable to confirm the team call."
+                                    playerInfoMessage = null
+                                }
+                        }
                     }
                 },
                 onClearCall = { callId ->
-                    val session = playerStore.readSession()
-                    if (session == null) {
-                        playerError = "Sign in first to clear the team call."
+                    if (playerSnapshot.liveStatus.activeCall?.previewOnly == false) {
+                        playerError = "Live team calls can be cancelled only from Admin."
                         playerInfoMessage = null
                     } else {
-                        runCatching { playerStore.clearCall(session, callId) }
-                            .onSuccess {
-                                playerPreviewNonce += 1
-                                playerInfoMessage = "Team call cleared."
-                                playerError = null
-                            }
-                            .onFailure { error ->
-                                playerError = error.message ?: "Unable to clear the team call."
-                                playerInfoMessage = null
+                        val session = playerStore.readSession()
+                        if (session == null) {
+                            playerError = "Sign in first to clear the team call."
+                            playerInfoMessage = null
+                        } else {
+                            runCatching { playerStore.clearCall(session, callId) }
+                                .onSuccess {
+                                    playerPreviewNonce += 1
+                                    playerInfoMessage = "Team call cleared."
+                                    playerError = null
+                                }
+                                .onFailure { error ->
+                                    playerError = error.message ?: "Unable to clear the team call."
+                                    playerInfoMessage = null
+                                }
                         }
                     }
                 },
@@ -668,6 +867,7 @@ private fun NativeAppScreen() {
                                 startDate = viewsWindow.startDate,
                                 endDate = viewsWindow.endDate,
                             )
+                            val accountRows = NativeProtectedApi.pullAdminPlayerAccounts(session)
                             session.copy(
                                 email = access.email ?: session.email,
                                 userId = access.userId ?: session.userId,
@@ -676,8 +876,9 @@ private fun NativeAppScreen() {
                                 overview = overview,
                                 trafficRows = trafficRows,
                                 viewsRows = viewsRows,
-                            )
-                        }.onSuccess { (session, result) ->
+                            ) to accountRows
+                        }.onSuccess { (payload, accountRows) ->
+                            val (session, result) = payload
                             adminSession = session
                             protectedCache.writeAdminSession(session)
                             adminAccess = result.access
@@ -686,6 +887,8 @@ private fun NativeAppScreen() {
                             adminTrafficError = null
                             adminViewsRows = result.viewsRows
                             adminViewsError = null
+                            playerLiveAdminRows = accountRows
+                            playerLiveNonce += 1
                         }.onFailure { error ->
                             adminSession = null
                             protectedCache.writeAdminSession(null)
@@ -695,6 +898,7 @@ private fun NativeAppScreen() {
                             adminTrafficError = null
                             adminViewsRows = emptyList()
                             adminViewsError = null
+                            playerLiveAdminRows = emptyList()
                             adminError = error.message ?: "Unable to sign in."
                         }
                         adminBusy = false
@@ -712,6 +916,7 @@ private fun NativeAppScreen() {
                         adminTrafficError = null
                         adminViewsRows = emptyList()
                         adminViewsError = null
+                        playerLiveAdminRows = emptyList()
                         adminError = null
                         protectedCache.writeAdminSession(null)
                     }
@@ -719,14 +924,34 @@ private fun NativeAppScreen() {
                 onRefreshAccess = { toolsRefreshNonce += 1 },
                 onRefreshLiveBundle = { toolsRefreshNonce += 1 },
                 onSavePlayerAccount = { accountId, email, firstName, lastName, birthDate ->
-                    playerStore.updateAdminAccount(
-                        accountIdRaw = accountId,
-                        emailRaw = email,
-                        firstNameRaw = firstName,
-                        lastNameRaw = lastName,
-                        birthDateRaw = birthDate,
-                    )
-                    playerPreviewNonce += 1
+                    val liveRow = playerLiveAdminRows.firstOrNull { it.userId == accountId }
+                    if (liveRow != null && adminSession != null) {
+                        val saved = NativeProtectedApi.pushAdminPlayerProfile(
+                            session = adminSession!!,
+                            userId = accountId,
+                            firstName = firstName,
+                            lastName = lastName,
+                            birthDate = birthDate,
+                            canonicalPlayerId = liveRow.canonicalPlayerId,
+                            canonicalPlayerName = buildNativeRuntimeCanonicalName(firstName, lastName),
+                        )
+                        playerLiveAdminRows = NativeProtectedApi.pullAdminPlayerAccounts(adminSession!!)
+                        if (playerLiveSession?.userId == accountId) {
+                            playerLiveProfile = saved
+                        }
+                        playerLiveNonce += 1
+                        "Live player account updated from Admin."
+                    } else {
+                        playerStore.updateAdminAccount(
+                            accountIdRaw = accountId,
+                            emailRaw = email,
+                            firstNameRaw = firstName,
+                            lastNameRaw = lastName,
+                            birthDateRaw = birthDate,
+                        )
+                        playerPreviewNonce += 1
+                        "Preview player account updated from Admin."
+                    }
                 },
             )
 

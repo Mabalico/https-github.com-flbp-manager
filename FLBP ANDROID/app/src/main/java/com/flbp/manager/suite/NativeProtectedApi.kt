@@ -27,11 +27,60 @@ data class NativeAdminSession(
     val userId: String?,
 )
 
+data class NativePlayerSupabaseSession(
+    val accessToken: String,
+    val refreshToken: String?,
+    val expiresAtEpochMs: Long?,
+    val email: String?,
+    val userId: String?,
+    val provider: String,
+)
+
 data class NativeAdminAccessResult(
     val ok: Boolean,
     val email: String? = null,
     val userId: String? = null,
     val reason: String? = null,
+)
+
+data class NativePlayerSupabaseProfileRow(
+    val workspaceId: String,
+    val userId: String,
+    val firstName: String,
+    val lastName: String,
+    val birthDate: String?,
+    val canonicalPlayerId: String?,
+    val canonicalPlayerName: String?,
+    val createdAt: String?,
+    val updatedAt: String?,
+)
+
+data class NativePlayerSupabaseCallRow(
+    val id: String,
+    val workspaceId: String,
+    val tournamentId: String,
+    val teamId: String,
+    val teamName: String?,
+    val targetUserId: String,
+    val targetPlayerId: String?,
+    val targetPlayerName: String?,
+    val status: String,
+    val requestedAt: String?,
+    val acknowledgedAt: String?,
+    val cancelledAt: String?,
+)
+
+data class NativeAdminPlayerAccountCatalogRow(
+    val userId: String,
+    val email: String?,
+    val primaryProvider: String?,
+    val providers: List<String>,
+    val createdAt: String?,
+    val lastLoginAt: String?,
+    val hasProfile: Boolean,
+    val linkedPlayerName: String?,
+    val birthDate: String?,
+    val canonicalPlayerId: String?,
 )
 
 data class NativeRefereeAuthCheckResult(
@@ -201,6 +250,51 @@ class NativeProtectedCache(context: Context) {
         }.apply()
     }
 
+    fun readPlayerSession(): NativePlayerSupabaseSession? {
+        val accessToken = prefs.getString("player_access_token", null)?.trim().orEmpty()
+        if (accessToken.isEmpty()) return null
+        return NativePlayerSupabaseSession(
+            accessToken = accessToken,
+            refreshToken = prefs.getString("player_refresh_token", null)?.trim()?.ifEmpty { null },
+            expiresAtEpochMs = prefs.getLong("player_expires_at_ms", -1L).takeIf { it > 0L },
+            email = prefs.getString("player_email", null)?.trim()?.ifEmpty { null },
+            userId = prefs.getString("player_user_id", null)?.trim()?.ifEmpty { null },
+            provider = prefs.getString("player_provider", null)?.trim()?.ifEmpty { null } ?: "password",
+        )
+    }
+
+    fun writePlayerSession(session: NativePlayerSupabaseSession?) {
+        prefs.edit().apply {
+            if (session == null || session.accessToken.isBlank()) {
+                remove("player_access_token")
+                remove("player_refresh_token")
+                remove("player_expires_at_ms")
+                remove("player_email")
+                remove("player_user_id")
+                remove("player_provider")
+            } else {
+                putString("player_access_token", session.accessToken)
+                putString("player_refresh_token", session.refreshToken)
+                if (session.expiresAtEpochMs != null && session.expiresAtEpochMs > 0L) {
+                    putLong("player_expires_at_ms", session.expiresAtEpochMs)
+                } else {
+                    remove("player_expires_at_ms")
+                }
+                putString("player_email", session.email)
+                putString("player_user_id", session.userId)
+                putString("player_provider", session.provider)
+            }
+        }.apply()
+    }
+
+    fun readOrCreatePlayerDeviceId(): String {
+        val current = prefs.getString("player_device_id", null)?.trim().orEmpty()
+        if (current.isNotEmpty()) return current
+        val next = "android_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        prefs.edit().putString("player_device_id", next).apply()
+        return next
+    }
+
     fun readSelectedRefereeName(tournamentId: String): String? {
         val safeTournamentId = tournamentId.trim()
         if (safeTournamentId.isEmpty()) return null
@@ -223,6 +317,15 @@ class NativeProtectedCache(context: Context) {
 
 object NativeProtectedApi {
     fun defaultAdminEmail(): String = PROTECTED_ADMIN_EMAIL
+
+    fun isPlayerBackendPendingError(message: String): Boolean {
+        val safeMessage = message.trim()
+        if (safeMessage.isEmpty()) return false
+        return Regex(
+            pattern = "player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_call_team|flbp_admin_list_player_accounts|relation .*player_app_|function .*flbp_player_",
+            option = RegexOption.IGNORE_CASE,
+        ).containsMatchIn(safeMessage)
+    }
 
     suspend fun signInWithPassword(email: String, password: String): NativeAdminSession = withContext(Dispatchers.IO) {
         val safeEmail = email.trim()
@@ -274,6 +377,251 @@ object NativeProtectedApi {
                 body = null,
             )
         }
+    }
+
+    suspend fun signInPlayerWithPassword(email: String, password: String): NativePlayerSupabaseSession = withContext(Dispatchers.IO) {
+        val safeEmail = email.trim()
+        val safePassword = password
+        if (safeEmail.isEmpty() || safePassword.isEmpty()) {
+            throw IllegalArgumentException("Inserisci email e password.")
+        }
+        val response = requestObject(
+            path = "auth/v1/token?grant_type=password",
+            method = "POST",
+            bearer = null,
+            body = JSONObject().apply {
+                put("email", safeEmail)
+                put("password", safePassword)
+            },
+        )
+        parsePlayerSession(response, safeEmail, "password")
+    }
+
+    suspend fun signUpPlayerWithPassword(
+        email: String,
+        password: String,
+        metadata: JSONObject? = null,
+    ): NativePlayerSupabaseSession = withContext(Dispatchers.IO) {
+        val safeEmail = email.trim()
+        val safePassword = password
+        if (safeEmail.isEmpty() || safePassword.isEmpty()) {
+            throw IllegalArgumentException("Inserisci email e password.")
+        }
+        val response = requestObject(
+            path = "auth/v1/signup",
+            method = "POST",
+            bearer = null,
+            body = JSONObject().apply {
+                put("email", safeEmail)
+                put("password", safePassword)
+                put("data", metadata ?: JSONObject())
+            },
+        )
+        parsePlayerSession(response, safeEmail, "password")
+    }
+
+    suspend fun ensureFreshPlayerSession(cache: NativeProtectedCache): NativePlayerSupabaseSession? = withContext(Dispatchers.IO) {
+        val session = cache.readPlayerSession() ?: return@withContext null
+        val expiresAt = session.expiresAtEpochMs ?: return@withContext session
+        if (expiresAt > System.currentTimeMillis() + 60_000L) {
+            return@withContext session
+        }
+        val refreshToken = session.refreshToken?.trim().orEmpty()
+        if (refreshToken.isEmpty()) {
+            cache.writePlayerSession(null)
+            return@withContext null
+        }
+        val response = runCatching {
+            requestObject(
+                path = "auth/v1/token?grant_type=refresh_token",
+                method = "POST",
+                bearer = null,
+                body = JSONObject().apply {
+                    put("refresh_token", refreshToken)
+                },
+            )
+        }.getOrElse {
+            cache.writePlayerSession(null)
+            return@withContext null
+        }
+        val refreshed = parsePlayerSession(response, session.email, session.provider)
+        cache.writePlayerSession(refreshed)
+        refreshed
+    }
+
+    suspend fun requestPlayerPasswordReset(email: String) = withContext(Dispatchers.IO) {
+        val safeEmail = email.trim()
+        if (safeEmail.isEmpty()) throw IllegalArgumentException("Inserisci una email valida.")
+        requestObject(
+            path = "auth/v1/recover",
+            method = "POST",
+            bearer = null,
+            body = JSONObject().apply {
+                put("email", safeEmail)
+            },
+        )
+    }
+
+    suspend fun signOutPlayer(session: NativePlayerSupabaseSession?) = withContext(Dispatchers.IO) {
+        val token = session?.accessToken?.trim().orEmpty()
+        if (token.isEmpty()) return@withContext
+        runCatching {
+            requestObject(
+                path = "auth/v1/logout",
+                method = "POST",
+                bearer = token,
+                body = null,
+            )
+        }
+    }
+
+    suspend fun registerPlayerDevice(
+        session: NativePlayerSupabaseSession,
+        deviceId: String,
+        platform: String = "android",
+        pushEnabled: Boolean = true,
+    ) = withContext(Dispatchers.IO) {
+        val userId = resolvePlayerSessionUserId(session)
+            ?: throw IllegalArgumentException("Sessione player non valida.")
+        val safeDeviceId = deviceId.trim()
+        if (safeDeviceId.isEmpty()) throw IllegalArgumentException("Device id mancante.")
+        val payload = JSONObject().apply {
+            put("id", safeDeviceId)
+            put("workspace_id", PROTECTED_SUPABASE_WORKSPACE_ID)
+            put("user_id", userId)
+            put("platform", platform)
+            put("device_token", JSONObject.NULL)
+            put("push_enabled", pushEnabled)
+        }
+        requestArray(
+            path = "rest/v1/player_app_devices?on_conflict=id&select=id",
+            method = "POST",
+            bearer = session.accessToken,
+            body = payload,
+            extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates,return=representation"),
+        )
+    }
+
+    suspend fun pullPlayerProfile(session: NativePlayerSupabaseSession): NativePlayerSupabaseProfileRow? = withContext(Dispatchers.IO) {
+        val userId = resolvePlayerSessionUserId(session) ?: return@withContext null
+        val rows = requestArray(
+            path = "rest/v1/player_app_profiles" +
+                "?workspace_id=eq.${encode(PROTECTED_SUPABASE_WORKSPACE_ID)}" +
+                "&user_id=eq.${encode(userId)}" +
+                "&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at" +
+                "&limit=1",
+            bearer = session.accessToken,
+        )
+        rows.firstObjectOrNull()?.let(::playerProfileRowFromJson)
+    }
+
+    suspend fun pushPlayerProfile(
+        session: NativePlayerSupabaseSession,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        canonicalPlayerId: String? = null,
+        canonicalPlayerName: String? = null,
+    ): NativePlayerSupabaseProfileRow = withContext(Dispatchers.IO) {
+        val userId = resolvePlayerSessionUserId(session)
+            ?: throw IllegalArgumentException("Sessione player non valida.")
+        val payload = JSONObject().apply {
+            put("workspace_id", PROTECTED_SUPABASE_WORKSPACE_ID)
+            put("user_id", userId)
+            put("first_name", firstName.trim())
+            put("last_name", lastName.trim())
+            put("birth_date", birthDate.trim())
+            put("canonical_player_id", canonicalPlayerId?.trim()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL)
+            put("canonical_player_name", canonicalPlayerName?.trim()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL)
+        }
+        val rows = requestArray(
+            path = "rest/v1/player_app_profiles?on_conflict=workspace_id,user_id&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at",
+            method = "POST",
+            bearer = session.accessToken,
+            body = payload,
+            extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates,return=representation"),
+        )
+        rows.firstObjectOrNull()?.let(::playerProfileRowFromJson)
+            ?: throw IllegalStateException("Profilo player non restituito.")
+    }
+
+    suspend fun pullPlayerCalls(session: NativePlayerSupabaseSession): List<NativePlayerSupabaseCallRow> = withContext(Dispatchers.IO) {
+        val userId = resolvePlayerSessionUserId(session) ?: return@withContext emptyList()
+        val rows = requestArray(
+            path = "rest/v1/player_app_calls" +
+                "?workspace_id=eq.${encode(PROTECTED_SUPABASE_WORKSPACE_ID)}" +
+                "&target_user_id=eq.${encode(userId)}" +
+                "&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,status,requested_at,acknowledged_at,cancelled_at" +
+                "&order=requested_at.desc",
+            bearer = session.accessToken,
+        )
+        buildList {
+            for (index in 0 until rows.length()) {
+                rows.optJSONObject(index)?.let { add(playerCallRowFromJson(it)) }
+            }
+        }
+    }
+
+    suspend fun acknowledgePlayerCall(session: NativePlayerSupabaseSession, callId: String) = withContext(Dispatchers.IO) {
+        requestObject(
+            path = "rest/v1/rpc/flbp_player_ack_call",
+            method = "POST",
+            bearer = session.accessToken,
+            body = JSONObject().apply {
+                put("p_workspace_id", PROTECTED_SUPABASE_WORKSPACE_ID)
+                put("p_call_id", callId.trim())
+            },
+        )
+    }
+
+    suspend fun pullAdminPlayerAccounts(
+        session: NativeAdminSession,
+        origin: String? = null,
+    ): List<NativeAdminPlayerAccountCatalogRow> = withContext(Dispatchers.IO) {
+        val response = requestArray(
+            path = "rest/v1/rpc/flbp_admin_list_player_accounts",
+            method = "POST",
+            bearer = session.accessToken,
+            body = JSONObject().apply {
+                put("p_workspace_id", PROTECTED_SUPABASE_WORKSPACE_ID)
+                put("p_origin", origin?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL)
+            },
+            extraHeaders = mapOf("Prefer" to "params=single-object"),
+        )
+        buildList {
+            for (index in 0 until response.length()) {
+                response.optJSONObject(index)?.let { add(adminPlayerAccountRowFromJson(it)) }
+            }
+        }
+    }
+
+    suspend fun pushAdminPlayerProfile(
+        session: NativeAdminSession,
+        userId: String,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        canonicalPlayerId: String? = null,
+        canonicalPlayerName: String? = null,
+    ): NativePlayerSupabaseProfileRow = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("workspace_id", PROTECTED_SUPABASE_WORKSPACE_ID)
+            put("user_id", userId.trim())
+            put("first_name", firstName.trim())
+            put("last_name", lastName.trim())
+            put("birth_date", birthDate.trim())
+            put("canonical_player_id", canonicalPlayerId?.trim()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL)
+            put("canonical_player_name", canonicalPlayerName?.trim()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL)
+        }
+        val rows = requestArray(
+            path = "rest/v1/player_app_profiles?on_conflict=workspace_id,user_id&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at",
+            method = "POST",
+            bearer = session.accessToken,
+            body = payload,
+            extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates,return=representation"),
+        )
+        rows.firstObjectOrNull()?.let(::playerProfileRowFromJson)
+            ?: throw IllegalStateException("Profilo player live non restituito.")
     }
 
     suspend fun ensureAdminAccess(session: NativeAdminSession): NativeAdminAccessResult = withContext(Dispatchers.IO) {
@@ -453,6 +801,130 @@ object NativeProtectedApi {
         return decodeJwtSub(session.accessToken)
     }
 
+    private fun resolvePlayerSessionUserId(session: NativePlayerSupabaseSession): String? {
+        val direct = session.userId?.trim().orEmpty()
+        if (direct.isNotEmpty()) return direct
+        return decodeJwtSub(session.accessToken)
+    }
+
+    private fun parsePlayerSession(
+        response: JSONObject,
+        fallbackEmail: String?,
+        providerHint: String,
+    ): NativePlayerSupabaseSession {
+        val accessToken = response.optString("access_token").trim()
+        if (accessToken.isEmpty()) {
+            val userEmail = response.optJSONObject("user")?.optNullableString("email")
+            val message = if (!userEmail.isNullOrBlank() || !fallbackEmail.isNullOrBlank()) {
+                "Supabase ha creato l'account ma non ha restituito una sessione attiva. Verifica se il provider email richiede conferma."
+            } else {
+                "Login/registrazione player falliti (token mancante)."
+            }
+            throw IllegalStateException(message)
+        }
+
+        val refreshToken = response.optNullableString("refresh_token")
+        val expiresAtEpochMs = when {
+            response.has("expires_at") && !response.isNull("expires_at") -> {
+                val raw = response.optLong("expires_at", 0L)
+                when {
+                    raw <= 0L -> null
+                    raw > 1_000_000_000_000L -> raw
+                    else -> raw * 1000L
+                }
+            }
+
+            else -> {
+                val expiresIn = response.optLong("expires_in", 0L)
+                if (expiresIn > 0L) System.currentTimeMillis() + expiresIn * 1000L else null
+            }
+        }
+        val user = response.optJSONObject("user")
+        val provider = user
+            ?.optJSONObject("app_metadata")
+            ?.optNullableString("provider")
+            ?.ifBlank { null }
+            ?: providerHint.trim().ifEmpty { "password" }
+
+        return NativePlayerSupabaseSession(
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            expiresAtEpochMs = expiresAtEpochMs,
+            email = user?.optNullableString("email") ?: fallbackEmail?.trim()?.ifEmpty { null },
+            userId = user?.optNullableString("id") ?: decodeJwtSub(accessToken),
+            provider = provider,
+        )
+    }
+
+    private fun playerProfileRowFromJson(json: JSONObject): NativePlayerSupabaseProfileRow =
+        NativePlayerSupabaseProfileRow(
+            workspaceId = json.optString("workspace_id").trim(),
+            userId = json.optString("user_id").trim(),
+            firstName = json.optString("first_name").trim(),
+            lastName = json.optString("last_name").trim(),
+            birthDate = json.optNullableString("birth_date"),
+            canonicalPlayerId = json.optNullableString("canonical_player_id"),
+            canonicalPlayerName = json.optNullableString("canonical_player_name"),
+            createdAt = json.optNullableString("created_at"),
+            updatedAt = json.optNullableString("updated_at"),
+        )
+
+    private fun playerCallRowFromJson(json: JSONObject): NativePlayerSupabaseCallRow =
+        NativePlayerSupabaseCallRow(
+            id = json.optString("id").trim(),
+            workspaceId = json.optString("workspace_id").trim(),
+            tournamentId = json.optString("tournament_id").trim(),
+            teamId = json.optString("team_id").trim(),
+            teamName = json.optNullableString("team_name"),
+            targetUserId = json.optString("target_user_id").trim(),
+            targetPlayerId = json.optNullableString("target_player_id"),
+            targetPlayerName = json.optNullableString("target_player_name"),
+            status = json.optString("status").trim().ifEmpty { "ringing" },
+            requestedAt = json.optNullableString("requested_at"),
+            acknowledgedAt = json.optNullableString("acknowledged_at"),
+            cancelledAt = json.optNullableString("cancelled_at"),
+        )
+
+    private fun adminPlayerAccountRowFromJson(json: JSONObject): NativeAdminPlayerAccountCatalogRow =
+        NativeAdminPlayerAccountCatalogRow(
+            userId = json.optString("user_id").trim(),
+            email = json.optNullableString("email"),
+            primaryProvider = json.optNullableString("primary_provider"),
+            providers = parsePlayerProviders(json.opt("providers")),
+            createdAt = json.optNullableString("created_at"),
+            lastLoginAt = json.optNullableString("last_login_at"),
+            hasProfile = json.optBoolean("has_profile", false),
+            linkedPlayerName = json.optNullableString("linked_player_name"),
+            birthDate = json.optNullableString("birth_date"),
+            canonicalPlayerId = json.optNullableString("canonical_player_id"),
+        )
+
+    private fun parsePlayerProviders(value: Any?): List<String> = when (value) {
+        is JSONArray -> buildList {
+            for (index in 0 until value.length()) {
+                val provider = value.optString(index).trim()
+                if (provider.isNotEmpty()) add(provider)
+            }
+        }
+
+        is Collection<*> -> value.mapNotNull { entry ->
+            entry?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+        is String -> {
+            val text = value.trim()
+            when {
+                text.isEmpty() -> emptyList()
+                text.startsWith("[") -> runCatching {
+                    parsePlayerProviders(JSONArray(text))
+                }.getOrDefault(listOf(text))
+                else -> listOf(text)
+            }
+        }
+
+        else -> emptyList()
+    }
+
     private fun decodeJwtSub(token: String): String? {
         return runCatching {
             val parts = token.split('.')
@@ -462,9 +934,21 @@ object NativeProtectedApi {
         }.getOrNull()
     }
 
-    private fun requestArray(path: String, bearer: String?): JSONArray {
-        val connection = openConnection(path, bearer, "GET")
+    private fun requestArray(path: String, bearer: String?): JSONArray =
+        requestArray(path, "GET", bearer, null)
+
+    private fun requestArray(
+        path: String,
+        method: String,
+        bearer: String?,
+        body: Any?,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): JSONArray {
+        val connection = openConnection(path, bearer, method, extraHeaders)
         return try {
+            if (body != null) {
+                writeRequestBody(connection, body)
+            }
             val code = connection.responseCode
             val body = (if (code in 200..299) connection.inputStream else connection.errorStream).readTextSafe()
             if (code !in 200..299) {
@@ -476,14 +960,17 @@ object NativeProtectedApi {
         }
     }
 
-    private fun requestObject(path: String, method: String, bearer: String?, body: JSONObject?): JSONObject {
-        val connection = openConnection(path, bearer, method)
+    private fun requestObject(
+        path: String,
+        method: String,
+        bearer: String?,
+        body: Any?,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): JSONObject {
+        val connection = openConnection(path, bearer, method, extraHeaders)
         try {
             if (body != null) {
-                connection.doOutput = true
-                connection.outputStream.use { output ->
-                    output.write(body.toString().toByteArray(StandardCharsets.UTF_8))
-                }
+                writeRequestBody(connection, body)
             }
             val code = connection.responseCode
             val responseBody = (if (code in 200..299) connection.inputStream else connection.errorStream).readTextSafe()
@@ -496,7 +983,19 @@ object NativeProtectedApi {
         }
     }
 
-    private fun openConnection(path: String, bearer: String?, method: String): HttpURLConnection {
+    private fun writeRequestBody(connection: HttpURLConnection, body: Any) {
+        connection.doOutput = true
+        connection.outputStream.use { output ->
+            output.write(body.toString().toByteArray(StandardCharsets.UTF_8))
+        }
+    }
+
+    private fun openConnection(
+        path: String,
+        bearer: String?,
+        method: String,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): HttpURLConnection {
         val normalizedPath = path.removePrefix("/")
         val basePrefix = if (normalizedPath.startsWith("auth/")) {
             PROTECTED_SUPABASE_URL.trimEnd('/')
@@ -512,6 +1011,9 @@ object NativeProtectedApi {
             setRequestProperty("Authorization", "Bearer ${(bearer?.trim().takeUnless { it.isNullOrEmpty() } ?: PROTECTED_SUPABASE_ANON_KEY)}")
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json")
+            extraHeaders.forEach { (key, value) ->
+                setRequestProperty(key, value)
+            }
         }
     }
 

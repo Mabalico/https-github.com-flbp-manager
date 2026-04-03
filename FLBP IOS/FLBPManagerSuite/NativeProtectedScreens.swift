@@ -23,7 +23,7 @@ struct AdminToolsScreenView: View {
     let onLogout: () -> Void
     let onRefreshAccess: () -> Void
     let onRefreshLiveBundle: () -> Void
-    let onSavePlayerAccount: (String, String, String, String, String) throws -> Void
+    let onSavePlayerAccount: (String, String, String, String, String) async throws -> String
 
     @State private var email = NativeProtectedAPI.defaultAdminEmail()
     @State private var password = ""
@@ -201,7 +201,7 @@ struct AdminToolsScreenView: View {
                     }
 
                     SectionCard(title: "Player accounts") {
-                        Text("Native preview catalog mirroring the web 'Account giocatori' section. Password reset stays disabled here until Supabase Auth + SMTP are activated live.")
+                        Text("This native catalog mirrors the web 'Account giocatori' section and prefers live Supabase data when available. Password reset stays disabled here until Supabase Auth + SMTP are activated live.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         TextField("Search email or linked player", text: $accountSearch)
@@ -215,7 +215,7 @@ struct AdminToolsScreenView: View {
                         }
                         .pickerStyle(.menu)
                         if filteredAccountRows.isEmpty {
-                            Text(playerAccountRows.isEmpty ? "No preview player accounts exist on this device yet." : "No player accounts match the current filter.")
+                            Text(playerAccountRows.isEmpty ? "No player accounts are available yet." : "No player accounts match the current filter.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -271,19 +271,21 @@ struct AdminToolsScreenView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Button("Save account") {
-                                do {
-                                    try onSavePlayerAccount(
-                                        selectedAccount.id,
-                                        selectedAccountEmail,
-                                        selectedAccountFirstName,
-                                        selectedAccountLastName,
-                                        selectedAccountBirthDate
-                                    )
-                                    playerAccountsInfo = "Preview account updated from Admin."
-                                    playerAccountsError = nil
-                                } catch {
-                                    playerAccountsError = error.localizedDescription
-                                    playerAccountsInfo = nil
+                                Task {
+                                    do {
+                                        let message = try await onSavePlayerAccount(
+                                            selectedAccount.id,
+                                            selectedAccountEmail,
+                                            selectedAccountFirstName,
+                                            selectedAccountLastName,
+                                            selectedAccountBirthDate
+                                        )
+                                        playerAccountsInfo = message
+                                        playerAccountsError = nil
+                                    } catch {
+                                        playerAccountsError = error.localizedDescription
+                                        playerAccountsInfo = nil
+                                    }
                                 }
                             }
                             .buttonStyle(.borderedProminent)

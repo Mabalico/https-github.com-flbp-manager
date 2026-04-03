@@ -1696,12 +1696,25 @@ func buildNativePlayerAreaSnapshot(
     leaderboard: [NativeLeaderboardEntry],
     hallOfFame: [NativeHallOfFameEntry],
     liveBundle: NativeTournamentBundle?,
-    store: NativePlayerPreviewStore
+    store: NativePlayerPreviewStore,
+    liveSession: NativePlayerSupabaseSession? = nil,
+    liveProfile: NativePlayerSupabaseProfileRow? = nil,
+    liveCalls: [NativePlayerSupabaseCallRow] = [],
+    backendReady: Bool = true
 ) -> NativePlayerAreaSnapshot {
-    let session = store.readSession()
-    let profile = store.readProfile(accountId: session?.accountId)
+    let session = liveSession?.toNativePlayerRuntimeSession() ?? store.readSession()
+    let profile = liveProfile?.toNativePlayerRuntimeProfile() ?? store.readProfile(accountId: session?.accountId)
     let results = profile.map { buildNativePlayerResultSnapshot(profile: $0, leaderboard: leaderboard, hallOfFame: hallOfFame) }
-    let liveStatus = buildNativePlayerLiveStatus(catalog: catalog, liveBundle: liveBundle, profile: profile, store: store)
+    let liveStatus = buildNativePlayerLiveStatus(
+        catalog: catalog,
+        liveBundle: liveBundle,
+        profile: profile,
+        store: store,
+        activeCallOverride: liveCalls
+            .map(toNativePlayerRuntimeCall)
+            .filter { $0.status == "ringing" || $0.status == "acknowledged" }
+            .max(by: { $0.requestedAt < $1.requestedAt })
+    )
     return NativePlayerAreaSnapshot(
         session: session,
         profile: profile,
@@ -1709,10 +1722,10 @@ func buildNativePlayerAreaSnapshot(
         liveStatus: liveStatus,
         featureStatus: NativePlayerFeatureStatus(
             previewEnabled: true,
-            remoteAuthPrepared: false,
+            remoteAuthPrepared: backendReady,
             socialProvidersPrepared: ["Google", "Facebook", "Apple"],
-            playerProfilesPrepared: true,
-            playerCallsPrepared: false,
+            playerProfilesPrepared: backendReady,
+            playerCallsPrepared: backendReady,
             refereeBypassPrepared: true
         )
     )
@@ -1723,15 +1736,67 @@ func buildSafeNativePlayerAreaSnapshot(
     leaderboard: [NativeLeaderboardEntry],
     hallOfFame: [NativeHallOfFameEntry],
     liveBundle: NativeTournamentBundle?,
-    store: NativePlayerPreviewStore
+    store: NativePlayerPreviewStore,
+    liveSession: NativePlayerSupabaseSession? = nil,
+    liveProfile: NativePlayerSupabaseProfileRow? = nil,
+    liveCalls: [NativePlayerSupabaseCallRow] = [],
+    backendReady: Bool = true
 ) -> NativePlayerAreaSnapshot {
-    buildNativePlayerAreaSnapshot(
-        catalog: catalog,
-        leaderboard: leaderboard,
-        hallOfFame: hallOfFame,
-        liveBundle: liveBundle,
-        store: store
+    (try? Result {
+        buildNativePlayerAreaSnapshot(
+            catalog: catalog,
+            leaderboard: leaderboard,
+            hallOfFame: hallOfFame,
+            liveBundle: liveBundle,
+            store: store,
+            liveSession: liveSession,
+            liveProfile: liveProfile,
+            liveCalls: liveCalls,
+            backendReady: backendReady
+        )
+    }.get()) ?? NativePlayerAreaSnapshot(
+        session: liveSession?.toNativePlayerRuntimeSession(),
+        profile: liveProfile?.toNativePlayerRuntimeProfile(),
+        results: nil,
+        liveStatus: buildNativePlayerLiveStatus(
+            catalog: catalog,
+            liveBundle: liveBundle,
+            profile: liveProfile?.toNativePlayerRuntimeProfile(),
+            store: store,
+            activeCallOverride: liveCalls
+                .map(toNativePlayerRuntimeCall)
+                .filter { $0.status == "ringing" || $0.status == "acknowledged" }
+                .max(by: { $0.requestedAt < $1.requestedAt })
+        ),
+        featureStatus: NativePlayerFeatureStatus(
+            previewEnabled: true,
+            remoteAuthPrepared: backendReady,
+            socialProvidersPrepared: ["Google", "Facebook", "Apple"],
+            playerProfilesPrepared: backendReady,
+            playerCallsPrepared: backendReady,
+            refereeBypassPrepared: true
+        )
     )
+}
+
+func buildNativePlayerAdminRows(
+    leaderboard: [NativeLeaderboardEntry],
+    hallOfFame: [NativeHallOfFameEntry],
+    store: NativePlayerPreviewStore,
+    liveRows: [NativeAdminPlayerAccountCatalogRow] = []
+) -> [NativePlayerAdminAccountRow] {
+    if liveRows.isEmpty {
+        return store.listAdminRows(leaderboard: leaderboard, hallOfFame: hallOfFame)
+    }
+
+    return liveRows
+        .map { buildNativePlayerAdminRowFromLive($0, leaderboard: leaderboard, hallOfFame: hallOfFame) }
+        .sorted {
+            let lhsLogin = $0.lastLoginAt ?? $0.createdAt
+            let rhsLogin = $1.lastLoginAt ?? $1.createdAt
+            if lhsLogin != rhsLogin { return lhsLogin > rhsLogin }
+            return $0.email.localizedCaseInsensitiveCompare($1.email) == .orderedAscending
+        }
 }
 
 private func buildNativePlayerResultSnapshot(
@@ -1763,7 +1828,8 @@ private func buildNativePlayerLiveStatus(
     catalog: NativePublicCatalog,
     liveBundle: NativeTournamentBundle?,
     profile: NativePlayerPreviewProfile?,
-    store: NativePlayerPreviewStore
+    store: NativePlayerPreviewStore,
+    activeCallOverride: NativePlayerPreviewCall? = nil
 ) -> NativePlayerLiveStatus {
     let liveTournament = catalog.liveTournament
     guard let profile, let liveBundle, let liveTournament, liveBundle.tournament.id == liveTournament.id else {
@@ -1777,7 +1843,7 @@ private func buildNativePlayerLiveStatus(
             nextMatchTurn: nil,
             turnsUntilPlay: nil,
             refereeBypassEligible: false,
-            activeCall: store.readActiveCall(accountId: profile?.accountId, tournamentId: liveTournament?.id)
+            activeCall: activeCallOverride ?? store.readActiveCall(accountId: profile?.accountId, tournamentId: liveTournament?.id)
         )
     }
 
@@ -1798,7 +1864,7 @@ private func buildNativePlayerLiveStatus(
             nextMatchTurn: nil,
             turnsUntilPlay: nil,
             refereeBypassEligible: false,
-            activeCall: store.readActiveCall(accountId: profile.accountId, tournamentId: liveTournament.id)
+            activeCall: activeCallOverride ?? store.readActiveCall(accountId: profile.accountId, tournamentId: liveTournament.id)
         )
     }
 
@@ -1843,8 +1909,141 @@ private func buildNativePlayerLiveStatus(
         nextMatchTurn: nextTurn,
         turnsUntilPlay: turnsUntilPlay,
         refereeBypassEligible: isPlayer1Referee || isPlayer2Referee,
-        activeCall: store.readActiveCall(accountId: profile.accountId, tournamentId: liveTournament.id)
+        activeCall: activeCallOverride ?? store.readActiveCall(accountId: profile.accountId, tournamentId: liveTournament.id)
     )
+}
+
+private func buildNativePlayerAdminRowFromLive(
+    _ row: NativeAdminPlayerAccountCatalogRow,
+    leaderboard: [NativeLeaderboardEntry],
+    hallOfFame: [NativeHallOfFameEntry]
+) -> NativePlayerAdminAccountRow {
+    let canonicalName = row.linkedPlayerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let nameParts = splitCanonicalRuntimeName(canonicalName)
+    let profile = canonicalName.flatMap { name -> NativePlayerPreviewProfile? in
+        guard !name.isEmpty else { return nil }
+        let createdAt = parseRuntimeTimestamp(row.createdAt) ?? previewNow()
+        let updatedAt = parseRuntimeTimestamp(row.lastLoginAt) ?? createdAt
+        return NativePlayerPreviewProfile(
+            accountId: row.userId,
+            firstName: nameParts.second,
+            lastName: nameParts.first,
+            birthDate: row.birthDate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            canonicalPlayerName: name,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+    let results = profile.map { buildNativePlayerResultSnapshot(profile: $0, leaderboard: leaderboard, hallOfFame: hallOfFame) }
+    let providers = row.providers
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    let effectiveProviders = providers.isEmpty ? [row.primaryProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "other"] : providers
+    let origin: String = {
+        switch row.primaryProvider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "google": return "google"
+        case "facebook": return "facebook"
+        case "apple": return "apple"
+        case "in_app", "password": return "in_app"
+        default: return "other"
+        }
+    }()
+    return NativePlayerAdminAccountRow(
+        id: row.userId,
+        email: row.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        provider: row.primaryProvider?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: "other") ?? "other",
+        origin: origin,
+        mode: "live",
+        providers: effectiveProviders,
+        createdAt: parseRuntimeTimestamp(row.createdAt) ?? previewNow(),
+        lastLoginAt: parseRuntimeTimestamp(row.lastLoginAt),
+        linkedPlayerName: canonicalName,
+        birthDate: row.birthDate,
+        canonicalPlayerName: canonicalName,
+        totalTitles: results?.awards.count ?? 0,
+        totalCanestri: results?.totalPoints ?? 0,
+        totalSoffi: results?.totalSoffi ?? 0,
+        hasProfile: row.hasProfile,
+        hasPasswordRecovery: origin == "in_app" && !(row.email?.isEmpty ?? true)
+    )
+}
+
+private func splitCanonicalRuntimeName(_ name: String?) -> (first: String, second: String) {
+    let safeName = name?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) ?? ""
+    guard !safeName.isEmpty else { return ("", "") }
+    guard let firstSpace = safeName.firstIndex(of: " ") else { return (safeName, "") }
+    let lastName = String(safeName[..<firstSpace]).trimmingCharacters(in: .whitespacesAndNewlines)
+    let firstName = String(safeName[safeName.index(after: firstSpace)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return (lastName, firstName)
+}
+
+private extension String {
+    func nonEmpty(or fallback: String) -> String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+}
+
+private func parseRuntimeTimestamp(_ raw: String?) -> TimeInterval? {
+    let safeRaw = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !safeRaw.isEmpty else { return nil }
+    return ISO8601DateFormatter().date(from: safeRaw).map { $0.timeIntervalSince1970 * 1000 }
+}
+
+private func toNativePlayerRuntimeCall(_ row: NativePlayerSupabaseCallRow) -> NativePlayerPreviewCall {
+    NativePlayerPreviewCall(
+        id: row.id,
+        tournamentId: row.tournamentId,
+        teamId: row.teamId,
+        teamName: row.teamName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: row.teamId) ?? row.teamId,
+        targetAccountId: row.targetUserId,
+        targetPlayerName: row.targetPlayerName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: row.targetPlayerId ?? "") ?? (row.targetPlayerId ?? ""),
+        requestedAt: parseRuntimeTimestamp(row.requestedAt) ?? previewNow(),
+        acknowledgedAt: parseRuntimeTimestamp(row.acknowledgedAt),
+        cancelledAt: parseRuntimeTimestamp(row.cancelledAt),
+        status: {
+            switch row.status.lowercased() {
+            case "acknowledged": return "acknowledged"
+            case "cancelled", "expired": return "cancelled"
+            default: return "ringing"
+            }
+        }(),
+        previewOnly: false
+    )
+}
+
+private extension NativePlayerSupabaseSession {
+    func toNativePlayerRuntimeSession() -> NativePlayerPreviewSession {
+        let now = previewNow()
+        return NativePlayerPreviewSession(
+            accountId: userId?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: String(accessToken.suffix(12))) ?? String(accessToken.suffix(12)),
+            username: email?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: "player@live") ?? "player@live",
+            provider: provider.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: "password"),
+            mode: "live",
+            createdAt: now,
+            lastActiveAt: now
+        )
+    }
+}
+
+private extension NativePlayerSupabaseProfileRow {
+    func toNativePlayerRuntimeProfile() -> NativePlayerPreviewProfile {
+        let canonical = canonicalPlayerName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty(or: buildPreviewCanonicalPlayerName(firstName: firstName, lastName: lastName))
+            ?? buildPreviewCanonicalPlayerName(firstName: firstName, lastName: lastName)
+        let createdAtMs = parseRuntimeTimestamp(createdAt) ?? previewNow()
+        let updatedAtMs = parseRuntimeTimestamp(updatedAt) ?? createdAtMs
+        return NativePlayerPreviewProfile(
+            accountId: userId,
+            firstName: firstName,
+            lastName: lastName,
+            birthDate: birthDate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            canonicalPlayerName: canonical,
+            createdAt: createdAtMs,
+            updatedAt: updatedAtMs
+        )
+    }
 }
 
 private func previewMatchContainsTeam(_ match: NativeMatchInfo, teamId: String) -> Bool {
