@@ -21,6 +21,7 @@ import {
   acknowledgePlayerAppCall,
   consumePlayerSupabaseSessionFromUrl,
   ensureFreshPlayerSupabaseSession,
+  getPlayerSupabaseSession,
   getSupabaseConfig,
   playerRequestPasswordReset,
   playerSignInWithPassword,
@@ -137,6 +138,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
   const embeddedNativeShell = isEmbeddedNativeShell();
+  const initialLiveSessionPresent = liveBackendEnabled && !!getPlayerSupabaseSession()?.accessToken;
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [authMode, setAuthMode] = React.useState<'login' | 'register'>('login');
   const [emailPanelOpen, setEmailPanelOpen] = React.useState(true);
@@ -148,10 +150,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const [feedback, setFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(null);
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
+  const [liveRuntimeArmed, setLiveRuntimeArmed] = React.useState(initialLiveSessionPresent);
   const [liveCallRefreshNonce, setLiveCallRefreshNonce] = React.useState(0);
   const [liveCalls, setLiveCalls] = React.useState<ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>[]>([]);
   const [liveRuntimeStatus, setLiveRuntimeStatus] = React.useState<'disabled' | 'loading' | 'ready' | 'backend_pending' | 'error'>(
-    liveBackendEnabled ? 'loading' : 'disabled'
+    initialLiveSessionPresent ? 'loading' : 'disabled'
   );
   const [liveRuntimeError, setLiveRuntimeError] = React.useState<string | null>(null);
   const safeSnapshot = React.useMemo(() => buildSafePlayerAreaSnapshot(state, liveBackendEnabled), [liveBackendEnabled, state]);
@@ -341,17 +344,25 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       const consumed = consumePlayerSupabaseSessionFromUrl();
       if (consumed?.accessToken) {
         setLiveSession(consumed);
+        setLiveRuntimeArmed(true);
+        void refreshLiveRuntime(consumed);
+        return;
       }
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
     }
+    if (!liveRuntimeArmed) {
+      setLiveRuntimeStatus('disabled');
+      setLiveRuntimeError(null);
+      return;
+    }
     void refreshLiveRuntime();
-  }, [liveBackendEnabled, refreshLiveRuntime, t]);
+  }, [liveBackendEnabled, liveRuntimeArmed, refreshLiveRuntime, t]);
 
   React.useEffect(() => {
-    if (!liveBackendEnabled) return;
+    if (!liveBackendEnabled || !liveRuntimeArmed || liveCallRefreshNonce === 0) return;
     void refreshLiveRuntime();
-  }, [liveBackendEnabled, liveCallRefreshNonce, refreshLiveRuntime]);
+  }, [liveBackendEnabled, liveCallRefreshNonce, liveRuntimeArmed, refreshLiveRuntime]);
 
   const liveRuntimeSession = React.useMemo(
     () => (liveSession?.accessToken ? buildPlayerRuntimeSessionFromSupabase(liveSession) : null),
@@ -465,6 +476,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
             })
           : await playerSignInWithPassword(email, password);
 
+        setLiveRuntimeArmed(true);
         setLiveSession(session);
 
         if (authMode === 'register' && firstName.trim() && lastName.trim() && birthDate.trim()) {
@@ -576,10 +588,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const signOut = async () => {
     if (effectiveSession?.mode === 'live') {
       await playerSignOutSupabase();
+      setLiveRuntimeArmed(false);
       setLiveSession(null);
       setLiveProfileRow(null);
       setLiveCalls([]);
-      setLiveRuntimeStatus(liveBackendEnabled ? 'loading' : 'disabled');
+      setLiveRuntimeStatus('disabled');
       setLiveRuntimeError(null);
       setLiveCallRefreshNonce((value) => value + 1);
       return;
