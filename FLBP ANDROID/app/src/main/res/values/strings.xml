@@ -1,9 +1,9 @@
 <resources>
-    <string name="app_name">FLBP</string>
-    <string name="fcm_application_id"></string>
-    <string name="fcm_project_id"></string>
-    <string name="fcm_api_key"></string>
-    <string name="fcm_sender_id"></string>
-    <string name="notification_channel_team_calls">Chiamate squadra</string>
-    <string name="notification_channel_team_calls_description">Convocazioni partita e aggiornamenti live squadra.</string>
+  <string name="app_name">FLBP</string>
+  <string name="fcm_application_id">1:677309483906:android:1379142cc394370b39dd9b</string>
+  <string name="fcm_project_id">flbp-push---android</string>
+  <string name="fcm_api_key">AIzaSyBgP1kIsqTjnQJPJ5M9XPuHG7fISKT62g8</string>
+  <string name="fcm_sender_id">677309483906</string>
+  <string name="notification_channel_team_calls">Chiamate squadra</string>
+  <string name="notification_channel_team_calls_description">Convocazioni partita e aggiornamenti live squadra.</string>
 </resources>

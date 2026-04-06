@@ -5,6 +5,11 @@ Thumbs.db
 # Local env and secrets
 **/.env.local
 **/.env.*.local
+google-services.json
+*firebase-adminsdk*.json
+AuthKey_*.p8
+**/supabase/.temp/
+**/supabase/rollouts/_temp_*.env
 
 # Node / web build artifacts
 **/node_modules/

@@ -102,18 +102,24 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 ## Configurazioni esterne non-SQL ancora necessarie
 
 - deploy funzione Edge `player-call-push` sul progetto Supabase reale
+  - stato: fatto il `2026-04-07`
 - helper pronto per il deploy:
   - [20260403_player_call_push_deploy.ps1](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE/supabase/rollouts/20260403_player_call_push_deploy.ps1)
   - [20260403_player_call_push_secrets.env.example](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ONLINE/supabase/rollouts/20260403_player_call_push_secrets.env.example)
 - secret funzione Edge:
   - `FCM_PROJECT_ID`
+    - stato: fatto il `2026-04-07`
   - `FCM_CLIENT_EMAIL`
+    - stato: fatto il `2026-04-07`
   - `FCM_PRIVATE_KEY`
+    - stato: fatto il `2026-04-07`
   - `APNS_TEAM_ID`
   - `APNS_KEY_ID`
   - `APNS_PRIVATE_KEY`
   - `APNS_BUNDLE_ID`
+    - stato: fatto il `2026-04-07`
   - opzionale `APNS_USE_SANDBOX`
+    - stato: fatto il `2026-04-07`
   - nota: `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` sono gia' disponibili come runtime env della hosted Edge Function, non vanno impostati a mano
 - Android
   - compilare con i valori veri in `app/src/main/res/values/strings.xml`:
@@ -121,15 +127,23 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
     - `fcm_project_id`
     - `fcm_api_key`
     - `fcm_sender_id`
+  - stato: fatto il `2026-04-07`
   - helper pronto per applicarli da `google-services.json`:
     - [20260403_apply_fcm_google_services.ps1](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20ANDROID/scripts/20260403_apply_fcm_google_services.ps1)
   - package id atteso: `com.flbp.manager.suite`
 - iOS
   - compile reale da Mac/Xcode
   - signing/provisioning con capability Push Notifications effettiva
+  - secret APNs ancora da configurare:
+    - `APNS_TEAM_ID`
+    - `APNS_KEY_ID`
+    - `APNS_PRIVATE_KEY`
   - bundle id atteso: `com.flbp.manager.suite`
 - prodotto
-  - le push di chiamata squadra non sono da considerare attive in produzione finche' i punti sopra non sono chiusi
+  - Android e backend FCM sono quasi pronti
+  - le push di chiamata squadra non sono ancora da considerare attive in produzione finche' non facciamo:
+    - un test end-to-end reale Android
+    - la configurazione APNs iOS
 
 ## Regola architetturale native
 
