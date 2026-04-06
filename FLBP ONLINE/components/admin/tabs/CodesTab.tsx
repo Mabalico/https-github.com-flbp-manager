@@ -1,8 +1,10 @@
 import React from 'react';
-import { CheckCircle2, FileText, ListChecks, Play, Printer, Search, X } from 'lucide-react';
+import { CheckCircle2, FileText, ListChecks, LoaderCircle, PhoneCall, Play, Printer, Search, ThumbsUp, X } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
+import type { Team } from '../../../types';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../../../services/matchUtils';
 import { useTranslation } from '../../../App';
+import { useAdminTeamCalls } from '../useAdminTeamCalls';
 
 export type CodesStatusFilter = 'all' | 'scheduled' | 'playing' | 'finished';
 
@@ -25,6 +27,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 }) => {
     const [query, setQuery] = React.useState('');
     const { t } = useTranslation();
+    const { getTeamCallMeta, triggerTeamCall } = useAdminTeamCalls(state);
 
     const normalizeTeamId = (id: unknown) => (typeof id === 'string' ? id.trim().toUpperCase() : '');
     const isByeTeamId = (id: unknown) => normalizeTeamId(id) === 'BYE';
@@ -46,6 +49,66 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         playing: { label: t('match_status_playing'), pill: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
         finished: { label: t('match_status_finished'), pill: 'border-rose-200 bg-rose-50 text-rose-800' },
     } as const), [t]);
+    const teamCatalog = React.useMemo(() => new Map((state.teams || []).map((team) => [team.id, team] as const)), [state.teams]);
+
+    const renderCallButtons = React.useCallback((match: any) => {
+        if (match?.status === 'finished') return null;
+        const teams = getMatchParticipantIds(match as any)
+            .filter((id) => id && !isPlaceholderTeamId(id))
+            .map((id) => teamCatalog.get(id))
+            .filter(Boolean) as Team[];
+        if (!teams.length) return null;
+
+        return (
+            <div className="flex items-center gap-1.5">
+                {teams.map((team, index) => {
+                    const meta = getTeamCallMeta(team);
+                    const status = meta.status;
+                    const icon = status === 'acknowledged'
+                        ? <ThumbsUp className="h-3.5 w-3.5" />
+                        : status === 'ringing'
+                            ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                            : <PhoneCall className="h-3.5 w-3.5" />;
+                    const title = meta.disabled
+                        ? `${t('reports_call_team_disabled')} (${team.name || team.id})`
+                        : status === 'acknowledged'
+                            ? `${t('reports_call_team_acknowledged')}: ${team.name || team.id}`
+                            : status === 'ringing'
+                                ? `${t('reports_call_team_cancel')}: ${team.name || team.id}`
+                                : `${t('reports_call_team')}: ${team.name || team.id}`;
+                    const className = meta.disabled
+                        ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : status === 'acknowledged'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            : status === 'ringing'
+                                ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50';
+
+                    return (
+                        <button
+                            key={`${match.id}-${team.id}`}
+                            type="button"
+                            disabled={meta.disabled}
+                            title={title}
+                            aria-label={title}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                void triggerTeamCall(team).catch((error: any) => {
+                                    alert(String(error?.message || error || t('reports_call_team_disabled')));
+                                });
+                            }}
+                            className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${className}`}
+                        >
+                            {icon}
+                            <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-black/5 px-1 text-[10px] font-black">
+                                {index + 1}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        );
+    }, [getTeamCallMeta, t, teamCatalog, triggerTeamCall]);
 
     return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
@@ -200,7 +263,8 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 Match guida: <span className="ml-1 font-mono">{current.code || '-'}</span>
                                             </div>
                                         )}
-                                        <div className="flex flex-wrap gap-2">
+                                            <div className="flex flex-wrap gap-2">
+                                            {current ? renderCallButtons(current) : null}
                                             <button
                                                 type="button"
                                                 onClick={() => current && openReportFromCodes(current.id)}
@@ -304,6 +368,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 <span className={`px-2 py-1 rounded-full text-xs font-black border uppercase ${meta.pill}`}>
                                                     {meta.label}
                                                 </span>
+                                                {renderCallButtons(m)}
                                                 <button type="button"
                                                     onClick={(e) => {
                                                         e.stopPropagation();

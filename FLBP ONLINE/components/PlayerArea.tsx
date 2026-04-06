@@ -602,7 +602,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
+    <div className="p-4 md:p-6 space-y-5 [overflow-anchor:none]">
       <div className={cardClass}>
         <div className="border-b border-slate-100 px-5 py-5 md:px-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -700,7 +700,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                     <button
                       type="button"
                       onClick={() => setEmailPanelOpen((value) => !value)}
-                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-teal-500 bg-teal-500 px-4 py-3.5 text-sm font-black text-white shadow-[0_14px_30px_-22px_rgba(20,184,166,0.55)] hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-teal-500 bg-teal-500 px-4 py-3.5 text-sm font-black text-white shadow-[0_14px_30px_-22px_rgba(20,184,166,0.55)] hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 md:hidden"
                     >
                       <Mail className="h-4 w-4" />
                       Accedi con la tua email
@@ -711,8 +711,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                     {t('player_area_social_pending')}
                   </div>
 
-                  {emailPanelOpen ? (
-                    <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
+                  <div className={`mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:block md:p-5 space-y-4 ${emailPanelOpen ? 'block' : 'hidden'}`}>
                       <div className="flex gap-2">
                         <button type="button" onClick={() => setAuthMode('login')} className={authMode === 'login' ? btnPrimary : btnSecondary}>
                           <LogIn className="h-4 w-4" /> {t('player_area_sign_in')}
@@ -729,27 +728,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                       <div className="space-y-3">
                         <div>
                           <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</div>
-                          <input value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder={t('player_area_email_placeholder')} />
+                          <input type="email" inputMode="email" autoComplete="email" spellCheck={false} value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder={t('player_area_email_placeholder')} />
                         </div>
                         <div>
                           <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_password')}</div>
-                          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} placeholder={t('player_area_password_placeholder')} />
+                          <input type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} placeholder={t('player_area_password_placeholder')} />
                         </div>
                         {authMode === 'register' ? (
                           <>
                             <div className="grid gap-3 md:grid-cols-2">
                               <div>
                                 <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
-                                <input value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} placeholder={t('player_area_first_name_placeholder')} />
+                                <input autoComplete="given-name" value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} placeholder={t('player_area_first_name_placeholder')} />
                               </div>
                               <div>
                                 <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
-                                <input value={lastName} onChange={(event) => setLastName(event.target.value)} className={inputClass} placeholder={t('player_area_last_name_placeholder')} />
+                                <input autoComplete="family-name" value={lastName} onChange={(event) => setLastName(event.target.value)} className={inputClass} placeholder={t('player_area_last_name_placeholder')} />
                               </div>
                             </div>
                             <div>
                               <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
-                              <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
+                              <input inputMode="numeric" autoComplete="bday" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
                               <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
                             </div>
                           </>
@@ -765,7 +764,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                         <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
                       </button>
                     </div>
-                  ) : null}
                 </div>
               </div>
             ) : !effectiveProfile ? (

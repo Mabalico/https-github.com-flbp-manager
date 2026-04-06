@@ -8,6 +8,7 @@ export interface RemoteDraftCacheEntry {
 }
 
 export const REMOTE_DRAFT_CACHE_LS_KEY = 'flbp_remote_unsynced_draft_v1';
+export const REMOTE_DRAFT_RESTORE_WINDOW_MS = 5 * 60 * 1000;
 
 export const readRemoteDraftCache = (): RemoteDraftCacheEntry | null => {
   try {
@@ -47,4 +48,22 @@ export const clearRemoteDraftCache = () => {
   } catch {
     // ignore
   }
+};
+
+export const isRemoteDraftCacheFresh = (
+  entry: RemoteDraftCacheEntry | null | undefined,
+  nowMs = Date.now()
+): boolean => {
+  if (!entry?.savedAt) return false;
+  const savedAtMs = Date.parse(entry.savedAt);
+  if (!Number.isFinite(savedAtMs)) return false;
+  return (nowMs - savedAtMs) <= REMOTE_DRAFT_RESTORE_WINDOW_MS;
+};
+
+export const readRestorableRemoteDraftCache = (): RemoteDraftCacheEntry | null => {
+  const entry = readRemoteDraftCache();
+  if (!entry) return null;
+  if (isRemoteDraftCacheFresh(entry)) return entry;
+  clearRemoteDraftCache();
+  return null;
 };

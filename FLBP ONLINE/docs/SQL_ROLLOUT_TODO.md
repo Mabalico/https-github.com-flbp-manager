@@ -289,6 +289,11 @@ Da qui in avanti ogni modifica applicativa va trattata cosi':
     - allineamento pubblico/read-only
     - allineamento consultativo/protetto
     - operativita' live completa
+- quando una differenza tra web, Android e iOS e' intenzionale:
+  - la annoto esplicitamente qui o nei documenti di stato
+  - la tratto come eccezione voluta, non come dimenticanza
+- quando una differenza non e' intenzionale:
+  - resta backlog aperto finche' non viene riallineata o sostituita da un percorso canonico unico
 
 Checklist minima da applicare a ogni passaggio:
 - UI/label/testi

@@ -321,6 +321,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
     }, []);
+    const closeAdminToolsMenu = React.useCallback(() => {
+        adminToolsMenuRef.current?.removeAttribute('open');
+    }, []);
     const [adminAuthError, setAdminAuthError] = useState<string>('');
     const [loginBusy, setLoginBusy] = useState<boolean>(false);
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
@@ -3487,11 +3490,30 @@ while (guard < 5000) {
                                     {swDisabled ? t('admin_cache_off') : t('admin_cache_on')}
                                 </div>
 
-                                <details ref={adminToolsMenuRef} className="relative">
+                                <details ref={adminToolsMenuRef} className="group relative">
                                 <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-2 text-slate-800 px-3 py-2 rounded-xl text-sm font-black border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2">
                                     <Settings className="w-4 h-4" /> {t('admin_tools')}
                                 </summary>
-                                <div className="absolute right-0 mt-2 w-[360px] max-w-[92vw] bg-white border border-slate-200 shadow-xl rounded-2xl p-3 z-20">
+                                <button
+                                    type="button"
+                                    aria-label={t('close')}
+                                    onClick={closeAdminToolsMenu}
+                                    className="fixed inset-0 z-10 hidden bg-slate-950/25 group-open:block sm:hidden"
+                                />
+                                <div className="fixed inset-x-4 top-24 bottom-4 z-20 hidden overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-2xl group-open:block sm:absolute sm:right-0 sm:top-full sm:bottom-auto sm:mt-2 sm:w-[360px] sm:max-w-[92vw] sm:rounded-2xl sm:p-3">
+                                    <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3 sm:hidden">
+                                        <div>
+                                            <div className="text-xs font-black uppercase tracking-wide text-slate-500">{t('admin_tools')}</div>
+                                            <div className="text-sm font-bold text-slate-700">{t('admin_cache_status_title')}</div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={closeAdminToolsMenu}
+                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
+                                        >
+                                            {t('close')}
+                                        </button>
+                                    </div>
                                     <div className="space-y-3">
                                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                             <div className="flex items-center justify-between gap-2 mb-2">

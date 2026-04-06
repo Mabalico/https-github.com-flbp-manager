@@ -1,9 +1,9 @@
 import { coerceAppState, type AppState } from '../storageService';
 import { markAdminSyncConflictState, markAdminSyncErrorState, markAdminSyncPending, markAdminSyncSaving, markAdminSyncSynced, resetAdminSyncState } from '../adminSyncState';
-import { getSupabaseConfig, getSupabaseSession, hasSupabaseWriteSession, pullWorkspaceState, pushWorkspaceState, setRemoteBaseUpdatedAt } from '../supabaseRest';
+import { getSupabaseConfig, getSupabaseSession, hasSupabaseWriteSession, pullWorkspaceState, pullWorkspaceStateUpdatedAt, pushWorkspaceState, setRemoteBaseUpdatedAt } from '../supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk, markRemoteVersions } from '../dbDiagnostics';
 import { clearLocalAppStateCaches } from './featureFlags';
-import { clearRemoteDraftCache, hasRemoteDraftCache, readRemoteDraftCache, writeRemoteDraftCache } from './remoteDraftCache';
+import { clearRemoteDraftCache, hasRemoteDraftCache, isRemoteDraftCacheFresh, readRemoteDraftCache, readRestorableRemoteDraftCache, writeRemoteDraftCache } from './remoteDraftCache';
 import type { AppStateRepository, RepositoryUpdateMeta } from './AppStateRepository';
 
 /**
@@ -39,14 +39,45 @@ export class RemoteRepository implements AppStateRepository {
     return this.isAdminViewActive();
   }
 
+  private restoreCachedDraft(): boolean {
+    const cachedDraft = readRestorableRemoteDraftCache();
+    if (cachedDraft?.state && this.hasMeaningfulState(cachedDraft.state)) {
+      this.pendingState = cachedDraft.state;
+      markAdminSyncPending(this.source);
+      return true;
+    }
+    this.pendingState = null;
+    return false;
+  }
+
+  private async reconcileStaleDraft(): Promise<boolean> {
+    const cachedDraft = readRemoteDraftCache();
+    if (!cachedDraft?.state) return false;
+    if (isRemoteDraftCacheFresh(cachedDraft)) return false;
+
+    try {
+      const remoteUpdatedAt = await pullWorkspaceStateUpdatedAt({
+        source: 'RemoteRepository.reconcileStaleDraft',
+        kind: 'admin',
+      });
+      clearRemoteDraftCache();
+      this.pendingState = null;
+      if (remoteUpdatedAt) {
+        markAdminSyncSynced(remoteUpdatedAt, this.source);
+      } else {
+        resetAdminSyncState(this.source);
+      }
+      await this.pullAndApply({ forceEmit: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   constructor(_localFallback: AppStateRepository) {
     clearLocalAppStateCaches();
 
-    const cachedDraft = readRemoteDraftCache();
-    if (cachedDraft?.state) {
-      this.pendingState = cachedDraft.state;
-      markAdminSyncPending(this.source);
-    } else {
+    if (!this.restoreCachedDraft()) {
       resetAdminSyncState(this.source);
     }
 
@@ -81,6 +112,8 @@ export class RemoteRepository implements AppStateRepository {
     } catch {
       // ignore
     }
+
+    void this.reconcileStaleDraft();
   }
 
   private fingerprint(state: AppState): string {
@@ -143,6 +176,12 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   refresh = async (): Promise<void> => {
+    if (!this.pendingState && hasRemoteDraftCache()) {
+      const restored = this.restoreCachedDraft();
+      if (!restored) {
+        await this.reconcileStaleDraft();
+      }
+    }
     if (this.pendingState || hasRemoteDraftCache()) {
       await this.flushNow();
       if (this.pendingState || hasRemoteDraftCache()) return;
@@ -154,11 +193,8 @@ export class RemoteRepository implements AppStateRepository {
     const cfg = getSupabaseConfig();
     if (!cfg) return coerceAppState({});
 
-    const cachedDraft = readRemoteDraftCache();
-    if (cachedDraft?.state && this.hasMeaningfulState(cachedDraft.state)) {
-      this.pendingState = cachedDraft.state;
-      markAdminSyncPending(this.source);
-      return cachedDraft.state;
+    if (this.restoreCachedDraft() && this.pendingState) {
+      return this.pendingState;
     }
 
     if (!this.pullKicked && this.shouldBackgroundRefresh()) {

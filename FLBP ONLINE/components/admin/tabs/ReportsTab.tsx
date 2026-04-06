@@ -1,21 +1,10 @@
 import React from 'react';
-import { ClipboardList, Upload, CheckCircle2, Search, X, Play, PhoneCall, LoaderCircle, ThumbsUp } from 'lucide-react';
+import { ClipboardList, Upload, CheckCircle2, Search, X, Play } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import type { Match, Team } from '../../../types';
 import { getMatchParticipantIds } from '../../../services/matchUtils';
 import { useTranslation } from '../../../App';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
-import { getPlayerKey, pickPlayerIdentityValue, resolvePlayerKey } from '../../../services/playerIdentity';
-import {
-    cancelPreviewTeamCall,
-    getPreviewCallAvailabilityForTeam,
-    mapSupabaseCallRowToPlayerCallRequest,
-    PLAYER_APP_CHANGE_EVENT,
-    queuePreviewTeamCall,
-    type PlayerCallRequest,
-} from '../../../services/playerAppService';
-import { isLocalOnlyMode } from '../../../services/repository/featureFlags';
-import { callPlayerAppTeam, cancelPlayerAppCall, dispatchPlayerCallPush, getSupabaseConfig, pullAdminPlayerCalls, pullAdminPlayerCallTargets } from '../../../services/supabaseRest';
 
 export interface ReportsTabProps {
     state: AppState;
@@ -75,20 +64,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     reportOcrText,
     setReportOcrText,
 }) => {
-    type LiveCallTarget = {
-        userId: string;
-        playerId: string;
-        playerName: string;
-    };
-
     const [matchQuery, setMatchQuery] = React.useState('');
     const [showOcrPanel, setShowOcrPanel] = React.useState(false);
-    const [callRefreshNonce, setCallRefreshNonce] = React.useState(0);
-    const [liveCallMode, setLiveCallMode] = React.useState<'local_only' | 'supabase_missing' | 'backend_pending' | 'admin_missing' | 'live_ready'>(
-        isLocalOnlyMode() ? 'local_only' : (getSupabaseConfig() ? 'backend_pending' : 'supabase_missing')
-    );
-    const [liveCallTargets, setLiveCallTargets] = React.useState<Record<string, LiveCallTarget>>({});
-    const [liveTeamCalls, setLiveTeamCalls] = React.useState<Record<string, PlayerCallRequest>>({});
     const { t } = useTranslation();
 
     React.useEffect(() => {
@@ -96,126 +73,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             setShowOcrPanel(true);
         }
     }, [reportImageBusy, reportImageUrl, reportOcrText]);
-
-    React.useEffect(() => {
-        const handler = () => setCallRefreshNonce((value) => value + 1);
-        window.addEventListener('storage', handler);
-        window.addEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
-        return () => {
-            window.removeEventListener('storage', handler);
-            window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
-        };
-    }, []);
-
-    React.useEffect(() => {
-        let cancelled = false;
-        const loadLiveCalls = async () => {
-            if (isLocalOnlyMode()) {
-                if (!cancelled) {
-                    setLiveCallMode('local_only');
-                    setLiveCallTargets({});
-                    setLiveTeamCalls({});
-                }
-                return;
-            }
-            if (!getSupabaseConfig()) {
-                if (!cancelled) {
-                    setLiveCallMode('supabase_missing');
-                    setLiveCallTargets({});
-                    setLiveTeamCalls({});
-                }
-                return;
-            }
-            const tournament = state.tournament;
-            if (!tournament) {
-                if (!cancelled) {
-                    setLiveCallMode('backend_pending');
-                    setLiveCallTargets({});
-                    setLiveTeamCalls({});
-                }
-                return;
-            }
-
-            const teams = Array.isArray(tournament.teams) ? tournament.teams : [];
-            const teamCanonicalIds = new Map<string, string[]>();
-            const allCanonicalIds = new Set<string>();
-
-            teams.forEach((team) => {
-                const ids: string[] = [];
-                const appendCanonical = (playerName?: string, birthDate?: string | null, yob?: string | number | null) => {
-                    const safeName = String(playerName || '').trim();
-                    if (!safeName) return;
-                    const canonical = resolvePlayerKey(state, getPlayerKey(safeName, pickPlayerIdentityValue(birthDate, yob)));
-                    if (!canonical) return;
-                    ids.push(canonical);
-                    allCanonicalIds.add(canonical);
-                };
-                appendCanonical(team.player1, (team as any).player1BirthDate, team.player1YoB);
-                appendCanonical(team.player2, (team as any).player2BirthDate, team.player2YoB);
-                teamCanonicalIds.set(team.id, ids);
-            });
-
-            try {
-                const [targetRows, activeRows] = await Promise.all([
-                    allCanonicalIds.size ? pullAdminPlayerCallTargets(Array.from(allCanonicalIds)) : Promise.resolve([]),
-                    pullAdminPlayerCalls({ tournamentId: tournament.id, statuses: ['ringing', 'acknowledged'] }),
-                ]);
-                if (cancelled) return;
-
-                const targetsByCanonical = new Map<string, LiveCallTarget>();
-                targetRows.forEach((row) => {
-                    const canonical = String(row.canonical_player_id || '').trim();
-                    const userId = String(row.user_id || '').trim();
-                    if (!canonical || !userId || targetsByCanonical.has(canonical)) return;
-                    const playerName = String(row.canonical_player_name || `${row.last_name || ''} ${row.first_name || ''}`).trim();
-                    targetsByCanonical.set(canonical, {
-                        userId,
-                        playerId: canonical,
-                        playerName,
-                    });
-                });
-
-                const nextTargets: Record<string, LiveCallTarget> = {};
-                teamCanonicalIds.forEach((ids, teamId) => {
-                    for (const id of ids) {
-                        const hit = targetsByCanonical.get(id);
-                        if (hit) {
-                            nextTargets[teamId] = hit;
-                            break;
-                        }
-                    }
-                });
-
-                const nextCalls: Record<string, PlayerCallRequest> = {};
-                activeRows.forEach((row) => {
-                    const mapped = mapSupabaseCallRowToPlayerCallRequest(row);
-                    if (!mapped.teamId) return;
-                    if (!nextCalls[mapped.teamId] || nextCalls[mapped.teamId].requestedAt < mapped.requestedAt) {
-                        nextCalls[mapped.teamId] = mapped;
-                    }
-                });
-
-                setLiveCallTargets(nextTargets);
-                setLiveTeamCalls(nextCalls);
-                setLiveCallMode('live_ready');
-            } catch (error: any) {
-                if (cancelled) return;
-                const message = String(error?.message || error || '');
-                setLiveCallTargets({});
-                setLiveTeamCalls({});
-                if (/Sessione admin assente|Accesso admin richiesto|admin_users|workspace_state/i.test(message)) {
-                    setLiveCallMode('admin_missing');
-                } else {
-                    setLiveCallMode('backend_pending');
-                }
-            }
-        };
-
-        void loadLiveCalls();
-        return () => {
-            cancelled = true;
-        };
-    }, [state, callRefreshNonce]);
 
     const normalizeTeamId = (id: unknown) => (typeof id === 'string' ? id.trim().toUpperCase() : '');
     const isPlaceholderTeamId = (id: unknown) => {
@@ -286,93 +143,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     const isMulti = !!selected && selectedIds.length >= 3;
 
                     const selectedHasPlaceholder = !!selected && (selectedIds.length < 2 || selectedIds.some(isPlaceholderTeamId));
-
-                    const tA = (!isMulti && selected) ? getTeamFromCatalog(selected.teamAId) : undefined;
-                    const tB = (!isMulti && selected) ? getTeamFromCatalog(selected.teamBId) : undefined;
-
-                    const renderTeamCallButton = (team?: Team) => {
-                        if (!team?.id || !state.tournament) return null;
-                        const useLiveCalls = liveCallMode === 'live_ready';
-                        const previewAvailability = getPreviewCallAvailabilityForTeam(state, team);
-                        const activeCall = useLiveCalls ? (liveTeamCalls[team.id] || null) : previewAvailability.activeCall;
-                        const liveTarget = liveCallTargets[team.id];
-                        const status = activeCall?.status || 'idle';
-                        const label = status === 'acknowledged'
-                            ? t('reports_call_team_acknowledged')
-                            : status === 'ringing'
-                                ? t('reports_call_team_cancel')
-                                : t('reports_call_team');
-                        const disabled = useLiveCalls ? (!activeCall && !liveTarget) : (!activeCall && !previewAvailability.enabled);
-                        const icon = status === 'acknowledged'
-                            ? <ThumbsUp className="w-4 h-4" />
-                            : status === 'ringing'
-                                ? <LoaderCircle className="w-4 h-4 animate-spin" />
-                                : <PhoneCall className="w-4 h-4" />;
-
-                        return (
-                            <button
-                                type="button"
-                                disabled={disabled}
-                                title={disabled ? t('reports_call_team_disabled') : label}
-                                onClick={() => void (async () => {
-                                    try {
-                                        if (useLiveCalls) {
-                                            if (activeCall) {
-                                                await cancelPlayerAppCall(activeCall.id);
-                                                try {
-                                                    await dispatchPlayerCallPush({
-                                                        callId: activeCall.id,
-                                                        action: 'cancelled',
-                                                    });
-                                                } catch (pushError) {
-                                                    console.warn('FLBP call push dispatch failed after cancel', pushError);
-                                                }
-                                            } else if (liveTarget) {
-                                                const result = await callPlayerAppTeam({
-                                                    tournamentId: state.tournament!.id,
-                                                    teamId: team.id,
-                                                    teamName: team.name || team.id,
-                                                    targetUserId: liveTarget.userId,
-                                                    targetPlayerId: liveTarget.playerId,
-                                                    targetPlayerName: liveTarget.playerName,
-                                                });
-                                                const callId = String((result as any)?.call_id || '').trim();
-                                                if (callId) {
-                                                    try {
-                                                        await dispatchPlayerCallPush({
-                                                            callId,
-                                                            action: 'ringing',
-                                                        });
-                                                    } catch (pushError) {
-                                                        console.warn('FLBP call push dispatch failed after ring', pushError);
-                                                    }
-                                                }
-                                            }
-                                        } else if (activeCall) {
-                                            cancelPreviewTeamCall(state.tournament!.id, team.id);
-                                        } else {
-                                            queuePreviewTeamCall(state, team);
-                                        }
-                                        setCallRefreshNonce((value) => value + 1);
-                                    } catch (error: any) {
-                                        alert(String(error?.message || error || t('reports_call_team_disabled')));
-                                    }
-                                })()}
-                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${
-                                    disabled
-                                        ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                                        : status === 'acknowledged'
-                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                            : status === 'ringing'
-                                                ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-                                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                                }`}
-                            >
-                                {icon}
-                                <span>{label}</span>
-                            </button>
-                        );
-                    };
 
                     const computeTeamScoreFromForm = (teamId: string, p1?: string, p2?: string) => {
                         const getCan = (playerName?: string) => {
@@ -453,10 +223,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                     <div className="text-[11px] font-bold text-slate-500">
                                         {t('reports_matches_shown', { shown: String(matchesForSelect.length), total: String(msAll.length) })}
                                     </div>
-                                </div>
-
-                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500">
-                                    {t(`reports_call_note_${liveCallMode}`)}
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
@@ -629,32 +395,30 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                                                         <div className="mb-2 flex items-center justify-between gap-3">
-                                                            <div className="font-black text-xs text-slate-700 uppercase">{tA?.name || getTeamName(selected.teamAId)}</div>
-                                                            {renderTeamCallButton(tA)}
+                                                            <div className="font-black text-xs text-slate-700 uppercase">{getTeamName(selected.teamAId)}</div>
                                                         </div>
-                                                        {tA?.id && tA.id !== 'BYE' && (
+                                                        {selected.teamAId && selected.teamAId !== 'BYE' && (
                                                             <>
                                                                 {renderStatsHeader()}
-                                                                {tA.player1 && renderPlayerRow(tA.id, tA.player1)}
-                                                                {tA.player2 && renderPlayerRow(tA.id, tA.player2)}
+                                                                {getTeamFromCatalog(selected.teamAId)?.player1 && renderPlayerRow(selected.teamAId, getTeamFromCatalog(selected.teamAId)?.player1 || '')}
+                                                                {getTeamFromCatalog(selected.teamAId)?.player2 && renderPlayerRow(selected.teamAId, getTeamFromCatalog(selected.teamAId)?.player2 || '')}
                                                             </>
                                                         )}
-                                                        {!tA?.id && <div className="text-xs text-slate-400 font-bold">{t('not_available_short')}</div>}
+                                                        {!selected.teamAId && <div className="text-xs text-slate-400 font-bold">{t('not_available_short')}</div>}
                                                     </div>
 
                                                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                                                         <div className="mb-2 flex items-center justify-between gap-3">
-                                                            <div className="font-black text-xs text-slate-700 uppercase">{tB?.name || getTeamName(selected.teamBId)}</div>
-                                                            {renderTeamCallButton(tB)}
+                                                            <div className="font-black text-xs text-slate-700 uppercase">{getTeamName(selected.teamBId)}</div>
                                                         </div>
-                                                        {tB?.id && tB.id !== 'BYE' && (
+                                                        {selected.teamBId && selected.teamBId !== 'BYE' && (
                                                             <>
                                                                 {renderStatsHeader()}
-                                                                {tB.player1 && renderPlayerRow(tB.id, tB.player1)}
-                                                                {tB.player2 && renderPlayerRow(tB.id, tB.player2)}
+                                                                {getTeamFromCatalog(selected.teamBId)?.player1 && renderPlayerRow(selected.teamBId, getTeamFromCatalog(selected.teamBId)?.player1 || '')}
+                                                                {getTeamFromCatalog(selected.teamBId)?.player2 && renderPlayerRow(selected.teamBId, getTeamFromCatalog(selected.teamBId)?.player2 || '')}
                                                             </>
                                                         )}
-                                                        {!tB?.id && <div className="text-xs text-slate-400 font-bold">{t('not_available_short')}</div>}
+                                                        {!selected.teamBId && <div className="text-xs text-slate-400 font-bold">{t('not_available_short')}</div>}
                                                     </div>
                                                 </div>
                                             ) : (
@@ -665,7 +429,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                                 <div className="min-w-0 flex-1 font-black text-xs uppercase leading-tight text-slate-700 whitespace-normal break-words">{tt.name || tt.id}</div>
                                                                 <div className="flex items-center gap-2">
                                                                     <div className="text-xs font-mono font-black text-slate-600">{computeTeamScoreFromForm(tt.id, tt.player1, tt.player2)}</div>
-                                                                    {renderTeamCallButton(tt)}
                                                                 </div>
                                                             </div>
                                                             {tt.id && tt.id !== 'BYE' && (
