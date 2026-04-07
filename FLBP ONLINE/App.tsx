@@ -188,8 +188,9 @@ export const TranslationDictionariesContext = createContext<Partial<Record<Langu
 export const useTranslation = () => {
     const lang = useContext(LanguageContext);
     const dictionaries = useContext(TranslationDictionariesContext);
+    const t = useCallback((key: string) => getTranslationValue(dictionaries, lang, key), [dictionaries, lang]);
     return {
-        t: (key: string) => getTranslationValue(dictionaries, lang, key),
+        t,
         lang
     };
 };
