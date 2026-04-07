@@ -76,7 +76,6 @@ const btnBase =
 const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500`;
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500`;
-const PLAYER_WEB_DEVICE_ID_KEY = 'flbp_player_web_device_id_v1';
 const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v1';
 
 const schedulePlayerAreaTask = (task: () => void) => {
@@ -100,18 +99,6 @@ const MetricCard: React.FC<{ label: string; value: React.ReactNode }> = ({ label
     <div className="mt-1 text-lg font-black text-slate-950">{value}</div>
   </div>
 );
-
-const getPlayerWebDeviceId = () => {
-  try {
-    const current = String(localStorage.getItem(PLAYER_WEB_DEVICE_ID_KEY) || '').trim();
-    if (current) return current;
-    const next = `web_${Math.random().toString(36).slice(2, 12)}`;
-    localStorage.setItem(PLAYER_WEB_DEVICE_ID_KEY, next);
-    return next;
-  } catch {
-    return `web_${Math.random().toString(36).slice(2, 12)}`;
-  }
-};
 
 const isPlayerBackendPendingError = (message: string) =>
   /player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_call_team|relation .*player_app_|function .*flbp_player_/i.test(message);
@@ -209,9 +196,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
   const syncLiveDeviceRegistration = React.useCallback(async () => {
     if (!liveBackendEnabled) return null;
-    if (!embeddedNativeShell) {
-      return registerPlayerAppDevice({ id: getPlayerWebDeviceId(), platform: 'web', pushEnabled: true });
-    }
+    if (!embeddedNativeShell) return null;
 
     let registration = await refreshNativePushRegistration();
     if (!registration) {

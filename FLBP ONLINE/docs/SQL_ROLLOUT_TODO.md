@@ -82,6 +82,7 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 - web `player_area`
   - legge la registrazione push nativa da bridge (`nativePushBridge.ts`)
   - registra su `player_app_devices` il vero `device_token` Android/iOS quando disponibile
+  - il browser web non registra piu' righe in `player_app_devices`: la tabella resta riservata alle shell native per evitare collisioni RLS inutili sul login browser
   - se il permesso push e' ancora `prompt`, prova a richiederlo una sola volta lato shell nativa
 - web `ReportsTab`
   - dopo `flbp_player_call_team(...)` prova anche il dispatch push backend
