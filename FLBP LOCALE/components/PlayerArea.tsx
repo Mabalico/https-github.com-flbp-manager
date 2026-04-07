@@ -16,7 +16,7 @@ import {
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { formatBirthDateDisplay } from '../services/playerIdentity';
-import type { PlayerSupabaseProfileRow, PlayerSupabaseSession } from '../services/supabaseRest';
+import type { PlayerSupabaseProfileRow, PlayerSupabaseSession, PlayerSupabaseSignUpResult } from '../services/supabaseRest';
 import {
   acknowledgePlayerAppCall,
   consumePlayerSupabaseSessionFromUrl,
@@ -517,13 +517,28 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
     try {
       if (liveBackendEnabled) {
-        const session = authMode === 'register'
-          ? await playerSignUpWithPassword(safeEmail, safePassword, {
-              first_name: registerIdentity?.firstName || null,
-              last_name: registerIdentity?.lastName || null,
-              birth_date: registerIdentity?.birthDate || null,
-            })
-          : await playerSignInWithPassword(safeEmail, safePassword);
+        let session: PlayerSupabaseSession | null = null;
+        let signUpResult: PlayerSupabaseSignUpResult | null = null;
+        if (authMode === 'register') {
+          signUpResult = await playerSignUpWithPassword(safeEmail, safePassword, {
+            first_name: registerIdentity?.firstName || null,
+            last_name: registerIdentity?.lastName || null,
+            birth_date: registerIdentity?.birthDate || null,
+          });
+          if (signUpResult.status === 'confirm_email') {
+            setPassword('');
+            setFeedback({
+              tone: 'success',
+              message: `Account creato. Controlla la mail ${signUpResult.email}: se Supabase richiede conferma, dovrai aprire il link prima del primo accesso.`,
+            });
+            setLiveRuntimeStatus('disabled');
+            setLiveRuntimeError(null);
+            return;
+          }
+          session = signUpResult.session;
+        } else {
+          session = await playerSignInWithPassword(safeEmail, safePassword);
+        }
 
         setLiveRuntimeArmed(true);
         setLiveSession(session);
@@ -1055,6 +1070,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                 </div>
               </div>
             </div>
+
+            {liveBackendEnabled ? (
+              <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 md:p-5 text-sm font-semibold leading-6 text-amber-900">
+                Email e password sono gia cablate. Restano fuori da questo blocco solo:
+                <span className="font-black"> provider social, mittente email reale per reset definitivo e test reale della chiamata squadra.</span>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

@@ -61,6 +61,7 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 - web `player_area`
   - ora usa `email/password` come percorso primario lato UI quando Supabase e' disponibile
   - registrazione reale richiede nome, cognome e data di nascita per collegare subito il profilo giocatore
+  - il signup gestisce sia il caso `sessione immediata` sia il caso `conferma mail richiesta` senza rompere la UI
   - mantiene fallback preview locale solo come compatibilita' se mancano auth/provider/config esterne
   - `google/facebook/apple` restano visibili ma volutamente in stato pending finche' non attiviamo i provider su Supabase
 - web `Gestione dati -> Account giocatori`
@@ -146,6 +147,10 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - le push di chiamata squadra non sono ancora da considerare attive in produzione finche' non facciamo:
     - un test end-to-end reale Android
     - la configurazione APNs iOS
+  - test operativo ancora da fare dopo il completamento dell'area giocatore:
+    - registrazione primo account reale
+    - collegamento profilo giocatore
+    - test `chiamata squadra` end-to-end
 
 ## Regola architetturale native
 

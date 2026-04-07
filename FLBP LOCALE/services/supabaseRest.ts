@@ -66,6 +66,10 @@ export interface PlayerSupabaseSession extends SupabaseSession {
     provider?: 'password' | 'google' | 'facebook' | 'apple';
 }
 
+export type PlayerSupabaseSignUpResult =
+    | { status: 'signed_in'; session: PlayerSupabaseSession }
+    | { status: 'confirm_email'; email: string; userId?: string | null };
+
 export type PlayerOAuthProvider = 'google' | 'facebook' | 'apple';
 
 export interface PlayerSupabaseProfileRow {
@@ -689,7 +693,7 @@ export const playerSignUpWithPassword = async (
     email: string,
     password: string,
     metadata?: Record<string, Json>
-): Promise<PlayerSupabaseSession> => {
+): Promise<PlayerSupabaseSignUpResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const e = (email || '').trim();
@@ -709,9 +713,23 @@ export const playerSignUpWithPassword = async (
         })
     }, 8000, { source: 'playerSignUpWithPassword', kind: 'sync' });
     if (!res.ok) throw new Error(await readErrorBody(res));
-    const next = parsePlayerSession(await res.json(), e, 'password');
-    setPlayerSupabaseSession(next);
-    return next;
+    const payload = await res.json();
+    const accessToken = String(payload?.access_token || '').trim();
+    if (accessToken) {
+        const next = parsePlayerSession(payload, e, 'password');
+        setPlayerSupabaseSession(next);
+        return { status: 'signed_in', session: next };
+    }
+    const pendingEmail = String(payload?.user?.email || e || '').trim();
+    const pendingUserId = String(payload?.user?.id || '').trim() || null;
+    if (pendingEmail) {
+        return {
+            status: 'confirm_email',
+            email: pendingEmail,
+            userId: pendingUserId
+        };
+    }
+    throw new Error('Registrazione player fallita (sessione o conferma mail mancanti).');
 };
 
 export const playerRequestPasswordReset = async (email: string, redirectTo?: string | null): Promise<void> => {
