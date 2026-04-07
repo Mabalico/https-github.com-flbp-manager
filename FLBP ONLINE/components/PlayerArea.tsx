@@ -80,6 +80,16 @@ const PLAYER_WEB_DEVICE_ID_KEY = 'flbp_player_web_device_id_v1';
 const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v1';
 
 const schedulePlayerAreaTask = (task: () => void) => {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    const idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout?: number }) => number }).requestIdleCallback(task, { timeout: 120 });
+    return () => {
+      try {
+        (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(idleId);
+      } catch {
+        // ignore
+      }
+    };
+  }
   const timerId = window.setTimeout(task, 0);
   return () => window.clearTimeout(timerId);
 };
@@ -169,6 +179,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const [liveDerivedError, setLiveDerivedError] = React.useState<string | null>(null);
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
+  const liveRuntimeRequestRef = React.useRef(0);
 
   const loginEntryNote = liveBackendEnabled
     ? 'Email e password sono gia attive sul backend live. Google, Facebook e Apple restano in attesa finche non attiviamo i provider social su Supabase.'
@@ -238,6 +249,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   }, [embeddedNativeShell, liveBackendEnabled]);
 
   React.useEffect(() => {
+    if (liveRuntimeArmed || liveSession?.accessToken) {
+      setBootstrapPending(false);
+      setBootstrapError(null);
+      return;
+    }
     let cancelled = false;
     setBootstrapPending(true);
     const cancel = schedulePlayerAreaTask(() => {
@@ -265,32 +281,43 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       cancelled = true;
       cancel();
     };
-  }, [refreshNonce, safeSnapshot, state, t]);
+  }, [liveRuntimeArmed, liveSession?.accessToken, refreshNonce, safeSnapshot, state, t]);
 
   const refreshLiveRuntime = React.useCallback(async (forcedSession?: PlayerSupabaseSession | null) => {
+    const requestId = ++liveRuntimeRequestRef.current;
+    const applyIfCurrent = (fn: () => void) => {
+      if (liveRuntimeRequestRef.current !== requestId) return;
+      fn();
+    };
     if (!liveBackendEnabled) {
-      setLiveRuntimeStatus('disabled');
-      setLiveRuntimeError(null);
-      setLiveSession(null);
-      setLiveProfileRow(null);
-      setLiveCalls([]);
+      applyIfCurrent(() => {
+        setLiveRuntimeStatus('disabled');
+        setLiveRuntimeError(null);
+        setLiveSession(null);
+        setLiveProfileRow(null);
+        setLiveCalls([]);
+      });
       return;
     }
 
-    setLiveRuntimeStatus('loading');
-    setLiveRuntimeError(null);
+    applyIfCurrent(() => {
+      setLiveRuntimeStatus('loading');
+      setLiveRuntimeError(null);
+    });
 
     try {
       const nextSession = forcedSession === undefined ? await ensureFreshPlayerSupabaseSession() : forcedSession;
       if (!nextSession?.accessToken) {
-        setLiveSession(null);
-        setLiveProfileRow(null);
-        setLiveCalls([]);
-        setLiveRuntimeStatus('disabled');
+        applyIfCurrent(() => {
+          setLiveSession(null);
+          setLiveProfileRow(null);
+          setLiveCalls([]);
+          setLiveRuntimeStatus('disabled');
+        });
         return;
       }
 
-      setLiveSession(nextSession);
+      applyIfCurrent(() => setLiveSession(nextSession));
       let backendPending = false;
       let pendingMessage = '';
       let nextProfile: PlayerSupabaseProfileRow | null = null;
@@ -335,14 +362,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         }
       }
 
-      setLiveProfileRow(nextProfile);
-      setLiveCalls(nextCalls);
-      setLiveRuntimeStatus(backendPending ? 'backend_pending' : 'ready');
-      setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
+      applyIfCurrent(() => {
+        setLiveProfileRow(nextProfile);
+        setLiveCalls(nextCalls);
+        setLiveRuntimeStatus(backendPending ? 'backend_pending' : 'ready');
+        setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
+      });
     } catch (error: any) {
       const message = String(error?.message || error || t('player_area_preview_error'));
-      setLiveRuntimeStatus('error');
-      setLiveRuntimeError(message);
+      applyIfCurrent(() => {
+        setLiveRuntimeStatus('error');
+        setLiveRuntimeError(message);
+      });
     }
   }, [liveBackendEnabled, syncLiveDeviceRegistration, t]);
 
@@ -463,6 +494,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         : t('player_area_preview_only');
   const activationAuthLabel = liveBackendEnabled ? `${t('prepared')} · email/password` : t('player_area_preview_only');
   const activationSocialLabel = liveBackendEnabled ? 'In attesa provider' : t('player_area_preview_only');
+  const activationProfileLabel = !liveBackendEnabled
+    ? t('player_area_preview_only')
+    : effectiveProfile
+      ? t('prepared')
+      : 'Da collegare';
+  const activationCallsLabel = !liveBackendEnabled
+    ? t('player_area_preview_only')
+    : effectiveLiveStatus.linkedTeam || effectiveLiveStatus.activeCall
+      ? t('prepared')
+      : 'In attesa live';
   const activationPushLabel = !embeddedNativeShell
     ? 'Browser web'
     : !nativePushRegistration
@@ -688,7 +729,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
   const signOut = async () => {
     if (effectiveSession?.mode === 'live') {
-      await playerSignOutSupabase();
+      liveRuntimeRequestRef.current += 1;
       setLiveRuntimeArmed(false);
       setLiveSession(null);
       setLiveProfileRow(null);
@@ -696,6 +737,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setLiveRuntimeStatus('disabled');
       setLiveRuntimeError(null);
       setLiveCallRefreshNonce((value) => value + 1);
+      void playerSignOutSupabase().catch(() => {
+        // best effort only
+      });
       return;
     }
     signOutPlayerPreviewSession();
@@ -1062,11 +1106,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                 </div>
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <span>{t('player_area_feature_profile')}</span>
-                  <span className="font-black">{effectiveFeatureStatus.playerProfilesPrepared ? t('prepared') : t('player_area_preview_only')}</span>
+                  <span className="font-black">{activationProfileLabel}</span>
                 </div>
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <span>{t('player_area_feature_calls')}</span>
-                  <span className="font-black">{effectiveFeatureStatus.playerCallsPrepared ? t('prepared') : t('player_area_preview_only')}</span>
+                  <span className="font-black">{activationCallsLabel}</span>
                 </div>
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <span>Push dispositivo</span>
