@@ -5,7 +5,7 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { clearPlayerSupabaseSession, pullWorkspaceState } from './services/supabaseRest';
+import { clearPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullWorkspaceState } from './services/supabaseRest';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -240,7 +240,7 @@ const App: React.FC = () => {
         return `${year}-${month}-${day}`;
     };
 
-    const [view, setView] = useState(() => 'home');
+    const [view, setView] = useState(() => (hasPlayerSupabaseAuthPayloadInUrl() ? 'player_area' : 'home'));
     const [tvMode, setTvMode] = useState<TvProjection | null>(() => {
         const stored = localStorage.getItem('flbp_tv_mode');
         return stored ? assertTvProjectionSafe(stored) : null;

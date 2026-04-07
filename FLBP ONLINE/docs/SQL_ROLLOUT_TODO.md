@@ -62,6 +62,7 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - ora usa `email/password` come percorso primario lato UI quando Supabase e' disponibile
   - registrazione reale richiede nome, cognome e data di nascita per collegare subito il profilo giocatore
   - il signup gestisce sia il caso `sessione immediata` sia il caso `conferma mail richiesta` senza rompere la UI
+  - i pulsanti `Google/Facebook/Apple` sono gia' cablati verso l'OAuth di Supabase
   - mantiene fallback preview locale solo come compatibilita' se mancano auth/provider/config esterne
   - `google/facebook/apple` restano visibili ma volutamente in stato pending finche' non attiviamo i provider su Supabase
 - web `Gestione dati -> Account giocatori`
@@ -210,6 +211,7 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 - nota operativa:
   - lato app/web il percorso `email/password` e' gia' il flusso primario
   - restano da completare configurazione auth esterna, reset password con mittente reale e provider social
+  - appena i provider vengono accesi in Supabase, la UI web/native puo' gia' avviarli senza altro codice applicativo
 
 ### Push live device
 - stato: da fare

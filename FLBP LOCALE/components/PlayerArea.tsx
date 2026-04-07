@@ -21,6 +21,7 @@ import {
   acknowledgePlayerAppCall,
   consumePlayerSupabaseSessionFromUrl,
   ensureFreshPlayerSupabaseSession,
+  getPlayerOAuthAuthorizeUrl,
   getPlayerSupabaseSession,
   getSupabaseConfig,
   playerRequestPasswordReset,
@@ -496,6 +497,20 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     return `${match.code || '-'} · ${labels.join(' vs ')}`;
   }, [effectiveLiveStatus.nextMatch, state.tournament?.teams]);
 
+  const submitSocialAuth = (provider: 'google' | 'facebook' | 'apple') => {
+    if (!liveBackendEnabled) {
+      setFeedback({ tone: 'error', message: 'Attiva prima Supabase Auth per usare i provider social.' });
+      return;
+    }
+    try {
+      const redirectTo = window.location.origin;
+      const authorizeUrl = getPlayerOAuthAuthorizeUrl(provider, redirectTo);
+      window.location.assign(authorizeUrl);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || 'Impossibile avviare il login social.') });
+    }
+  };
+
   const submitAuth = async () => {
     const safeEmail = email.trim();
     const safePassword = password.trim();
@@ -757,18 +772,26 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                   <div className="mt-6 space-y-3">
                     <button
                       type="button"
-                      disabled
-                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-[#1877F2] bg-[#1877F2] px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(24,119,242,0.6)] disabled:cursor-not-allowed disabled:opacity-100"
+                      onClick={() => submitSocialAuth('facebook')}
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-[#1877F2] bg-[#1877F2] px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(24,119,242,0.6)] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1877F2] focus-visible:ring-offset-2"
                     >
                       <Facebook className="h-4 w-4" /> Accedi con Facebook
                     </button>
                     <button
                       type="button"
-                      disabled
-                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-black text-slate-700 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.18)] disabled:cursor-not-allowed disabled:opacity-100"
+                      onClick={() => submitSocialAuth('google')}
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-black text-slate-700 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.18)] hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
                     >
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700">G</span>
                       Accedi con Google
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => submitSocialAuth('apple')}
+                      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-900 bg-slate-900 px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(15,23,42,0.45)] hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+                    >
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[11px] font-black text-white">A</span>
+                      Accedi con Apple
                     </button>
 
                     <div className="flex items-center gap-3 py-1">

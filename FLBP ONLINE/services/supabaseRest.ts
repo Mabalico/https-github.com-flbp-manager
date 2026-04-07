@@ -732,6 +732,23 @@ export const playerSignUpWithPassword = async (
     throw new Error('Registrazione player fallita (sessione o conferma mail mancanti).');
 };
 
+export const hasPlayerSupabaseAuthPayloadInUrl = (): boolean => {
+    try {
+        const hash = String(window.location.hash || '').replace(/^#/, '').trim();
+        const search = String(window.location.search || '').replace(/^\?/, '').trim();
+        const params = new URLSearchParams(hash || search);
+        return [
+            'access_token',
+            'refresh_token',
+            'provider',
+            'error',
+            'error_description'
+        ].some((key) => String(params.get(key) || '').trim().length > 0);
+    } catch {
+        return false;
+    }
+};
+
 export const playerRequestPasswordReset = async (email: string, redirectTo?: string | null): Promise<void> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
