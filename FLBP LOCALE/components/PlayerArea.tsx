@@ -169,6 +169,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
 
+  const loginEntryNote = liveBackendEnabled
+    ? 'Email e password sono gia attive sul backend live. Google, Facebook e Apple restano in attesa finche non attiviamo i provider social su Supabase.'
+    : t('player_area_preview_note');
+  const socialPendingNote = liveBackendEnabled
+    ? 'Accesso email live disponibile gia ora. I provider social verranno attivati in un secondo passaggio.'
+    : t('player_area_social_pending');
+
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
     window.addEventListener('storage', handler);
@@ -446,6 +453,30 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     playerProfilesPrepared: liveBackendEnabled && liveRuntimeStatus === 'ready',
     playerCallsPrepared: liveBackendEnabled && liveRuntimeStatus === 'ready',
   }), [snapshot.featureStatus, liveBackendEnabled, liveRuntimeSession?.accountId, liveRuntimeStatus]);
+  const statusLabel = effectiveSession?.mode === 'live'
+    ? t('data_accounts_mode_live')
+    : liveBackendEnabled
+      ? t('prepared')
+      : effectiveSession
+        ? t('player_area_preview_active')
+        : t('player_area_preview_only');
+  const activationAuthLabel = liveBackendEnabled ? `${t('prepared')} · email/password` : t('player_area_preview_only');
+  const activationSocialLabel = liveBackendEnabled ? 'In attesa provider' : t('player_area_preview_only');
+  const activationPushLabel = !embeddedNativeShell
+    ? 'Browser web'
+    : !nativePushRegistration
+      ? 'In attesa device'
+      : !nativePushRegistration.configReady
+        ? 'Config mancante'
+        : nativePushRegistration.pushEnabled
+          ? t('prepared')
+          : nativePushRegistration.permission === 'denied'
+            ? 'Permesso negato'
+            : nativePushRegistration.permission === 'prompt'
+              ? 'Permesso da dare'
+              : nativePushRegistration.permission === 'granted'
+                ? 'Token mancante'
+                : 'In attesa device';
 
   React.useEffect(() => {
     if (!effectiveProfile) return;
@@ -466,21 +497,43 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   }, [effectiveLiveStatus.nextMatch, state.tournament?.teams]);
 
   const submitAuth = async () => {
+    const safeEmail = email.trim();
+    const safePassword = password.trim();
+    if (!safeEmail || !safePassword) {
+      setFeedback({ tone: 'error', message: 'Inserisci email e password prima di continuare.' });
+      return;
+    }
+    const registerIdentity = authMode === 'register'
+      ? {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          birthDate: birthDate.trim(),
+        }
+      : null;
+    if (registerIdentity && (!registerIdentity.firstName || !registerIdentity.lastName || !registerIdentity.birthDate)) {
+      setFeedback({ tone: 'error', message: 'Per registrarti servono nome, cognome e data di nascita.' });
+      return;
+    }
+
     try {
       if (liveBackendEnabled) {
         const session = authMode === 'register'
-          ? await playerSignUpWithPassword(email, password, {
-              first_name: firstName.trim() || null,
-              last_name: lastName.trim() || null,
-              birth_date: birthDate.trim() || null,
+          ? await playerSignUpWithPassword(safeEmail, safePassword, {
+              first_name: registerIdentity?.firstName || null,
+              last_name: registerIdentity?.lastName || null,
+              birth_date: registerIdentity?.birthDate || null,
             })
-          : await playerSignInWithPassword(email, password);
+          : await playerSignInWithPassword(safeEmail, safePassword);
 
         setLiveRuntimeArmed(true);
         setLiveSession(session);
 
-        if (authMode === 'register' && firstName.trim() && lastName.trim() && birthDate.trim()) {
-          const identity = buildPlayerCanonicalIdentity(firstName, lastName, birthDate);
+        if (registerIdentity) {
+          const identity = buildPlayerCanonicalIdentity(
+            registerIdentity.firstName,
+            registerIdentity.lastName,
+            registerIdentity.birthDate
+          );
           try {
             const row = await pushPlayerAppProfile({
               firstName: identity.firstName,
@@ -504,13 +557,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         await refreshLiveRuntime(session);
       } else {
         if (authMode === 'register') {
-          const session = registerPlayerPreviewAccount(email, password);
-          if (firstName.trim() && lastName.trim() && birthDate.trim()) {
-            savePlayerPreviewProfile(session, { firstName, lastName, birthDate });
-          }
+          const session = registerPlayerPreviewAccount(safeEmail, safePassword);
+          savePlayerPreviewProfile(session, {
+            firstName: registerIdentity!.firstName,
+            lastName: registerIdentity!.lastName,
+            birthDate: registerIdentity!.birthDate,
+          });
           setFeedback({ tone: 'success', message: t('player_area_preview_registered') });
         } else {
-          signInPlayerPreviewAccount(email, password);
+          signInPlayerPreviewAccount(safeEmail, safePassword);
           setFeedback({ tone: 'success', message: t('player_area_preview_logged_in') });
         }
       }
@@ -526,8 +581,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   };
 
   const requestPasswordReset = async () => {
+    const safeEmail = email.trim();
+    if (!safeEmail) {
+      setFeedback({ tone: 'error', message: 'Inserisci una mail valida prima di chiedere il reset password.' });
+      return;
+    }
+    if (!liveBackendEnabled) {
+      setFeedback({ tone: 'error', message: t('player_area_password_reset_pending') });
+      return;
+    }
     try {
-      await playerRequestPasswordReset(email, window.location.origin);
+      await playerRequestPasswordReset(safeEmail, window.location.origin);
       setFeedback({ tone: 'success', message: t('player_area_password_reset_sent') });
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_password_reset_pending')) });
@@ -536,9 +600,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
   const submitProfile = async () => {
     if (!effectiveSession) return;
+    const safeFirstName = firstName.trim();
+    const safeLastName = lastName.trim();
+    const safeBirthDate = birthDate.trim();
+    if (!safeFirstName || !safeLastName || !safeBirthDate) {
+      setFeedback({ tone: 'error', message: 'Completa nome, cognome e data di nascita prima di salvare il profilo.' });
+      return;
+    }
     try {
       if (effectiveSession.mode === 'live') {
-        const identity = buildPlayerCanonicalIdentity(firstName, lastName, birthDate, liveProfileRow?.canonical_player_id || null);
+        const identity = buildPlayerCanonicalIdentity(safeFirstName, safeLastName, safeBirthDate, liveProfileRow?.canonical_player_id || null);
         const row = await pushPlayerAppProfile({
           firstName: identity.firstName,
           lastName: identity.lastName,
@@ -549,7 +620,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         setLiveProfileRow(row);
         setLiveCallRefreshNonce((value) => value + 1);
       } else {
-        savePlayerPreviewProfile(snapshot.session!, { firstName, lastName, birthDate });
+        savePlayerPreviewProfile(snapshot.session!, { firstName: safeFirstName, lastName: safeLastName, birthDate: safeBirthDate });
       }
       setFeedback({ tone: 'success', message: t('player_area_profile_saved') });
       setRefreshNonce((value) => value + 1);
@@ -621,13 +692,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-600">
               <div className="text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">{t('status')}</div>
-              <div className="mt-1 text-sm font-black text-slate-900">
-                {effectiveSession?.mode === 'live'
-                  ? t('data_accounts_mode_live')
-                  : effectiveSession
-                    ? t('player_area_preview_active')
-                    : t('player_area_preview_only')}
-              </div>
+              <div className="mt-1 text-sm font-black text-slate-900">{statusLabel}</div>
             </div>
           </div>
         </div>
@@ -670,7 +735,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                   <div className="text-center">
                     <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_login_title')}</div>
                     <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                      {t('player_area_preview_note')}
+                      {loginEntryNote}
                     </div>
                   </div>
 
@@ -708,7 +773,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                   </div>
 
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                    {t('player_area_social_pending')}
+                    {socialPendingNote}
                   </div>
 
                   <div className={`mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:block md:p-5 space-y-4 ${emailPanelOpen ? 'block' : 'hidden'}`}>
@@ -951,7 +1016,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
               <div className="space-y-2 text-sm font-semibold text-slate-700">
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <span>{t('player_area_feature_auth')}</span>
-                  <span className="font-black">{effectiveFeatureStatus.remoteAuthPrepared ? t('prepared') : t('player_area_preview_only')}</span>
+                  <span className="font-black">{effectiveFeatureStatus.remoteAuthPrepared ? activationAuthLabel : t('player_area_preview_only')}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <span>{t('player_area_social_title')}</span>
+                  <span className="font-black">{activationSocialLabel}</span>
                 </div>
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <span>{t('player_area_feature_profile')}</span>
@@ -960,6 +1029,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <span>{t('player_area_feature_calls')}</span>
                   <span className="font-black">{effectiveFeatureStatus.playerCallsPrepared ? t('prepared') : t('player_area_preview_only')}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <span>Push dispositivo</span>
+                  <span className="font-black">{activationPushLabel}</span>
                 </div>
               </div>
             </div>
@@ -976,7 +1049,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                 <div className="text-sm font-black text-slate-900">
                   {effectiveSession?.mode === 'live'
                     ? (liveRuntimeStatus === 'ready' ? t('prepared') : (liveRuntimeError || t('player_area_password_reset_pending')))
-                    : t('player_area_preview_note')}
+                    : liveBackendEnabled
+                      ? 'Auth live pronta. Completa accesso o registrazione per collegare profilo e dispositivo.'
+                      : t('player_area_preview_note')}
                 </div>
               </div>
             </div>

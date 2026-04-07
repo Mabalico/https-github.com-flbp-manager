@@ -59,8 +59,10 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 ## Wiring repo gia' chiuso in attesa del rollout SQL
 
 - web `player_area`
-  - ora e' cablata `live-when-available`: le tabelle/RPC player sono disponibili sul progetto reale
+  - ora usa `email/password` come percorso primario lato UI quando Supabase e' disponibile
+  - registrazione reale richiede nome, cognome e data di nascita per collegare subito il profilo giocatore
   - mantiene fallback preview locale solo come compatibilita' se mancano auth/provider/config esterne
+  - `google/facebook/apple` restano visibili ma volutamente in stato pending finche' non attiviamo i provider su Supabase
 - web `Gestione dati -> Account giocatori`
   - il catalogo reale via `flbp_admin_list_player_accounts(...)` e' ora disponibile sul progetto reale
   - resta il fallback preview locale solo come rete di sicurezza
@@ -200,6 +202,9 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - `apple`
 - decisione prodotto:
   - `instagram` resta fuori dalla v1
+- nota operativa:
+  - lato app/web il percorso `email/password` e' gia' il flusso primario
+  - restano da completare configurazione auth esterna, reset password con mittente reale e provider social
 
 ### Push live device
 - stato: da fare
