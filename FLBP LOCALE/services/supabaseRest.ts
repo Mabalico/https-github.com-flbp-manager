@@ -30,6 +30,7 @@ export const PLAYER_SUPABASE_REFRESH_TOKEN_LS_KEY = 'flbp_player_supabase_refres
 export const PLAYER_SUPABASE_EXPIRES_AT_LS_KEY = 'flbp_player_supabase_expires_at';
 export const PLAYER_SUPABASE_USER_EMAIL_LS_KEY = 'flbp_player_supabase_user_email';
 export const PLAYER_SUPABASE_USER_ID_LS_KEY = 'flbp_player_supabase_user_id';
+export const PLAYER_SUPABASE_FLOW_TYPE_LS_KEY = 'flbp_player_supabase_flow_type';
 
 // Tracks the remote snapshot version that the user is currently "based on".
 // Used to prevent accidental overwrites when multiple admins are editing.
@@ -64,6 +65,7 @@ export interface SupabaseSession {
 
 export interface PlayerSupabaseSession extends SupabaseSession {
     provider?: 'password' | 'google' | 'facebook' | 'apple';
+    flowType?: 'session' | 'recovery';
 }
 
 export type PlayerSupabaseSignUpResult =
@@ -316,7 +318,9 @@ export const getPlayerSupabaseSession = (): PlayerSupabaseSession | null => {
         const expiresAt = (localStorage.getItem(PLAYER_SUPABASE_EXPIRES_AT_LS_KEY) || '').trim() || null;
         const email = (localStorage.getItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY) || '').trim() || null;
         const userId = (localStorage.getItem(PLAYER_SUPABASE_USER_ID_LS_KEY) || '').trim() || null;
-        return { accessToken, refreshToken, expiresAt, email, userId };
+        const flowTypeRaw = (localStorage.getItem(PLAYER_SUPABASE_FLOW_TYPE_LS_KEY) || '').trim().toLowerCase();
+        const flowType: PlayerSupabaseSession['flowType'] = flowTypeRaw === 'recovery' ? 'recovery' : 'session';
+        return { accessToken, refreshToken, expiresAt, email, userId, flowType };
     } catch {
         return null;
     }
@@ -330,6 +334,7 @@ export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
             localStorage.removeItem(PLAYER_SUPABASE_EXPIRES_AT_LS_KEY);
             localStorage.removeItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY);
             localStorage.removeItem(PLAYER_SUPABASE_USER_ID_LS_KEY);
+            localStorage.removeItem(PLAYER_SUPABASE_FLOW_TYPE_LS_KEY);
             return;
         }
         localStorage.setItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY, s.accessToken);
@@ -341,6 +346,7 @@ export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
         else localStorage.removeItem(PLAYER_SUPABASE_USER_EMAIL_LS_KEY);
         if (s.userId) localStorage.setItem(PLAYER_SUPABASE_USER_ID_LS_KEY, String(s.userId));
         else localStorage.removeItem(PLAYER_SUPABASE_USER_ID_LS_KEY);
+        localStorage.setItem(PLAYER_SUPABASE_FLOW_TYPE_LS_KEY, s.flowType === 'recovery' ? 'recovery' : 'session');
     } catch {
         // ignore
     }
@@ -416,9 +422,40 @@ const buildPostgrestInClause = (values: Array<string | null | undefined>): strin
         .join(',');
 };
 
+const AUTH_CALLBACK_PARAM_KEYS = [
+    'access_token',
+    'refresh_token',
+    'expires_in',
+    'expires_at',
+    'token_type',
+    'provider',
+    'type',
+    'error',
+    'error_code',
+    'error_description',
+    'code',
+    'scope',
+    'player_recovery',
+] as const;
+
+const readAuthPayloadParams = (): URLSearchParams => {
+    const merged = new URLSearchParams();
+    const searchParams = new URLSearchParams(String(window.location.search || '').replace(/^\?/, '').trim());
+    const hashParams = new URLSearchParams(String(window.location.hash || '').replace(/^#/, '').trim());
+    for (const [key, value] of searchParams.entries()) merged.set(key, value);
+    for (const [key, value] of hashParams.entries()) merged.set(key, value);
+    return merged;
+};
+
 const cleanUrlAuthPayload = () => {
     try {
-        const nextUrl = `${window.location.pathname}${window.location.search}`;
+        const url = new URL(window.location.href);
+        for (const key of AUTH_CALLBACK_PARAM_KEYS) {
+            url.searchParams.delete(key);
+        }
+        url.hash = '';
+        const nextSearch = url.searchParams.toString();
+        const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}`;
         window.history.replaceState({}, document.title, nextUrl);
     } catch {
         // ignore
@@ -599,7 +636,15 @@ export const ensureFreshPlayerSupabaseSession = async (): Promise<PlayerSupabase
         const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : (cur.expiresAt || null);
         const email = (j.user?.email ? String(j.user.email) : (cur.email || null));
         const userId = (j.user?.id ? String(j.user.id) : (cur.userId || null));
-        const next: PlayerSupabaseSession = { accessToken, refreshToken, expiresAt, email, userId, provider: cur.provider };
+        const next: PlayerSupabaseSession = {
+            accessToken,
+            refreshToken,
+            expiresAt,
+            email,
+            userId,
+            provider: cur.provider,
+            flowType: cur.flowType === 'recovery' ? 'recovery' : 'session',
+        };
         setPlayerSupabaseSession(next);
         return next;
     } catch {
@@ -627,15 +672,28 @@ const parsePlayerSession = (j: any, fallbackEmail?: string | null, provider?: Pl
         expiresAt,
         email: j.user?.email ? String(j.user.email) : (fallbackEmail || null),
         userId: j.user?.id ? String(j.user.id) : null,
-        provider
+        provider,
+        flowType: 'session',
     };
+};
+
+const decodeJwtPayload = (token: string | null | undefined): Record<string, any> | null => {
+    try {
+        const raw = String(token || '').trim();
+        if (!raw) return null;
+        const parts = raw.split('.');
+        if (parts.length < 2) return null;
+        const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized + '==='.slice((normalized.length + 3) % 4);
+        return JSON.parse(atob(padded));
+    } catch {
+        return null;
+    }
 };
 
 export const consumePlayerSupabaseSessionFromUrl = (): PlayerSupabaseSession | null => {
     try {
-        const hash = String(window.location.hash || '').replace(/^#/, '').trim();
-        const search = String(window.location.search || '').replace(/^\?/, '').trim();
-        const params = new URLSearchParams(hash || search);
+        const params = readAuthPayloadParams();
         const accessToken = String(params.get('access_token') || '').trim();
         const refreshToken = String(params.get('refresh_token') || '').trim();
         const errorDescription = String(params.get('error_description') || params.get('error') || '').trim();
@@ -652,12 +710,18 @@ export const consumePlayerSupabaseSessionFromUrl = (): PlayerSupabaseSession | n
             providerRaw === 'google' || providerRaw === 'facebook' || providerRaw === 'apple'
                 ? providerRaw
                 : 'password';
+        const flowType: PlayerSupabaseSession['flowType'] =
+            String(params.get('type') || '').trim().toLowerCase() === 'recovery' ? 'recovery' : 'session';
+        const claims = decodeJwtPayload(accessToken);
 
         const next: PlayerSupabaseSession = {
             accessToken,
             refreshToken: refreshToken || null,
             expiresAt,
             provider,
+            flowType,
+            userId: String(claims?.sub || '').trim() || null,
+            email: String(claims?.email || '').trim() || null,
         };
         setPlayerSupabaseSession(next);
         cleanUrlAuthPayload();
@@ -734,13 +798,12 @@ export const playerSignUpWithPassword = async (
 
 export const hasPlayerSupabaseAuthPayloadInUrl = (): boolean => {
     try {
-        const hash = String(window.location.hash || '').replace(/^#/, '').trim();
-        const search = String(window.location.search || '').replace(/^\?/, '').trim();
-        const params = new URLSearchParams(hash || search);
+        const params = readAuthPayloadParams();
         return [
             'access_token',
             'refresh_token',
             'provider',
+            'type',
             'error',
             'error_description'
         ].some((key) => String(params.get(key) || '').trim().length > 0);
@@ -769,6 +832,41 @@ export const playerRequestPasswordReset = async (email: string, redirectTo?: str
         body: JSON.stringify(payload)
     }, 8000, { source: 'playerRequestPasswordReset', kind: 'sync' });
     if (!res.ok) throw new Error(await readErrorBody(res));
+};
+
+export const playerUpdatePassword = async (nextPassword: string): Promise<PlayerSupabaseSession> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await ensureFreshPlayerSupabaseSession();
+    if (!session?.accessToken) {
+        throw new Error('Sessione di recupero non valida o scaduta. Richiedi un nuovo link.');
+    }
+    const safePassword = String(nextPassword || '');
+    if (!safePassword.trim()) {
+        throw new Error('Inserisci una nuova password valida.');
+    }
+
+    const res = await fetchWithTimeout(authUrl(cfg, 'user'), {
+        method: 'PUT',
+        headers: {
+            'apikey': cfg.anonKey,
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ password: safePassword })
+    }, 8000, { source: 'playerUpdatePassword', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+
+    const payload = await res.json();
+    const next: PlayerSupabaseSession = {
+        ...session,
+        email: String(payload?.user?.email || session.email || '').trim() || null,
+        userId: String(payload?.user?.id || session.userId || '').trim() || null,
+        flowType: 'session',
+    };
+    setPlayerSupabaseSession(next);
+    return next;
 };
 
 export const playerSignOutSupabase = async (): Promise<void> => {
@@ -1167,19 +1265,9 @@ export interface SupabaseAdminAccessResult {
 const resolveSessionUserId = (session: SupabaseSession | null): string | null => {
     const direct = String(session?.userId || '').trim();
     if (direct) return direct;
-    try {
-        const token = String(session?.accessToken || '').trim();
-        if (!token) return null;
-        const parts = token.split('.');
-        if (parts.length < 2) return null;
-        const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const padded = normalized + '==='.slice((normalized.length + 3) % 4);
-        const payload = JSON.parse(atob(padded));
-        const sub = String(payload?.sub || '').trim();
-        return sub || null;
-    } catch {
-        return null;
-    }
+    const payload = decodeJwtPayload(session?.accessToken);
+    const sub = String(payload?.sub || '').trim();
+    return sub || null;
 };
 
 export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessResult> => {

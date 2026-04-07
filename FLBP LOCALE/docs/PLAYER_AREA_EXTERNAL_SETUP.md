@@ -61,6 +61,21 @@ Motivo:
 - senza SMTP custom, Supabase Auth usa il servizio base con forti limiti
 - per utenti pubblici reali non basta
 
+## 2.bis. Template mail reset password
+
+Vai in:
+- `Supabase Dashboard -> Authentication -> Email Templates -> Reset password`
+
+Aggiorna il testo della mail in modo che dica esplicitamente:
+- che e' stato richiesto un recupero password per FLBP
+- che il link va aperto il prima possibile
+- per quanto tempo restera' valido
+- di controllare anche la cartella spam
+
+Importante:
+- il testo sulla durata va mantenuto allineato alla durata reale configurata nel progetto
+- se cambi la durata del link nel dashboard Auth, aggiorna anche la frase dentro la mail
+
 ## 3. Redirect URLs di Auth
 
 Vai in:

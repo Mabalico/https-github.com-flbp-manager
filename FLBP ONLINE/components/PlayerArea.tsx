@@ -31,6 +31,7 @@ import {
   playerSignInWithPassword,
   playerSignOutSupabase,
   playerSignUpWithPassword,
+  playerUpdatePassword,
   pullPlayerAppCalls,
   pullPlayerAppProfile,
   pushPlayerAppProfile,
@@ -141,24 +142,30 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
   const embeddedNativeShell = isEmbeddedNativeShell();
-  const initialLiveSessionPresent = liveBackendEnabled && !!getPlayerSupabaseSession()?.accessToken;
+  const initialStoredSession = liveBackendEnabled ? getPlayerSupabaseSession() : null;
+  const initialLiveSessionPresent = !!initialStoredSession?.accessToken;
+  const initialRecoveryFlow = initialStoredSession?.flowType === 'recovery';
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [authMode, setAuthMode] = React.useState<'login' | 'register'>('login');
   const [emailPanelOpen, setEmailPanelOpen] = React.useState(true);
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
+  const [recoveryPassword, setRecoveryPassword] = React.useState('');
+  const [recoveryPasswordConfirm, setRecoveryPasswordConfirm] = React.useState('');
+  const [showRecoveryPassword, setShowRecoveryPassword] = React.useState(false);
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
   const [birthDate, setBirthDate] = React.useState('');
   const [feedback, setFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
-  const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(null);
+  const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(initialStoredSession);
+  const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
-  const [liveRuntimeArmed, setLiveRuntimeArmed] = React.useState(initialLiveSessionPresent);
+  const [liveRuntimeArmed, setLiveRuntimeArmed] = React.useState(initialLiveSessionPresent && !initialRecoveryFlow);
   const [liveCallRefreshNonce, setLiveCallRefreshNonce] = React.useState(0);
   const [liveCalls, setLiveCalls] = React.useState<ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>[]>([]);
   const [liveRuntimeStatus, setLiveRuntimeStatus] = React.useState<'disabled' | 'loading' | 'ready' | 'backend_pending' | 'error'>(
-    initialLiveSessionPresent ? 'loading' : 'disabled'
+    initialLiveSessionPresent && !initialRecoveryFlow ? 'loading' : 'disabled'
   );
   const [liveRuntimeError, setLiveRuntimeError] = React.useState<string | null>(null);
   const safeSnapshot = React.useMemo(() => buildSafePlayerAreaSnapshot(state, liveBackendEnabled), [liveBackendEnabled, state]);
@@ -374,6 +381,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       const consumed = consumePlayerSupabaseSessionFromUrl();
       if (consumed?.accessToken) {
         setLiveSession(consumed);
+        const flowType = consumed.flowType === 'recovery' ? 'recovery' : 'session';
+        setLiveAuthFlow(flowType);
+        if (flowType === 'recovery') {
+          setLiveRuntimeArmed(false);
+          setLiveRuntimeStatus('disabled');
+          setLiveRuntimeError(null);
+          return;
+        }
         setLiveRuntimeArmed(true);
         void refreshLiveRuntime(consumed);
         return;
@@ -381,13 +396,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
     }
+    if (liveAuthFlow === 'recovery' && liveSession?.accessToken) {
+      setLiveRuntimeStatus('disabled');
+      setLiveRuntimeError(null);
+      return;
+    }
     if (!liveRuntimeArmed) {
       setLiveRuntimeStatus('disabled');
       setLiveRuntimeError(null);
       return;
     }
     void refreshLiveRuntime();
-  }, [liveBackendEnabled, liveRuntimeArmed, refreshLiveRuntime, t]);
+  }, [liveAuthFlow, liveBackendEnabled, liveRuntimeArmed, liveSession?.accessToken, refreshLiveRuntime, t]);
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !liveRuntimeArmed || liveCallRefreshNonce === 0) return;
@@ -609,6 +629,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
           session = await playerSignInWithPassword(safeEmail, safePassword);
         }
 
+        setLiveAuthFlow('session');
         setLiveRuntimeArmed(true);
         setLiveSession(session);
 
@@ -675,10 +696,36 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       return;
     }
     try {
-      await playerRequestPasswordReset(safeEmail, window.location.origin);
+      const resetRedirect = `${window.location.origin}${window.location.pathname}?player_recovery=1`;
+      await playerRequestPasswordReset(safeEmail, resetRedirect);
       setFeedback({ tone: 'success', message: t('player_area_password_reset_sent') });
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_password_reset_pending')) });
+    }
+  };
+
+  const submitRecoveryPassword = async () => {
+    const safePassword = recoveryPassword.trim();
+    const safeConfirm = recoveryPasswordConfirm.trim();
+    if (!safePassword) {
+      setFeedback({ tone: 'error', message: t('player_area_recovery_password_required') });
+      return;
+    }
+    if (safePassword !== safeConfirm) {
+      setFeedback({ tone: 'error', message: t('player_area_recovery_password_mismatch') });
+      return;
+    }
+    try {
+      const session = await playerUpdatePassword(safePassword);
+      setRecoveryPassword('');
+      setRecoveryPasswordConfirm('');
+      setLiveAuthFlow('session');
+      setLiveRuntimeArmed(true);
+      setLiveSession(session);
+      await refreshLiveRuntime(session);
+      setFeedback({ tone: 'success', message: t('player_area_recovery_password_success') });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_recovery_password_error')) });
     }
   };
 
@@ -754,6 +801,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       void playerSignOutSupabase().catch(() => {
         // best effort only
       });
+      setLiveAuthFlow('session');
       return;
     }
     signOutPlayerPreviewSession();
@@ -989,6 +1037,69 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                         <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
                       </button>
                     </form>
+                </div>
+              </div>
+            ) : liveAuthFlow === 'recovery' ? (
+              <div className="mx-auto max-w-xl [overflow-anchor:none]">
+                <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60 md:p-6 space-y-5">
+                  <div className="text-center">
+                    <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_recovery_title')}</div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                      {t('player_area_recovery_desc')}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_recovery_new_password')}</div>
+                      <div className="relative">
+                        <input
+                          type={showRecoveryPassword ? 'text' : 'password'}
+                          name="player-recovery-password"
+                          autoComplete="new-password"
+                          data-lpignore="true"
+                          data-1p-ignore="true"
+                          value={recoveryPassword}
+                          onChange={(event) => setRecoveryPassword(event.target.value)}
+                          className={`${inputClass} pr-12`}
+                          placeholder={t('player_area_recovery_new_password_placeholder')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRecoveryPassword((value) => !value)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 transition hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                          aria-label={showRecoveryPassword ? t('player_area_hide_password') : t('player_area_show_password')}
+                          title={showRecoveryPassword ? t('player_area_hide_password') : t('player_area_show_password')}
+                        >
+                          {showRecoveryPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_recovery_confirm_password')}</div>
+                      <input
+                        type={showRecoveryPassword ? 'text' : 'password'}
+                        name="player-recovery-password-confirm"
+                        autoComplete="new-password"
+                        data-lpignore="true"
+                        data-1p-ignore="true"
+                        value={recoveryPasswordConfirm}
+                        onChange={(event) => setRecoveryPasswordConfirm(event.target.value)}
+                        className={inputClass}
+                        placeholder={t('player_area_recovery_confirm_password_placeholder')}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" onClick={() => void submitRecoveryPassword()} className={btnPrimary}>
+                      <BadgeCheck className="h-4 w-4" /> {t('player_area_recovery_apply_password')}
+                    </button>
+                    <button type="button" onClick={() => void signOut()} className={btnSecondary}>
+                      <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : liveProfileHydrating ? (
