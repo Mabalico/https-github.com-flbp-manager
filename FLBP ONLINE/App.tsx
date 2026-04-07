@@ -5,7 +5,8 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { clearPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullWorkspaceState } from './services/supabaseRest';
+import { clearPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullWorkspaceState } from './services/supabaseRest';
+import { PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerPresenceSnapshot } from './services/playerAppService';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -204,6 +205,41 @@ const coerceLoadedAppState = async (raw: unknown): Promise<AppState> => coerceAp
 
 const App: React.FC = () => {
     const repo = React.useMemo(() => getAppStateRepository(), []);
+    const readPlayerPresenceState = useCallback((): PlayerPresenceSnapshot | null => {
+        const cached = readPlayerPresenceSnapshot();
+        if (cached?.accountId) return cached;
+
+        const liveSession = getPlayerSupabaseSession();
+        if (liveSession?.userId || liveSession?.email) {
+            const email = String(liveSession.email || '').trim();
+            const fallbackName = email.split('@')[0]?.trim() || 'Profilo';
+            return {
+                accountId: String(liveSession.userId || email || 'player-live'),
+                mode: 'live',
+                email,
+                firstName: fallbackName,
+                displayName: fallbackName,
+                lastActiveAt: Date.now(),
+            };
+        }
+
+        const previewSession = readPlayerPreviewSession();
+        if (previewSession?.accountId) {
+            const email = String(previewSession.username || '').trim();
+            const fallbackName = email.split('@')[0]?.trim() || 'Profilo';
+            return {
+                accountId: previewSession.accountId,
+                mode: 'preview',
+                email,
+                firstName: fallbackName,
+                displayName: fallbackName,
+                lastActiveAt: previewSession.lastActiveAt || Date.now(),
+            };
+        }
+
+        return null;
+    }, []);
+
     const [state, setState] = useState<AppState>(() => repo.load());
     const remoteAppliedRef = useRef(false);
     const remoteBootstrapRanRef = useRef(false);
@@ -250,8 +286,19 @@ const App: React.FC = () => {
     const [translationDictionaries, setTranslationDictionaries] = useState<Partial<Record<Language, TranslationDictionary>>>(() => translations);
     const [selectedTournament, setSelectedTournament] = useState<{ data: TournamentData, isLive: boolean } | null>(null);
     const [helpGuideReady, setHelpGuideReady] = useState(false);
+    const [playerPresence, setPlayerPresence] = useState<PlayerPresenceSnapshot | null>(() => readPlayerPresenceState());
 
     const routeNavigationRequestRef = useRef(0);
+
+    useEffect(() => {
+        const handler = () => setPlayerPresence(readPlayerPresenceState());
+        window.addEventListener('storage', handler);
+        window.addEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
+        return () => {
+            window.removeEventListener('storage', handler);
+            window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
+        };
+    }, [readPlayerPresenceState]);
 
     const preloadViewChunk = useCallback((nextViewRaw: string) => {
         const nextView = safeView(nextViewRaw);
@@ -1189,6 +1236,10 @@ const App: React.FC = () => {
             : 'text-white/80 border-transparent hover:bg-white/5 hover:text-white'}`;
     };
 
+    const playerNavLabel = playerPresence
+        ? `${playerPresence.firstName || playerPresence.displayName || 'Profilo'} · ${t('logout')}`
+        : t('player_area_sign_in');
+
 
     return (
         <LanguageContext.Provider value={language}>
@@ -1388,6 +1439,20 @@ const App: React.FC = () => {
                             ) : null}
 
                             <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => { void navigateToView('player_area'); }}
+                                    onMouseEnter={() => primeViewChunk('player_area')}
+                                    onFocus={() => primeViewChunk('player_area')}
+                                    className={isPublicView
+                                        ? "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-white/10 bg-white/10 text-white hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
+                                        : "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
+                                    title={t('player_area')}
+                                >
+                                    <UserRound className="w-4 h-4" aria-hidden />
+                                    <span className="max-w-[42vw] truncate">{playerNavLabel}</span>
+                                </button>
+
                                 {isToolsView ? (
                                     <button
                                         type="button"

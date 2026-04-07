@@ -48,6 +48,14 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - popola la quinta sezione `Gestione dati -> Account giocatori`
   - rende interrogabile da Admin l'elenco unificato account / provider / profilo giocatore collegato
 
+### Player account admin delete edge function
+- file: `supabase/functions/player-account-admin/index.ts`
+- stato: deployata sul Supabase online il `2026-04-07`
+- scopo:
+  - consente ad Admin di eliminare account giocatore live in modo protetto
+  - cancella profilo collegato, registrazioni device e chiamate collegate prima della rimozione auth
+  - blocca l'eliminazione di account admin protetti
+
 ## Preparata nel repo ma non ancora applicata
 
 - nessuna migration additiva residua su questo blocco `referees/player/accounts`
@@ -76,6 +84,27 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 - Android / iOS `referees_area`
   - dopo il check password reale possono ora usare anche loro il `pull live state` additivo
   - restano compatibili se il runtime native non usa ancora il percorso completo
+
+## Update batch `2026-04-07` gia' chiuso nel repo
+
+- area giocatore web/pages
+  - input password con mostra/nascondi
+  - input data nascita con maschera `gg/mm/aaaa` + calendario
+  - niente flash dei campi profilo provvisori mentre il profilo live si carica
+  - niente errore browser su `player_app_devices`: il browser non registra device push, lo fanno solo le shell native
+  - bottone header player/login piu' leggibile anche su mobile
+- gestione account registrati
+  - ultimo accesso mostrato come data assoluta + relativo
+  - cancellazione account preview/live pronta lato UI
+  - cancellazione live ora supportata dalla funzione Edge `player-account-admin`
+- gestione DB online
+  - `Forza sovrascrittura` resa visibile nella scheda Snapshot
+  - conflitto DB spiegato meglio con percorso guidato `Ricarica dal DB -> Applica questo download`
+- i18n
+  - tutti i dizionari non italiani rigenerati e riallineati a `it.ts`
+  - controllo `check:i18n` rinforzato per beccare mojibake e mismatch strutturali
+- regola da ricordare
+  - le differenze intenzionali browser/native vanno annotate: esempio attuale `player_app_devices` resta solo per Android/iOS, non per il browser web
 
 ## Push reale ora cablato nel repo
 

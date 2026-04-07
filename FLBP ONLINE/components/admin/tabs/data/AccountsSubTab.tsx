@@ -1,15 +1,17 @@
 import React from 'react';
 import type { AppState } from '../../../../services/storageService';
+import { BirthDateInput } from '../../BirthDateInput';
 import { formatBirthDateDisplay } from '../../../../services/playerIdentity';
 import {
   PLAYER_APP_CHANGE_EVENT,
   buildPlayerAccountAdminRowFromLive,
   buildPlayerCanonicalIdentity,
+  deletePlayerPreviewAccountAdmin,
   listPlayerPreviewAccountsAdminRows,
   updatePlayerPreviewAccountAdmin,
   type PlayerAccountAdminOrigin,
 } from '../../../../services/playerAppService';
-import { playerRequestPasswordReset, pullAdminPlayerAccounts, pushAdminPlayerAppProfile } from '../../../../services/supabaseRest';
+import { deleteAdminPlayerAccount, playerRequestPasswordReset, pullAdminPlayerAccounts, pushAdminPlayerAppProfile } from '../../../../services/supabaseRest';
 
 interface AccountsSubTabProps {
   state: AppState;
@@ -35,6 +37,22 @@ const formatDateTime = (value?: number) => {
   } catch {
     return 'ND';
   }
+};
+
+const formatRelativeAccess = (value?: number) => {
+  if (!value) return 'mai';
+  const delta = value - Date.now();
+  const minutes = Math.round(delta / (1000 * 60));
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  if (Math.abs(minutes) < 60) return rtf.format(minutes, 'minute');
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return rtf.format(hours, 'hour');
+  const days = Math.round(hours / 24);
+  if (Math.abs(days) < 30) return rtf.format(days, 'day');
+  const months = Math.round(days / 30);
+  if (Math.abs(months) < 12) return rtf.format(months, 'month');
+  const years = Math.round(months / 12);
+  return rtf.format(years, 'year');
 };
 
 const originLabel = (t: AccountsSubTabProps['t'], origin: AccountFilter) => {
@@ -203,6 +221,29 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
     }
   };
 
+  const deleteSelected = async () => {
+    if (!selectedRow) return;
+    const confirmed = window.confirm(
+      selectedRow.mode === 'live'
+        ? t('data_accounts_delete_confirm_live').replace('{email}', selectedRow.email || selectedRow.id)
+        : t('data_accounts_delete_confirm_preview').replace('{email}', selectedRow.email || selectedRow.id)
+    );
+    if (!confirmed) return;
+
+    try {
+      if (selectedRow.mode === 'live') {
+        await deleteAdminPlayerAccount({ userId: selectedRow.id });
+      } else {
+        deletePlayerPreviewAccountAdmin(selectedRow.id);
+      }
+      setFeedback({ tone: 'success', message: t('data_accounts_delete_done') });
+      setSelectedId('');
+      setRefreshNonce((value) => value + 1);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className={cardClass}>
@@ -365,14 +406,24 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
 
               <div>
                 <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
-                <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
+                <BirthDateInput
+                  value={birthDate}
+                  onChange={setBirthDate}
+                  className={inputClass}
+                  placeholder="gg/mm/aaaa"
+                  ariaLabel={t('birth_date')}
+                  calendarTitle={t('player_area_open_calendar')}
+                />
               </div>
 
               <div className="grid gap-3 text-sm font-semibold text-slate-600">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <div>{t('data_accounts_linked_player')}: <span className="font-black text-slate-900">{selectedRow.linkedPlayerName || t('data_accounts_no_player')}</span></div>
                   <div className="mt-1">{t('data_accounts_created')}: <span className="font-black text-slate-900">{formatDateTime(selectedRow.createdAt)}</span></div>
-                  <div className="mt-1">{t('data_accounts_last_login')}: <span className="font-black text-slate-900">{formatDateTime(selectedRow.lastLoginAt)}</span></div>
+                  <div className="mt-1">
+                    {t('data_accounts_last_login')}: <span className="font-black text-slate-900">{formatDateTime(selectedRow.lastLoginAt)}</span>
+                    <span className="ml-2 text-xs font-bold text-slate-500">({formatRelativeAccess(selectedRow.lastLoginAt)})</span>
+                  </div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <div>{t('titles')}: <span className="font-black text-slate-900">{selectedRow.totalTitles}</span></div>
@@ -408,6 +459,13 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
                   title={selectedRow.hasPasswordRecovery ? undefined : t('data_accounts_reset_password_disabled')}
                 >
                   {t('data_accounts_reset_password')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteSelected()}
+                  className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-black text-rose-700 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+                >
+                  {t('data_accounts_delete')}
                 </button>
               </div>
 

@@ -11,6 +11,7 @@ const PREVIEW_ACCOUNTS_KEY = 'flbp_player_preview_accounts_v1';
 const PREVIEW_SESSION_KEY = 'flbp_player_preview_session_v1';
 const PREVIEW_PROFILES_KEY = 'flbp_player_preview_profiles_v1';
 const PREVIEW_CALLS_KEY = 'flbp_player_preview_calls_v1';
+const PLAYER_PRESENCE_KEY = 'flbp_player_presence_v1';
 export const PLAYER_APP_CHANGE_EVENT = 'flbp-player-preview-change';
 
 export type PlayerAuthProvider =
@@ -108,6 +109,15 @@ export interface PlayerCallRequest {
   previewOnly: boolean;
 }
 
+export interface PlayerPresenceSnapshot {
+  accountId: string;
+  mode: 'preview' | 'live';
+  email: string;
+  firstName: string;
+  displayName: string;
+  lastActiveAt: number;
+}
+
 export interface PlayerFeatureStatus {
   previewEnabled: boolean;
   supabaseConfigured: boolean;
@@ -151,6 +161,21 @@ const nowTs = () => Date.now();
 const PREVIEW_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 const normalizePlayerPreviewEmail = (raw: string) => String(raw || '').trim().toLowerCase();
+
+const toDisplayFirstName = (raw: string, email?: string | null) => {
+  const safeRaw = String(raw || '').trim();
+  if (safeRaw) return safeRaw.split(/\s+/)[0] || safeRaw;
+  const localPart = String(email || '').trim().split('@')[0] || '';
+  if (!localPart) return '';
+  return localPart
+    .replace(/[._-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(' ')
+    .split(/\s+/)[0] || '';
+};
 
 const ensurePlayerPreviewEmail = (raw: string) => {
   const email = normalizePlayerPreviewEmail(raw);
@@ -366,8 +391,61 @@ const writePlayerPreviewSession = (session: PlayerPreviewSession | null) => {
   }
 };
 
+export const readPlayerPresenceSnapshot = (): PlayerPresenceSnapshot | null => {
+  try {
+    const raw = safeParse<PlayerPresenceSnapshot | null>(localStorage.getItem(PLAYER_PRESENCE_KEY), null);
+    if (!raw?.accountId || !raw.mode) return null;
+    return {
+      accountId: String(raw.accountId || '').trim(),
+      mode: raw.mode === 'live' ? 'live' : 'preview',
+      email: String(raw.email || '').trim(),
+      firstName: String(raw.firstName || '').trim(),
+      displayName: String(raw.displayName || '').trim(),
+      lastActiveAt: Number(raw.lastActiveAt || 0) || nowTs(),
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const writePlayerPresenceSnapshot = (input: {
+  accountId: string;
+  mode: 'preview' | 'live';
+  email?: string | null;
+  firstName?: string | null;
+}) => {
+  const accountId = String(input.accountId || '').trim();
+  if (!accountId) return;
+  const email = normalizePlayerPreviewEmail(input.email || '');
+  const firstName = toDisplayFirstName(String(input.firstName || '').trim(), email);
+  const next: PlayerPresenceSnapshot = {
+    accountId,
+    mode: input.mode === 'live' ? 'live' : 'preview',
+    email,
+    firstName,
+    displayName: firstName || email || 'Profilo',
+    lastActiveAt: nowTs(),
+  };
+  try {
+    localStorage.setItem(PLAYER_PRESENCE_KEY, JSON.stringify(next));
+    emitPlayerAppChange();
+  } catch {
+    // ignore
+  }
+};
+
+export const clearPlayerPresenceSnapshot = () => {
+  try {
+    localStorage.removeItem(PLAYER_PRESENCE_KEY);
+    emitPlayerAppChange();
+  } catch {
+    // ignore
+  }
+};
+
 export const signOutPlayerPreviewSession = () => {
   writePlayerPreviewSession(null);
+  clearPlayerPresenceSnapshot();
 };
 
 export const registerPlayerPreviewAccount = (usernameRaw: string, passwordRaw: string): PlayerPreviewSession => {
@@ -874,6 +952,34 @@ export const updatePlayerPreviewAccountAdmin = (
   }
 
   return nextAccount;
+};
+
+export const deletePlayerPreviewAccountAdmin = (accountIdRaw: string): PlayerPreviewAccount => {
+  const accountId = String(accountIdRaw || '').trim();
+  if (!accountId) throw new Error('Account non valido.');
+
+  const accounts = readPreviewAccounts();
+  const current = accounts.find((row) => row.id === accountId);
+  if (!current) throw new Error('Account preview non trovato.');
+
+  writePreviewAccounts(accounts.filter((row) => row.id !== accountId));
+
+  const profiles = readPreviewProfilesMap();
+  if (profiles[accountId]) {
+    delete profiles[accountId];
+    writePreviewProfilesMap(profiles);
+  }
+
+  const nextCalls = readPreviewCalls().filter((row) => row.targetAccountId !== accountId);
+  writePreviewCalls(nextCalls);
+
+  const currentSession = readPlayerPreviewSession();
+  if (currentSession?.accountId === accountId) {
+    writePlayerPreviewSession(null);
+    clearPlayerPresenceSnapshot();
+  }
+
+  return current;
 };
 
 export type PlayerCallAdminNoteKind =

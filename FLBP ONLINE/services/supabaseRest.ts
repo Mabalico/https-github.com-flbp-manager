@@ -1080,6 +1080,33 @@ export const pushAdminPlayerAppProfile = async (input: {
     return rows[0] as PlayerSupabaseProfileRow;
 };
 
+export const deleteAdminPlayerAccount = async (input: {
+    userId: string;
+    workspaceId?: string | null;
+}): Promise<{ ok: boolean; deletedUserId: string }> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const safeUserId = String(input.userId || '').trim();
+    if (!safeUserId) throw new Error('Utente player non valido.');
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action: 'delete',
+                userId: safeUserId,
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+            }),
+        },
+        8000,
+        { source: 'deleteAdminPlayerAccount', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as { ok: boolean; deletedUserId: string };
+};
+
 export const pullAdminPlayerCallTargets = async (canonicalPlayerIds: string[]): Promise<PlayerSupabaseProfileRow[]> => {
     const cfg = getSupabaseConfig();
     const session = await requireSupabaseWriteSession();

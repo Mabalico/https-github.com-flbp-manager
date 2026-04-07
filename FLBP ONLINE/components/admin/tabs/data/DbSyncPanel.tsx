@@ -446,6 +446,27 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                 </div>
             </div>
 
+            {diag.lastConflictAt || diag.lastConflictMessage ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
+                    <div className="font-black">Conflitto DB rilevato</div>
+                    <div className="mt-2 space-y-1 font-semibold leading-6">
+                        <div>
+                            Ultimo conflitto: <span className="font-mono">{diag.lastConflictAt || '—'}</span>
+                        </div>
+                        {diag.lastConflictMessage ? (
+                            <div className="font-mono text-xs break-words">{diag.lastConflictMessage}</div>
+                        ) : null}
+                        <div>
+                            Percorso consigliato: <span className="font-black">“Ricarica dal DB” → “Applica questo download”</span>.
+                            Usa <span className="font-black">“Forza sovrascrittura”</span> solo se vuoi davvero imporre lo snapshot di questo device.
+                        </div>
+                        <div className="text-xs text-amber-800">
+                            Nota: account giocatore, login e profili Auth live non richiedono “Forza sovrascrittura” dello snapshot del torneo.
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <div className="space-y-3">
                     <div className="bg-white border border-slate-200 rounded-2xl p-3">
@@ -583,17 +604,14 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                             </div>
                         </summary>
                         <div className="mt-3 space-y-3">
-                            <label className="flex items-center gap-2 text-xs text-slate-700">
-                                <input
-                                    type="checkbox"
-                                    checked={forceOverwrite}
-                                    onChange={(e) => setForceOverwrite(e.target.checked)}
-                                    className="accent-slate-900"
-                                />
-                                Sovrascrivi il DB (solo recovery)
-                            </label>
-                            <div className="text-[11px] text-amber-700">
-                                Le modifiche locali restano gia&apos; in coda su questo device quando il DB segnala un conflitto. Attiva questa opzione solo se vuoi davvero imporre lo snapshot di questo device al posto di quello remoto corrente.
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                                <div className="font-black">Forza sovrascrittura</div>
+                                <div className="mt-1">
+                                    Ora si gestisce direttamente nella scheda <span className="font-black">Snapshot</span> qui sotto, accanto ai pulsanti di pubblicazione e recovery.
+                                </div>
+                                <div className="mt-1 text-slate-500">
+                                    Stato attuale: <span className="font-black">{forceOverwrite ? 'attiva' : 'disattiva'}</span>
+                                </div>
                             </div>
                             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
                                 <div className="text-xs font-black">Migrazione guidata (prima configurazione)</div>
@@ -614,6 +632,18 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                         <div className="text-xs text-slate-600 mt-1">
                             Strumenti manuali sullo snapshot completo del workspace. In uso normale il pull dal DB avviene da solo.
                         </div>
+                        <label className="mt-3 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                            <input
+                                type="checkbox"
+                                checked={forceOverwrite}
+                                onChange={(e) => setForceOverwrite(e.target.checked)}
+                                className="mt-0.5 accent-slate-900"
+                            />
+                            <span className="leading-5">
+                                <span className="block font-black">Forza sovrascrittura del DB</span>
+                                Attivala solo per imporre lo snapshot di questo device sopra quello remoto corrente. Per il percorso normale usa prima “Ricarica dal DB” e poi “Applica questo download”.
+                            </span>
+                        </label>
                         <div className="flex items-center gap-2 flex-wrap mt-3">
                             <button
                                 disabled={isBusy || !cfg}
@@ -752,7 +782,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 <div className="space-y-1">
                                     <div className="text-amber-800">Ultimo conflitto: <span className="font-mono">{diag.lastConflictAt || ''}</span> {diag.lastConflictMessage ? `— ${diag.lastConflictMessage}` : ''}</div>
                                     <div className="text-amber-700">
-                                        Le modifiche di questo device non sono perse: restano in coda locale finche&apos; non risolvi il conflitto. Percorso consigliato: “Ricarica dal DB” → “Applica questo download” → ripeti solo le modifiche che vuoi mantenere.
+                                        Le modifiche di questo device non sono perse: restano in coda locale finche&apos; non risolvi il conflitto. Percorso consigliato: “Ricarica dal DB” → “Applica questo download” → ripeti solo le modifiche che vuoi mantenere. “Forza sovrascrittura” è visibile nella scheda Snapshot.
                                     </div>
                                 </div>
                             ) : null}

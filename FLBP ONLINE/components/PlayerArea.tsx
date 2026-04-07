@@ -2,6 +2,8 @@ import React from 'react';
 import {
   BadgeCheck,
   BellRing,
+  Eye,
+  EyeOff,
   Facebook,
   LoaderCircle,
   LogIn,
@@ -15,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
+import { BirthDateInput } from './admin/BirthDateInput';
 import { formatBirthDateDisplay } from '../services/playerIdentity';
 import type { PlayerSupabaseProfileRow, PlayerSupabaseSession, PlayerSupabaseSignUpResult } from '../services/supabaseRest';
 import {
@@ -40,6 +43,7 @@ import {
   buildPlayerRuntimeProfileSnapshot,
   buildPlayerRuntimeSessionFromSupabase,
   clearPlayerPreviewCall,
+  clearPlayerPresenceSnapshot,
   derivePlayerLiveStatus,
   getPlayerPreviewIdentityLabel,
   mapSupabaseCallRowToPlayerCallRequest,
@@ -49,6 +53,7 @@ import {
   savePlayerPreviewProfile,
   toPlayerRuntimeProfile,
   PLAYER_APP_CHANGE_EVENT,
+  writePlayerPresenceSnapshot,
 } from '../services/playerAppService';
 import { getMatchParticipantIds } from '../services/matchUtils';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
@@ -70,7 +75,7 @@ const cardClass = 'rounded-[26px] border border-slate-200 bg-white shadow-sm sha
 const sectionTitleClass = 'text-lg font-black text-slate-950';
 const metricCardClass = 'rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3';
 const inputClass =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2';
+  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 [overflow-anchor:none]';
 const btnBase =
   'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400';
 const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500`;
@@ -142,6 +147,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const [emailPanelOpen, setEmailPanelOpen] = React.useState(true);
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
   const [birthDate, setBirthDate] = React.useState('');
@@ -413,6 +419,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const previewRuntimeProfile = React.useMemo(() => toPlayerRuntimeProfile(snapshot.profile), [snapshot.profile]);
   const effectiveSession = liveRuntimeSession || snapshot.session;
   const effectiveProfile = liveRuntimeSession ? liveRuntimeProfile : previewRuntimeProfile;
+  const liveProfileHydrating = !!liveRuntimeSession && liveRuntimeStatus === 'loading';
   const activeLiveCall = React.useMemo(
     () =>
       [...liveCalls]
@@ -462,6 +469,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const effectiveLiveStatus = liveRuntimeSession
     ? (liveDerivedStatus || safeSnapshot.liveStatus)
     : snapshot.liveStatus;
+  const showBootstrapNotice = (bootstrapPending || liveDerivedPending) && !!effectiveSession;
   const effectiveFeatureStatus = React.useMemo(() => ({
     ...snapshot.featureStatus,
     supabaseConfigured: liveBackendEnabled,
@@ -511,6 +519,26 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     setLastName(effectiveProfile.lastName);
     setBirthDate(formatBirthDateDisplay(effectiveProfile.birthDate));
   }, [effectiveProfile?.accountId, effectiveProfile?.birthDate, effectiveProfile?.firstName, effectiveProfile?.lastName]);
+
+  React.useEffect(() => {
+    if (!effectiveSession) {
+      clearPlayerPresenceSnapshot();
+      return;
+    }
+    writePlayerPresenceSnapshot({
+      accountId: effectiveSession.accountId,
+      mode: effectiveSession.mode,
+      email: effectiveSession.username,
+      firstName: effectiveProfile?.firstName || liveProfileRow?.first_name || firstName,
+    });
+  }, [
+    effectiveProfile?.firstName,
+    effectiveSession?.accountId,
+    effectiveSession?.mode,
+    effectiveSession?.username,
+    firstName,
+    liveProfileRow?.first_name,
+  ]);
 
   const linkedMatchLabel = React.useMemo(() => {
     const match = effectiveLiveStatus.nextMatch;
@@ -713,6 +741,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   };
 
   const signOut = async () => {
+    clearPlayerPresenceSnapshot();
     if (effectiveSession?.mode === 'live') {
       liveRuntimeRequestRef.current += 1;
       setLiveRuntimeArmed(false);
@@ -770,7 +799,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
               </div>
             ) : null}
 
-            {bootstrapPending || liveDerivedPending ? (
+            {showBootstrapNotice ? (
               <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
                 Sto preparando l'area giocatore senza bloccare l'interfaccia.
               </div>
@@ -789,7 +818,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
             ) : null}
 
             {!effectiveSession ? (
-              <div className="mx-auto max-w-xl">
+              <div className="mx-auto max-w-xl [overflow-anchor:none]">
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60 md:p-6">
                   <div className="text-center">
                     <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_login_title')}</div>
@@ -843,7 +872,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                     {socialPendingNote}
                   </div>
 
-                  <div className={`mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:block md:p-5 space-y-4 ${emailPanelOpen ? 'block' : 'hidden'}`}>
+                  <form
+                    autoComplete="on"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    className={`mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:block md:p-5 space-y-4 [overflow-anchor:none] ${emailPanelOpen ? 'block' : 'hidden'}`}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitAuth();
+                    }}
+                  >
                       <div className="flex gap-2">
                         <button type="button" onClick={() => setAuthMode('login')} className={authMode === 'login' ? btnPrimary : btnSecondary}>
                           <LogIn className="h-4 w-4" /> {t('player_area_sign_in')}
@@ -860,34 +898,89 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                       <div className="space-y-3">
                         <div>
                           <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</div>
-                          <input type="email" inputMode="email" autoComplete="email" spellCheck={false} value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} placeholder={t('player_area_email_placeholder')} />
+                          <input
+                            type="email"
+                            name="player-email"
+                            inputMode="email"
+                            autoComplete="email"
+                            autoCapitalize="none"
+                            spellCheck={false}
+                            data-lpignore="true"
+                            data-1p-ignore="true"
+                            value={email}
+                            onChange={(event) => setEmail(event.target.value)}
+                            className={inputClass}
+                            placeholder={t('player_area_email_placeholder')}
+                          />
                         </div>
                         <div>
                           <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_password')}</div>
-                          <input type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} placeholder={t('player_area_password_placeholder')} />
+                          <div className="relative">
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              name="player-password"
+                              autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                              data-lpignore="true"
+                              data-1p-ignore="true"
+                              value={password}
+                              onChange={(event) => setPassword(event.target.value)}
+                              className={`${inputClass} pr-12`}
+                              placeholder={t('player_area_password_placeholder')}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassword((value) => !value)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 transition hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                              aria-label={showPassword ? t('player_area_hide_password') : t('player_area_show_password')}
+                              title={showPassword ? t('player_area_hide_password') : t('player_area_show_password')}
+                            >
+                              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
                         </div>
                         {authMode === 'register' ? (
                           <>
                             <div className="grid gap-3 md:grid-cols-2">
                               <div>
                                 <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
-                                <input autoComplete="given-name" value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} placeholder={t('player_area_first_name_placeholder')} />
+                                <input
+                                  name="player-first-name"
+                                  autoComplete="given-name"
+                                  value={firstName}
+                                  onChange={(event) => setFirstName(event.target.value)}
+                                  className={inputClass}
+                                  placeholder={t('player_area_first_name_placeholder')}
+                                />
                               </div>
                               <div>
                                 <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
-                                <input autoComplete="family-name" value={lastName} onChange={(event) => setLastName(event.target.value)} className={inputClass} placeholder={t('player_area_last_name_placeholder')} />
+                                <input
+                                  name="player-last-name"
+                                  autoComplete="family-name"
+                                  value={lastName}
+                                  onChange={(event) => setLastName(event.target.value)}
+                                  className={inputClass}
+                                  placeholder={t('player_area_last_name_placeholder')}
+                                />
                               </div>
                             </div>
                             <div>
                               <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
-                              <input inputMode="numeric" autoComplete="bday" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
+                              <BirthDateInput
+                                value={birthDate}
+                                onChange={setBirthDate}
+                                className={inputClass}
+                                placeholder="gg/mm/aaaa"
+                                ariaLabel={t('birth_date')}
+                                calendarTitle={t('player_area_open_calendar')}
+                              />
                               <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
                             </div>
                           </>
                         ) : null}
                       </div>
 
-                      <button type="button" onClick={submitAuth} className={`${btnPrimary} w-full`}>
+                      <button type="submit" className={`${btnPrimary} w-full`}>
                         {authMode === 'login' ? <LogIn className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
                         {authMode === 'login' ? t('player_area_sign_in') : t('player_area_register')}
                       </button>
@@ -895,8 +988,22 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                       <button type="button" onClick={() => void requestPasswordReset()} className={`${btnSecondary} w-full`}>
                         <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
                       </button>
-                    </div>
+                    </form>
                 </div>
+              </div>
+            ) : liveProfileHydrating ? (
+              <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
+                <div>
+                  <div className={sectionTitleClass}>{t('player_area_loading_profile_title')}</div>
+                  <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+                    {t('player_area_loading_profile_desc')}
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
+                  <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
+                </div>
+                <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
               </div>
             ) : !effectiveProfile ? (
               <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
@@ -910,17 +1017,38 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
-                    <input value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} placeholder={t('player_area_first_name_placeholder')} />
+                    <input
+                      name="player-profile-first-name"
+                      autoComplete="given-name"
+                      value={firstName}
+                      onChange={(event) => setFirstName(event.target.value)}
+                      className={inputClass}
+                      placeholder={t('player_area_first_name_placeholder')}
+                    />
                   </div>
                   <div>
                     <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
-                    <input value={lastName} onChange={(event) => setLastName(event.target.value)} className={inputClass} placeholder={t('player_area_last_name_placeholder')} />
+                    <input
+                      name="player-profile-last-name"
+                      autoComplete="family-name"
+                      value={lastName}
+                      onChange={(event) => setLastName(event.target.value)}
+                      className={inputClass}
+                      placeholder={t('player_area_last_name_placeholder')}
+                    />
                   </div>
                 </div>
 
                 <div>
                   <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
-                  <input value={birthDate} onChange={(event) => setBirthDate(event.target.value)} className={inputClass} placeholder="gg/mm/aaaa" />
+                  <BirthDateInput
+                    value={birthDate}
+                    onChange={setBirthDate}
+                    className={inputClass}
+                    placeholder="gg/mm/aaaa"
+                    ariaLabel={t('birth_date')}
+                    calendarTitle={t('player_area_open_calendar')}
+                  />
                   <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
                 </div>
 
