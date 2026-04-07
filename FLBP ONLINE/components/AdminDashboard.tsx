@@ -87,6 +87,9 @@ const clearAdminSessionNavKeys = () => {
     }
 };
 
+const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
+const ADMIN_LEGACY_BOOTSTRAP_PASSWORD = 'Giobotta@flbp';
+
 const getTodayInputDate = () => {
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -302,6 +305,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const supabaseConfig = useMemo(() => getSupabaseConfig(), []);
     const adminToolsMenuRef = useRef<HTMLDetailsElement | null>(null);
     const [authed, setAuthed] = useState<boolean>(false);
+    const [adminAuthMode, setAdminAuthMode] = useState<'none' | 'supabase' | 'legacy'>(() => {
+        return safeSessionGet(ADMIN_LEGACY_AUTH_LS_KEY) === '1' ? 'legacy' : 'none';
+    });
     const [adminAuthEmailInput, setAdminAuthEmailInput] = useState<string>(() => initialSupabaseSession?.email || getConfiguredAdminEmail());
     const [adminAuthPasswordInput, setAdminAuthPasswordInput] = useState<string>('');
     const [supabaseEmail, setSupabaseEmail] = useState<string | null>(() => {
@@ -412,6 +418,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             }
 
             if (!session?.accessToken) {
+                if (adminAuthMode === 'legacy') {
+                    setAuthed(true);
+                    setAdminAuthError('');
+                    setSupabaseEmail(getConfiguredAdminEmail());
+                    setAdminAuthEmailInput((prev) => prev.trim() || getConfiguredAdminEmail());
+                    setAdminSessionChecking(false);
+                    return;
+                }
                 setAuthed(false);
                 setAdminSessionChecking(false);
                 return;
@@ -425,6 +439,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 if (access.ok) {
                     const resolvedEmail = access.email || nextEmail || getConfiguredAdminEmail();
                     setAuthed(true);
+                    setAdminAuthMode('supabase');
+                    safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
                     setSupabaseEmail(resolvedEmail);
                     setAdminAuthError('');
                     setAdminAuthEmailInput(resolvedEmail);
@@ -434,9 +450,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 if (isFatalAdminAccessFailure(access.reason)) {
                     await signOutSupabase();
                     if (!alive) return;
-                    setAuthed(false);
-                    setSupabaseEmail(null);
-                    setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
+                    if (adminAuthMode === 'legacy') {
+                        setAuthed(true);
+                        setSupabaseEmail(getConfiguredAdminEmail());
+                        setAdminAuthError('');
+                    } else {
+                        setAuthed(false);
+                        setSupabaseEmail(null);
+                        setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
+                    }
                 }
             } catch {
                 // Keep the last known auth state if the network is temporarily unavailable.
@@ -459,7 +481,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [isFatalAdminAccessFailure]);
+    }, [adminAuthMode, isFatalAdminAccessFailure]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');
@@ -3063,7 +3085,9 @@ while (guard < 5000) {
 
     const performAdminLogout = async (reload: boolean = true) => {
         await signOutSupabase();
+        safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
         setAuthed(false);
+        setAdminAuthMode('none');
         setSupabaseEmail(null);
         setAdminAuthError('');
         setAdminAuthPasswordInput('');
@@ -3077,31 +3101,61 @@ while (guard < 5000) {
             setAdminAuthError('');
 
             try {
-                if (!supabaseConfig) {
-                    throw new Error(t('db_supabase_not_configured'));
-                }
                 if (!adminAuthEmailInput.trim()) {
                     throw new Error(t('admin_supabase_email_label'));
                 }
                 if (!adminAuthPasswordInput.trim()) {
                     throw new Error(t('admin_enter_valid_password'));
                 }
-                const result = await signInWithPassword(adminAuthEmailInput, adminAuthPasswordInput);
-                const access = await ensureSupabaseAdminAccess();
-                if (!access.ok) {
-                    await signOutSupabase();
-                    const reason = access.reason || t('admin_access_not_authorized');
-                    throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+
+                const normalizedEmail = adminAuthEmailInput.trim().toLowerCase();
+                const configuredEmail = getConfiguredAdminEmail().trim().toLowerCase();
+                const legacyBootstrapMatch =
+                    normalizedEmail === configuredEmail && adminAuthPasswordInput === ADMIN_LEGACY_BOOTSTRAP_PASSWORD;
+
+                if (supabaseConfig) {
+                    try {
+                        const result = await signInWithPassword(adminAuthEmailInput, adminAuthPasswordInput);
+                        const access = await ensureSupabaseAdminAccess();
+                        if (!access.ok) {
+                            await signOutSupabase();
+                            const reason = access.reason || t('admin_access_not_authorized');
+                            throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+                        }
+                        const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
+                        setAuthed(true);
+                        setAdminAuthMode('supabase');
+                        safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+                        setAdminAuthError('');
+                        setSupabaseEmail(resolvedEmail);
+                        setAdminAuthEmailInput(resolvedEmail);
+                        setAdminAuthPasswordInput('');
+                        setAdminSessionChecking(false);
+                        return;
+                    } catch (err: any) {
+                        if (!legacyBootstrapMatch) {
+                            throw err;
+                        }
+                    }
                 }
-                const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
-                setAuthed(true);
-                setAdminAuthError('');
-                setSupabaseEmail(resolvedEmail);
-                setAdminAuthEmailInput(resolvedEmail);
-                setAdminAuthPasswordInput('');
-                setAdminSessionChecking(false);
+
+                if (legacyBootstrapMatch) {
+                    setAuthed(true);
+                    setAdminAuthMode('legacy');
+                    safeSessionSet(ADMIN_LEGACY_AUTH_LS_KEY, '1');
+                    setAdminAuthError('');
+                    setSupabaseEmail(getConfiguredAdminEmail());
+                    setAdminAuthEmailInput(getConfiguredAdminEmail());
+                    setAdminAuthPasswordInput('');
+                    setAdminSessionChecking(false);
+                    return;
+                }
+
+                throw new Error(!supabaseConfig ? t('db_supabase_not_configured') : t('admin_access_not_authorized'));
             } catch (err: any) {
                 setAuthed(false);
+                setAdminAuthMode('none');
+                safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
                 setSupabaseEmail(null);
                 setAdminAuthError(String(err?.message || err || t('admin_access_not_authorized')));
             } finally {
