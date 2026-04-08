@@ -18,7 +18,7 @@ import {
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { BirthDateInput } from './admin/BirthDateInput';
-import { formatBirthDateDisplay } from '../services/playerIdentity';
+import { formatBirthDateDisplay, normalizeBirthDateInput } from '../services/playerIdentity';
 import type { PlayerSupabaseProfileRow, PlayerSupabaseSession, PlayerSupabaseSignUpResult } from '../services/supabaseRest';
 import {
   acknowledgePlayerAppCall,
@@ -108,6 +108,64 @@ const MetricCard: React.FC<{ label: string; value: React.ReactNode }> = ({ label
 
 const isPlayerBackendPendingError = (message: string) =>
   /player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_call_team|relation .*player_app_|function .*flbp_player_/i.test(message);
+
+const PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE =
+  'La data di nascita non è valida. Controlla giorno, mese e anno e usa il formato gg/mm/aaaa.';
+
+const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string): string => {
+  const raw = String((error as { message?: unknown } | null)?.message ?? error ?? '').trim();
+  if (!raw) return fallback;
+
+  let structured: Record<string, unknown> | null = null;
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        structured = parsed as Record<string, unknown>;
+      }
+    } catch {
+      structured = null;
+    }
+  }
+
+  const code = String(structured?.code ?? '').trim();
+  const errorCode = String(structured?.error_code ?? '').trim();
+  const message = String(structured?.message ?? raw).trim();
+  const hint = String(structured?.hint ?? '').trim();
+  const haystack = `${code} ${errorCode} ${message} ${hint}`.toLowerCase();
+
+  if (/22008|date\/time field value out of range|datestyle/.test(haystack)) {
+    return PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE;
+  }
+  if (/invalid_credentials|invalid login credentials/.test(haystack)) {
+    return 'Email o password non corrette. Controlla i dati inseriti e riprova.';
+  }
+  if (/user already registered|already been registered/.test(haystack)) {
+    return 'Esiste già un account con questa email. Prova ad accedere oppure usa il recupero password.';
+  }
+  if (/email address .* invalid|invalid email|unable to validate email address/.test(haystack)) {
+    return 'L’indirizzo email non è valido. Controllalo e riprova.';
+  }
+  if (/password should be at least|password is too short|weak password/.test(haystack)) {
+    return 'La password è troppo corta o troppo debole. Scegline una più sicura.';
+  }
+  if (/failed to fetch|networkerror|network request failed|signal is aborted|aborterror/.test(haystack)) {
+    return 'La connessione sembra instabile. Controlla la rete e riprova.';
+  }
+  if (/jwt expired|sessione.*scadut|session.*expired|invalid jwt|auth session missing|refresh token/.test(haystack)) {
+    return 'La sessione è scaduta. Esci e rientra per continuare.';
+  }
+  if (/row-level security|violates row-level security|permission denied/.test(haystack)) {
+    return 'Non abbiamo potuto completare l’operazione con questa sessione. Esci e rientra, poi riprova.';
+  }
+  if (structured) {
+    return fallback;
+  }
+  if (/postgrest|supabase|duplicate key value|constraint|foreign key/i.test(message)) {
+    return fallback;
+  }
+  return message || fallback;
+};
 
 const buildSafePlayerAreaSnapshot = (
   state: AppState,
@@ -266,7 +324,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         });
         setBootstrapError(null);
       } catch (error: any) {
-        const message = String(error?.message || error || t('player_area_preview_error'));
+        const message = getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti a preparare l’area giocatore. Riprova tra un attimo.'
+        );
         console.error('[PlayerArea] Safe bootstrap fallback', error);
         if (cancelled) return;
         setSnapshot(safeSnapshot);
@@ -367,7 +428,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
       });
     } catch (error: any) {
-      const message = String(error?.message || error || t('player_area_preview_error'));
+      const message = getPlayerAreaFriendlyErrorMessage(
+        error,
+        'Non siamo riusciti ad aggiornare l’area giocatore. Riprova tra un attimo.'
+      );
       applyIfCurrent(() => {
         setLiveRuntimeStatus('error');
         setLiveRuntimeError(message);
@@ -394,7 +458,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         return;
       }
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti a completare l’accesso. Riprova tra un attimo.'
+        ),
+      });
     }
     if (liveAuthFlow === 'recovery' && liveSession?.accessToken) {
       setLiveRuntimeStatus('disabled');
@@ -603,6 +673,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setFeedback({ tone: 'error', message: 'Per registrarti servono nome, cognome e data di nascita.' });
       return;
     }
+    const normalizedRegisterBirthDate = registerIdentity ? normalizeBirthDateInput(registerIdentity.birthDate) : undefined;
+    if (registerIdentity && !normalizedRegisterBirthDate) {
+      setFeedback({ tone: 'error', message: PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE });
+      return;
+    }
 
     try {
       if (liveBackendEnabled) {
@@ -612,7 +687,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
           signUpResult = await playerSignUpWithPassword(safeEmail, safePassword, {
             first_name: registerIdentity?.firstName || null,
             last_name: registerIdentity?.lastName || null,
-            birth_date: registerIdentity?.birthDate || null,
+            birth_date: normalizedRegisterBirthDate || null,
           });
           if (signUpResult.status === 'confirm_email') {
             setPassword('');
@@ -637,7 +712,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
           const identity = buildPlayerCanonicalIdentity(
             registerIdentity.firstName,
             registerIdentity.lastName,
-            registerIdentity.birthDate
+            normalizedRegisterBirthDate || registerIdentity.birthDate
           );
           try {
             const row = await pushPlayerAppProfile({
@@ -681,7 +756,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setRefreshNonce((value) => value + 1);
       setLiveCallRefreshNonce((value) => value + 1);
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti a completare la registrazione o l’accesso. Controlla i dati e riprova.'
+        ),
+      });
     }
   };
 
@@ -700,7 +781,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       await playerRequestPasswordReset(safeEmail, resetRedirect);
       setFeedback({ tone: 'success', message: t('player_area_password_reset_sent') });
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_password_reset_pending')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti a inviare il link di recupero. Riprova tra un attimo.'
+        ),
+      });
     }
   };
 
@@ -725,7 +812,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       await refreshLiveRuntime(session);
       setFeedback({ tone: 'success', message: t('player_area_recovery_password_success') });
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_recovery_password_error')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti ad aggiornare la password. Riprova tra un attimo.'
+        ),
+      });
     }
   };
 
@@ -738,9 +831,19 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setFeedback({ tone: 'error', message: 'Completa nome, cognome e data di nascita prima di salvare il profilo.' });
       return;
     }
+    const normalizedBirthDate = normalizeBirthDateInput(safeBirthDate);
+    if (!normalizedBirthDate) {
+      setFeedback({ tone: 'error', message: PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE });
+      return;
+    }
     try {
       if (effectiveSession.mode === 'live') {
-        const identity = buildPlayerCanonicalIdentity(safeFirstName, safeLastName, safeBirthDate, liveProfileRow?.canonical_player_id || null);
+        const identity = buildPlayerCanonicalIdentity(
+          safeFirstName,
+          safeLastName,
+          normalizedBirthDate,
+          liveProfileRow?.canonical_player_id || null
+        );
         const row = await pushPlayerAppProfile({
           firstName: identity.firstName,
           lastName: identity.lastName,
@@ -756,7 +859,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setFeedback({ tone: 'success', message: t('player_area_profile_saved') });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_profile_error')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti a salvare il profilo. Controlla i dati e riprova.'
+        ),
+      });
     }
   };
 
@@ -772,7 +881,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setFeedback({ tone: 'success', message: t('player_area_call_ack_done') });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti a confermare la convocazione. Riprova tra un attimo.'
+        ),
+      });
     }
   };
 
@@ -783,7 +898,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setFeedback({ tone: 'success', message: t('player_area_call_cancel_done') });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+      setFeedback({
+        tone: 'error',
+        message: getPlayerAreaFriendlyErrorMessage(
+          error,
+          'Non siamo riusciti ad annullare la convocazione. Riprova tra un attimo.'
+        ),
+      });
     }
   };
 
