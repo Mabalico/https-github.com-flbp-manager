@@ -1898,6 +1898,7 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_reset_password_sent": "Se l'account esiste nel backend live, è stato inviato un link di reset alla mail collegata.",
   "data_accounts_live_catalog_ready": "Catalogo account live caricato dal backend.",
   "data_accounts_live_catalog_pending": "Catalogo live pronto nel repo ma ancora in attesa di rollout SQL/backend sul progetto Supabase reale.",
+  "data_accounts_live_catalog_session_expired": "Sessione admin scaduta: rifai il login admin per caricare il catalogo live.",
   "data_accounts_live_email_readonly": "L'email live resta in sola lettura finché non attiviamo il workflow admin definitivo lato auth.",
   "data_accounts_live_profile_hint": "Sugli account live qui modifichi il profilo giocatore collegato. Email, provider e reset completo dipendono ancora dal rollout auth/SMTP reale.",
 };

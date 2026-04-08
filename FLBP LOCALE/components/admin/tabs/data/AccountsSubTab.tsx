@@ -75,7 +75,7 @@ const originLabel = (t: AccountsSubTabProps['t'], origin: AccountFilter) => {
 export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [remoteRows, setRemoteRows] = React.useState<ReturnType<typeof listPlayerPreviewAccountsAdminRows>>([]);
-  const [remoteStatus, setRemoteStatus] = React.useState<'idle' | 'loading' | 'ready' | 'backend_pending' | 'unavailable'>('idle');
+  const [remoteStatus, setRemoteStatus] = React.useState<'idle' | 'loading' | 'ready' | 'backend_pending' | 'auth_expired' | 'unavailable'>('idle');
   const [remoteError, setRemoteError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<AccountFilter>('all');
   const [search, setSearch] = React.useState('');
@@ -111,7 +111,9 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
         const message = String(error?.message || error || '').trim();
         setRemoteRows([]);
         setRemoteError(message || null);
-        if (
+        if (/jwt expired|sessione admin assente o scaduta|sessione admin/i.test(message)) {
+          setRemoteStatus('auth_expired');
+        } else if (
           /flbp_admin_list_player_accounts|player_app_profiles|player_app_devices|player_app_calls|function .*flbp_admin_list_player_accounts|relation .*player_app_/i.test(message)
         ) {
           setRemoteStatus('backend_pending');
@@ -262,13 +264,17 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
               ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
               : remoteStatus === 'loading'
                 ? 'border-slate-200 bg-slate-50 text-slate-700'
-                : 'border-amber-200 bg-amber-50 text-amber-800'
+                : remoteStatus === 'auth_expired'
+                  ? 'border-rose-200 bg-rose-50 text-rose-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
           }`}>
             {remoteStatus === 'ready'
               ? t('data_accounts_live_catalog_ready')
               : remoteStatus === 'loading'
                 ? t('loading')
-                : t('data_accounts_live_catalog_pending')}
+                : remoteStatus === 'auth_expired'
+                  ? t('data_accounts_live_catalog_session_expired')
+                  : t('data_accounts_live_catalog_pending')}
           </div>
           {remoteError ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600 max-w-3xl">
@@ -294,7 +300,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
               </div>
             </div>
             <div className="text-xs font-bold text-slate-500">
-              {remoteStatus === 'ready' ? t('data_accounts_mode_live') : t('data_accounts_preview_only')}
+              {remoteStatus === 'ready' ? t('data_accounts_mode_live') : remoteStatus === 'auth_expired' ? t('db_no_session') : t('data_accounts_preview_only')}
             </div>
           </div>
 

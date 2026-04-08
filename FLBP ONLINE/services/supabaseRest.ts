@@ -366,8 +366,20 @@ export const getConfiguredAdminEmail = (): string => {
     return (readViteSupabaseAdminEmail() || 'admin@flbp.local').trim() || 'admin@flbp.local';
 };
 
+const isSessionExpiredByTimestamp = (session: SupabaseSession | null | undefined): boolean => {
+    const expTs = session?.expiresAt ? Date.parse(session.expiresAt) : NaN;
+    return Number.isFinite(expTs) ? expTs <= Date.now() + 5_000 : false;
+};
+
+const getUsableSupabaseAccessToken = (): string | null => {
+    const session = getSupabaseSession();
+    if (!session?.accessToken) return null;
+    if (isSessionExpiredByTimestamp(session)) return null;
+    return session.accessToken;
+};
+
 const buildHeaders = (cfg: SupabaseConfig, accessToken?: string | null) => {
-    const token = (accessToken || getSupabaseAccessToken() || '').trim();
+    const token = (accessToken || getUsableSupabaseAccessToken() || '').trim();
     // With RLS enabled, authenticated requests must send the user's JWT.
     // Otherwise we fall back to anon key (read-only for public tables / may be denied).
     const auth = token ? token : cfg.anonKey;
@@ -497,7 +509,10 @@ export const ensureFreshSupabaseSession = async (): Promise<SupabaseSession | nu
     // Refresh if token expired or expires within 60s.
     if (expTs > Date.now() + 60_000) return cur;
 
-    if (!cur.refreshToken) return cur;
+    if (!cur.refreshToken) {
+        clearSupabaseSession();
+        return null;
+    }
 
     try {
         const res = await fetchWithDevRequestPerf(authUrl(cfg, 'token?grant_type=refresh_token'), {
@@ -509,10 +524,16 @@ export const ensureFreshSupabaseSession = async (): Promise<SupabaseSession | nu
             },
             body: JSON.stringify({ refresh_token: cur.refreshToken })
         }, { source: 'ensureFreshSupabaseSession', kind: 'admin' });
-        if (!res.ok) return cur;
+        if (!res.ok) {
+            clearSupabaseSession();
+            return null;
+        }
         const j = await res.json();
         const accessToken = String(j.access_token || '').trim();
-        if (!accessToken) return cur;
+        if (!accessToken) {
+            clearSupabaseSession();
+            return null;
+        }
         const refreshToken = String(j.refresh_token || cur.refreshToken || '').trim() || null;
         const expiresIn = Number(j.expires_in || 0);
         const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : (cur.expiresAt || null);
@@ -522,7 +543,8 @@ export const ensureFreshSupabaseSession = async (): Promise<SupabaseSession | nu
         setSupabaseSession(next);
         return next;
     } catch {
-        return cur;
+        clearSupabaseSession();
+        return null;
     }
 };
 
@@ -615,7 +637,10 @@ export const ensureFreshPlayerSupabaseSession = async (): Promise<PlayerSupabase
     const expTs = cur.expiresAt ? Date.parse(cur.expiresAt) : NaN;
     if (!Number.isFinite(expTs)) return cur;
     if (expTs > Date.now() + 60_000) return cur;
-    if (!cur.refreshToken) return cur;
+    if (!cur.refreshToken) {
+        clearPlayerSupabaseSession();
+        return null;
+    }
 
     try {
         const res = await fetchWithDevRequestPerf(authUrl(cfg, 'token?grant_type=refresh_token'), {
@@ -627,10 +652,16 @@ export const ensureFreshPlayerSupabaseSession = async (): Promise<PlayerSupabase
             },
             body: JSON.stringify({ refresh_token: cur.refreshToken })
         }, { source: 'ensureFreshPlayerSupabaseSession', kind: 'sync' });
-        if (!res.ok) return cur;
+        if (!res.ok) {
+            clearPlayerSupabaseSession();
+            return null;
+        }
         const j = await res.json();
         const accessToken = String(j.access_token || '').trim();
-        if (!accessToken) return cur;
+        if (!accessToken) {
+            clearPlayerSupabaseSession();
+            return null;
+        }
         const refreshToken = String(j.refresh_token || cur.refreshToken || '').trim() || null;
         const expiresIn = Number(j.expires_in || 0);
         const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : (cur.expiresAt || null);
@@ -648,7 +679,8 @@ export const ensureFreshPlayerSupabaseSession = async (): Promise<PlayerSupabase
         setPlayerSupabaseSession(next);
         return next;
     } catch {
-        return cur;
+        clearPlayerSupabaseSession();
+        return null;
     }
 };
 
@@ -1460,10 +1492,10 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
 export const pullWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-    await ensureFreshAuthForSupabaseOps();
+    const session = await requireSupabaseWriteSession();
 
     const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`);
-    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg) }, 2500, { source: perf?.source || 'pullWorkspaceState', kind: perf?.kind || 'admin' });
+    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 2500, { source: perf?.source || 'pullWorkspaceState', kind: perf?.kind || 'admin' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     const rows = (await res.json()) as SupabaseWorkspaceStateRow[];
     return rows?.[0] || null;
@@ -1472,9 +1504,9 @@ export const pullWorkspaceState = async (perf?: RequestPerfHint): Promise<Supaba
 export const pullWorkspaceStateUpdatedAt = async (perf?: RequestPerfHint): Promise<string | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-    await ensureFreshAuthForSupabaseOps();
+    const session = await requireSupabaseWriteSession();
     const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=updated_at&limit=1`);
-    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg) }, 2500, { source: perf?.source || 'pullWorkspaceStateUpdatedAt', kind: perf?.kind || 'admin' });
+    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 2500, { source: perf?.source || 'pullWorkspaceStateUpdatedAt', kind: perf?.kind || 'admin' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     const rows = (await res.json()) as Array<{ updated_at?: string }>;
     return rows?.[0]?.updated_at || null;
