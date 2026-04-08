@@ -138,6 +138,89 @@ const deletePlayerAccount = async (
   return { ok: true, deletedUserId: targetUserId };
 };
 
+const listAdminUsers = async (adminClient: ReturnType<typeof createClient>) => {
+  const { data, error } = await adminClient
+    .from('admin_users')
+    .select('user_id,email')
+    .order('email', { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    ok: true,
+    rows: Array.isArray(data)
+      ? data.map((row) => ({
+          user_id: normalizeText(row.user_id),
+          email: normalizeText(row.email) || null,
+        }))
+      : [],
+  };
+};
+
+const grantAdminUser = async (
+  adminClient: ReturnType<typeof createClient>,
+  targetUserId: string,
+  email: string
+) => {
+  const safeUserId = normalizeText(targetUserId);
+  const safeEmail = normalizeText(email).toLowerCase();
+  if (!safeUserId) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'userId is required.' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+  if (!safeEmail) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'email is required to promote an admin account.' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { error } = await adminClient
+    .from('admin_users')
+    .upsert({ user_id: safeUserId, email: safeEmail }, { onConflict: 'user_id' });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { ok: true, userId: safeUserId, email: safeEmail };
+};
+
+const revokeAdminUser = async (
+  adminClient: ReturnType<typeof createClient>,
+  targetUserId: string,
+  adminUserId: string
+) => {
+  const safeUserId = normalizeText(targetUserId);
+  if (!safeUserId) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'userId is required.' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+  if (safeUserId === adminUserId) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'You cannot remove admin rights from the currently authenticated admin account.' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { error } = await adminClient
+    .from('admin_users')
+    .delete()
+    .eq('user_id', safeUserId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { ok: true, userId: safeUserId };
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -156,12 +239,18 @@ serve(async (req) => {
     const workspaceId = normalizeText(body?.workspaceId);
     const userId = normalizeText(body?.userId);
 
-    if (action !== 'delete') {
-      return json(400, { ok: false, reason: 'Unsupported action.' });
+    switch (action) {
+      case 'list_admins':
+        return json(200, await listAdminUsers(adminClient));
+      case 'grant_admin':
+        return json(200, await grantAdminUser(adminClient, userId, normalizeText(body?.email)));
+      case 'revoke_admin':
+        return json(200, await revokeAdminUser(adminClient, userId, adminUserId));
+      case 'delete':
+        return json(200, await deletePlayerAccount(adminClient, workspaceId, userId, adminUserId));
+      default:
+        return json(400, { ok: false, reason: 'Unsupported action.' });
     }
-
-    const result = await deletePlayerAccount(adminClient, workspaceId, userId, adminUserId);
-    return json(200, result);
   } catch (error) {
     if (error instanceof Response) return error;
     const message = error instanceof Error ? error.message : String(error);

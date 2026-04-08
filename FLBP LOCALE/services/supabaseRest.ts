@@ -126,6 +126,12 @@ export interface AdminPlayerAccountCatalogRow {
     canonical_player_id?: string | null;
     has_profile: boolean;
     device_count: number;
+    is_admin?: boolean;
+}
+
+export interface AdminUserRoleRow {
+    user_id: string;
+    email?: string | null;
 }
 
 export interface SupabaseWorkspaceStateRow {
@@ -1167,6 +1173,28 @@ export const pullAdminPlayerAccounts = async (origin?: string | null): Promise<A
     return await res.json() as AdminPlayerAccountCatalogRow[];
 };
 
+export const pullAdminUserRoles = async (): Promise<AdminUserRoleRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action: 'list_admins',
+                workspaceId: cfg.workspaceId,
+            }),
+        },
+        8000,
+        { source: 'pullAdminUserRoles', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; rows?: AdminUserRoleRow[] };
+    return Array.isArray(payload?.rows) ? payload.rows : [];
+};
+
 export const pushAdminPlayerAppProfile = async (input: {
     userId: string;
     firstName: string;
@@ -1236,6 +1264,46 @@ export const deleteAdminPlayerAccount = async (input: {
     if (!res.ok) throw new Error(await readErrorBody(res));
     return await res.json() as { ok: boolean; deletedUserId: string };
 };
+
+const mutateAdminPlayerAccountRole = async (
+    action: 'grant_admin' | 'revoke_admin',
+    input: { userId: string; email?: string | null; workspaceId?: string | null }
+): Promise<{ ok: boolean; userId: string; email?: string | null }> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const safeUserId = String(input.userId || '').trim();
+    if (!safeUserId) throw new Error('Utente player non valido.');
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action,
+                userId: safeUserId,
+                email: String(input.email || '').trim() || null,
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+            }),
+        },
+        8000,
+        { source: action === 'grant_admin' ? 'grantAdminPlayerAccount' : 'revokeAdminPlayerAccount', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as { ok: boolean; userId: string; email?: string | null };
+};
+
+export const grantAdminPlayerAccount = async (input: {
+    userId: string;
+    email?: string | null;
+    workspaceId?: string | null;
+}) => mutateAdminPlayerAccountRole('grant_admin', input);
+
+export const revokeAdminPlayerAccount = async (input: {
+    userId: string;
+    email?: string | null;
+    workspaceId?: string | null;
+}) => mutateAdminPlayerAccountRole('revoke_admin', input);
 
 export const pullAdminPlayerCallTargets = async (canonicalPlayerIds: string[]): Promise<PlayerSupabaseProfileRow[]> => {
     const cfg = getSupabaseConfig();

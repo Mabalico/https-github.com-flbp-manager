@@ -54,6 +54,7 @@ export interface PlayerAccountAdminRow {
   totalSoffi: number;
   hasProfile: boolean;
   hasPasswordRecovery: boolean;
+  isAdmin: boolean;
 }
 
 export interface PlayerPreviewSession {
@@ -324,6 +325,7 @@ export const buildPlayerAccountAdminRowFromLive = (
     totalSoffi: personalProfile?.totalSoffi || 0,
     hasProfile: !!row.has_profile,
     hasPasswordRecovery: providers.includes('in_app') && !!String(row.email || '').trim(),
+    isAdmin: !!row.is_admin,
   };
 };
 
@@ -884,6 +886,7 @@ export const listPlayerPreviewAccountsAdminRows = (state: AppState): PlayerAccou
         totalSoffi: personalProfile?.totalSoffi || 0,
         hasProfile: !!profile,
         hasPasswordRecovery: false,
+        isAdmin: false,
       } satisfies PlayerAccountAdminRow;
     })
     .sort((a, b) => {

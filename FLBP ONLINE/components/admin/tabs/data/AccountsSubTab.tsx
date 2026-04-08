@@ -11,7 +11,15 @@ import {
   updatePlayerPreviewAccountAdmin,
   type PlayerAccountAdminOrigin,
 } from '../../../../services/playerAppService';
-import { deleteAdminPlayerAccount, playerRequestPasswordReset, pullAdminPlayerAccounts, pushAdminPlayerAppProfile } from '../../../../services/supabaseRest';
+import {
+  deleteAdminPlayerAccount,
+  grantAdminPlayerAccount,
+  playerRequestPasswordReset,
+  pullAdminPlayerAccounts,
+  pullAdminUserRoles,
+  pushAdminPlayerAppProfile,
+  revokeAdminPlayerAccount,
+} from '../../../../services/supabaseRest';
 
 interface AccountsSubTabProps {
   state: AppState;
@@ -101,9 +109,24 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
     const loadRemoteRows = async () => {
       setRemoteStatus('loading');
       try {
-        const liveRows = await pullAdminPlayerAccounts();
+        const [liveRows, liveAdmins] = await Promise.all([
+          pullAdminPlayerAccounts(),
+          pullAdminUserRoles(),
+        ]);
         if (cancelled) return;
-        setRemoteRows(liveRows.map((row) => buildPlayerAccountAdminRowFromLive(state, row)));
+        const liveAdminIds = new Set(
+          liveAdmins
+            .map((row) => String(row.user_id || '').trim())
+            .filter(Boolean)
+        );
+        setRemoteRows(
+          liveRows.map((row) =>
+            buildPlayerAccountAdminRowFromLive(state, {
+              ...row,
+              is_admin: liveAdminIds.has(String(row.user_id || '').trim()),
+            })
+          )
+        );
         setRemoteStatus('ready');
         setRemoteError(null);
       } catch (error: any) {
@@ -246,6 +269,38 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
     }
   };
 
+  const toggleSelectedAdminRole = async () => {
+    if (!selectedRow || selectedRow.mode !== 'live') return;
+    if (!selectedRow.email) {
+      setFeedback({ tone: 'error', message: t('data_accounts_admin_missing_email') });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      (
+        selectedRow.isAdmin
+          ? t('data_accounts_admin_revoke_confirm')
+          : t('data_accounts_admin_grant_confirm')
+      ).replace('{email}', selectedRow.email || selectedRow.id)
+    );
+    if (!confirmed) return;
+
+    try {
+      if (selectedRow.isAdmin) {
+        await revokeAdminPlayerAccount({ userId: selectedRow.id, email: selectedRow.email });
+        setFeedback({ tone: 'success', message: t('data_accounts_admin_revoke_done') });
+      } else {
+        await grantAdminPlayerAccount({ userId: selectedRow.id, email: selectedRow.email });
+        setFeedback({ tone: 'success', message: t('data_accounts_admin_grant_done') });
+      }
+      setRefreshNonce((value) => value + 1);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+    }
+  };
+
+  const canDeleteSelected = !!selectedRow && !(selectedRow.mode === 'live' && selectedRow.isAdmin);
+
   return (
     <div className="space-y-4">
       <div className={cardClass}>
@@ -355,8 +410,15 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
                           {row.providers.join(' • ')} • {row.mode === 'preview' ? t('data_accounts_mode_preview') : t('data_accounts_mode_live')}
                         </div>
                       </div>
-                      <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
-                        {row.hasProfile ? t('player_area_profile_title') : t('data_accounts_profile_missing')}
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {row.isAdmin ? (
+                          <div className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-black text-violet-700">
+                            {t('data_accounts_admin_badge')}
+                          </div>
+                        ) : null}
+                        <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
+                          {row.hasProfile ? t('player_area_profile_title') : t('data_accounts_profile_missing')}
+                        </div>
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 md:grid-cols-3">
@@ -436,6 +498,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
                   <div className="mt-1">{t('scores_label')}: <span className="font-black text-slate-900">{selectedRow.totalCanestri}</span></div>
                   <div className="mt-1">{t('soffi_label')}: <span className="font-black text-slate-900">{selectedRow.totalSoffi}</span></div>
                   <div className="mt-1">{t('birth_date')}: <span className="font-black text-slate-900">{formatBirthDateDisplay(selectedRow.birthDate || '') || 'ND'}</span></div>
+                  <div className="mt-1">{t('data_accounts_admin_role_label')}: <span className={`font-black ${selectedRow.isAdmin ? 'text-violet-700' : 'text-slate-900'}`}>{selectedRow.isAdmin ? t('data_accounts_admin_role_yes') : t('data_accounts_admin_role_no')}</span></div>
                 </div>
               </div>
 
@@ -466,10 +529,29 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
                 >
                   {t('data_accounts_reset_password')}
                 </button>
+                {selectedRow.mode === 'live' ? (
+                  <button
+                    type="button"
+                    onClick={() => void toggleSelectedAdminRole()}
+                    className={`inline-flex items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                      selectedRow.isAdmin
+                        ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 focus-visible:ring-violet-500'
+                        : 'border-violet-600 bg-violet-600 text-white hover:bg-violet-700 focus-visible:ring-violet-600'
+                    }`}
+                  >
+                    {selectedRow.isAdmin ? t('data_accounts_admin_revoke') : t('data_accounts_admin_grant')}
+                  </button>
+                ) : null}
                 <button
                   type="button"
+                  disabled={!canDeleteSelected}
                   onClick={() => void deleteSelected()}
-                  className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-black text-rose-700 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+                  className={`inline-flex items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                    canDeleteSelected
+                      ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500'
+                      : 'border-slate-200 bg-slate-100 text-slate-400'
+                  }`}
+                  title={!canDeleteSelected ? t('data_accounts_delete_admin_first') : undefined}
                 >
                   {t('data_accounts_delete')}
                 </button>
