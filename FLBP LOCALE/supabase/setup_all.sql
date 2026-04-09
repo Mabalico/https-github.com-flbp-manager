@@ -1828,3 +1828,181 @@ create policy player_account_merge_requests_admin_all on public.player_account_m
 grant select, insert, update, delete on public.player_account_merge_requests to authenticated;
 
 -- ===== END supabase\migrations\20260409000100_player_account_merge_requests.sql =====
+
+
+-- ===== BEGIN supabase\migrations\20260409220000_harden_app_supabase_usage_tracking.sql =====
+
+create or replace function public.flbp_track_supabase_usage_batch(
+  p_workspace_id text,
+  p_items jsonb default '[]'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rows integer := 0;
+begin
+  if nullif(trim(coalesce(p_workspace_id, '')), '') is null then
+    raise exception 'Workspace non valido';
+  end if;
+
+  insert into public.workspaces (id)
+  values (p_workspace_id)
+  on conflict (id) do nothing;
+
+  with payload as (
+    select
+      coalesce(usage_date, (now() at time zone 'utc')::date) as usage_date,
+      case
+        when lower(coalesce(bucket, 'unknown')) in ('public', 'tv', 'admin', 'referee', 'sync', 'unknown')
+          then lower(coalesce(bucket, 'unknown'))
+        else 'unknown'
+      end as bucket,
+      least(greatest(coalesce(request_count, 0), 0), 100000)::bigint as request_count,
+      least(greatest(coalesce(request_bytes, 0), 0), 536870912)::bigint as request_bytes,
+      least(greatest(coalesce(response_bytes, 0), 0), 536870912)::bigint as response_bytes
+    from jsonb_to_recordset(
+      case
+        when jsonb_typeof(coalesce(p_items, '[]'::jsonb)) = 'array' then coalesce(p_items, '[]'::jsonb)
+        else '[]'::jsonb
+      end
+    ) as x(
+      usage_date date,
+      bucket text,
+      request_count bigint,
+      request_bytes bigint,
+      response_bytes bigint
+    )
+  ), merged as (
+    select
+      usage_date,
+      bucket,
+      least(sum(request_count)::bigint, 100000::bigint) as request_count,
+      least(sum(request_bytes)::bigint, 536870912::bigint) as request_bytes,
+      least(sum(response_bytes)::bigint, 536870912::bigint) as response_bytes
+    from payload
+    group by usage_date, bucket
+  )
+  insert into public.app_supabase_usage_daily (
+    workspace_id,
+    usage_date,
+    bucket,
+    request_count,
+    request_bytes,
+    response_bytes,
+    updated_at
+  )
+  select
+    p_workspace_id,
+    usage_date,
+    bucket,
+    request_count,
+    request_bytes,
+    response_bytes,
+    now()
+  from merged
+  where request_count > 0 or request_bytes > 0 or response_bytes > 0
+  on conflict (workspace_id, usage_date, bucket) do update
+  set request_count = least(public.app_supabase_usage_daily.request_count + excluded.request_count, 100000::bigint),
+      request_bytes = least(public.app_supabase_usage_daily.request_bytes + excluded.request_bytes, 536870912::bigint),
+      response_bytes = least(public.app_supabase_usage_daily.response_bytes + excluded.response_bytes, 536870912::bigint),
+      updated_at = now();
+
+  get diagnostics v_rows = row_count;
+
+  return jsonb_build_object(
+    'ok', true,
+    'rows', v_rows
+  );
+end;
+$$;
+
+-- ===== END supabase\migrations\20260409220000_harden_app_supabase_usage_tracking.sql =====
+
+
+-- ===== BEGIN supabase\migrations\20260409221000_rebaseline_supabase_usage_cycle.sql =====
+
+do $$
+declare
+  v_workspace_id text := 'default';
+  v_cycle_start date := date '2026-03-22';
+  v_cycle_end date := date '2026-04-09';
+  v_target_response_bytes bigint := 469000000;
+  v_response_total numeric := 0;
+  v_scale numeric := 0;
+begin
+  select coalesce(sum(response_bytes), 0)
+  into v_response_total
+  from public.app_supabase_usage_daily
+  where workspace_id = v_workspace_id
+    and usage_date >= v_cycle_start
+    and usage_date <= v_cycle_end;
+
+  if v_response_total <= 0 then
+    return;
+  end if;
+
+  v_scale := v_target_response_bytes::numeric / v_response_total;
+
+  with scoped as (
+    select
+      workspace_id,
+      usage_date,
+      bucket,
+      request_count,
+      request_bytes,
+      response_bytes,
+      (request_count > 100000 or request_bytes > 268435456) as is_outlier,
+      round(response_bytes * v_scale)::bigint as response_bytes_new,
+      round(request_bytes * v_scale)::bigint as request_bytes_scaled,
+      greatest(1::bigint, round(request_count * v_scale)::bigint) as request_count_scaled
+    from public.app_supabase_usage_daily
+    where workspace_id = v_workspace_id
+      and usage_date >= v_cycle_start
+      and usage_date <= v_cycle_end
+  ), normalized as (
+    select
+      workspace_id,
+      usage_date,
+      bucket,
+      response_bytes_new,
+      case
+        when is_outlier and response_bytes_new > 0
+          then least(request_bytes_scaled, greatest(round(response_bytes_new * 0.35)::bigint, 262144::bigint), 16777216::bigint)
+        when is_outlier
+          then least(request_bytes_scaled, 16777216::bigint)
+        else request_bytes_scaled
+      end as request_bytes_new,
+      case
+        when is_outlier and response_bytes_new > 0
+          then greatest(
+            1::bigint,
+            ceil((
+              least(request_bytes_scaled, greatest(round(response_bytes_new * 0.35)::bigint, 262144::bigint), 16777216::bigint)
+              + response_bytes_new
+            )::numeric / 65536.0)::bigint
+          )
+        when is_outlier
+          then greatest(
+            1::bigint,
+            ceil((least(request_bytes_scaled, 16777216::bigint) + response_bytes_new)::numeric / 65536.0)::bigint
+          )
+        else request_count_scaled
+      end as request_count_new
+    from scoped
+  )
+  update public.app_supabase_usage_daily target
+  set request_count = normalized.request_count_new,
+      request_bytes = normalized.request_bytes_new,
+      response_bytes = normalized.response_bytes_new,
+      updated_at = now()
+  from normalized
+  where target.workspace_id = normalized.workspace_id
+    and target.usage_date = normalized.usage_date
+    and target.bucket = normalized.bucket;
+end;
+$$;
+
+-- ===== END supabase\migrations\20260409221000_rebaseline_supabase_usage_cycle.sql =====

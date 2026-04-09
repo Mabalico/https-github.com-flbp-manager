@@ -54,10 +54,17 @@ declare global {
 const REPORT_INTERVAL_MS = 60_000;
 const DUPLICATE_WINDOW_MS = 2_000;
 const MAX_ENTRIES = 1500;
-const USAGE_PENDING_LS_KEY = 'flbp_supabase_usage_pending_v1';
+const LEGACY_USAGE_PENDING_LS_KEY = 'flbp_supabase_usage_pending_v1';
+const USAGE_PENDING_LS_KEY = 'flbp_supabase_usage_pending_v2';
 const USAGE_FLUSH_INTERVAL_MS = 120_000;
 const USAGE_FLUSH_REQUEST_THRESHOLD = 20;
 const USAGE_FLUSH_BYTES_THRESHOLD = 128 * 1024;
+const TRACKED_TEXT_WIRE_RATIO = 0.24;
+const MAX_SINGLE_REQUEST_BYTES = 32 * 1024 * 1024;
+const MAX_SINGLE_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_DAILY_BUCKET_REQUEST_COUNT = 100_000;
+const MAX_DAILY_BUCKET_REQUEST_BYTES = 512 * 1024 * 1024;
+const MAX_DAILY_BUCKET_RESPONSE_BYTES = 512 * 1024 * 1024;
 let usageFlushTimerId: number | null = null;
 let usageListenersAttached = false;
 
@@ -91,25 +98,42 @@ const getUsageConfig = () => {
   }
 };
 
+const clampWholeNumber = (value: unknown, max: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.min(max, Math.max(0, Math.round(parsed)));
+};
+
+const sanitizeUsagePendingRow = (value: any): UsagePendingRow | null => {
+  if (!value || typeof value !== 'object') return null;
+  const usageDate = String(value.usageDate || '').trim();
+  const bucket = String(value.bucket || '').trim() as UsageBucket;
+  if (!usageDate || !bucket) return null;
+  const requestCount = clampWholeNumber(value.requestCount, MAX_DAILY_BUCKET_REQUEST_COUNT);
+  const requestBytes = clampWholeNumber(value.requestBytes, MAX_DAILY_BUCKET_REQUEST_BYTES);
+  const responseBytes = clampWholeNumber(value.responseBytes, MAX_DAILY_BUCKET_RESPONSE_BYTES);
+  if (requestCount <= 0 && requestBytes <= 0 && responseBytes <= 0) return null;
+  return {
+    usageDate,
+    bucket,
+    requestCount,
+    requestBytes,
+    responseBytes,
+  };
+};
+
 const readUsagePendingRows = (): Record<string, UsagePendingRow> => {
   try {
+    localStorage.removeItem(LEGACY_USAGE_PENDING_LS_KEY);
     const raw = localStorage.getItem(USAGE_PENDING_LS_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
     const next: Record<string, UsagePendingRow> = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (!value || typeof value !== 'object') continue;
-      const usageDate = String((value as any).usageDate || '').trim();
-      const bucket = String((value as any).bucket || '').trim() as UsageBucket;
-      if (!usageDate || !bucket) continue;
-      next[key] = {
-        usageDate,
-        bucket,
-        requestCount: Math.max(0, Number((value as any).requestCount || 0)),
-        requestBytes: Math.max(0, Number((value as any).requestBytes || 0)),
-        responseBytes: Math.max(0, Number((value as any).responseBytes || 0)),
-      };
+      const sanitized = sanitizeUsagePendingRow(value as any);
+      if (!sanitized) continue;
+      next[key] = sanitized;
     }
     return next;
   } catch {
@@ -237,6 +261,8 @@ const queueSupabaseUsage = (url: string, kind: DevRequestPerfKind, context: { vi
   const usageDate = todayUsageDate();
   const key = `${usageDate}:${bucket}`;
   const rows = readUsagePendingRows();
+  const safeRequestBytes = clampWholeNumber(requestBytes, MAX_SINGLE_REQUEST_BYTES);
+  const safeResponseBytes = clampWholeNumber(responseBytes, MAX_SINGLE_RESPONSE_BYTES);
   const current = rows[key] || {
     usageDate,
     bucket,
@@ -244,9 +270,9 @@ const queueSupabaseUsage = (url: string, kind: DevRequestPerfKind, context: { vi
     requestBytes: 0,
     responseBytes: 0,
   };
-  current.requestCount += 1;
-  current.requestBytes += Math.max(0, requestBytes);
-  current.responseBytes += Math.max(0, responseBytes);
+  current.requestCount = Math.min(MAX_DAILY_BUCKET_REQUEST_COUNT, current.requestCount + 1);
+  current.requestBytes = Math.min(MAX_DAILY_BUCKET_REQUEST_BYTES, current.requestBytes + safeRequestBytes);
+  current.responseBytes = Math.min(MAX_DAILY_BUCKET_RESPONSE_BYTES, current.responseBytes + safeResponseBytes);
   rows[key] = current;
   writeUsagePendingRows(rows);
 
@@ -291,11 +317,24 @@ const estimateResponseBytes = async (response: Response): Promise<number> => {
     const header = response.headers.get('content-length');
     if (header) {
       const parsed = Number(header);
-      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+      if (Number.isFinite(parsed) && parsed >= 0) return clampWholeNumber(parsed, MAX_SINGLE_RESPONSE_BYTES);
     }
     const clone = response.clone();
     const text = await clone.text();
-    return textEncoder ? textEncoder.encode(text).length : text.length;
+    const rawBytes = textEncoder ? textEncoder.encode(text).length : text.length;
+    if (rawBytes <= 0) return 0;
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const contentEncoding = String(response.headers.get('content-encoding') || '').toLowerCase();
+    const looksCompressible =
+      contentEncoding.includes('gzip')
+      || contentEncoding.includes('br')
+      || contentEncoding.includes('deflate')
+      || contentType.includes('application/json')
+      || contentType.startsWith('text/');
+    const estimatedWireBytes = looksCompressible
+      ? Math.min(rawBytes, Math.max(128, Math.round(rawBytes * TRACKED_TEXT_WIRE_RATIO)))
+      : rawBytes;
+    return clampWholeNumber(estimatedWireBytes, MAX_SINGLE_RESPONSE_BYTES);
   } catch {
     return 0;
   }

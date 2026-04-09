@@ -18,6 +18,9 @@ type AggregatedRow = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_BILLING_ANCHOR_DAY = 22;
 const DEFAULT_MONTHLY_BUDGET_BYTES = 5 * 1024 * 1024 * 1024;
+const DECIMAL_KB = 1000;
+const DECIMAL_MB = DECIMAL_KB * 1000;
+const DECIMAL_GB = DECIMAL_MB * 1000;
 
 const toInputDate = (date: Date) => {
     const y = date.getFullYear();
@@ -86,9 +89,9 @@ const formatNumber = (value: number) => new Intl.NumberFormat('it-IT').format(va
 
 const formatBytes = (value: number) => {
     if (!Number.isFinite(value) || value <= 0) return '0 B';
-    if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-    if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`;
-    if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value >= DECIMAL_GB) return `${(value / DECIMAL_GB).toFixed(3)} GB`;
+    if (value >= DECIMAL_MB) return `${(value / DECIMAL_MB).toFixed(2)} MB`;
+    if (value >= DECIMAL_KB) return `${(value / DECIMAL_KB).toFixed(1)} KB`;
     return `${Math.round(value)} B`;
 };
 
@@ -250,12 +253,12 @@ export const TrafficSubTab: React.FC<{ onBack: () => void; t: (key: string) => s
     }, [startDate, endDate]);
     const avgBytesPerDay = daysCount > 0 ? totalBytes / daysCount : 0;
     const peakBucket = aggregated.reduce<AggregatedRow | null>((best, row) => (!best || row.totalBytes > best.totalBytes ? row : best), null);
-    const cycleTotalBytes = React.useMemo(
-        () => cycleRows.reduce((sum, row) => sum + Number(row.request_bytes || 0) + Number(row.response_bytes || 0), 0),
+    const cycleResponseBytes = React.useMemo(
+        () => cycleRows.reduce((sum, row) => sum + Number(row.response_bytes || 0), 0),
         [cycleRows]
     );
-    const cycleRemainingBytes = Math.max(0, DEFAULT_MONTHLY_BUDGET_BYTES - cycleTotalBytes);
-    const cycleProgressPct = Math.max(0, Math.min(100, (cycleTotalBytes / DEFAULT_MONTHLY_BUDGET_BYTES) * 100));
+    const cycleRemainingBytes = Math.max(0, DEFAULT_MONTHLY_BUDGET_BYTES - cycleResponseBytes);
+    const cycleProgressPct = Math.max(0, Math.min(100, (cycleResponseBytes / DEFAULT_MONTHLY_BUDGET_BYTES) * 100));
     const cycleIsSelected = startDate === billingCycleWindow.startDate && endDate === billingCycleWindow.todayDate;
     const bucketTotals = React.useMemo(() => {
         const map = new Map<UsageBucket, { requestCount: number; totalBytes: number }>();
@@ -505,7 +508,7 @@ export const TrafficSubTab: React.FC<{ onBack: () => void; t: (key: string) => s
                                 <div className="rounded-2xl border border-slate-200 bg-white p-3">
                                     <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{t('traffic_budget_progress')}</div>
                                     <div className="mt-2 text-xl font-black text-slate-900">
-                                        {formatBytes(cycleTotalBytes)} / {formatBytes(DEFAULT_MONTHLY_BUDGET_BYTES)}
+                                        {formatBytes(cycleResponseBytes)} / {formatBytes(DEFAULT_MONTHLY_BUDGET_BYTES)}
                                     </div>
                                     <div className="mt-3 h-3 rounded-full bg-slate-100 overflow-hidden">
                                         <div
