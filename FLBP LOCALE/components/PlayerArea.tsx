@@ -258,27 +258,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   }, []);
 
   React.useEffect(() => {
-    if (!feedback || (effectiveSession && liveAuthFlow !== 'recovery')) {
-      return;
-    }
-    if (!emailPanelOpen) {
-      setEmailPanelOpen(true);
-    }
-    const timerId = window.setTimeout(() => {
-      try {
-        authFeedbackRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-          inline: 'nearest',
-        });
-      } catch {
-        // ignore
-      }
-    }, 80);
-    return () => window.clearTimeout(timerId);
-  }, [emailPanelOpen, effectiveSession, feedback, liveAuthFlow]);
-
-  React.useEffect(() => {
     if (!embeddedNativeShell) {
       setNativePushRegistration(null);
       return;
@@ -624,6 +603,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
               : nativePushRegistration.permission === 'granted'
                 ? 'Token mancante'
                 : 'In attesa device';
+
+  React.useEffect(() => {
+    if (!feedback || (effectiveSession && liveAuthFlow !== 'recovery')) {
+      return;
+    }
+    if (!emailPanelOpen) {
+      setEmailPanelOpen(true);
+    }
+    const timerId = window.setTimeout(() => {
+      try {
+        authFeedbackRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        });
+      } catch {
+        // ignore
+      }
+    }, 80);
+    return () => window.clearTimeout(timerId);
+  }, [emailPanelOpen, effectiveSession, feedback, liveAuthFlow]);
 
   React.useEffect(() => {
     if (!effectiveProfile) return;
