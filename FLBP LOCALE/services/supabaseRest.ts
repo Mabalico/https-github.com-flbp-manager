@@ -1981,6 +1981,7 @@ export const sanitizeAppStateForPublic = (state: AppState): Json => {
 
     // Alias mapping can embed YoB in keys; omit it from public snapshot.
     safe.playerAliases = {};
+    safe.playerAccountAliasIgnores = {};
 
     return safe;
 };

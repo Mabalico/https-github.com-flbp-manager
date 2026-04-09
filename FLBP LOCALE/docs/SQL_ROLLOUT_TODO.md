@@ -76,6 +76,11 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
 - web `Gestione dati -> Account giocatori`
   - il catalogo reale via `flbp_admin_list_player_accounts(...)` e' ora disponibile sul progetto reale
   - resta il fallback preview locale solo come rete di sicurezza
+  - gli admin vedono anche suggerimenti di possibili alias tra account registrati e profili torneo gia' esistenti
+  - ogni suggerimento puo' essere gestito con:
+    - `Unisci profili`
+    - `Ignora`
+  - le scelte `Ignora` vengono salvate nello snapshot admin per evitare di riproporre sempre lo stesso match
 - web `ReportsTab`
   - ora puo' usare target/call reali via `player_app_profiles` / `player_app_calls`
   - il resto del flusso live dipende ancora da auth/player linking/device push

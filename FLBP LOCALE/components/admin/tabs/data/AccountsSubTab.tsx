@@ -12,6 +12,14 @@ import {
   type PlayerAccountAdminOrigin,
 } from '../../../../services/playerAppService';
 import {
+  applyPlayerAccountAliasSuggestion,
+  buildPlayerAccountAliasSuggestions,
+  buildPlayerAccountAliasTargetProfilePayload,
+  ignorePlayerAccountAliasSuggestion,
+  shouldSyncAccountCanonicalAfterAliasMerge,
+  type PlayerAccountAliasReason,
+} from '../../../../services/playerAccountAliasSuggestions';
+import {
   deleteAdminPlayerAccount,
   grantAdminPlayerAccount,
   playerRequestPasswordReset,
@@ -23,6 +31,7 @@ import {
 
 interface AccountsSubTabProps {
   state: AppState;
+  setState: (state: AppState) => void;
   t: (key: string) => string;
 }
 
@@ -80,7 +89,20 @@ const originLabel = (t: AccountsSubTabProps['t'], origin: AccountFilter) => {
   }
 };
 
-export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
+const aliasReasonLabel = (t: AccountsSubTabProps['t'], reason: PlayerAccountAliasReason) => {
+  switch (reason) {
+    case 'same_birthdate':
+      return t('data_accounts_alias_reason_same_birthdate');
+    case 'exact_name':
+      return t('data_accounts_alias_reason_exact_name');
+    case 'close_name':
+      return t('data_accounts_alias_reason_close_name');
+    default:
+      return t('data_accounts_alias_reason_existing_stats');
+  }
+};
+
+export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState, t }) => {
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [remoteRows, setRemoteRows] = React.useState<ReturnType<typeof listPlayerPreviewAccountsAdminRows>>([]);
   const [remoteStatus, setRemoteStatus] = React.useState<'idle' | 'loading' | 'ready' | 'backend_pending' | 'auth_expired' | 'unavailable'>('idle');
@@ -215,6 +237,11 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
     setBirthDate(formatBirthDateDisplay(selectedRow.birthDate || ''));
   }, [selectedRow?.id, selectedRow?.email, selectedRow?.linkedPlayerName, selectedRow?.birthDate]);
 
+  const aliasSuggestions = React.useMemo(() => {
+    if (!selectedRow || !selectedRow.canonicalPlayerId || !selectedRow.linkedPlayerName) return [];
+    return buildPlayerAccountAliasSuggestions(state, selectedRow).slice(0, 6);
+  }, [selectedRow, state]);
+
   const saveSelected = async () => {
     if (!selectedRow) return;
     try {
@@ -300,6 +327,65 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
         await grantAdminPlayerAccount({ userId: selectedRow.id, email: selectedRow.email });
         setFeedback({ tone: 'success', message: t('data_accounts_admin_grant_done') });
       }
+      setRefreshNonce((value) => value + 1);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+    }
+  };
+
+  const ignoreAliasSuggestion = (suggestionId: string) => {
+    setState(ignorePlayerAccountAliasSuggestion(state, { id: suggestionId }));
+    setFeedback({ tone: 'success', message: t('data_accounts_alias_ignore_done') });
+  };
+
+  const mergeAliasSuggestion = async (suggestionId: string) => {
+    if (!selectedRow) return;
+    const suggestion = aliasSuggestions.find((row) => row.id === suggestionId);
+    if (!suggestion) return;
+
+    const confirmMessage =
+      suggestion.mergeMode === 'candidate_into_account'
+        ? t('data_accounts_alias_merge_confirm_candidate_into_account')
+        : suggestion.mergeMode === 'account_into_candidate'
+          ? t('data_accounts_alias_merge_confirm_account_into_candidate')
+          : t('data_accounts_alias_merge_confirm_alias_candidate_into_account');
+
+    const confirmed = window.confirm(
+      confirmMessage
+        .replace('{account}', selectedRow.linkedPlayerName || selectedRow.email || selectedRow.id)
+        .replace('{candidate}', suggestion.candidateDisplayName)
+    );
+    if (!confirmed) return;
+
+    try {
+      const mergeResult = applyPlayerAccountAliasSuggestion(state, selectedRow, suggestion);
+
+      if (shouldSyncAccountCanonicalAfterAliasMerge(suggestion)) {
+        const nextPayload = buildPlayerAccountAliasTargetProfilePayload(
+          mergeResult.nextCanonicalPlayerName,
+          mergeResult.nextBirthDate
+        );
+        if (selectedRow.mode === 'live') {
+          await pushAdminPlayerAppProfile({
+            userId: selectedRow.id,
+            firstName: nextPayload.firstName,
+            lastName: nextPayload.lastName,
+            birthDate: nextPayload.birthDate,
+            canonicalPlayerId: mergeResult.nextCanonicalPlayerId,
+            canonicalPlayerName: mergeResult.nextCanonicalPlayerName,
+          });
+        } else {
+          await updatePlayerPreviewAccountAdmin(selectedRow.id, {
+            email: selectedRow.email,
+            firstName: nextPayload.firstName,
+            lastName: nextPayload.lastName,
+            birthDate: nextPayload.birthDate || '',
+          });
+        }
+      }
+
+      setState(mergeResult.state);
+      setFeedback({ tone: 'success', message: t('data_accounts_alias_merge_done') });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
@@ -514,6 +600,81 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
                   {t('data_accounts_live_profile_hint')}
                 </div>
               ) : null}
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-sm font-black text-amber-950">{t('data_accounts_alias_suggestions_title')}</div>
+                    <div className="mt-1 text-xs font-bold leading-5 text-amber-900/80">
+                      {t('data_accounts_alias_suggestions_desc')}
+                    </div>
+                  </div>
+                  <div className="rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-black text-amber-800">
+                    {aliasSuggestions.length}
+                  </div>
+                </div>
+
+                {aliasSuggestions.length ? (
+                  <div className="mt-4 space-y-3">
+                    {aliasSuggestions.map((suggestion) => (
+                      <div key={suggestion.id} className="rounded-2xl border border-amber-200 bg-white px-4 py-4">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-slate-950">
+                              {suggestion.candidateDisplayName}
+                              {suggestion.candidateBirthDateLabel !== 'ND' ? ` · ${suggestion.candidateBirthDateLabel}` : ''}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                                suggestion.confidence === 'high'
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-slate-100 text-slate-700'
+                              }`}>
+                                {suggestion.confidence === 'high'
+                                  ? t('data_accounts_alias_confidence_high')
+                                  : t('data_accounts_alias_confidence_medium')}
+                              </div>
+                              {suggestion.reasons.map((reason) => (
+                                <div key={reason} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                  {aliasReasonLabel(t, reason)}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid gap-2 text-right text-[11px] font-black text-slate-600 sm:grid-cols-2">
+                            <div>{t('titles')}: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                            <div>{t('scores_label')}: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                            <div>{t('soffi_label')}: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                            <div>{t('data_accounts_alias_candidate_aliases')}: <span className="text-slate-950">{suggestion.candidateAliasCount}</span></div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => void mergeAliasSuggestion(suggestion.id)}
+                            className="inline-flex items-center justify-center rounded-xl border border-amber-600 bg-amber-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+                          >
+                            {t('data_accounts_alias_merge')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => ignoreAliasSuggestion(suggestion.id)}
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+                          >
+                            {t('data_accounts_alias_ignore')}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-amber-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
+                    {t('data_accounts_alias_suggestions_empty')}
+                  </div>
+                )}
+              </div>
 
               <div className="flex gap-2 flex-wrap">
                 <button

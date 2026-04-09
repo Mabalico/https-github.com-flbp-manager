@@ -22,6 +22,7 @@ export interface AppState {
     hallOfFame: HallOfFameEntry[];
     integrationsScorers: IntegrationScorerEntry[];
     playerAliases: Record<string, string>;
+    playerAccountAliasIgnores?: Record<string, number>;
 }
 
 // Increment only when the persisted snapshot shape requires a migration.
@@ -36,7 +37,8 @@ const initialState: AppState = {
     logo: '',
     hallOfFame: [],
     integrationsScorers: [],
-    playerAliases: {}
+    playerAliases: {},
+    playerAccountAliasIgnores: {}
 };
 
 /**
@@ -62,6 +64,7 @@ export const coerceAppState = (raw: any): AppState => {
     merged.hallOfFame = asArr<HallOfFameEntry>(merged.hallOfFame);
     merged.integrationsScorers = asArr<IntegrationScorerEntry>(merged.integrationsScorers);
     merged.playerAliases = asObj<Record<string, string>>(merged.playerAliases, {});
+    merged.playerAccountAliasIgnores = asObj<Record<string, number>>(merged.playerAccountAliasIgnores, {});
     merged.logo = asStr(merged.logo, '');
 
     // tournament can be null or object

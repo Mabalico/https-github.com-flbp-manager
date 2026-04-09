@@ -171,6 +171,34 @@ const mergeAliases = (
   return { ok: true, value: next, changed };
 };
 
+const mergeAliasIgnoreMap = (
+  baseIgnores: Record<string, number>,
+  localIgnores: Record<string, number>,
+  remoteIgnores: Record<string, number>
+): MergeSuccess<Record<string, number>> | MergeFailure => {
+  const keys = Array.from(new Set([
+    ...Object.keys(baseIgnores || {}),
+    ...Object.keys(localIgnores || {}),
+    ...Object.keys(remoteIgnores || {}),
+  ]));
+  const next: Record<string, number> = {};
+  let changed = false;
+
+  for (const key of keys) {
+    const merged = mergeScalar(
+      baseIgnores?.[key] ?? null,
+      localIgnores?.[key] ?? null,
+      remoteIgnores?.[key] ?? null
+    );
+    if (!merged.ok) return merged;
+    const value = Number(merged.value);
+    if (Number.isFinite(value) && value > 0) next[key] = value;
+    changed = changed || merged.changed;
+  }
+
+  return { ok: true, value: next, changed };
+};
+
 const getTournamentMatches = (state: AppState): Match[] => {
   if (Array.isArray(state.tournamentMatches)) return state.tournamentMatches;
   if (Array.isArray(state.tournament?.matches)) return state.tournament.matches || [];
@@ -349,6 +377,14 @@ export const tryMergeRemoteStateConflict = (input: {
   if (!mergedAliases.ok) return { ok: false, reason: `playerAliases:${mergedAliases.reason}` };
   if (mergedAliases.changed) mergedSlices.push('playerAliases');
 
+  const mergedAliasIgnores = mergeAliasIgnoreMap(
+    baseState.playerAccountAliasIgnores || {},
+    localState.playerAccountAliasIgnores || {},
+    remoteState.playerAccountAliasIgnores || {}
+  );
+  if (!mergedAliasIgnores.ok) return { ok: false, reason: `playerAccountAliasIgnores:${mergedAliasIgnores.reason}` };
+  if (mergedAliasIgnores.changed) mergedSlices.push('playerAccountAliasIgnores');
+
   const mergedLogo = mergeScalar(baseState.logo || '', localState.logo || '', remoteState.logo || '');
   if (!mergedLogo.ok) return { ok: false, reason: `logo:${mergedLogo.reason}` };
   if (mergedLogo.changed) mergedSlices.push('logo');
@@ -365,6 +401,7 @@ export const tryMergeRemoteStateConflict = (input: {
       hallOfFame: mergedHall.value,
       integrationsScorers: mergedScorers.value,
       playerAliases: mergedAliases.value,
+      playerAccountAliasIgnores: mergedAliasIgnores.value,
       logo: mergedLogo.value,
     }),
     mergedSlices,

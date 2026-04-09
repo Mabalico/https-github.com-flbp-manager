@@ -1913,6 +1913,23 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_admin_revoke_confirm": "Vuoi rimuovere i permessi admin dall'account {email}?",
   "data_accounts_admin_missing_email": "Serve una email reale per promuovere questo account a amministratore.",
   "data_accounts_delete_admin_first": "Rimuovi prima i permessi admin dall'account se vuoi eliminarlo.",
+  "data_accounts_alias_suggestions_title": "Possibili alias da verificare",
+  "data_accounts_alias_suggestions_desc": "Qui trovi profili torneo molto simili all'account selezionato. Puoi unirli se sono la stessa persona oppure ignorare il suggerimento.",
+  "data_accounts_alias_suggestions_empty": "Per questo account non risultano possibili alias da controllare.",
+  "data_accounts_alias_confidence_high": "Alta compatibilità",
+  "data_accounts_alias_confidence_medium": "Compatibilità da verificare",
+  "data_accounts_alias_candidate_aliases": "Alias attivi",
+  "data_accounts_alias_merge": "Unisci profili",
+  "data_accounts_alias_ignore": "Ignora",
+  "data_accounts_alias_merge_done": "Alias integrato correttamente.",
+  "data_accounts_alias_ignore_done": "Suggerimento ignorato.",
+  "data_accounts_alias_reason_same_birthdate": "Stessa data di nascita",
+  "data_accounts_alias_reason_exact_name": "Nome identico",
+  "data_accounts_alias_reason_close_name": "Nome molto simile",
+  "data_accounts_alias_reason_existing_stats": "Storico già presente",
+  "data_accounts_alias_merge_confirm_candidate_into_account": "Vuoi unire il profilo storico {candidate} dentro l'account {account}? Lo storico esistente verrà spostato sul profilo registrato.",
+  "data_accounts_alias_merge_confirm_account_into_candidate": "Vuoi collegare l'account {account} al profilo storico {candidate}? L'account registrato adotterà quel profilo come identità principale.",
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Vuoi segnare {candidate} come alias del profilo {account}? Lo storico resterà collegato ma verrà risolto verso l'account registrato.",
 };
 
 

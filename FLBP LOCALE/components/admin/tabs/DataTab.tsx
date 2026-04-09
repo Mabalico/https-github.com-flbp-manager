@@ -545,7 +545,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
             ) : null}
 
             {mainSection === 'accounts' ? (
-                <AccountsSubTab state={props.state} t={t} />
+                <AccountsSubTab state={props.state} setState={props.setState} t={t} />
             ) : null}
         </div>
     );
