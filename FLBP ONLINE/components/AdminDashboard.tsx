@@ -3718,6 +3718,29 @@ while (guard < 5000) {
 
                     <div className="w-px h-6 bg-slate-200 mx-1"></div>
 
+                    {/* Sync badge always visible */}
+                    <div
+                        className={`text-[11px] font-black px-3 py-2 rounded-2xl flex items-center gap-1.5 border ${
+                            adminSyncState.phase === 'synced' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                            adminSyncState.phase === 'syncing' ? 'bg-sky-50 text-sky-800 border-sky-200' :
+                            adminSyncState.phase === 'pending' ? 'bg-amber-50 text-amber-900 border-amber-200' :
+                            adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200' :
+                            'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}
+                        title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
+                    >
+                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                            adminSyncState.phase === 'synced' ? 'bg-emerald-500' :
+                            adminSyncState.phase === 'syncing' ? 'bg-sky-500 animate-pulse' :
+                            adminSyncState.phase === 'pending' ? 'bg-amber-500 animate-pulse' :
+                            adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-500' :
+                            'bg-slate-400'
+                        }`} />
+                        <span className="hidden sm:inline">{adminSyncState.phase === 'synced' ? t('admin_sync_ok') : adminSyncState.phase === 'syncing' ? t('admin_syncing') : adminSyncState.phase === 'pending' ? t('admin_pending') : adminSyncState.phase === 'error' ? t('admin_sync_err') : adminSyncState.phase === 'conflict' ? t('admin_sync_conflict') : t('admin_autosave')}</span>
+                    </div>
+
+                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+
                     <details className="relative group">
                         <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center p-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm text-slate-700" title={t('admin_tools')}>
                             <Settings className="w-5 h-5" />
@@ -3737,7 +3760,8 @@ while (guard < 5000) {
                                 </button>
                             </div>
 
-                            <div className={`text-[11px] font-black px-3 py-2 rounded-2xl flex items-center justify-center text-center ${adminSyncState.phase === 'synced' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 border' : adminSyncState.phase === 'syncing' ? 'bg-sky-50 text-sky-800 border bg-sky-200' : adminSyncState.phase === 'pending' ? 'bg-amber-50 text-amber-900 border-amber-200 border' : adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200 border' : 'bg-slate-100 text-slate-600 border border-slate-200'}`} title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}>
+                            {/* Sync stato visibile anche nel dropdown per dettaglio */}
+                            <div className={`text-[11px] font-black px-3 py-2 rounded-2xl flex items-center justify-center text-center ${adminSyncState.phase === 'synced' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 border' : adminSyncState.phase === 'syncing' ? 'bg-sky-50 text-sky-800 border border-sky-200' : adminSyncState.phase === 'pending' ? 'bg-amber-50 text-amber-900 border-amber-200 border' : adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200 border' : 'bg-slate-100 text-slate-600 border border-slate-200'}`} title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}` }>
                                  {adminSyncState.phase === 'synced' ? t('admin_sync_ok') : adminSyncState.phase === 'syncing' ? t('admin_syncing') : adminSyncState.phase === 'pending' ? t('admin_pending') : adminSyncState.phase === 'error' ? t('admin_sync_err') : adminSyncState.phase === 'conflict' ? t('admin_sync_conflict') : t('admin_autosave')}
                             </div>
 
