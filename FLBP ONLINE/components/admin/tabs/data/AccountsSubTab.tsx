@@ -383,6 +383,42 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
   }, [filteredGroups, selectedId]);
 
   const selectedRow = React.useMemo(() => selectedGroup?.primaryRow || null, [selectedGroup]);
+  const selectedLiveRows = React.useMemo(
+    () => (selectedGroup?.rows || []).filter((row) => row.mode === 'live'),
+    [selectedGroup]
+  );
+  const selectedLiveAdminCount = React.useMemo(
+    () => selectedLiveRows.filter((row) => row.isAdmin).length,
+    [selectedLiveRows]
+  );
+  const canManageSelectedAdminRole = selectedLiveRows.length > 0;
+  const allSelectedLiveRowsAreAdmin =
+    canManageSelectedAdminRole && selectedLiveRows.every((row) => row.isAdmin);
+  const selectedAdminStatusLabel = React.useMemo(() => {
+    if (!canManageSelectedAdminRole) {
+      return selectedRow?.isAdmin
+        ? t('data_accounts_admin_role_yes')
+        : t('data_accounts_admin_role_no');
+    }
+    if (allSelectedLiveRowsAreAdmin) {
+      return selectedLiveRows.length > 1
+        ? `${t('data_accounts_admin_role_yes')} (${selectedLiveAdminCount}/${selectedLiveRows.length} account live)`
+        : t('data_accounts_admin_role_yes');
+    }
+    if (!selectedLiveAdminCount) {
+      return selectedLiveRows.length > 1
+        ? `${t('data_accounts_admin_role_no')} (0/${selectedLiveRows.length} account live)`
+        : t('data_accounts_admin_role_no');
+    }
+    return `Parziale (${selectedLiveAdminCount}/${selectedLiveRows.length} account live)`;
+  }, [
+    allSelectedLiveRowsAreAdmin,
+    canManageSelectedAdminRole,
+    selectedLiveAdminCount,
+    selectedLiveRows.length,
+    selectedRow?.isAdmin,
+    t,
+  ]);
 
   React.useEffect(() => {
     if (!selectedGroup) {
@@ -565,28 +601,59 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
   };
 
   const toggleSelectedAdminRole = async () => {
-    if (!selectedRow || selectedRow.mode !== 'live') return;
-    if (!selectedRow.email) {
+    if (!selectedRow || !selectedGroup || !canManageSelectedAdminRole) return;
+    const liveRowsToUpdate = allSelectedLiveRowsAreAdmin
+      ? selectedLiveRows
+      : selectedLiveRows.filter((row) => !row.isAdmin);
+    if (!liveRowsToUpdate.length) {
+      setFeedback({
+        tone: 'success',
+        message: 'I permessi admin sono gia allineati su tutti gli account live collegati.',
+      });
+      return;
+    }
+    if (liveRowsToUpdate.some((row) => !String(row.email || '').trim() && !String(row.id || '').trim())) {
       setFeedback({ tone: 'error', message: t('data_accounts_admin_missing_email') });
       return;
     }
 
-    const confirmed = window.confirm(
-      (
-        selectedRow.isAdmin
-          ? t('data_accounts_admin_revoke_confirm')
-          : t('data_accounts_admin_grant_confirm')
-      ).replace('{email}', selectedRow.email || selectedRow.id)
+    const confirmTarget =
+      selectedGroup.rows.length > 1
+        ? selectedGroup.linkedPlayerName || selectedRow.email || selectedRow.id
+        : selectedRow.email || selectedRow.id;
+    const confirmed = window.confirm(selectedGroup.rows.length > 1
+      ? allSelectedLiveRowsAreAdmin
+        ? `Vuoi rimuovere i permessi admin da tutti gli account live collegati a ${confirmTarget}?`
+        : `Vuoi rendere amministratori tutti gli account live collegati a ${confirmTarget}?`
+      : (
+          allSelectedLiveRowsAreAdmin
+            ? t('data_accounts_admin_revoke_confirm')
+            : t('data_accounts_admin_grant_confirm')
+        ).replace('{email}', confirmTarget)
     );
     if (!confirmed) return;
 
     try {
-      if (selectedRow.isAdmin) {
-        await revokeAdminPlayerAccount({ userId: selectedRow.id, email: selectedRow.email });
-        setFeedback({ tone: 'success', message: t('data_accounts_admin_revoke_done') });
+      if (allSelectedLiveRowsAreAdmin) {
+        for (const row of liveRowsToUpdate) {
+          await revokeAdminPlayerAccount({ userId: row.id, email: row.email });
+        }
+        setFeedback({
+          tone: 'success',
+          message: selectedGroup.rows.length > 1
+            ? 'Permessi admin rimossi da tutti gli account live collegati.'
+            : t('data_accounts_admin_revoke_done'),
+        });
       } else {
-        await grantAdminPlayerAccount({ userId: selectedRow.id, email: selectedRow.email });
-        setFeedback({ tone: 'success', message: t('data_accounts_admin_grant_done') });
+        for (const row of liveRowsToUpdate) {
+          await grantAdminPlayerAccount({ userId: row.id, email: row.email });
+        }
+        setFeedback({
+          tone: 'success',
+          message: selectedGroup.rows.length > 1
+            ? 'Permessi admin allineati su tutti gli account live collegati.'
+            : t('data_accounts_admin_grant_done'),
+        });
       }
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
@@ -682,6 +749,18 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         await applyIdentityToAccount(candidateRow, master.canonicalPlayerName, master.birthDate);
       }
 
+      const liveRowsToPromote = [selectedRow, candidateRow].filter(
+        (row) => row.mode === 'live' && !row.isAdmin
+      );
+      const shouldPropagateAdminRole =
+        [selectedRow, candidateRow].some((row) => row.mode === 'live' && row.isAdmin)
+        && liveRowsToPromote.length > 0;
+      if (shouldPropagateAdminRole) {
+        for (const row of liveRowsToPromote) {
+          await grantAdminPlayerAccount({ userId: row.id, email: row.email });
+        }
+      }
+
       const masterPayload = buildPlayerAccountAliasTargetProfilePayload(master.canonicalPlayerName, master.birthDate);
       const relatedIds = new Set([selectedRow.id, candidateRow.id]);
       const relatedEmails = new Set(
@@ -715,8 +794,12 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         message: selectedAligned && candidateAligned
           ? 'I due account risultano già integrati sullo stesso profilo giocatore.'
           : relevantRequestIds.length
-            ? 'Account integrati correttamente sullo stesso profilo giocatore. Ho segnato come gestite anche le richieste di merge collegate.'
-            : 'Account integrati correttamente sullo stesso profilo giocatore.',
+            ? shouldPropagateAdminRole
+              ? 'Account integrati correttamente sullo stesso profilo giocatore. Ho allineato anche i permessi admin e segnato come gestite le richieste di merge collegate.'
+              : 'Account integrati correttamente sullo stesso profilo giocatore. Ho segnato come gestite anche le richieste di merge collegate.'
+            : shouldPropagateAdminRole
+              ? 'Account integrati correttamente sullo stesso profilo giocatore. Ho allineato anche i permessi admin.'
+              : 'Account integrati correttamente sullo stesso profilo giocatore.',
       });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
@@ -1051,7 +1134,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                   <div className="mt-1">{t('scores_label')}: <span className="font-black text-slate-900">{selectedGroup?.totalCanestri || 0}</span></div>
                   <div className="mt-1">{t('soffi_label')}: <span className="font-black text-slate-900">{selectedGroup?.totalSoffi || 0}</span></div>
                   <div className="mt-1">{t('birth_date')}: <span className="font-black text-slate-900">{formatBirthDateDisplay(selectedGroup?.birthDate || '') || 'ND'}</span></div>
-                  <div className="mt-1">{t('data_accounts_admin_role_label')}: <span className={`font-black ${selectedRow.isAdmin ? 'text-violet-700' : 'text-slate-900'}`}>{selectedRow.isAdmin ? t('data_accounts_admin_role_yes') : t('data_accounts_admin_role_no')}</span></div>
+                  <div className="mt-1">{t('data_accounts_admin_role_label')}: <span className={`font-black ${selectedLiveAdminCount > 0 ? 'text-violet-700' : 'text-slate-900'}`}>{selectedAdminStatusLabel}</span></div>
                 </div>
               </div>
 
@@ -1316,17 +1399,17 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                 >
                   {t('data_accounts_reset_password')}
                 </button>
-                {selectedRow.mode === 'live' ? (
+                {canManageSelectedAdminRole ? (
                   <button
                     type="button"
                     onClick={() => void toggleSelectedAdminRole()}
                     className={`inline-flex items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
-                      selectedRow.isAdmin
+                      allSelectedLiveRowsAreAdmin
                         ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 focus-visible:ring-violet-500'
                         : 'border-violet-600 bg-violet-600 text-white hover:bg-violet-700 focus-visible:ring-violet-600'
                     }`}
                   >
-                    {selectedRow.isAdmin ? t('data_accounts_admin_revoke') : t('data_accounts_admin_grant')}
+                    {allSelectedLiveRowsAreAdmin ? t('data_accounts_admin_revoke') : t('data_accounts_admin_grant')}
                   </button>
                 ) : null}
                 <button
