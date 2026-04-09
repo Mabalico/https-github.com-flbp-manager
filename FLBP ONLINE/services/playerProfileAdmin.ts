@@ -1,6 +1,6 @@
 import type { AppState } from './storageService';
 import type { HallOfFameEntry, Match, Team, TournamentData } from '../types';
-import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
+import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
 import { buildPlayerProfileSnapshot } from './playerDataProvenance';
 
 interface UpdatePlayerProfileIdentityInput {
@@ -12,6 +12,7 @@ interface UpdatePlayerProfileIdentityInput {
 interface MergeAliasIntoBirthdatedProfileInput {
   sourcePlayerId: string;
   targetPlayerId: string;
+  targetPlayerName?: string;
 }
 
 const extractBirthDateFromPlayerId = (playerId: string): string | undefined => {
@@ -189,7 +190,12 @@ export const mergeAliasIntoBirthdatedProfile = (state: AppState, input: MergeAli
   }
 
   const targetSnapshot = buildPlayerProfileSnapshot(state, targetPlayerId);
-  const nextPlayerName = String(targetSnapshot?.displayName || '').trim();
+  const nextPlayerName = String(
+    targetSnapshot?.displayName
+      || input.targetPlayerName
+      || getPlayerKeyLabel(targetPlayerId).name
+      || ''
+  ).trim();
   if (!nextPlayerName) {
     throw new Error('Impossibile determinare il nome del profilo destinazione.');
   }

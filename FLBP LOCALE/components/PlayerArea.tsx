@@ -1546,7 +1546,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                   </div>
                 </div>
               </div>
-            )}ull}
+            )}
           </div>
         </div>
       </div>

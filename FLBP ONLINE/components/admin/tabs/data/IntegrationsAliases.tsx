@@ -162,6 +162,7 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
                                             setState(mergeAliasIntoBirthdatedProfile(state, {
                                                 sourcePlayerId: from,
                                                 targetPlayerId: to,
+                                                targetPlayerName: labelFromPlayerKey(to),
                                             }));
                                             setAliasToolSelections(prev => {
                                                 const n = { ...prev };

@@ -249,11 +249,13 @@ export const applyPlayerAccountAliasSuggestion = (
     nextState = mergeAliasIntoBirthdatedProfile(nextState, {
       sourcePlayerId: candidatePlayerId,
       targetPlayerId: sourcePlayerId,
+      targetPlayerName: sourceName,
     });
   } else if (suggestion.mergeMode === 'account_into_candidate') {
     nextState = mergeAliasIntoBirthdatedProfile(nextState, {
       sourcePlayerId: sourcePlayerId,
       targetPlayerId: candidatePlayerId,
+      targetPlayerName: suggestion.candidateDisplayName,
     });
     nextCanonicalPlayerId = candidatePlayerId;
     nextCanonicalPlayerName = suggestion.candidateDisplayName;
