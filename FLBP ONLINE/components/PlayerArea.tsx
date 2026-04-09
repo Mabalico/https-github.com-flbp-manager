@@ -77,7 +77,7 @@ interface PlayerAreaProps {
 
 const cardClass = 'animate-pop-in rounded-[26px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
 const sectionTitleClass = 'text-lg font-black text-slate-950';
-const metricCardClass = 'rounded-2xl border border-slate-100 bg-gradient-to-b from-slate-50/90 to-white/90 px-4 py-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 transition-transform duration-300';
+const metricCardClass = 'group relative overflow-hidden rounded-[24px] border border-white/60 bg-white/70 px-5 py-4 backdrop-blur-xl shadow-sm shadow-slate-200/50 hover:shadow-xl hover:-translate-y-1 hover:bg-white/95 transition-all duration-300 ring-1 ring-inset ring-slate-100/50';
 const inputClass =
   'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 [overflow-anchor:none]';
 const btnBase =
@@ -105,8 +105,9 @@ const schedulePlayerAreaTask = (task: () => void) => {
 
 const MetricCard: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div className={metricCardClass}>
-    <div className="text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">{label}</div>
-    <div className="mt-1 text-lg font-black text-slate-950">{value}</div>
+    <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-100/50 blur-3xl transition-transform group-hover:scale-150 duration-500"></div>
+    <div className="relative z-10 text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">{label}</div>
+    <div className="relative z-10 mt-1 text-2xl tracking-tight font-black text-slate-900">{value}</div>
   </div>
 );
 
@@ -581,6 +582,22 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const effectivePersonalProfile = liveRuntimeSession
     ? liveDerivedPersonalProfile
     : snapshot.personalProfile;
+
+  const participations = React.useMemo(() => {
+    if (!effectivePersonalProfile) return [];
+    const map = new Map<string, { id: string; name: string; year: string; team: string }>();
+    effectivePersonalProfile.contributions.forEach(c => {
+      if (c.tournamentId && !map.has(c.tournamentId)) {
+        map.set(c.tournamentId, {
+          id: c.tournamentId,
+          name: c.tournamentName || "Torneo",
+          year: c.tournamentYear || "",
+          team: c.teamName || ""
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a,b) => Number(b.year) - Number(a.year));
+  }, [effectivePersonalProfile]);
   const effectiveLiveStatus = liveRuntimeSession
     ? (liveDerivedStatus || safeSnapshot.liveStatus)
     : snapshot.liveStatus;
@@ -1374,17 +1391,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
               </div>
             ) : (
               <div className="space-y-5">
-                <div className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4 md:p-5">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="relative overflow-hidden rounded-[26px] border border-blue-100 bg-gradient-to-br from-blue-50/80 to-white/90 p-5 md:p-6 shadow-sm shadow-blue-100/50 ring-1 ring-inset ring-white">
+                  <div className="absolute -right-4 -top-8 h-40 w-40 rounded-full bg-sky-200/40 blur-3xl" />
+                  <div className="relative z-10 flex items-start justify-between gap-4 flex-wrap">
                     <div>
-                      <div className={sectionTitleClass}>{effectiveProfile.canonicalPlayerName}</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-600">
+                      <div className="text-2xl font-black text-blue-950 tracking-tight">{effectiveProfile.canonicalPlayerName}</div>
+                      <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/60 px-2.5 py-0.5 text-xs font-bold text-slate-600 shadow-sm ring-1 ring-inset ring-slate-200/60 backdrop-blur-md">
                         {effectiveSession.mode === 'live'
-                          ? `${effectiveProfile.canonicalPlayerName} · ${formatBirthDateDisplay(effectiveProfile.birthDate)}`
+                          ? `${formatBirthDateDisplay(effectiveProfile.birthDate)}`
                           : getPlayerPreviewIdentityLabel(snapshot.profile)}
                       </div>
                     </div>
-                    <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
+                    <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50/80 backdrop-blur-md px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
                       <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
                     </button>
                   </div>
@@ -1398,33 +1416,54 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-                  <div className="rounded-[22px] border border-slate-200 bg-white p-4 md:p-5 space-y-4">
-                    <div className="flex items-center gap-3">
-                      <Trophy className="h-5 w-5 text-amber-600" />
-                      <div className={sectionTitleClass}>{t('player_area_results_title')}</div>
+                  <div className="flex flex-col gap-4">
+                    <div className="rounded-[26px] border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-inset ring-slate-100 p-4 md:p-5 space-y-4">
+                      <div className="flex items-center gap-3">
+                        <Trophy className="h-5 w-5 text-amber-500" />
+                        <div className={sectionTitleClass}>{t('player_area_results_title')}</div>
+                      </div>
+
+                      {effectivePersonalProfile && effectivePersonalProfile.titles.length ? (
+                        <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                          {effectivePersonalProfile.titles.map((row) => (
+                            <div key={row.id} className="group relative overflow-hidden rounded-[20px] border border-slate-100 bg-gradient-to-r from-amber-50/50 to-white/50 px-4 py-3 shadow-sm hover:shadow-md hover:border-amber-100 transition-all">
+                              <div className="text-sm font-black text-slate-900 group-hover:text-amber-900 transition-colors">{row.tournamentName}</div>
+                              <div className="mt-1 text-xs font-bold text-slate-500">
+                                {row.year} · {row.teamName || t('team_label')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-bold text-slate-500 text-center">
+                          {t('player_area_no_results')}
+                        </div>
+                      )}
                     </div>
 
-                    {effectivePersonalProfile ? (
-                      <div className="space-y-3">
-                        {effectivePersonalProfile.titles.slice(0, 5).map((row) => (
-                          <div key={row.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
-                            <div className="text-sm font-black text-slate-900">{row.tournamentName}</div>
-                            <div className="mt-1 text-xs font-semibold text-slate-500">
-                              {row.year} · {row.teamName || t('team_label')}
+                    <div className="rounded-[26px] border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-inset ring-slate-100 p-4 md:p-5 space-y-4">
+                      <div className="flex items-center gap-3">
+                        <BadgeCheck className="h-5 w-5 text-sky-500" />
+                        <div className={sectionTitleClass}>Tornei Disputati</div>
+                      </div>
+
+                      {participations.length > 0 ? (
+                        <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                          {participations.map((row) => (
+                            <div key={row.id} className="group relative overflow-hidden rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3 shadow-sm hover:shadow-md hover:border-sky-100 transition-all">
+                              <div className="text-sm font-black text-slate-900 group-hover:text-sky-900 transition-colors">{row.name}</div>
+                              <div className="mt-1 text-xs font-bold text-slate-500">
+                                {row.year} · {row.team}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                        {!effectivePersonalProfile.titles.length ? (
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-600">
-                            {t('player_area_no_results')}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-600">
-                        {t('player_area_no_results')}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-bold text-slate-500 text-center">
+                          Nessun torneo
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-4">
