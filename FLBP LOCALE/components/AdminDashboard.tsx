@@ -404,6 +404,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             || normalized === 'Questo account autenticato non ha ruolo admin in Supabase.';
     }, []);
 
+    const applyAdminAuthState = React.useCallback((email: string, preferLegacy: boolean) => {
+        setAuthed(true);
+        setAdminAuthError('');
+        setSupabaseEmail(email);
+        setAdminAuthEmailInput(email);
+        setAdminSessionChecking(false);
+        if (preferLegacy) {
+            setAdminAuthMode('legacy');
+            safeSessionSet(ADMIN_LEGACY_AUTH_LS_KEY, '1');
+        } else {
+            setAdminAuthMode('supabase');
+            safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+        }
+    }, []);
+
+    const tryBootstrapLegacySupabaseSession = React.useCallback(async (): Promise<boolean> => {
+        if (!supabaseConfig) return false;
+        const configuredEmail = getConfiguredAdminEmail().trim();
+        if (!configuredEmail) return false;
+        try {
+            const result = await signInWithPassword(configuredEmail, ADMIN_LEGACY_BOOTSTRAP_PASSWORD);
+            const access = await ensureSupabaseAdminAccess();
+            if (!access.ok) {
+                await signOutSupabase();
+                return false;
+            }
+            const resolvedEmail = access.email || result.email || configuredEmail;
+            applyAdminAuthState(resolvedEmail, true);
+            return true;
+        } catch {
+            return false;
+        }
+    }, [applyAdminAuthState, supabaseConfig]);
+
     useEffect(() => {
         let alive = true;
 
@@ -419,6 +453,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
             if (!session?.accessToken) {
                 if (adminAuthMode === 'legacy') {
+                    setAdminSessionChecking(true);
+                    const bootstrapped = await tryBootstrapLegacySupabaseSession();
+                    if (!alive) return;
+                    if (bootstrapped) {
+                        return;
+                    }
                     setAuthed(true);
                     setAdminAuthError('');
                     setSupabaseEmail(getConfiguredAdminEmail());
@@ -438,12 +478,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 if (!alive) return;
                 if (access.ok) {
                     const resolvedEmail = access.email || nextEmail || getConfiguredAdminEmail();
-                    setAuthed(true);
-                    setAdminAuthMode('supabase');
-                    safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
-                    setSupabaseEmail(resolvedEmail);
-                    setAdminAuthError('');
-                    setAdminAuthEmailInput(resolvedEmail);
+                    applyAdminAuthState(resolvedEmail, adminAuthMode === 'legacy');
                     return;
                 }
 
@@ -481,7 +516,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [adminAuthMode, isFatalAdminAccessFailure]);
+    }, [adminAuthMode, applyAdminAuthState, isFatalAdminAccessFailure, tryBootstrapLegacySupabaseSession]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');
@@ -3123,14 +3158,8 @@ while (guard < 5000) {
                             throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
                         }
                         const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
-                        setAuthed(true);
-                        setAdminAuthMode('supabase');
-                        safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
-                        setAdminAuthError('');
-                        setSupabaseEmail(resolvedEmail);
-                        setAdminAuthEmailInput(resolvedEmail);
+                        applyAdminAuthState(resolvedEmail, legacyBootstrapMatch);
                         setAdminAuthPasswordInput('');
-                        setAdminSessionChecking(false);
                         return;
                     } catch (err: any) {
                         if (!legacyBootstrapMatch) {
@@ -3140,14 +3169,8 @@ while (guard < 5000) {
                 }
 
                 if (legacyBootstrapMatch) {
-                    setAuthed(true);
-                    setAdminAuthMode('legacy');
-                    safeSessionSet(ADMIN_LEGACY_AUTH_LS_KEY, '1');
-                    setAdminAuthError('');
-                    setSupabaseEmail(getConfiguredAdminEmail());
-                    setAdminAuthEmailInput(getConfiguredAdminEmail());
+                    applyAdminAuthState(getConfiguredAdminEmail(), true);
                     setAdminAuthPasswordInput('');
-                    setAdminSessionChecking(false);
                     return;
                 }
 

@@ -133,15 +133,17 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
         if (cancelled) return;
         const message = String(error?.message || error || '').trim();
         setRemoteRows([]);
-        setRemoteError(message || null);
-        if (/jwt expired|sessione admin assente o scaduta|sessione admin/i.test(message)) {
+        if (/invalid jwt|jwt expired|sessione admin assente o scaduta|sessione admin/i.test(message)) {
           setRemoteStatus('auth_expired');
+          setRemoteError(null);
         } else if (
           /flbp_admin_list_player_accounts|player_app_profiles|player_app_devices|player_app_calls|function .*flbp_admin_list_player_accounts|relation .*player_app_/i.test(message)
         ) {
           setRemoteStatus('backend_pending');
+          setRemoteError(message || null);
         } else {
           setRemoteStatus('unavailable');
+          setRemoteError(message || null);
         }
       }
     };
