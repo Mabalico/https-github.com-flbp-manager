@@ -3630,79 +3630,79 @@ while (guard < 5000) {
             }}
         >
 	        <div className="animate-fade-in flex flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 backdrop-blur-3xl p-5 md:px-8 rounded-[24px] lg:rounded-[32px] shadow-sm border border-slate-200 border-white/40">
-                <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="hidden md:flex text-xl lg:text-2xl font-black items-center gap-2">
-                        <ShieldCheck className="w-7 h-7 text-beer-500 drop-shadow-sm" />
+            <header className="relative z-[60] flex flex-row items-center justify-between gap-2 bg-white/80 backdrop-blur-3xl px-4 py-3 rounded-[20px] lg:rounded-[28px] shadow-sm border border-slate-200 border-white/40">
+                <div className="flex items-center gap-2">
+                    <h2 className="hidden md:flex text-base font-black items-center gap-1.5">
+                        <ShieldCheck className="w-5 h-5 text-beer-500 drop-shadow-sm" />
                         {t('admin')}
                     </h2>
                     
-                    <div className="hidden md:block w-px h-6 bg-slate-200 mx-1"></div>
+                    <div className="hidden md:block w-px h-5 bg-slate-200 mx-0.5"></div>
 
                     <details className="relative group">
-                        <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-2xl font-black hover:bg-slate-800 transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 shadow-sm">
-                            {adminSection === 'live' ? <><PlayCircle className="w-4 h-4"/> <span className="hidden sm:inline">{t('admin_live_management')}</span></> : adminSection === 'data' ? <><Settings className="w-4 h-4"/> <span className="hidden sm:inline">{t('admin_data_management')}</span></> : <><Brackets className="w-4 h-4"/> <span className="hidden sm:inline">{t('admin_structural_editor')}</span></>}
-                            <ChevronDown className="w-4 h-4 opacity-80" />
+                        <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-black hover:bg-slate-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm">
+                            {adminSection === 'live' ? <><PlayCircle className="w-3.5 h-3.5"/> <span>{t('admin_live_management')}</span></> : adminSection === 'data' ? <><Settings className="w-3.5 h-3.5"/> <span>{t('admin_data_management')}</span></> : <><Brackets className="w-3.5 h-3.5"/> <span>{t('admin_structural_editor')}</span></>}
+                            <ChevronDown className="w-3.5 h-3.5 opacity-80" />
                         </summary>
-                        <div className="absolute left-0 mt-2 min-w-[240px] max-w-[90vw] bg-white border border-slate-200 shadow-xl rounded-[24px] p-2 z-[90]">
+                        <div className="absolute left-0 mt-2 min-w-[220px] max-w-[90vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
                             <div className="grid gap-1">
-                                <button type="button" onClick={() => { void switchAdminSection('live'); }} className={`w-full text-left px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 transition-colors ${adminSection==='live' ? 'bg-emerald-50 text-emerald-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
-                                    <PlayCircle className="w-4 h-4" /> {t('admin_live_management')}
+                                <button type="button" onClick={() => { void switchAdminSection('live'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='live' ? 'bg-emerald-50 text-emerald-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
+                                    <PlayCircle className="w-3.5 h-3.5" /> {t('admin_live_management')}
                                 </button>
-                                <button type="button" onClick={() => { void switchAdminSection('data'); }} className={`w-full text-left px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 transition-colors ${adminSection==='data' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
-                                    <Settings className="w-4 h-4" /> {t('admin_data_management')}
+                                <button type="button" onClick={() => { void switchAdminSection('data'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='data' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
+                                    <Settings className="w-3.5 h-3.5" /> {t('admin_data_management')}
                                 </button>
-                                <button type="button" onClick={() => { void switchAdminSection('editor'); }} className={`w-full text-left px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 transition-colors ${adminSection==='editor' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
-                                    <Brackets className="w-4 h-4" /> {t('admin_structural_editor')}
+                                <button type="button" onClick={() => { void switchAdminSection('editor'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='editor' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
+                                    <Brackets className="w-3.5 h-3.5" /> {t('admin_structural_editor')}
                                 </button>
                             </div>
                         </div>
                     </details>
 
                     {adminSection === 'live' && (
-                         <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                         <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
                              {t('live_badge')}
                          </span>
                     )}
                     {adminSection === 'editor' && (
-                         <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-200">
+                         <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-200">
                              {t('admin_structural_editor')}
                          </span>
                     )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5">
                     {adminSection === 'live' && (
                         <>
                             <details className="relative group">
-                                <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-2 bg-emerald-700 text-white px-4 py-2.5 rounded-2xl font-black hover:bg-emerald-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm">
-                                    <MonitorPlay className="w-4 h-4" /> <span className="hidden sm:inline">{t('admin_open_tv')}</span>
-                                    <ChevronDown className="w-4 h-4 opacity-80" />
+                                <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-1.5 bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-black hover:bg-emerald-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm">
+                                    <MonitorPlay className="w-3.5 h-3.5" /> <span>{t('admin_open_tv')}</span>
+                                    <ChevronDown className="w-3.5 h-3.5 opacity-80" />
                                 </summary>
-                                <div className="absolute right-0 mt-2 min-w-[260px] max-w-[90vw] bg-white border border-slate-200 shadow-xl rounded-[24px] p-2 z-[90]">
+                                <div className="absolute right-0 mt-2 min-w-[220px] max-w-[90vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
                                     <div className="grid gap-1">
-                                        <button type="button" onClick={() => onEnterTv('groups')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
-                                            <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups')}
+                                        <button type="button" onClick={() => onEnterTv('groups')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                            <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups')}
                                         </button>
-                                        <button type="button" onClick={() => onEnterTv('groups_bracket')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
-                                            <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups_bracket')}
+                                        <button type="button" onClick={() => onEnterTv('groups_bracket')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                            <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups_bracket')}
                                         </button>
-                                        <button type="button" onClick={() => onEnterTv('bracket')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
-                                            <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket')}
+                                        <button type="button" onClick={() => onEnterTv('bracket')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                            <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket')}
                                         </button>
-                                        <button type="button" onClick={() => onEnterTv('scorers')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
-                                            <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
+                                        <button type="button" onClick={() => onEnterTv('scorers')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                            <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
                                         </button>
                                     </div>
                                 </div>
                             </details>
 
-                            <button type="button" onClick={() => openMvpModal(false)} className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 font-black text-slate-700 hover:bg-slate-50 transition-colors shadow-sm" title={t('mvp_plural')}>
-                                <span className="text-base select-none">⭐</span>
-                                <span className="hidden lg:inline">{t('mvp_plural')}</span>
+                            <button type="button" onClick={() => openMvpModal(false)} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors shadow-sm" title={t('mvp_plural')}>
+                                <span className="text-sm select-none">⭐</span>
+                                <span>{t('mvp_plural')}</span>
                                 {state.tournament && (
-                                    <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">
                                         {(() => {
                                             const c = (state.hallOfFame || []).filter(e => e.tournamentId === state.tournament!.id && e.type === 'mvp').length;
                                             return c;
@@ -3710,17 +3710,17 @@ while (guard < 5000) {
                                     </span>
                                 )}
                             </button>
-                            <button type="button" onClick={handleArchive} className="bg-red-50 text-red-700 border border-red-200 px-4 py-2.5 rounded-2xl font-black inline-flex items-center gap-2 hover:bg-red-100 transition-colors shadow-sm">
-                                <Archive className="w-4 h-4" /> <span className="hidden sm:inline">{t('complete_tournament')}</span>
+                            <button type="button" onClick={handleArchive} className="bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-black inline-flex items-center gap-1.5 hover:bg-red-100 transition-colors shadow-sm">
+                                <Archive className="w-3.5 h-3.5" /> <span>{t('complete_tournament')}</span>
                             </button>
                         </>
                     )}
 
-                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <div className="w-px h-5 bg-slate-200 mx-0.5"></div>
 
                     {/* Sync badge always visible */}
                     <div
-                        className={`text-[11px] font-black px-3 py-2 rounded-2xl flex items-center gap-1.5 border ${
+                        className={`text-[10px] font-black px-2 py-1.5 rounded-xl flex items-center gap-1.5 border ${
                             adminSyncState.phase === 'synced' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                             adminSyncState.phase === 'syncing' ? 'bg-sky-50 text-sky-800 border-sky-200' :
                             adminSyncState.phase === 'pending' ? 'bg-amber-50 text-amber-900 border-amber-200' :
@@ -3739,11 +3739,11 @@ while (guard < 5000) {
                         <span className="hidden sm:inline">{adminSyncState.phase === 'synced' ? t('admin_sync_ok') : adminSyncState.phase === 'syncing' ? t('admin_syncing') : adminSyncState.phase === 'pending' ? t('admin_pending') : adminSyncState.phase === 'error' ? t('admin_sync_err') : adminSyncState.phase === 'conflict' ? t('admin_sync_conflict') : t('admin_autosave')}</span>
                     </div>
 
-                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <div className="w-px h-5 bg-slate-200 mx-0.5"></div>
 
                     <details className="relative group">
-                        <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center p-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm text-slate-700" title={t('admin_tools')}>
-                            <Settings className="w-5 h-5" />
+                        <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center p-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm text-slate-700" title={t('admin_tools')}>
+                            <Settings className="w-4 h-4" />
                         </summary>
                         <div className="absolute right-0 mt-2 w-[260px] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-3 z-[999] flex flex-col gap-2">
                             {/* Account */}
@@ -3996,7 +3996,8 @@ while (guard < 5000) {
                     ) : null}
                 </main>
 
-            {/* TAB CONTENT */}           <React.Suspense fallback={<AdminChunkFallback label={t('admin_loading_admin_tab')} description={t('admin_loading_non_blocking')} />}>
+            {/* TAB CONTENT */}
+            <React.Suspense fallback={<AdminChunkFallback label={t('admin_loading_admin_tab')} description={t('admin_loading_non_blocking')} />}>
             {tab === 'teams' && (
                 <TeamsTabLazy
                     t={t}
