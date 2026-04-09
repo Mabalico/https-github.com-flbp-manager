@@ -135,6 +135,115 @@ const mergeRequestStatusLabel = (status: PlayerAccountMergeRequestRow['status'])
   }
 };
 
+type AccountAdminRow = ReturnType<typeof listPlayerPreviewAccountsAdminRows>[number];
+type AccountMergeSuggestion = ReturnType<typeof buildPlayerAccountMergeSuggestions>[number];
+
+interface AccountListGroup {
+  id: string;
+  primaryRow: AccountAdminRow;
+  rows: AccountAdminRow[];
+  emails: string[];
+  providers: string[];
+  providerOrigins: PlayerAccountAdminOrigin[];
+  linkedPlayerName: string | null;
+  birthDate: string | null;
+  canonicalPlayerId: string | null;
+  totalTitles: number;
+  totalCanestri: number;
+  totalSoffi: number;
+  hasProfile: boolean;
+  isAdmin: boolean;
+}
+
+const getAccountGroupId = (row: AccountAdminRow) => {
+  const canonicalPlayerId = String(row.canonicalPlayerId || '').trim();
+  return canonicalPlayerId ? `canonical:${canonicalPlayerId}` : `account:${row.id}`;
+};
+
+const compareAccountRows = (left: AccountAdminRow, right: AccountAdminRow) => {
+  const liveDiff = Number(right.mode === 'live') - Number(left.mode === 'live');
+  if (liveDiff) return liveDiff;
+  const profileDiff = Number(right.hasProfile) - Number(left.hasProfile);
+  if (profileDiff) return profileDiff;
+  const adminDiff = Number(right.isAdmin) - Number(left.isAdmin);
+  if (adminDiff) return adminDiff;
+  const providerDiff = right.providers.length - left.providers.length;
+  if (providerDiff) return providerDiff;
+  const totalsDiff =
+    (right.totalTitles + right.totalCanestri + right.totalSoffi)
+    - (left.totalTitles + left.totalCanestri + left.totalSoffi);
+  if (totalsDiff) return totalsDiff;
+  const loginDiff = (right.lastLoginAt || 0) - (left.lastLoginAt || 0);
+  if (loginDiff) return loginDiff;
+  return left.email.localeCompare(right.email, 'it', { sensitivity: 'base' });
+};
+
+const buildAccountGroups = (rows: AccountAdminRow[]): AccountListGroup[] => {
+  const groups = new Map<string, AccountAdminRow[]>();
+  rows.forEach((row) => {
+    const groupId = getAccountGroupId(row);
+    const bucket = groups.get(groupId) || [];
+    bucket.push(row);
+    groups.set(groupId, bucket);
+  });
+
+  return Array.from(groups.entries())
+    .map(([id, memberRows]) => {
+      const sortedRows = [...memberRows].sort(compareAccountRows);
+      const primaryRow = sortedRows[0]!;
+      const providers = Array.from(
+        new Set(sortedRows.flatMap((row) => row.providers).filter(Boolean))
+      );
+      const providerOrigins = Array.from(
+        new Set(sortedRows.flatMap((row) => row.providerOrigins || [row.origin]))
+      ) as PlayerAccountAdminOrigin[];
+      const linkedPlayerName = sortedRows
+        .map((row) => String(row.linkedPlayerName || '').trim())
+        .find(Boolean) || null;
+      const birthDate = sortedRows
+        .map((row) => String(row.birthDate || '').trim())
+        .find(Boolean) || null;
+      const canonicalPlayerId = sortedRows
+        .map((row) => String(row.canonicalPlayerId || '').trim())
+        .find(Boolean) || null;
+      return {
+        id,
+        primaryRow,
+        rows: sortedRows,
+        emails: sortedRows.map((row) => row.email).filter(Boolean),
+        providers,
+        providerOrigins,
+        linkedPlayerName,
+        birthDate,
+        canonicalPlayerId,
+        totalTitles: Math.max(...sortedRows.map((row) => row.totalTitles), 0),
+        totalCanestri: Math.max(...sortedRows.map((row) => row.totalCanestri), 0),
+        totalSoffi: Math.max(...sortedRows.map((row) => row.totalSoffi), 0),
+        hasProfile: sortedRows.some((row) => row.hasProfile),
+        isAdmin: sortedRows.some((row) => row.isAdmin),
+      } satisfies AccountListGroup;
+    })
+    .sort((left, right) => compareAccountRows(left.primaryRow, right.primaryRow));
+};
+
+const mergeAccountSuggestions = (
+  current: AccountMergeSuggestion | undefined,
+  next: AccountMergeSuggestion
+): AccountMergeSuggestion => {
+  if (!current) return next;
+  const mergedReasons = Array.from(new Set([...(current.reasons || []), ...(next.reasons || [])]));
+  const preferred =
+    next.confidence === 'high' && current.confidence !== 'high'
+      ? next
+      : next.reasons.length > current.reasons.length
+        ? next
+        : current;
+  return {
+    ...preferred,
+    reasons: mergedReasons,
+  };
+};
+
 export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState, t }) => {
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [remoteRows, setRemoteRows] = React.useState<ReturnType<typeof listPlayerPreviewAccountsAdminRows>>([]);
@@ -229,6 +338,8 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     [remoteRows, state]
   );
 
+  const accountGroups = React.useMemo(() => buildAccountGroups(rows), [rows]);
+
   const accountMergeSuggestionMap = React.useMemo(
     () => new Map(rows.map((row) => [row.id, buildPlayerAccountMergeSuggestions(rows, row)])),
     [rows]
@@ -236,45 +347,52 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
 
   const aliasCandidateIds = React.useMemo(
     () => new Set(
-      rows
-        .filter((row) => (accountMergeSuggestionMap.get(row.id) || []).length > 0)
-        .map((row) => row.id)
+      accountGroups
+        .filter((group) => {
+          const memberIds = new Set(group.rows.map((row) => row.id));
+          return group.rows.some((row) =>
+            (accountMergeSuggestionMap.get(row.id) || []).some((suggestion) => !memberIds.has(suggestion.candidateAccountId))
+          );
+        })
+        .map((group) => group.id)
     ),
-    [rows, accountMergeSuggestionMap]
+    [accountGroups, accountMergeSuggestionMap]
   );
 
-  const filteredRows = React.useMemo(() => {
+  const filteredGroups = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      if (filter === 'alias_candidates' && !aliasCandidateIds.has(row.id)) return false;
-      if (filter !== 'all' && filter !== 'alias_candidates' && !(row.providerOrigins || [row.origin]).includes(filter)) return false;
+    return accountGroups.filter((group) => {
+      if (filter === 'alias_candidates' && !aliasCandidateIds.has(group.id)) return false;
+      if (filter !== 'all' && filter !== 'alias_candidates' && !(group.providerOrigins || [group.primaryRow.origin]).includes(filter)) return false;
       if (!needle) return true;
       const haystack = [
-        row.email,
-        row.linkedPlayerName || '',
-        row.providers.join(' '),
-        row.birthDate || '',
+        group.emails.join(' '),
+        group.linkedPlayerName || '',
+        group.providers.join(' '),
+        group.birthDate || '',
       ]
         .join(' ')
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [rows, filter, search, aliasCandidateIds]);
+  }, [accountGroups, filter, search, aliasCandidateIds]);
 
-  const selectedRow = React.useMemo(() => {
-    if (!filteredRows.length) return null;
-    return filteredRows.find((row) => row.id === selectedId) || filteredRows[0] || null;
-  }, [filteredRows, selectedId]);
+  const selectedGroup = React.useMemo(() => {
+    if (!filteredGroups.length) return null;
+    return filteredGroups.find((group) => group.id === selectedId) || filteredGroups[0] || null;
+  }, [filteredGroups, selectedId]);
+
+  const selectedRow = React.useMemo(() => selectedGroup?.primaryRow || null, [selectedGroup]);
 
   React.useEffect(() => {
-    if (!selectedRow) {
+    if (!selectedGroup) {
       setSelectedId('');
       return;
     }
-    if (selectedRow.id !== selectedId) {
-      setSelectedId(selectedRow.id);
+    if (selectedGroup.id !== selectedId) {
+      setSelectedId(selectedGroup.id);
     }
-  }, [selectedRow, selectedId]);
+  }, [selectedGroup, selectedId]);
 
   React.useEffect(() => {
     if (!selectedRow) {
@@ -303,32 +421,32 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
   }, [selectedRow, state]);
 
   const accountMergeSuggestions = React.useMemo(
-    () => (selectedRow ? (accountMergeSuggestionMap.get(selectedRow.id) || []).slice(0, 6) : []),
-    [selectedRow, accountMergeSuggestionMap]
+    () => {
+      if (!selectedGroup) return [];
+      const memberIds = new Set(selectedGroup.rows.map((row) => row.id));
+      const suggestions = new Map<string, AccountMergeSuggestion>();
+      selectedGroup.rows.forEach((row) => {
+        (accountMergeSuggestionMap.get(row.id) || []).forEach((suggestion) => {
+          if (memberIds.has(suggestion.candidateAccountId)) return;
+          suggestions.set(
+            suggestion.candidateAccountId,
+            mergeAccountSuggestions(suggestions.get(suggestion.candidateAccountId), suggestion)
+          );
+        });
+      });
+      return Array.from(suggestions.values()).slice(0, 6);
+    },
+    [selectedGroup, accountMergeSuggestionMap]
   );
 
   const relatedAccountRows = React.useMemo(() => {
-    if (!selectedRow) return [];
-    const candidateIds = new Set(accountMergeSuggestions.map((row) => row.candidateAccountId));
-    const sameCanonicalRows = rows.filter((row) =>
-      row.id !== selectedRow.id
-      && !!selectedRow.canonicalPlayerId
-      && !!row.canonicalPlayerId
-      && row.canonicalPlayerId === selectedRow.canonicalPlayerId
-    );
-    const relatedBySuggestion = rows.filter((row) => row.id !== selectedRow.id && candidateIds.has(row.id));
-    const deduped = new Map<string, (typeof rows)[number]>();
-    [...sameCanonicalRows, ...relatedBySuggestion].forEach((row) => {
-      deduped.set(row.id, row);
-    });
-    return Array.from(deduped.values()).sort((left, right) =>
-      left.email.localeCompare(right.email, 'it', { sensitivity: 'base' })
-    );
-  }, [accountMergeSuggestions, rows, selectedRow]);
+    if (!selectedGroup || !selectedRow) return [];
+    return selectedGroup.rows.filter((row) => row.id !== selectedRow.id);
+  }, [selectedGroup, selectedRow]);
 
   const emailCards = React.useMemo(() => {
     if (!selectedRow) return [];
-    const deduped = new Map<string, { key: string; email: string; providers: string; editable: boolean }>();
+    const deduped = new Map<string, { key: string; email: string; providers: string; editable: boolean; mode: 'preview' | 'live'; isAdmin: boolean }>();
     const pushCard = (row: (typeof rows)[number], editable: boolean) => {
       const emailValue = String(row.email || '').trim();
       if (!emailValue) return;
@@ -339,6 +457,8 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         email: emailValue,
         providers: row.providers.join(' • '),
         editable,
+        mode: row.mode,
+        isAdmin: row.isAdmin,
       });
     };
     pushCard(selectedRow, selectedRow.mode !== 'live');
@@ -347,15 +467,15 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
   }, [relatedAccountRows, selectedRow]);
 
   const selectedMergeRequests = React.useMemo(() => {
-    if (!selectedRow) return [];
-    const relatedIds = new Set([selectedRow.id, ...relatedAccountRows.map((row) => row.id)]);
+    if (!selectedRow || !selectedGroup) return [];
+    const relatedIds = new Set(selectedGroup.rows.map((row) => row.id));
     const relatedEmails = new Set(
-      [selectedRow.email, ...relatedAccountRows.map((row) => row.email)]
+      selectedGroup.rows.map((row) => row.email)
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean)
     );
     const relatedCanonicalIds = new Set(
-      [selectedRow.canonicalPlayerId, ...relatedAccountRows.map((row) => row.canonicalPlayerId)]
+      selectedGroup.rows.map((row) => row.canonicalPlayerId)
         .map((value) => String(value || '').trim())
         .filter(Boolean)
     );
@@ -369,30 +489,42 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         || relatedCanonicalIds.has(requesterCanonical)
         || relatedCanonicalIds.has(candidatePlayerId);
     });
-  }, [relatedAccountRows, remoteMergeRequests, selectedRow]);
+  }, [selectedGroup, remoteMergeRequests, selectedRow]);
 
   const saveSelected = async () => {
-    if (!selectedRow) return;
+    if (!selectedRow || !selectedGroup) return;
     try {
-      if (selectedRow.mode === 'live') {
-        const identity = buildPlayerCanonicalIdentity(firstName, lastName, birthDate, selectedRow.canonicalPlayerId || null);
-        await pushAdminPlayerAppProfile({
-          userId: selectedRow.id,
-          firstName: identity.firstName,
-          lastName: identity.lastName,
-          birthDate: identity.birthDate,
-          canonicalPlayerId: identity.canonicalPlayerId,
-          canonicalPlayerName: identity.canonicalPlayerName,
-        });
-      } else {
-        updatePlayerPreviewAccountAdmin(selectedRow.id, {
-          email,
-          firstName,
-          lastName,
-          birthDate,
-        });
+      const identity = buildPlayerCanonicalIdentity(
+        firstName,
+        lastName,
+        birthDate,
+        selectedGroup.canonicalPlayerId || selectedRow.canonicalPlayerId || null
+      );
+      for (const row of selectedGroup.rows) {
+        if (row.mode === 'live') {
+          await pushAdminPlayerAppProfile({
+            userId: row.id,
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            birthDate: identity.birthDate,
+            canonicalPlayerId: identity.canonicalPlayerId,
+            canonicalPlayerName: identity.canonicalPlayerName,
+          });
+        } else {
+          updatePlayerPreviewAccountAdmin(row.id, {
+            email: row.id === selectedRow.id ? email : row.email,
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            birthDate: identity.birthDate,
+          });
+        }
       }
-      setFeedback({ tone: 'success', message: t('data_accounts_save_done') });
+      setFeedback({
+        tone: 'success',
+        message: selectedGroup.rows.length > 1
+          ? 'Profilo aggiornato e riallineato su tutti gli account collegati.'
+          : t('data_accounts_save_done'),
+      });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
@@ -721,7 +853,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
             <div>
               <div className="text-sm font-black text-slate-900">{t('data_accounts_list_title')}</div>
               <div className="mt-1 text-xs font-bold text-slate-500">
-                {t('data_accounts_list_count').replace('{count}', String(filteredRows.length))}
+                {t('data_accounts_list_count').replace('{count}', String(filteredGroups.length))}
               </div>
             </div>
             <div className="text-xs font-bold text-slate-500">
@@ -770,14 +902,14 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
           </div>
 
           <div className="space-y-3">
-            {filteredRows.length ? (
-              filteredRows.map((row) => {
-                const active = selectedRow?.id === row.id;
+            {filteredGroups.length ? (
+              filteredGroups.map((group) => {
+                const active = selectedGroup?.id === group.id;
                 return (
                   <button
-                    key={row.id}
+                    key={group.id}
                     type="button"
-                    onClick={() => setSelectedId(row.id)}
+                    onClick={() => setSelectedId(group.id)}
                     className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                       active
                         ? 'border-blue-300 bg-blue-50 shadow-sm shadow-blue-100'
@@ -785,27 +917,47 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-black text-slate-950">{row.email}</div>
-                        <div className="mt-1 text-xs font-semibold text-slate-500">
-                          {row.providers.join(' • ')} • {row.mode === 'preview' ? t('data_accounts_mode_preview') : t('data_accounts_mode_live')}
-                        </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        {group.rows.map((row, index) => (
+                          <div
+                            key={`${group.id}:${row.id}:${row.email || index}`}
+                            className={`rounded-2xl border px-3 py-2 ${
+                              index === 0 && group.rows.length > 1
+                                ? 'border-blue-200 bg-white/90'
+                                : 'border-slate-200 bg-white/70'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-black text-slate-950">{row.email}</div>
+                                <div className="mt-1 text-xs font-semibold text-slate-500">
+                                  {row.providers.join(' • ')} • {row.mode === 'preview' ? t('data_accounts_mode_preview') : t('data_accounts_mode_live')}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap justify-end gap-2">
+                                {row.isAdmin ? (
+                                  <div className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-black text-violet-700">
+                                    {t('data_accounts_admin_badge')}
+                                  </div>
+                                ) : null}
+                                <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
+                                  {row.hasProfile ? t('player_area_profile_title') : t('data_accounts_profile_missing')}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       <div className="flex flex-wrap justify-end gap-2">
-                        {row.isAdmin ? (
-                          <div className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-black text-violet-700">
-                            {t('data_accounts_admin_badge')}
-                          </div>
-                        ) : null}
                         <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
-                          {row.hasProfile ? t('player_area_profile_title') : t('data_accounts_profile_missing')}
+                          {group.rows.length === 1 ? '1 account collegato' : `${group.rows.length} account collegati`}
                         </div>
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 md:grid-cols-3">
-                      <div>{t('data_accounts_linked_player')}: {row.linkedPlayerName || t('data_accounts_no_player')}</div>
-                      <div>{t('titles')}: {row.totalTitles}</div>
-                      <div>{t('scores_label')}: {row.totalCanestri}</div>
+                      <div>{t('data_accounts_linked_player')}: {group.linkedPlayerName || t('data_accounts_no_player')}</div>
+                      <div>{t('titles')}: {group.totalTitles}</div>
+                      <div>{t('scores_label')}: {group.totalCanestri}</div>
                     </div>
                   </button>
                 );
@@ -826,28 +978,42 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
 
           {selectedRow ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-3">
                 {emailCards.map((emailCard, index) => (
-                  <div key={emailCard.key}>
-                    <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">
-                      {index === 0 ? t('player_area_email') : 'Email collegata'}
+                  <div key={emailCard.key} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)]">
+                    <div>
+                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">
+                        {index === 0 ? t('player_area_email') : 'Email collegata'}
+                      </div>
+                      <input
+                        value={index === 0 ? email : emailCard.email}
+                        onChange={index === 0 ? (event) => setEmail(event.target.value) : undefined}
+                        className={inputClass}
+                        disabled={!emailCard.editable}
+                        title={!emailCard.editable ? t('data_accounts_live_email_readonly') : undefined}
+                      />
                     </div>
-                    <input
-                      value={index === 0 ? email : emailCard.email}
-                      onChange={index === 0 ? (event) => setEmail(event.target.value) : undefined}
-                      className={inputClass}
-                      disabled={!emailCard.editable}
-                      title={!emailCard.editable ? t('data_accounts_live_email_readonly') : undefined}
-                    />
-                    <div className="mt-1 text-[11px] font-bold text-slate-500">{emailCard.providers || 'Account collegato'}</div>
+                    <div>
+                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('data_accounts_provider_label')}</div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                        {emailCard.providers || 'Account collegato'}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
+                          {emailCard.mode === 'live' ? t('data_accounts_mode_live') : t('data_accounts_mode_preview')}
+                        </div>
+                        {emailCard.isAdmin ? (
+                          <div className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-black text-violet-700">
+                            {t('data_accounts_admin_badge')}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 ))}
-                <div>
-                  <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('data_accounts_provider_label')}</div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                    {selectedRow.providers.join(' • ')}
-                  </div>
-                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
                   <input value={firstName} onChange={(event) => setFirstName(event.target.value)} className={inputClass} />
@@ -872,18 +1038,19 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
 
               <div className="grid gap-3 text-sm font-semibold text-slate-600">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div>{t('data_accounts_linked_player')}: <span className="font-black text-slate-900">{selectedRow.linkedPlayerName || t('data_accounts_no_player')}</span></div>
+                  <div>{t('data_accounts_linked_player')}: <span className="font-black text-slate-900">{selectedGroup?.linkedPlayerName || t('data_accounts_no_player')}</span></div>
                   <div className="mt-1">{t('data_accounts_created')}: <span className="font-black text-slate-900">{formatDateTime(selectedRow.createdAt)}</span></div>
                   <div className="mt-1">
                     {t('data_accounts_last_login')}: <span className="font-black text-slate-900">{formatDateTime(selectedRow.lastLoginAt)}</span>
                     <span className="ml-2 text-xs font-bold text-slate-500">({formatRelativeAccess(selectedRow.lastLoginAt)})</span>
                   </div>
+                  <div className="mt-1">Account collegati: <span className="font-black text-slate-900">{selectedGroup?.rows.length || 1}</span></div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div>{t('titles')}: <span className="font-black text-slate-900">{selectedRow.totalTitles}</span></div>
-                  <div className="mt-1">{t('scores_label')}: <span className="font-black text-slate-900">{selectedRow.totalCanestri}</span></div>
-                  <div className="mt-1">{t('soffi_label')}: <span className="font-black text-slate-900">{selectedRow.totalSoffi}</span></div>
-                  <div className="mt-1">{t('birth_date')}: <span className="font-black text-slate-900">{formatBirthDateDisplay(selectedRow.birthDate || '') || 'ND'}</span></div>
+                  <div>{t('titles')}: <span className="font-black text-slate-900">{selectedGroup?.totalTitles || 0}</span></div>
+                  <div className="mt-1">{t('scores_label')}: <span className="font-black text-slate-900">{selectedGroup?.totalCanestri || 0}</span></div>
+                  <div className="mt-1">{t('soffi_label')}: <span className="font-black text-slate-900">{selectedGroup?.totalSoffi || 0}</span></div>
+                  <div className="mt-1">{t('birth_date')}: <span className="font-black text-slate-900">{formatBirthDateDisplay(selectedGroup?.birthDate || '') || 'ND'}</span></div>
                   <div className="mt-1">{t('data_accounts_admin_role_label')}: <span className={`font-black ${selectedRow.isAdmin ? 'text-violet-700' : 'text-slate-900'}`}>{selectedRow.isAdmin ? t('data_accounts_admin_role_yes') : t('data_accounts_admin_role_no')}</span></div>
                 </div>
               </div>
@@ -909,7 +1076,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                           <div className="min-w-0">
                             <div className="text-sm font-black text-slate-950">
                               {request.requester_email}
-                              {request.requester_user_id === selectedRow.id ? ' · Account selezionato' : ''}
+                              {selectedGroup?.rows.some((row) => row.id === request.requester_user_id) ? ' · Account collegato' : ''}
                             </div>
                             <div className="mt-1 text-xs font-bold text-slate-500">
                               {`${request.requester_last_name} ${request.requester_first_name}`.trim()}
@@ -1120,7 +1287,9 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                     {t('data_accounts_alias_suggestions_empty')}
                   </div>
                 )}
-              </div>              {feedback ? (
+              </div>
+
+              {feedback ? (
                 <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
                   {feedback.message}
                 </div>
