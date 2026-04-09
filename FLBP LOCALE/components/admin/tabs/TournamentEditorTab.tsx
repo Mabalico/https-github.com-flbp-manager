@@ -156,20 +156,11 @@ const editorThemeVars: React.CSSProperties = {
   '--editor-locked-border': '#CBD5E1',
 } as React.CSSProperties;
 
-const editorPanelClass =
-  'rounded-[20px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[0_18px_48px_-36px_rgba(15,23,42,0.18)]';
-
-const editorSoftPanelClass =
-  'rounded-[20px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] shadow-[0_14px_42px_-36px_rgba(15,23,42,0.16)]';
-
-const editorGhostButtonClass =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-4 text-sm font-semibold text-[var(--editor-text-secondary)] shadow-[0_8px_18px_-20px_rgba(15,23,42,0.24)] transition-all duration-150 hover:border-[color:var(--editor-border-default)] hover:bg-[var(--editor-bg-surface-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--editor-bg-app)] disabled:cursor-not-allowed disabled:border-[color:var(--editor-border-subtle)] disabled:bg-[var(--editor-bg-disabled)] disabled:text-[var(--editor-text-disabled)] disabled:shadow-none';
-
-const editorOutlineButtonClass =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[color:var(--editor-border-brand)] bg-[var(--editor-brand-50)] px-4 text-sm font-semibold text-[var(--editor-brand-700)] shadow-[0_8px_18px_-20px_rgba(37,99,235,0.24)] transition-all duration-150 hover:bg-[var(--editor-brand-100)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--editor-bg-app)] disabled:cursor-not-allowed disabled:border-[color:var(--editor-border-subtle)] disabled:bg-[var(--editor-bg-disabled)] disabled:text-[var(--editor-text-disabled)] disabled:shadow-none';
-
-const editorPrimaryButtonClass =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[color:var(--editor-brand-600)] bg-[var(--editor-brand-600)] px-4 text-sm font-semibold text-[var(--editor-text-on-brand)] shadow-[0_12px_28px_-18px_rgba(37,99,235,0.52)] transition-all duration-150 hover:bg-[var(--editor-brand-700)] hover:border-[color:var(--editor-brand-700)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--editor-bg-app)] disabled:cursor-not-allowed disabled:border-[color:var(--editor-border-subtle)] disabled:bg-[var(--editor-border-default)] disabled:text-white/80 disabled:shadow-none';
+const editorPanelClass = 'animate-pop-in rounded-[24px] border border-slate-200/50 bg-slate-50/60 backdrop-blur-md shadow-sm shadow-slate-200/40 hover:shadow-md transition-all duration-300';
+const editorSoftPanelClass = 'rounded-2xl border border-slate-100/50 bg-white/80 backdrop-blur-md p-4 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-300';
+const editorGhostButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition-all duration-300 hover:bg-white hover:shadow-sm hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2';
+const editorOutlineButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition-all duration-300 hover:bg-white hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+const editorPrimaryButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-[0_2px_8px_-2px_rgba(37,99,235,0.4)] transition-all duration-300 hover:bg-blue-700 hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
 const statusOrder: Record<TeamEligibilityStatus, number> = {
   eligible: 0,

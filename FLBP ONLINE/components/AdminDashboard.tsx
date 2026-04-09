@@ -809,8 +809,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // UI helpers (Admin tabs)
     const tabBtnClass = (active: boolean) => {
-        const base = 'px-4 py-2.5 rounded-xl font-black inline-flex items-center gap-2 border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
-        return `${base} ${active ? 'bg-blue-700 text-white border-blue-700 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`;
+        const base = 'px-4 py-2.5 rounded-xl font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
+        return `${base} ${active ? 'bg-blue-700/95 backdrop-blur-md text-white border-blue-600 shadow-[0_4px_12px_-2px_rgba(29,78,216,0.3)] transform -translate-y-0.5' : 'bg-white/90 backdrop-blur-sm text-slate-700 border-slate-200/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-white'}`;
     };
     const liveTabMeta: Record<LiveAdminTab, { title: string; helper: string }> = {
         teams: {

@@ -41,17 +41,17 @@ type SnackbarState =
 type PlayerListFilter = 'all' | 'archived' | 'manual' | 'mixed' | 'aliases';
 type PlayerListSort = 'impact' | 'titles' | 'canestri' | 'name';
 
-const surfaceClass = 'rounded-[24px] border border-slate-200 bg-white shadow-sm shadow-slate-200/70';
-const sectionSurfaceClass = 'rounded-[22px] border border-slate-200 bg-white shadow-sm shadow-slate-200/60';
-const subCardClass = 'rounded-[18px] border border-slate-200 bg-slate-50/70';
+const surfaceClass = 'rounded-[24px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
+const sectionSurfaceClass = 'rounded-[22px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
+const subCardClass = 'rounded-[18px] border border-slate-200/50 bg-slate-50/80 backdrop-blur-sm';
 const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2';
 const inputBase =
   `w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 ${ring}`;
 const buttonBase =
   `inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 ${ring}`;
-const secondaryButtonClass = `${buttonBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50`;
-const primaryButtonClass = `${buttonBase} border border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700`;
-const dangerButtonClass = `${buttonBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500`;
+const secondaryButtonClass = `${buttonBase} border border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-50 hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-300 shadow-sm`;
+const primaryButtonClass = `${buttonBase} border border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700 hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-300`;
+const dangerButtonClass = `${buttonBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500 hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-300 shadow-sm`;
 const chipBase =
   `inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-black transition ${ring}`;
 
@@ -68,7 +68,7 @@ const toneClassByKey = {
   changed: 'border-blue-200 bg-blue-50 text-blue-700',
 } as const;
 
-const metricCardClass = 'rounded-[18px] border border-slate-200 bg-slate-50/90 px-4 py-3';
+const metricCardClass = 'rounded-[18px] border border-slate-100 bg-gradient-to-b from-slate-50/90 to-white/90 px-4 py-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 transition-transform duration-300';
 
 const awardLabel = (type: PlayerTitleSourceRow['type']) => {
   if (type === 'winner') return 'Campioni';
