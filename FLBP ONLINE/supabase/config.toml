@@ -1,0 +1,7 @@
+project_id = "flbp-online"
+
+[functions.player-account-admin]
+verify_jwt = false
+
+[functions.player-call-push]
+verify_jwt = false
