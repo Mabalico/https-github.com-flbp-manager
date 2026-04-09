@@ -238,6 +238,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
   const liveRuntimeRequestRef = React.useRef(0);
+  const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
 
   const loginEntryNote = liveBackendEnabled
     ? 'Email e password sono gia attive sul backend live. Google, Facebook e Apple restano in attesa finche non attiviamo i provider social su Supabase.'
@@ -255,6 +256,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!feedback || (effectiveSession && liveAuthFlow !== 'recovery')) {
+      return;
+    }
+    if (!emailPanelOpen) {
+      setEmailPanelOpen(true);
+    }
+    const timerId = window.setTimeout(() => {
+      try {
+        authFeedbackRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        });
+      } catch {
+        // ignore
+      }
+    }, 80);
+    return () => window.clearTimeout(timerId);
+  }, [emailPanelOpen, effectiveSession, feedback, liveAuthFlow]);
 
   React.useEffect(() => {
     if (!embeddedNativeShell) {
@@ -956,7 +978,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
         <div className="grid gap-5 px-5 py-5 md:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] md:px-6">
           <div className="space-y-5">
-            {feedback ? (
+            {feedback && effectiveSession && liveAuthFlow !== 'recovery' ? (
               <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
                 {feedback.message}
               </div>
@@ -1051,6 +1073,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                       void submitAuth();
                     }}
                   >
+                      {feedback ? (
+                        <div
+                          ref={authFeedbackRef}
+                          className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}
+                          role="alert"
+                          aria-live="polite"
+                        >
+                          {feedback.message}
+                        </div>
+                      ) : null}
                       <div className="flex gap-2">
                         <button type="button" onClick={() => setAuthMode('login')} className={authMode === 'login' ? btnPrimary : btnSecondary}>
                           <LogIn className="h-4 w-4" /> {t('player_area_sign_in')}
@@ -1169,6 +1201,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                       {t('player_area_recovery_desc')}
                     </div>
                   </div>
+
+                  {feedback ? (
+                    <div
+                      ref={authFeedbackRef}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}
+                      role="alert"
+                      aria-live="polite"
+                    >
+                      {feedback.message}
+                    </div>
+                  ) : null}
 
                   <div className="space-y-3">
                     <div>
