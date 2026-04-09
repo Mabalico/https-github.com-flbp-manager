@@ -235,6 +235,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
       setFirstName('');
     }
     setBirthDate(formatBirthDateDisplay(selectedRow.birthDate || ''));
+    setFeedback(null);
   }, [selectedRow?.id, selectedRow?.email, selectedRow?.linkedPlayerName, selectedRow?.birthDate]);
 
   const aliasSuggestions = React.useMemo(() => {
@@ -674,7 +675,11 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                     {t('data_accounts_alias_suggestions_empty')}
                   </div>
                 )}
-              </div>
+              </div>              {feedback ? (
+                <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+                  {feedback.message}
+                </div>
+              ) : null}
 
               <div className="flex gap-2 flex-wrap">
                 <button
