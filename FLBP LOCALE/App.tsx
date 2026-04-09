@@ -1343,8 +1343,8 @@ const App: React.FC = () => {
                 <div className="pb-24">
                     {/* Top Bar */}
                     <header className={isPublicView
-                        ? "sticky top-0 z-20 bg-slate-950 text-white border-b border-white/10"
-                        : "sticky top-0 z-20 bg-slate-50/80 backdrop-blur border-b border-slate-200/60"}>
+                        ? "sticky top-0 z-20 bg-slate-950/90 backdrop-blur-md text-white border-b border-white/10 shadow-sm"
+                        : "sticky top-0 z-20 bg-slate-50/70 backdrop-blur-md border-b border-slate-200/60 shadow-sm"}>
                         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-3 min-w-0">
                                 <button

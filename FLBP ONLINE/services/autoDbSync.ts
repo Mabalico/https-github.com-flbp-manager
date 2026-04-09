@@ -2,6 +2,7 @@ import type { AppState } from './storageService';
 import { getSupabaseAccessToken, getSupabaseConfig, pushNormalizedFromState } from './supabaseRest';
 import { markDbSyncConflict, markDbSyncError, markDbSyncOk } from './dbDiagnostics';
 import { getAppStateRepository } from './repository/getRepository';
+import { hasMeaningfulAppState } from './appStateMeaning';
 
 // LocalStorage/env flags are kept in repository/featureFlags to avoid scattering.
 import { isAutoStructuredSyncEnabled } from './repository/featureFlags';
@@ -126,6 +127,10 @@ export const flushAutoStructuredSync = async (
   if (inFlight) return;
   const s = pending;
   if (!s) return;
+  if (!hasMeaningfulAppState(s)) {
+    pending = null;
+    return;
+  }
 
   const cfg = getSupabaseConfig();
   if (!cfg) return;

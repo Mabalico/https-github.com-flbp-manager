@@ -6,6 +6,7 @@ import { clearLocalAppStateCaches } from './featureFlags';
 import { clearRemoteDraftCache, hasRemoteDraftCache, isRemoteDraftCacheFresh, readRemoteDraftCache, readRestorableRemoteDraftCache, writeRemoteDraftCache } from './remoteDraftCache';
 import type { AppStateRepository, RepositoryUpdateMeta } from './AppStateRepository';
 import { tryMergeRemoteStateConflict } from '../stateConflictMerge';
+import { hasMeaningfulAppState } from '../appStateMeaning';
 
 /**
  * Remote repository (Supabase REST).
@@ -44,13 +45,17 @@ export class RemoteRepository implements AppStateRepository {
 
   private restoreCachedDraft(): boolean {
     const cachedDraft = readRestorableRemoteDraftCache();
-    if (cachedDraft?.state && this.hasMeaningfulState(cachedDraft.state)) {
+    if (cachedDraft?.state && hasMeaningfulAppState(cachedDraft.state)) {
       this.pendingState = cachedDraft.state;
       markAdminSyncPending(this.source);
       return true;
     }
     this.pendingState = null;
     return false;
+  }
+
+  private shouldBlockSuspiciousEmptyAutosave(state: AppState | null | undefined): boolean {
+    return !hasMeaningfulAppState(state) && hasMeaningfulAppState(this.lastRemoteState);
   }
 
   private async reconcileStaleDraft(): Promise<boolean> {
@@ -125,21 +130,6 @@ export class RemoteRepository implements AppStateRepository {
     } catch {
       return `${Date.now()}`;
     }
-  }
-
-  private hasMeaningfulState(state: AppState | null | undefined): boolean {
-    if (!state) return false;
-    return !!(
-      state.tournament ||
-      (state.tournamentMatches || []).length ||
-      (state.tournamentHistory || []).length ||
-      (state.hallOfFame || []).length ||
-      (state.integrationsScorers || []).length ||
-      Object.keys(state.playerAliases || {}).length ||
-      (state.teams || []).length ||
-      (state.matches || []).length ||
-      (state.logo || '').trim()
-    );
   }
 
   private rememberRemoteState(state: AppState, updatedAt?: string | null) {
@@ -299,7 +289,14 @@ export class RemoteRepository implements AppStateRepository {
   save(state: AppState): void {
     const cfg = getSupabaseConfig();
     if (!cfg) return;
-    if (!this.lastRemoteUpdatedAt && !this.hasMeaningfulState(state)) return;
+    if (!this.lastRemoteUpdatedAt && !hasMeaningfulAppState(state)) return;
+    if (this.shouldBlockSuspiciousEmptyAutosave(state)) {
+      markAdminSyncErrorState(
+        'Protezione autosave: ho bloccato un salvataggio remoto di uno stato vuoto. Se vuoi davvero pubblicare un workspace vuoto, usa gli strumenti manuali nella sezione Persistenza online.',
+        this.source
+      );
+      return;
+    }
 
     const fingerprint = this.fingerprint(state);
     this.clearConflictPauseIfStateChanged(fingerprint);
@@ -358,6 +355,16 @@ export class RemoteRepository implements AppStateRepository {
   private async flushNow() {
     const state = this.pendingState;
     if (!state) return;
+
+    if (this.shouldBlockSuspiciousEmptyAutosave(state)) {
+      this.pendingState = null;
+      clearRemoteDraftCache();
+      markAdminSyncErrorState(
+        'Protezione autosave: ho bloccato un salvataggio remoto di uno stato vuoto. Se vuoi davvero pubblicare un workspace vuoto, usa gli strumenti manuali nella sezione Persistenza online.',
+        this.source
+      );
+      return;
+    }
 
     const fingerprint = this.fingerprint(state);
 

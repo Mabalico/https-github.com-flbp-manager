@@ -334,6 +334,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [loginBusy, setLoginBusy] = useState<boolean>(false);
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
+    const playerBootstrapDeniedKeyRef = useRef<string | null>(null);
 
     const sessionStorageWritable = useMemo(() => {
         // Best-effort probe: never crash if storage is blocked.
@@ -419,8 +420,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         }
     }, []);
 
+    const sessionPrincipalKey = React.useCallback((session?: { email?: string | null; userId?: string | null } | null) => {
+        const userId = String(session?.userId || '').trim();
+        if (userId) return `uid:${userId}`;
+        const email = String(session?.email || '').trim().toLowerCase();
+        return email ? `email:${email}` : '';
+    }, []);
+
+    const playerBootstrapKey = React.useCallback((session?: { accessToken?: string | null; email?: string | null; userId?: string | null } | null) => {
+        const principal = sessionPrincipalKey(session);
+        const token = String(session?.accessToken || '').trim();
+        if (!principal && !token) return '';
+        return `${principal}|${token.slice(0, 24)}`;
+    }, [sessionPrincipalKey]);
+
     const mirrorAdminSessionToPlayer = React.useCallback((session: { accessToken: string; refreshToken?: string | null; expiresAt?: string | null; email?: string | null; userId?: string | null } | null) => {
         if (!session?.accessToken) return;
+        const currentPlayerSession = getPlayerSupabaseSession();
+        const adminPrincipal = sessionPrincipalKey(session);
+        const playerPrincipal = sessionPrincipalKey(currentPlayerSession);
+        if (currentPlayerSession?.accessToken && adminPrincipal && playerPrincipal && adminPrincipal !== playerPrincipal) {
+            return;
+        }
         setPlayerSupabaseSession({
             accessToken: session.accessToken,
             refreshToken: session.refreshToken || null,
@@ -429,7 +450,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             userId: session.userId || null,
             flowType: 'session',
         });
-    }, []);
+    }, [sessionPrincipalKey]);
 
     const adminSessionMatchesPlayer = React.useCallback((adminSession?: { accessToken?: string | null; email?: string | null; userId?: string | null } | null) => {
         const playerSession = getPlayerSupabaseSession();
@@ -469,7 +490,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const tryBootstrapPlayerSupabaseSession = React.useCallback(async (): Promise<boolean> => {
         if (!supabaseConfig) return false;
         const playerSession = await ensureFreshPlayerSupabaseSession();
-        if (!playerSession?.accessToken || playerSession.flowType === 'recovery') return false;
+        if (!playerSession?.accessToken || playerSession.flowType === 'recovery') {
+            playerBootstrapDeniedKeyRef.current = null;
+            return false;
+        }
+        const bootstrapKey = playerBootstrapKey(playerSession);
+        if (bootstrapKey && playerBootstrapDeniedKeyRef.current === bootstrapKey) {
+            return false;
+        }
         try {
             setSupabaseSession({
                 accessToken: playerSession.accessToken,
@@ -480,9 +508,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             });
             const access = await ensureSupabaseAdminAccess();
             if (!access.ok) {
+                playerBootstrapDeniedKeyRef.current = bootstrapKey || null;
                 clearSupabaseSession();
                 return false;
             }
+            playerBootstrapDeniedKeyRef.current = null;
             const resolvedEmail = access.email || playerSession.email || getConfiguredAdminEmail();
             setAuthed(true);
             setAdminAuthMode('player');
@@ -496,7 +526,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             clearSupabaseSession();
             return false;
         }
-    }, [supabaseConfig]);
+    }, [playerBootstrapKey, supabaseConfig]);
 
     useEffect(() => {
         let alive = true;
@@ -511,7 +541,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 setAdminAuthMode(currentAdminAuthMode);
             }
 
-            if (currentAdminAuthMode !== 'legacy') {
+            let session = getSupabaseSession();
+
+            if (currentAdminAuthMode !== 'legacy' && !session?.accessToken) {
                 const playerSession = getPlayerSupabaseSession();
                 if (playerSession?.accessToken && playerSession.flowType !== 'recovery') {
                     setAdminSessionChecking(true);
@@ -520,10 +552,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                     if (bootstrappedFromPlayer) {
                         return;
                     }
+                    session = getSupabaseSession();
+                } else {
+                    playerBootstrapDeniedKeyRef.current = null;
                 }
             }
 
-            const session = getSupabaseSession();
             const nextEmail = session?.accessToken ? (session.email || getConfiguredAdminEmail()) : null;
 
             if (!alive) return;

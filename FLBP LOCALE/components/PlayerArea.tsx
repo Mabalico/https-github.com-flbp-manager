@@ -75,16 +75,16 @@ interface PlayerAreaProps {
   onOpenReferees?: () => void;
 }
 
-const cardClass = 'rounded-[26px] border border-slate-200 bg-white shadow-sm shadow-slate-200/60';
+const cardClass = 'animate-pop-in rounded-[26px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
 const sectionTitleClass = 'text-lg font-black text-slate-950';
-const metricCardClass = 'rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3';
+const metricCardClass = 'rounded-2xl border border-slate-100 bg-gradient-to-b from-slate-50/90 to-white/90 px-4 py-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] hover:-translate-y-0.5 transition-transform duration-300';
 const inputClass =
   'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 [overflow-anchor:none]';
 const btnBase =
   'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400';
-const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500`;
-const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-300`;
-const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500`;
+const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] focus-visible:ring-blue-500`;
+const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98] focus-visible:ring-slate-300`;
+const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 active:scale-[0.98] focus-visible:ring-rose-500`;
 const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v1';
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
 

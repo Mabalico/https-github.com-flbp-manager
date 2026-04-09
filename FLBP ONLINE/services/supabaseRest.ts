@@ -70,6 +70,40 @@ export interface PlayerSupabaseSession extends SupabaseSession {
     flowType?: 'session' | 'recovery';
 }
 
+const normalizeSessionText = (value: unknown): string | null => {
+    const normalized = String(value ?? '').trim();
+    return normalized ? normalized : null;
+};
+
+const normalizePlayerFlowType = (value: PlayerSupabaseSession['flowType']): 'session' | 'recovery' => {
+    return value === 'recovery' ? 'recovery' : 'session';
+};
+
+const sameSupabaseSession = (
+    left: SupabaseSession | null | undefined,
+    right: SupabaseSession | null | undefined
+): boolean => {
+    const leftAccess = normalizeSessionText(left?.accessToken);
+    const rightAccess = normalizeSessionText(right?.accessToken);
+    if (!leftAccess && !rightAccess) return true;
+    return leftAccess === rightAccess
+        && normalizeSessionText(left?.refreshToken) === normalizeSessionText(right?.refreshToken)
+        && normalizeSessionText(left?.expiresAt) === normalizeSessionText(right?.expiresAt)
+        && normalizeSessionText(left?.email) === normalizeSessionText(right?.email)
+        && normalizeSessionText(left?.userId) === normalizeSessionText(right?.userId);
+};
+
+const sameStoredPlayerSupabaseSession = (
+    left: PlayerSupabaseSession | null | undefined,
+    right: PlayerSupabaseSession | null | undefined
+): boolean => {
+    if (!sameSupabaseSession(left, right)) return false;
+    const leftAccess = normalizeSessionText(left?.accessToken);
+    const rightAccess = normalizeSessionText(right?.accessToken);
+    if (!leftAccess && !rightAccess) return true;
+    return normalizePlayerFlowType(left?.flowType) === normalizePlayerFlowType(right?.flowType);
+};
+
 export type PlayerSupabaseSignUpResult =
     | { status: 'signed_in'; session: PlayerSupabaseSession }
     | { status: 'confirm_email'; email: string; userId?: string | null };
@@ -294,6 +328,8 @@ export const getSupabaseSession = (): SupabaseSession | null => {
 };
 
 export const setSupabaseSession = (s: SupabaseSession | null) => {
+    const current = getSupabaseSession();
+    if (sameSupabaseSession(current, s)) return;
     try {
         if (!s?.accessToken) {
             localStorage.removeItem(SUPABASE_ACCESS_TOKEN_LS_KEY);
@@ -347,6 +383,8 @@ export const getPlayerSupabaseSession = (): PlayerSupabaseSession | null => {
 };
 
 export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
+    const current = getPlayerSupabaseSession();
+    if (sameStoredPlayerSupabaseSession(current, s)) return;
     try {
         if (!s?.accessToken) {
             localStorage.removeItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY);
@@ -1493,7 +1531,9 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
         userId,
         email: hit.email || session.email || null
     };
-    setSupabaseSession(nextSession);
+    if (!sameSupabaseSession(session, nextSession)) {
+        setSupabaseSession(nextSession);
+    }
 
     return {
         ok: true,
