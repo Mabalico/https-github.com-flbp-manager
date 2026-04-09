@@ -1190,6 +1190,18 @@ const App: React.FC = () => {
                             <PlayerAreaLazy
                                 state={state}
                                 onOpenReferees={() => { void navigateToView('referees_area'); }}
+                                onOpenTournament={(tournamentId) => {
+                                    const liveTournament = stateForPublicViews.tournament;
+                                    if (liveTournament?.id === tournamentId) {
+                                        handleViewTournament(liveTournament, true);
+                                        return;
+                                    }
+                                    const archivedTournament = (stateForPublicViews.tournamentHistory || [])
+                                        .find((tournament) => tournament.id === tournamentId);
+                                    if (archivedTournament) {
+                                        handleViewTournament(archivedTournament, false);
+                                    }
+                                }}
                             />
                         </UiErrorBoundary>
                     </React.Suspense>

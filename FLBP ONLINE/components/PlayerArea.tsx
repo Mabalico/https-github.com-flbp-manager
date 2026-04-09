@@ -2,6 +2,7 @@ import React from 'react';
 import {
   BadgeCheck,
   BellRing,
+  ChevronRight,
   Eye,
   EyeOff,
   Facebook,
@@ -11,9 +12,11 @@ import {
   Mail,
   PhoneCall,
   ShieldCheck,
+  Star,
   Trophy,
   UserPlus,
   UserRound,
+  Wind,
 } from 'lucide-react';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
@@ -59,7 +62,7 @@ import {
   PLAYER_APP_CHANGE_EVENT,
   writePlayerPresenceSnapshot,
 } from '../services/playerAppService';
-import { getMatchParticipantIds } from '../services/matchUtils';
+import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import {
@@ -69,10 +72,12 @@ import {
   subscribeNativePushRegistration,
   type NativePushRegistrationSnapshot,
 } from '../services/nativePushBridge';
+import { PlasticCupIcon } from './icons/PlasticCupIcon';
 
 interface PlayerAreaProps {
   state: AppState;
   onOpenReferees?: () => void;
+  onOpenTournament?: (tournamentId: string) => void;
 }
 
 const cardClass = 'animate-pop-in rounded-[26px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
@@ -103,11 +108,166 @@ const schedulePlayerAreaTask = (task: () => void) => {
   return () => window.clearTimeout(timerId);
 };
 
-const MetricCard: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+const oneDecimalFormatter = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
+const normalizeTournamentDisplayName = (value?: string | null) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  return trimmed === 'Pecora Nera' ? 'II Torneo Soci Pecora Nera' : trimmed;
+};
+
+const cleanDisplayValue = (value?: string | null) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  if (/^[.·\-]+$/u.test(trimmed)) return null;
+  return trimmed;
+};
+
+const cleanTournamentName = (value?: string | null) => {
+  const normalized = cleanDisplayValue(normalizeTournamentDisplayName(value));
+  if (!normalized) return null;
+  if (/^torneo$/i.test(normalized)) return null;
+  return normalized;
+};
+
+const cleanTeamLabel = (value?: string | null) => {
+  const normalized = cleanDisplayValue(value);
+  if (!normalized) return null;
+  if (/^(squadra|team)$/i.test(normalized)) return null;
+  return normalized;
+};
+
+const formatMetaLine = (...parts: Array<string | null | undefined>) => {
+  const values = parts.map(cleanDisplayValue).filter(Boolean) as string[];
+  return values.length ? values.join(' · ') : null;
+};
+
+const getTournamentMatches = (tournament: AppState['tournamentHistory'][number] | AppState['tournament'] | null | undefined) => {
+  if (!tournament) return [];
+  if (Array.isArray(tournament.matches) && tournament.matches.length) return tournament.matches;
+  if (Array.isArray((tournament as any).rounds) && (tournament as any).rounds.length) {
+    return (tournament as any).rounds.flat().filter(Boolean);
+  }
+  return [];
+};
+
+const buildPlayerPerformanceSummary = (state: AppState, profile: NonNullable<ReturnType<typeof buildPlayerRuntimeProfileSnapshot>>) => {
+  const totalGames = profile.contributions.reduce((sum, row) => sum + Math.max(0, row.games || 0), 0);
+  const avgPoints = totalGames > 0 ? profile.totalCanestri / totalGames : 0;
+  const avgSoffi = totalGames > 0 ? profile.totalSoffi / totalGames : 0;
+
+  const tournamentMap = new Map(
+    [
+      ...(state.tournamentHistory || []),
+      ...(state.tournament ? [state.tournament] : []),
+    ].map((tournament) => [tournament.id, tournament])
+  );
+
+  let wins = 0;
+  let losses = 0;
+  const seenMatches = new Set<string>();
+
+  profile.contributions.forEach((row) => {
+    const tournamentId = String(row.tournamentId || '').trim();
+    const matchId = String(row.matchId || '').trim();
+    const teamId = String(row.teamId || '').trim();
+    if (!tournamentId || !matchId || !teamId) return;
+
+    const dedupeKey = `${tournamentId}:${matchId}:${teamId}`;
+    if (seenMatches.has(dedupeKey)) return;
+
+    const tournament = tournamentMap.get(tournamentId);
+    const match = getTournamentMatches(tournament).find((item) => item.id === matchId);
+    if (!match || match.status !== 'finished') return;
+
+    const participantIds = getMatchParticipantIds(match);
+    if (!participantIds.includes(teamId)) return;
+
+    const teamScore = getMatchScoreForTeam(match, teamId);
+    const opponentScores = participantIds
+      .filter((id) => id !== teamId)
+      .map((id) => getMatchScoreForTeam(match, id));
+    if (!opponentScores.length) return;
+
+    const bestOpponentScore = Math.max(...opponentScores);
+    if (teamScore > bestOpponentScore) wins += 1;
+    else if (teamScore < bestOpponentScore) losses += 1;
+
+    seenMatches.add(dedupeKey);
+  });
+
+  const decidedGames = wins + losses;
+
+  return {
+    totalGames,
+    avgPoints,
+    avgSoffi,
+    wins,
+    losses,
+    winRate: decidedGames > 0 ? (wins / decidedGames) * 100 : null,
+  };
+};
+
+const getTitleVisual = (
+  type: NonNullable<ReturnType<typeof buildPlayerRuntimeProfileSnapshot>>['titles'][number]['type'],
+  t: (key: string) => string
+) => {
+  switch (type) {
+    case 'winner':
+      return {
+        label: t('winner'),
+        Icon: Trophy,
+        chipClass: 'bg-amber-50 text-amber-800 ring-amber-200/80',
+        iconClass: 'text-amber-500',
+      };
+    case 'mvp':
+      return {
+        label: t('mvp_plural'),
+        Icon: Star,
+        chipClass: 'bg-orange-50 text-orange-800 ring-orange-200/80',
+        iconClass: 'text-orange-500',
+      };
+    case 'top_scorer':
+      return {
+        label: t('top_scorer_single'),
+        Icon: PlasticCupIcon,
+        chipClass: 'bg-yellow-50 text-yellow-900 ring-yellow-200/80',
+        iconClass: 'text-yellow-600',
+      };
+    case 'defender':
+      return {
+        label: t('defender_single'),
+        Icon: Wind,
+        chipClass: 'bg-sky-50 text-sky-900 ring-sky-200/80',
+        iconClass: 'text-sky-600',
+      };
+    case 'top_scorer_u25':
+      return {
+        label: t('top_scorer_u25_single'),
+        Icon: PlasticCupIcon,
+        chipClass: 'bg-yellow-50 text-yellow-900 ring-yellow-200/80',
+        iconClass: 'text-yellow-600',
+      };
+    case 'defender_u25':
+    default:
+      return {
+        label: t('defender_u25_single'),
+        Icon: UserRound,
+        chipClass: 'bg-indigo-50 text-indigo-900 ring-indigo-200/80',
+        iconClass: 'text-indigo-500',
+      };
+  }
+};
+
+const MetricCard: React.FC<{ label: string; value: React.ReactNode; hint?: React.ReactNode }> = ({ label, value, hint }) => (
   <div className={metricCardClass}>
     <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-100/50 blur-3xl transition-transform group-hover:scale-150 duration-500"></div>
     <div className="relative z-10 text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">{label}</div>
     <div className="relative z-10 mt-1 text-2xl tracking-tight font-black text-slate-900">{value}</div>
+    {hint ? <div className="relative z-10 mt-1 text-xs font-bold text-slate-500">{hint}</div> : null}
   </div>
 );
 
@@ -201,7 +361,7 @@ const buildSafePlayerAreaSnapshot = (
   },
 });
 
-export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees }) => {
+export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, onOpenTournament }) => {
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
   const embeddedNativeShell = isEmbeddedNativeShell();
@@ -583,20 +743,30 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     ? liveDerivedPersonalProfile
     : snapshot.personalProfile;
 
+  const personalPerformanceSummary = React.useMemo(
+    () => effectivePersonalProfile ? buildPlayerPerformanceSummary(state, effectivePersonalProfile) : null,
+    [effectivePersonalProfile, state]
+  );
+
   const participations = React.useMemo(() => {
     if (!effectivePersonalProfile) return [];
     const map = new Map<string, { id: string; name: string; year: string; team: string }>();
-    effectivePersonalProfile.contributions.forEach(c => {
-      if (c.tournamentId && !map.has(c.tournamentId)) {
-        map.set(c.tournamentId, {
-          id: c.tournamentId,
-          name: c.tournamentName || "Torneo",
-          year: c.tournamentYear || "",
-          team: c.teamName || ""
-        });
-      }
+    effectivePersonalProfile.contributions.forEach((row) => {
+      const tournamentId = String(row.tournamentId || '').trim();
+      const tournamentName = cleanTournamentName(row.tournamentName || row.sourceLabel || '');
+      if (!tournamentId || !tournamentName) return;
+
+      const existing = map.get(tournamentId);
+      const year = cleanDisplayValue(row.tournamentYear) || '';
+      const team = cleanTeamLabel(row.teamName) || '';
+      map.set(tournamentId, {
+        id: tournamentId,
+        name: existing?.name || tournamentName,
+        year: existing?.year || year,
+        team: existing?.team || team,
+      });
     });
-    return Array.from(map.values()).sort((a,b) => Number(b.year) - Number(a.year));
+    return Array.from(map.values()).sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
   }, [effectivePersonalProfile]);
   const effectiveLiveStatus = liveRuntimeSession
     ? (liveDerivedStatus || safeSnapshot.liveStatus)
@@ -1408,10 +1578,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
                   <MetricCard label={t('titles')} value={effectivePersonalProfile?.totalTitles ?? 0} />
                   <MetricCard label={t('scores_label')} value={effectivePersonalProfile?.totalCanestri ?? 0} />
                   <MetricCard label={t('soffi_label')} value={effectivePersonalProfile?.totalSoffi ?? 0} />
+                  <MetricCard label={t('player_area_avg_scores')} value={oneDecimalFormatter.format(personalPerformanceSummary?.avgPoints ?? 0)} />
+                  <MetricCard label={t('player_area_avg_soffi')} value={oneDecimalFormatter.format(personalPerformanceSummary?.avgSoffi ?? 0)} />
+                  <MetricCard
+                    label={t('player_area_win_rate')}
+                    value={personalPerformanceSummary?.winRate != null ? `${oneDecimalFormatter.format(personalPerformanceSummary.winRate)}%` : t('not_available_short')}
+                    hint={personalPerformanceSummary ? `${personalPerformanceSummary.wins}${t('standings_wins_short')} · ${personalPerformanceSummary.losses}${t('standings_losses_short')}` : null}
+                  />
                   <MetricCard label={t('active_aliases')} value={effectivePersonalProfile?.aliasCount ?? 0} />
                 </div>
 
@@ -1425,14 +1602,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
                       {effectivePersonalProfile && effectivePersonalProfile.titles.length ? (
                         <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                          {effectivePersonalProfile.titles.map((row) => (
-                            <div key={row.id} className="group relative overflow-hidden rounded-[20px] border border-slate-100 bg-gradient-to-r from-amber-50/50 to-white/50 px-4 py-3 shadow-sm hover:shadow-md hover:border-amber-100 transition-all">
-                              <div className="text-sm font-black text-slate-900 group-hover:text-amber-900 transition-colors">{row.tournamentName}</div>
-                              <div className="mt-1 text-xs font-bold text-slate-500">
-                                {row.year} · {row.teamName || t('team_label')}
+                          {effectivePersonalProfile.titles.map((row) => {
+                            const titleVisual = getTitleVisual(row.type, t);
+                            const subtitle = formatMetaLine(row.year, cleanTeamLabel(row.teamName));
+                            const tournamentName = cleanTournamentName(row.tournamentName || row.sourceTournamentName) || t('player_area_unknown_tournament');
+                            return (
+                              <div key={row.id} className="group relative overflow-hidden rounded-[20px] border border-slate-100 bg-gradient-to-r from-amber-50/50 to-white/50 px-4 py-3 shadow-sm hover:shadow-md hover:border-amber-100 transition-all">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-black text-slate-900 group-hover:text-amber-900 transition-colors">{tournamentName}</div>
+                                    {subtitle ? (
+                                      <div className="mt-1 text-xs font-bold text-slate-500">{subtitle}</div>
+                                    ) : null}
+                                  </div>
+                                  <div className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-black shadow-sm ring-1 ring-inset ${titleVisual.chipClass}`}>
+                                    <titleVisual.Icon className={`h-3.5 w-3.5 ${titleVisual.iconClass}`} />
+                                    <span>{titleVisual.label}</span>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-bold text-slate-500 text-center">
@@ -1444,23 +1634,49 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                     <div className="rounded-[26px] border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-inset ring-slate-100 p-4 md:p-5 space-y-4">
                       <div className="flex items-center gap-3">
                         <BadgeCheck className="h-5 w-5 text-sky-500" />
-                        <div className={sectionTitleClass}>Tornei Disputati</div>
+                        <div className={sectionTitleClass}>{t('player_area_tournaments_played')}</div>
                       </div>
 
                       {participations.length > 0 ? (
                         <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                          {participations.map((row) => (
-                            <div key={row.id} className="group relative overflow-hidden rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3 shadow-sm hover:shadow-md hover:border-sky-100 transition-all">
-                              <div className="text-sm font-black text-slate-900 group-hover:text-sky-900 transition-colors">{row.name}</div>
-                              <div className="mt-1 text-xs font-bold text-slate-500">
-                                {row.year} · {row.team}
+                          {participations.map((row) => {
+                            const subtitle = formatMetaLine(row.year, row.team);
+                            const body = (
+                              <>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-black text-slate-900 group-hover:text-sky-900 transition-colors">{row.name}</div>
+                                  {subtitle ? (
+                                    <div className="mt-1 text-xs font-bold text-slate-500">{subtitle}</div>
+                                  ) : null}
+                                </div>
+                                {onOpenTournament ? (
+                                  <div className="inline-flex shrink-0 items-center gap-1 text-xs font-black text-sky-700">
+                                    <span>{t('player_area_open_tournament')}</span>
+                                    <ChevronRight className="h-4 w-4" />
+                                  </div>
+                                ) : null}
+                              </>
+                            );
+
+                            return onOpenTournament ? (
+                              <button
+                                key={row.id}
+                                type="button"
+                                onClick={() => onOpenTournament(row.id)}
+                                className="group flex w-full items-start justify-between gap-3 overflow-hidden rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3 text-left shadow-sm transition-all hover:border-sky-100 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+                              >
+                                {body}
+                              </button>
+                            ) : (
+                              <div key={row.id} className="group flex items-start justify-between gap-3 overflow-hidden rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3 shadow-sm transition-all hover:border-sky-100 hover:shadow-md">
+                                {body}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm font-bold text-slate-500 text-center">
-                          Nessun torneo
+                          {t('player_area_no_tournaments')}
                         </div>
                       )}
                     </div>

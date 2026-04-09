@@ -5,8 +5,8 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { clearPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullWorkspaceState } from './services/supabaseRest';
-import { PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerPresenceSnapshot } from './services/playerAppService';
+import { clearPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession } from './services/supabaseRest';
+import { PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerPresenceSnapshot, clearPlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -16,7 +16,7 @@ import { readVitePublicDbRead } from './services/viteEnv';
 import {
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
-import { Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound } from 'lucide-react';
+import { Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut } from 'lucide-react';
 
 type UiErrorBoundaryProps = {
     title: string;
@@ -1190,6 +1190,18 @@ const App: React.FC = () => {
                             <PlayerAreaLazy
                                 state={state}
                                 onOpenReferees={() => { void navigateToView('referees_area'); }}
+                                onOpenTournament={(tournamentId) => {
+                                    const liveTournament = stateForPublicViews.tournament;
+                                    if (liveTournament?.id === tournamentId) {
+                                        handleViewTournament(liveTournament, true);
+                                        return;
+                                    }
+                                    const archivedTournament = (stateForPublicViews.tournamentHistory || [])
+                                        .find((tournament) => tournament.id === tournamentId);
+                                    if (archivedTournament) {
+                                        handleViewTournament(archivedTournament, false);
+                                    }
+                                }}
                             />
                         </UiErrorBoundary>
                     </React.Suspense>

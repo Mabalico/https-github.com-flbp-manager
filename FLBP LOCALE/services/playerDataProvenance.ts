@@ -12,6 +12,7 @@ import type {
 import { getPlayerKey, getPlayerKeyLabel, pickPlayerIdentityValue, pickStoredPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
 import { normalizeNameLower } from './textUtils';
 import { getHallOfFameEntryOrigin } from './hallOfFameAdmin';
+import { normalizeLegacyTournamentName } from './storageService';
 
 export interface AliasRemovalImpact {
   fromKey: string;
@@ -32,9 +33,82 @@ export type HallOfFamePlayerRef = {
 
 const normalize = (value: string) => normalizeNameLower(value || '');
 
-const tournamentYear = (tournament?: TournamentData | null): string | null => {
-  const ts = Date.parse(String(tournament?.startDate || ''));
+const extractYearFromDateLike = (value?: string | null): string | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const isoMatch = raw.match(/^(\d{4})[-/]/);
+  if (isoMatch?.[1]) return isoMatch[1];
+
+  const itMatch = raw.match(/^(\d{2})[./-](\d{2})[./-](\d{4})/);
+  if (itMatch?.[3]) return itMatch[3];
+
+  const ts = Date.parse(raw);
   return Number.isFinite(ts) ? String(new Date(ts).getFullYear()) : null;
+};
+
+const tournamentYear = (tournament?: TournamentData | null): string | null => {
+  return extractYearFromDateLike(tournament?.startDate);
+};
+
+const getAllKnownTournaments = (state: AppState): TournamentData[] => [
+  ...(state.tournamentHistory || []),
+  ...(state.tournament ? [state.tournament] : []),
+];
+
+const findTournamentById = (state: AppState, tournamentId?: string | null): TournamentData | null => {
+  const targetId = String(tournamentId || '').trim();
+  if (!targetId) return null;
+  return getAllKnownTournaments(state).find((tournament) => tournament.id === targetId) || null;
+};
+
+const findTournamentTeamForPlayer = (
+  state: AppState,
+  tournament: TournamentData | null,
+  playerId: string,
+  playerName: string
+): Team | null => {
+  if (!tournament) return null;
+  const normalizedPlayerName = normalize(playerName);
+  return (tournament.teams || []).find((team) => {
+    const slots = [
+      {
+        name: team.player1,
+        birthDate: (team as any).player1BirthDate,
+        yob: (team.player1YoB as any) ?? undefined,
+      },
+      {
+        name: team.player2,
+        birthDate: (team as any).player2BirthDate,
+        yob: (team.player2YoB as any) ?? undefined,
+      },
+    ];
+    return slots.some((slot) => {
+      if (!slot.name) return false;
+      const rawPlayerId = getPlayerKey(slot.name, pickStoredPlayerIdentityValue(slot.birthDate, slot.yob));
+      const resolvedPlayerId = resolvePlayerKey(state, rawPlayerId);
+      return resolvedPlayerId === playerId || normalize(slot.name) === normalizedPlayerName;
+    });
+  }) || null;
+};
+
+const resolveTournamentContext = (
+  state: AppState,
+  playerId: string,
+  playerName: string,
+  tournamentId?: string | null,
+  fallbackTournamentName?: string | null,
+  fallbackTeamName?: string | null
+) => {
+  const tournament = findTournamentById(state, tournamentId);
+  const resolvedTeam = findTournamentTeamForPlayer(state, tournament, playerId, playerName);
+  const tournamentName = normalizeLegacyTournamentName(tournament?.name || fallbackTournamentName || '');
+  return {
+    tournament,
+    tournamentName: tournamentName || null,
+    tournamentYear: tournamentYear(tournament),
+    teamName: resolvedTeam?.name || fallbackTeamName || null,
+  };
 };
 
 const findTeamForWinnerEntry = (state: AppState, entry: HallOfFameEntry): Team | null => {
@@ -202,11 +276,11 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
           playerName: row.playerName,
           sourceType: 'archived_tournament_match',
           tournamentId: tournament.id,
-          tournamentName: tournament.name,
+          tournamentName: normalizeLegacyTournamentName(tournament.name),
           tournamentYear: year,
           matchId: match.id,
           teamId: row.teamId,
-          teamName: team?.name || row.teamId,
+          teamName: team?.name || null,
           canestri: row.canestri || 0,
           soffi: row.soffi || 0,
           games: 1,
@@ -224,17 +298,25 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
     const playerId = resolvePlayerKey(state, rawPlayerId);
     const profile = ensure(playerId, entry.name, getPlayerKeyLabel(rawPlayerId).yob || 'ND');
     const origin = getIntegrationSource(entry);
+    const resolvedTournament = resolveTournamentContext(
+      state,
+      playerId,
+      entry.name,
+      origin.sourceTournamentId,
+      origin.sourceLabel,
+      entry.teamName || null
+    );
     profile.contributions.push({
       id: `manual:${entry.id}`,
       playerId,
       playerName: entry.name,
       sourceType: 'manual_integration',
       tournamentId: origin.sourceTournamentId,
-      tournamentName: null,
-      tournamentYear: null,
+      tournamentName: resolvedTournament.tournamentName,
+      tournamentYear: resolvedTournament.tournamentYear,
       matchId: null,
       teamId: null,
-      teamName: entry.teamName || null,
+      teamName: resolvedTournament.teamName,
       canestri: entry.points || 0,
       soffi: entry.soffi || 0,
       games: entry.games || 0,
@@ -248,6 +330,14 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
     const origin = getHallOfFameEntryOrigin(entry);
     getHallOfFamePlayerRefs(state, entry).forEach((ref) => {
       const profile = ensure(ref.playerId, ref.playerName);
+      const resolvedTournament = resolveTournamentContext(
+        state,
+        ref.playerId,
+        ref.playerName,
+        entry.tournamentId,
+        entry.tournamentName,
+        entry.teamName || null
+      );
       const titleRow: PlayerTitleSourceRow = {
         id: `${entry.id}:${ref.slotIndex ?? 0}`,
         entryId: entry.id,
@@ -256,14 +346,16 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
         playerSlotIndex: ref.slotIndex,
         year: entry.year,
         tournamentId: entry.tournamentId,
-        tournamentName: entry.tournamentName,
+        tournamentName: resolvedTournament.tournamentName || normalizeLegacyTournamentName(entry.tournamentName),
         type: entry.type,
-        teamName: entry.teamName,
+        teamName: entry.teamName || resolvedTournament.teamName || undefined,
         playerNames: entry.playerNames || [],
         value: entry.value,
         sourceType: origin.sourceType,
         sourceTournamentId: origin.sourceTournamentId,
-        sourceTournamentName: origin.sourceTournamentName,
+        sourceTournamentName: origin.sourceTournamentName
+          ? normalizeLegacyTournamentName(origin.sourceTournamentName)
+          : origin.sourceTournamentName,
         sourceMatchId: origin.sourceMatchId,
         sourceAutoGenerated: origin.sourceAutoGenerated,
         manuallyEdited: origin.manuallyEdited,

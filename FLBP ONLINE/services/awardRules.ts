@@ -5,6 +5,7 @@ export interface MetricAwardPlayer {
     name: string;
     yob?: number;
     birthDate?: string;
+    teamName?: string;
     points: number;
     soffi: number;
     games: number;
@@ -50,6 +51,7 @@ export const buildMetricAwardEntries = (opts: {
             tournamentId: opts.tournamentId,
             tournamentName: opts.tournamentName,
             type: opts.type,
+            teamName: player.teamName,
             playerNames: [player.name],
             value: player[opts.metric],
             playerId,
