@@ -941,7 +941,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                                   </div>
                                 ) : null}
                                 <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
-                                  {row.hasProfile ? t('player_area_profile_title') : t('data_accounts_profile_missing')}
+                                  {row.hasProfile ? t('data_accounts_linked_player') : t('data_accounts_profile_missing')}
                                 </div>
                               </div>
                             </div>
