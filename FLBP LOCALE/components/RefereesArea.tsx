@@ -13,6 +13,7 @@ import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyn
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
 import { buildPlayerAreaSnapshot } from '../services/playerAppService';
+import { tryMergeRemoteStateConflict } from '../services/stateConflictMerge';
 
 interface RefereesAreaProps {
     state: AppState;
@@ -1089,6 +1090,30 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     markDbSyncOk('snapshot');
                 } catch (e: any) {
                     if (e?.code === 'FLBP_DB_CONFLICT') {
+                        try {
+                            const pulled = await pullRefereeLiveState(state.tournament.id, refereePassword);
+                            if (pulled?.ok && pulled.state) {
+                                const mergeResult = tryMergeRemoteStateConflict({
+                                    baseState: state,
+                                    localState: nextState,
+                                    remoteState: pulled.state
+                                });
+                                if (mergeResult.ok) {
+                                    await pushRefereeLiveState(mergeResult.state, {
+                                        tournamentId: state.tournament.id,
+                                        refereePassword,
+                                        baseUpdatedAt: pulled.updated_at || null
+                                    });
+                                    clearDbSyncCurrentIssue();
+                                    markDbSyncOk('snapshot');
+                                    setState(mergeResult.state);
+                                    alert(t('alert_report_saved'));
+                                    return;
+                                }
+                            }
+                        } catch {
+                            // fall through to the user-facing conflict warning below
+                        }
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
                     } else {

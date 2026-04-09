@@ -5,6 +5,7 @@ import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyn
 import { clearLocalAppStateCaches } from './featureFlags';
 import { clearRemoteDraftCache, hasRemoteDraftCache, isRemoteDraftCacheFresh, readRemoteDraftCache, readRestorableRemoteDraftCache, writeRemoteDraftCache } from './remoteDraftCache';
 import type { AppStateRepository, RepositoryUpdateMeta } from './AppStateRepository';
+import { tryMergeRemoteStateConflict } from '../stateConflictMerge';
 
 /**
  * Remote repository (Supabase REST).
@@ -26,6 +27,7 @@ export class RemoteRepository implements AppStateRepository {
   private lastRemoteUpdatedAt: string | null = null;
   private lastStateFingerprint = '';
   private conflictedDraftFingerprint: string | null = null;
+  private lastRemoteState: AppState | null = null;
 
   private isAdminViewActive(): boolean {
     try {
@@ -141,9 +143,11 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   private rememberRemoteState(state: AppState, updatedAt?: string | null) {
-    this.lastStateFingerprint = this.fingerprint(state);
+    const safeState = coerceAppState(state);
+    this.lastStateFingerprint = this.fingerprint(safeState);
     this.lastRemoteUpdatedAt = updatedAt || null;
     this.conflictedDraftFingerprint = null;
+    this.lastRemoteState = safeState;
 
     try {
       setRemoteBaseUpdatedAt(updatedAt || null);
@@ -181,6 +185,56 @@ export class RemoteRepository implements AppStateRepository {
       clearDbSyncCurrentIssue();
       markDbSyncOk('snapshot');
       markAdminSyncSynced(row.updated_at || null, this.source);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async resolveMergeableRemoteConflict(localState: AppState): Promise<boolean> {
+    if (!this.lastRemoteState) return false;
+
+    try {
+      const row = await pullWorkspaceState({
+        source: 'RemoteRepository.resolveMergeableRemoteConflict',
+        kind: 'admin',
+      });
+      if (!row?.state) return false;
+
+      const remoteState = coerceAppState(row.state);
+      const mergeResult = tryMergeRemoteStateConflict({
+        baseState: this.lastRemoteState,
+        localState,
+        remoteState,
+      });
+      if (!mergeResult.ok) return false;
+
+      const mergedFingerprint = this.fingerprint(mergeResult.state);
+      const remoteFingerprint = this.fingerprint(remoteState);
+      if (mergedFingerprint === remoteFingerprint) {
+        this.pendingState = null;
+        clearRemoteDraftCache();
+        this.rememberRemoteState(remoteState, row.updated_at || null);
+        clearDbSyncCurrentIssue();
+        markDbSyncOk('snapshot');
+        markAdminSyncSynced(row.updated_at || null, this.source);
+        return true;
+      }
+
+      this.pendingState = mergeResult.state;
+      writeRemoteDraftCache(mergeResult.state, this.lastRemoteUpdatedAt);
+      setRemoteBaseUpdatedAt(row.updated_at || null);
+
+      const pushed = await pushWorkspaceState(mergeResult.state, undefined, {
+        source: 'RemoteRepository.resolveMergeableRemoteConflict.push',
+        kind: 'admin',
+      });
+      this.pendingState = null;
+      clearRemoteDraftCache();
+      this.rememberRemoteState(mergeResult.state, pushed.updated_at || null);
+      clearDbSyncCurrentIssue();
+      markDbSyncOk('snapshot');
+      markAdminSyncSynced(pushed.updated_at || null, this.source);
       return true;
     } catch {
       return false;
@@ -256,7 +310,7 @@ export class RemoteRepository implements AppStateRepository {
     }
 
     this.pendingState = state;
-    writeRemoteDraftCache(state);
+    writeRemoteDraftCache(state, this.lastRemoteUpdatedAt);
     markAdminSyncPending(this.source);
 
     if (this.pendingTimer != null) {
@@ -309,7 +363,7 @@ export class RemoteRepository implements AppStateRepository {
 
     if (!hasSupabaseWriteSession()) {
       const session = getSupabaseSession();
-      writeRemoteDraftCache(state);
+      writeRemoteDraftCache(state, this.lastRemoteUpdatedAt);
       markAdminSyncErrorState(
         session?.accessToken
           ? 'Sessione admin non valida per la scrittura. Controlla ruolo admin / RLS.'
@@ -345,9 +399,11 @@ export class RemoteRepository implements AppStateRepository {
       if (e?.code === 'FLBP_DB_CONFLICT') {
         const equivalentRemote = await this.resolveEquivalentRemoteConflict(state, fingerprint);
         if (equivalentRemote) return;
+        const mergedRemote = await this.resolveMergeableRemoteConflict(state);
+        if (mergedRemote) return;
       }
       this.pendingState = state;
-      writeRemoteDraftCache(state);
+      writeRemoteDraftCache(state, this.lastRemoteUpdatedAt);
 
       if (e?.code === 'FLBP_DB_CONFLICT') {
         this.conflictedDraftFingerprint = fingerprint;
