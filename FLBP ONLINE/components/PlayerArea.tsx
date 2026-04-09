@@ -973,6 +973,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setLiveCallRefreshNonce((value) => value + 1);
       setLiveAuthFlow('session');
       await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
+      window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
       return;
     }
     signOutPlayerPreviewSession();
@@ -982,6 +983,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       // ignore
     }
     clearSupabaseSession();
+    window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
     setRefreshNonce((value) => value + 1);
   };
 
