@@ -188,7 +188,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
   const filteredRows = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
     return rows.filter((row) => {
-      if (filter !== 'all' && row.origin !== filter) return false;
+      if (filter !== 'all' && !(row.providerOrigins || [row.origin]).includes(filter)) return false;
       if (!needle) return true;
       const haystack = [
         row.email,

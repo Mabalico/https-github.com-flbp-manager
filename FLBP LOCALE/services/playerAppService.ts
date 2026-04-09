@@ -42,6 +42,7 @@ export interface PlayerAccountAdminRow {
   email: string;
   provider: PlayerAuthProvider | 'other';
   origin: PlayerAccountAdminOrigin;
+  providerOrigins: PlayerAccountAdminOrigin[];
   mode: 'preview' | 'live';
   providers: string[];
   createdAt: number;
@@ -289,6 +290,16 @@ export const buildPlayerAccountAdminRowFromLive = (
   const personalProfile = buildPlayerRuntimeProfileSnapshot(state, profile);
   const providers = Array.isArray(row.providers) ? row.providers.map((value) => String(value || '').trim()).filter(Boolean) : [];
   const primaryProvider = String(row.primary_provider || '').trim().toLowerCase();
+  const providerOrigins = Array.from(new Set(
+    (providers.length ? providers : [primaryProvider])
+      .map((value) => String(value || '').trim().toLowerCase())
+      .map((value) =>
+        value === 'google' || value === 'facebook' || value === 'apple' || value === 'in_app'
+          ? value as PlayerAccountAdminOrigin
+          : 'other'
+      )
+      .filter(Boolean)
+  ));
   const provider: PlayerAccountAdminRow['provider'] =
     primaryProvider === 'google' || primaryProvider === 'facebook' || primaryProvider === 'apple'
       ? primaryProvider
@@ -300,6 +311,7 @@ export const buildPlayerAccountAdminRowFromLive = (
     origin: (primaryProvider === 'google' || primaryProvider === 'facebook' || primaryProvider === 'apple' || primaryProvider === 'in_app')
       ? primaryProvider as PlayerAccountAdminOrigin
       : 'other',
+    providerOrigins: providerOrigins.length ? providerOrigins : ['other'],
     mode: 'live',
     providers: providers.length ? providers.map((value) => {
       switch (value) {
@@ -874,6 +886,7 @@ export const listPlayerPreviewAccountsAdminRows = (state: AppState): PlayerAccou
         email: normalizePlayerPreviewEmail(account.username),
         provider: 'preview_password',
         origin: 'in_app',
+        providerOrigins: ['in_app'],
         mode: 'preview',
         providers: ['Email/Password'],
         createdAt: account.createdAt,
