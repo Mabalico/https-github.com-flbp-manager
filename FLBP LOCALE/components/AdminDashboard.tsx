@@ -11,14 +11,14 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
 import { decodeCsvText, detectCsvSeparator, parseCsvRows } from '../services/adminCsvUtils';
 import { generateSimPoolTeams } from '../services/simPool';
 import { getXLSX, type XLSXRuntime } from '../services/lazyXlsx';
-import { buildBackupJsonExportState, inspectBackupJsonState, mergeBackupJsonState, parseBackupJsonState } from '../services/backupJsonService';
+import { buildUnifiedBackupJsonExport, inspectBackupJsonState, mergeBackupJsonState, parseBackupJsonState } from '../services/backupJsonService';
 import { describeTeamImportLayout, detectTeamImportLayout, isTeamImportCoherentWithProfile, loadTeamImportProfile, normalizeTeamImportHeader, saveTeamImportProfile, type TeamImportLayout } from '../services/teamImportProfile';
 import { updatePlayerProfileIdentity } from '../services/playerProfileAdmin';
 
@@ -1784,9 +1784,25 @@ const confirmAliasModal = () => {
         XLSX.writeFile(wb, `flbp_squadre_${new Date().toISOString().slice(0,10)}.xlsx`);
     };
 
-    const exportBackupJson = () => {
+    const exportBackupJson = async () => {
         try {
-            const payload = JSON.stringify(buildBackupJsonExportState(state));
+            let liveAccountsExport: { accounts: Awaited<ReturnType<typeof pullAdminPlayerAccounts>>; adminUsers: Awaited<ReturnType<typeof pullAdminUserRoles>> } | null = null;
+            let liveAccountsError = '';
+            try {
+                const [accounts, adminUsers] = await Promise.all([
+                    pullAdminPlayerAccounts(),
+                    pullAdminUserRoles(),
+                ]);
+                liveAccountsExport = { accounts, adminUsers };
+            } catch (error: any) {
+                liveAccountsError = String(error?.message || error || '').trim();
+            }
+
+            const payload = JSON.stringify(
+                buildUnifiedBackupJsonExport(state, { playerAccounts: liveAccountsExport }),
+                null,
+                2
+            );
             const blob = new Blob([payload], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -1796,6 +1812,12 @@ const confirmAliasModal = () => {
             a.click();
             a.remove();
             URL.revokeObjectURL(url);
+
+            if (!liveAccountsExport && liveAccountsError) {
+                alert(
+                    `${t('alert_export_backup_accounts_partial')}\n\n${liveAccountsError}`
+                );
+            }
         } catch (e) {
             alert(t('alert_export_backup_fail'));
         }

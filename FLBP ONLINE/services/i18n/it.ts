@@ -138,6 +138,7 @@ export const dictionary: TranslationDictionary = {
   "alert_tournament_ended": "Torneo terminato",
   "alert_fill_teamname_players": "Compila Nome squadra, Giocatore 1 e Giocatore 2.",
   "alert_export_backup_fail": "Impossibile esportare il backup.",
+  "alert_export_backup_accounts_partial": "Backup JSON scaricato, ma il catalogo account live non è stato incluso. Controlla di avere una sessione admin DB valida e riprova se ti serve anche il backup degli account registrati.",
   "alert_backup_restored": "Backup ripristinato.",
   "alert_backup_invalid": "Backup non valido o corrotto.",
   "alert_popup_blocked": "Popup bloccato: abilita le finestre popup per stampare.",

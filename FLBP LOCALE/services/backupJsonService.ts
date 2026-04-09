@@ -1,6 +1,7 @@
 import type { AppState } from './storageService';
 import { APP_STATE_SCHEMA_VERSION, coerceAppState } from './storageService';
 import type { HallOfFameEntry, IntegrationScorerEntry, Team, TournamentData, Match } from '../types';
+import type { AdminPlayerAccountCatalogRow, AdminUserRoleRow } from './supabaseRest';
 import { normalizeNameLower } from './textUtils';
 
 export interface BackupMergeSummary {
@@ -16,6 +17,23 @@ export interface BackupMergeResult {
     state: AppState;
     warnings: string[];
     summary: BackupMergeSummary;
+}
+
+export interface BackupPlayerAccountsExport {
+    exportedAt: string;
+    source: 'supabase_live_admin';
+    passwordsIncluded: false;
+    restoreSupported: false;
+    accounts: AdminPlayerAccountCatalogRow[];
+    adminUsers: AdminUserRoleRow[];
+}
+
+export interface UnifiedBackupJsonExport {
+    exportType: 'flbp_unified_backup';
+    schemaVersion: number;
+    exportedAt: string;
+    state: AppState;
+    playerAccounts?: BackupPlayerAccountsExport;
 }
 
 const normalize = (v: string) => normalizeNameLower(v || '');
@@ -119,6 +137,41 @@ export const buildBackupJsonExportState = (raw: AppState): AppState => {
             ? coerced.integrationsScorers.map(stripRedundantScorerYoB)
             : []
     };
+};
+
+export const buildUnifiedBackupJsonExport = (
+    raw: AppState,
+    options?: {
+        playerAccounts?: {
+            accounts: AdminPlayerAccountCatalogRow[];
+            adminUsers: AdminUserRoleRow[];
+        } | null;
+    }
+): UnifiedBackupJsonExport => {
+    const exportedAt = new Date().toISOString();
+    const payload: UnifiedBackupJsonExport = {
+        exportType: 'flbp_unified_backup',
+        schemaVersion: APP_STATE_SCHEMA_VERSION,
+        exportedAt,
+        state: buildBackupJsonExportState(raw),
+    };
+
+    if (options?.playerAccounts) {
+        payload.playerAccounts = {
+            exportedAt,
+            source: 'supabase_live_admin',
+            passwordsIncluded: false,
+            restoreSupported: false,
+            accounts: Array.isArray(options.playerAccounts.accounts)
+                ? options.playerAccounts.accounts.map((row) => ({ ...row }))
+                : [],
+            adminUsers: Array.isArray(options.playerAccounts.adminUsers)
+                ? options.playerAccounts.adminUsers.map((row) => ({ ...row }))
+                : [],
+        };
+    }
+
+    return payload;
 };
 
 
