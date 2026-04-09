@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -419,6 +419,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         }
     }, []);
 
+    const mirrorAdminSessionToPlayer = React.useCallback((session: { accessToken: string; refreshToken?: string | null; expiresAt?: string | null; email?: string | null; userId?: string | null } | null) => {
+        if (!session?.accessToken) return;
+        setPlayerSupabaseSession({
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken || null,
+            expiresAt: session.expiresAt || null,
+            email: session.email || null,
+            userId: session.userId || null,
+            flowType: 'session',
+        });
+    }, []);
+
+    const adminSessionMatchesPlayer = React.useCallback((adminSession?: { accessToken?: string | null; email?: string | null; userId?: string | null } | null) => {
+        const playerSession = getPlayerSupabaseSession();
+        if (!adminSession?.accessToken || !playerSession?.accessToken) return false;
+        if (adminSession.userId && playerSession.userId && adminSession.userId === playerSession.userId) return true;
+        const adminEmail = String(adminSession.email || '').trim().toLowerCase();
+        const playerEmail = String(playerSession.email || '').trim().toLowerCase();
+        return !!adminEmail && !!playerEmail && adminEmail === playerEmail;
+    }, []);
+
     const tryBootstrapLegacySupabaseSession = React.useCallback(async (): Promise<boolean> => {
         if (!supabaseConfig) return false;
         const configuredEmail = getConfiguredAdminEmail().trim();
@@ -431,12 +452,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 return false;
             }
             const resolvedEmail = access.email || result.email || configuredEmail;
+            mirrorAdminSessionToPlayer({
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken || null,
+                expiresAt: result.expiresAt || null,
+                email: resolvedEmail,
+                userId: result.userId || null,
+            });
             applyAdminAuthState(resolvedEmail, true);
             return true;
         } catch {
             return false;
         }
-    }, [applyAdminAuthState, supabaseConfig]);
+    }, [applyAdminAuthState, mirrorAdminSessionToPlayer, supabaseConfig]);
 
     const tryBootstrapPlayerSupabaseSession = React.useCallback(async (): Promise<boolean> => {
         if (!supabaseConfig) return false;
@@ -522,12 +550,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 if (!alive) return;
                 if (access.ok) {
                     const resolvedEmail = access.email || nextEmail || getConfiguredAdminEmail();
+                    mirrorAdminSessionToPlayer({
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken || null,
+                        expiresAt: session.expiresAt || null,
+                        email: resolvedEmail,
+                        userId: session.userId || null,
+                    });
                     applyAdminAuthState(resolvedEmail, adminAuthMode === 'legacy');
                     return;
                 }
 
                 if (isFatalAdminAccessFailure(access.reason)) {
-                    if (adminAuthMode === 'player') {
+                    if (adminAuthMode === 'player' || adminSessionMatchesPlayer(session)) {
                         clearSupabaseSession();
                     } else {
                         await signOutSupabase();
@@ -568,7 +603,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [adminAuthMode, applyAdminAuthState, isFatalAdminAccessFailure, tryBootstrapLegacySupabaseSession, tryBootstrapPlayerSupabaseSession]);
+    }, [adminAuthMode, adminSessionMatchesPlayer, applyAdminAuthState, isFatalAdminAccessFailure, mirrorAdminSessionToPlayer, tryBootstrapLegacySupabaseSession, tryBootstrapPlayerSupabaseSession]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');
@@ -3171,7 +3206,8 @@ while (guard < 5000) {
     };
 
     const performAdminLogout = async (reload: boolean = true) => {
-        if (adminAuthMode === 'player') {
+        const shouldPreservePlayerSession = adminAuthMode === 'player' || adminSessionMatchesPlayer(getSupabaseSession());
+        if (shouldPreservePlayerSession) {
             clearSupabaseSession();
         } else {
             await signOutSupabase();
@@ -3214,6 +3250,13 @@ while (guard < 5000) {
                             throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
                         }
                         const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
+                        mirrorAdminSessionToPlayer({
+                            accessToken: result.accessToken,
+                            refreshToken: result.refreshToken || null,
+                            expiresAt: result.expiresAt || null,
+                            email: resolvedEmail,
+                            userId: result.userId || null,
+                        });
                         applyAdminAuthState(resolvedEmail, legacyBootstrapMatch);
                         setAdminAuthPasswordInput('');
                         return;
