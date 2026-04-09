@@ -1029,7 +1029,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
           </div>
         </div>
 
-        <div className="grid gap-5 px-5 py-5 md:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] md:px-6">
+        <div className="px-5 py-5 md:px-6">
           <div className="space-y-5">
             {feedback && effectiveSession && liveAuthFlow !== 'recovery' ? (
               <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
@@ -1546,67 +1546,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
-              <div>
-                <div className={sectionTitleClass}>{t('player_area_activation_title')}</div>
-                <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                  {t('player_area_activation_desc')}
-                </div>
-              </div>
-
-              <div className="space-y-2 text-sm font-semibold text-slate-700">
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <span>{t('player_area_feature_auth')}</span>
-                  <span className="font-black">{effectiveFeatureStatus.remoteAuthPrepared ? activationAuthLabel : t('player_area_preview_only')}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <span>{t('player_area_social_title')}</span>
-                  <span className="font-black">{activationSocialLabel}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <span>{t('player_area_feature_profile')}</span>
-                  <span className="font-black">{activationProfileLabel}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <span>{t('player_area_feature_calls')}</span>
-                  <span className="font-black">{activationCallsLabel}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <span>Push dispositivo</span>
-                  <span className="font-black">{activationPushLabel}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[22px] border border-slate-200 bg-white p-4 md:p-5">
-              <div className="flex items-center gap-3">
-                {effectiveLiveStatus.activeCall?.status === 'ringing' ? (
-                  <LoaderCircle className="h-5 w-5 animate-spin text-blue-600" />
-                ) : effectiveLiveStatus.activeCall?.status === 'acknowledged' ? (
-                  <BadgeCheck className="h-5 w-5 text-emerald-600" />
-                ) : (
-                  <PhoneCall className="h-5 w-5 text-slate-500" />
-                )}
-                <div className="text-sm font-black text-slate-900">
-                  {effectiveSession?.mode === 'live'
-                    ? (liveRuntimeStatus === 'ready' ? t('prepared') : (liveRuntimeError || t('player_area_password_reset_pending')))
-                    : liveBackendEnabled
-                      ? 'Auth live pronta. Completa accesso o registrazione per collegare profilo e dispositivo.'
-                      : t('player_area_preview_note')}
-                </div>
-              </div>
-            </div>
-
-            {liveBackendEnabled ? (
-              <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 md:p-5 text-sm font-semibold leading-6 text-amber-900">
-                Email e password sono gia cablate. Restano fuori da questo blocco solo:
-                <span className="font-black"> provider social, mittente email reale per reset definitivo e test reale della chiamata squadra.</span>
-              </div>
-            ) : null}
+            )}ull}
           </div>
         </div>
       </div>
