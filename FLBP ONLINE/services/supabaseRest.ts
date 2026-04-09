@@ -31,6 +31,7 @@ export const PLAYER_SUPABASE_EXPIRES_AT_LS_KEY = 'flbp_player_supabase_expires_a
 export const PLAYER_SUPABASE_USER_EMAIL_LS_KEY = 'flbp_player_supabase_user_email';
 export const PLAYER_SUPABASE_USER_ID_LS_KEY = 'flbp_player_supabase_user_id';
 export const PLAYER_SUPABASE_FLOW_TYPE_LS_KEY = 'flbp_player_supabase_flow_type';
+const LEGACY_ADMIN_BOOTSTRAP_PASSWORD = 'Giobotta@flbp';
 
 // Tracks the remote snapshot version that the user is currently "based on".
 // Used to prevent accidental overwrites when multiple admins are editing.
@@ -562,8 +563,49 @@ const ensureFreshAuthForSupabaseOps = async () => {
     }
 };
 
+const tryBootstrapAdminSessionFromPlayer = async (): Promise<SupabaseSession | null> => {
+    const playerSession = await ensureFreshPlayerSupabaseSession();
+    if (!playerSession?.accessToken || playerSession.flowType === 'recovery') return null;
+    const mirroredSession: SupabaseSession = {
+        accessToken: playerSession.accessToken,
+        refreshToken: playerSession.refreshToken || null,
+        expiresAt: playerSession.expiresAt || null,
+        email: playerSession.email || null,
+        userId: playerSession.userId || null,
+    };
+    setSupabaseSession(mirroredSession);
+    const access = await ensureSupabaseAdminAccess();
+    if (!access.ok) {
+        clearSupabaseSession();
+        return null;
+    }
+    return getSupabaseSession() || mirroredSession;
+};
+
+const tryBootstrapLegacyAdminSupabaseSession = async (): Promise<SupabaseSession | null> => {
+    const configuredEmail = getConfiguredAdminEmail().trim();
+    if (!configuredEmail) return null;
+    try {
+        const session = await signInWithPassword(configuredEmail, LEGACY_ADMIN_BOOTSTRAP_PASSWORD);
+        const access = await ensureSupabaseAdminAccess();
+        if (!access.ok) {
+            await signOutSupabase();
+            return null;
+        }
+        return getSupabaseSession() || session;
+    } catch {
+        return null;
+    }
+};
+
 const requireSupabaseWriteSession = async (): Promise<SupabaseSession> => {
-    const session = await ensureFreshSupabaseSession();
+    let session = await ensureFreshSupabaseSession();
+    if (!session?.accessToken) {
+        session = await tryBootstrapAdminSessionFromPlayer();
+    }
+    if (!session?.accessToken) {
+        session = await tryBootstrapLegacyAdminSupabaseSession();
+    }
     if (!session?.accessToken) {
         throw new Error('Sessione admin assente o scaduta. Esegui il login Supabase in Admin → Dati / Persistenza prima di scrivere sul database.');
     }
