@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { ensureSupabaseAdminAccess, getConfiguredAdminEmail, getSupabaseConfig, getSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -305,7 +305,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const supabaseConfig = useMemo(() => getSupabaseConfig(), []);
     const adminToolsMenuRef = useRef<HTMLDetailsElement | null>(null);
     const [authed, setAuthed] = useState<boolean>(false);
-    const [adminAuthMode, setAdminAuthMode] = useState<'none' | 'supabase' | 'legacy'>(() => {
+    const [adminAuthMode, setAdminAuthMode] = useState<'none' | 'supabase' | 'legacy' | 'player'>(() => {
         return safeSessionGet(ADMIN_LEGACY_AUTH_LS_KEY) === '1' ? 'legacy' : 'none';
     });
     const [adminAuthEmailInput, setAdminAuthEmailInput] = useState<string>(() => initialSupabaseSession?.email || getConfiguredAdminEmail());
@@ -438,10 +438,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         }
     }, [applyAdminAuthState, supabaseConfig]);
 
+    const tryBootstrapPlayerSupabaseSession = React.useCallback(async (): Promise<boolean> => {
+        if (!supabaseConfig) return false;
+        const playerSession = await ensureFreshPlayerSupabaseSession();
+        if (!playerSession?.accessToken || playerSession.flowType === 'recovery') return false;
+        try {
+            setSupabaseSession({
+                accessToken: playerSession.accessToken,
+                refreshToken: playerSession.refreshToken || null,
+                expiresAt: playerSession.expiresAt || null,
+                email: playerSession.email || null,
+                userId: playerSession.userId || null,
+            });
+            const access = await ensureSupabaseAdminAccess();
+            if (!access.ok) {
+                clearSupabaseSession();
+                return false;
+            }
+            const resolvedEmail = access.email || playerSession.email || getConfiguredAdminEmail();
+            setAuthed(true);
+            setAdminAuthMode('player');
+            safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+            setAdminAuthError('');
+            setSupabaseEmail(resolvedEmail);
+            setAdminAuthEmailInput(resolvedEmail);
+            setAdminSessionChecking(false);
+            return true;
+        } catch {
+            clearSupabaseSession();
+            return false;
+        }
+    }, [supabaseConfig]);
+
     useEffect(() => {
         let alive = true;
 
         const syncSupabaseSessionMeta = async () => {
+            if (adminAuthMode !== 'legacy') {
+                const playerSession = getPlayerSupabaseSession();
+                if (playerSession?.accessToken && playerSession.flowType !== 'recovery') {
+                    setAdminSessionChecking(true);
+                    const bootstrappedFromPlayer = await tryBootstrapPlayerSupabaseSession();
+                    if (!alive) return;
+                    if (bootstrappedFromPlayer) {
+                        return;
+                    }
+                }
+            }
+
             const session = getSupabaseSession();
             const nextEmail = session?.accessToken ? (session.email || getConfiguredAdminEmail()) : null;
 
@@ -483,11 +527,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 }
 
                 if (isFatalAdminAccessFailure(access.reason)) {
-                    await signOutSupabase();
+                    if (adminAuthMode === 'player') {
+                        clearSupabaseSession();
+                    } else {
+                        await signOutSupabase();
+                    }
                     if (!alive) return;
                     if (adminAuthMode === 'legacy') {
                         setAuthed(true);
                         setSupabaseEmail(getConfiguredAdminEmail());
+                        setAdminAuthError('');
+                    } else if (adminAuthMode === 'player') {
+                        setAuthed(false);
+                        setSupabaseEmail(null);
                         setAdminAuthError('');
                     } else {
                         setAuthed(false);
@@ -516,7 +568,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [adminAuthMode, applyAdminAuthState, isFatalAdminAccessFailure, tryBootstrapLegacySupabaseSession]);
+    }, [adminAuthMode, applyAdminAuthState, isFatalAdminAccessFailure, tryBootstrapLegacySupabaseSession, tryBootstrapPlayerSupabaseSession]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');
@@ -3119,7 +3171,11 @@ while (guard < 5000) {
     };
 
     const performAdminLogout = async (reload: boolean = true) => {
-        await signOutSupabase();
+        if (adminAuthMode === 'player') {
+            clearSupabaseSession();
+        } else {
+            await signOutSupabase();
+        }
         safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
         setAuthed(false);
         setAdminAuthMode('none');
