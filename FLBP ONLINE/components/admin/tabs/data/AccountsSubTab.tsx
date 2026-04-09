@@ -1,7 +1,7 @@
 import React from 'react';
 import type { AppState } from '../../../../services/storageService';
 import { BirthDateInput } from '../../BirthDateInput';
-import { formatBirthDateDisplay } from '../../../../services/playerIdentity';
+import { formatBirthDateDisplay, normalizeBirthDateInput } from '../../../../services/playerIdentity';
 import {
   PLAYER_APP_CHANGE_EVENT,
   buildPlayerAccountAdminRowFromLive,
@@ -14,10 +14,12 @@ import {
 import {
   applyPlayerAccountAliasSuggestion,
   buildPlayerAccountAliasSuggestions,
+  buildPlayerAccountMergeSuggestions,
   buildPlayerAccountAliasTargetProfilePayload,
   ignorePlayerAccountAliasSuggestion,
   shouldSyncAccountCanonicalAfterAliasMerge,
   type PlayerAccountAliasReason,
+  type PlayerAccountMergeReason,
 } from '../../../../services/playerAccountAliasSuggestions';
 import {
   deleteAdminPlayerAccount,
@@ -35,7 +37,7 @@ interface AccountsSubTabProps {
   t: (key: string) => string;
 }
 
-type AccountFilter = 'all' | PlayerAccountAdminOrigin;
+type AccountFilter = 'all' | PlayerAccountAdminOrigin | 'alias_candidates';
 
 const cardClass = 'animate-pop-in rounded-3xl border border-slate-200/50 bg-white/95 backdrop-blur-md p-5 shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
 const inputClass =
@@ -84,6 +86,8 @@ const originLabel = (t: AccountsSubTabProps['t'], origin: AccountFilter) => {
       return t('data_accounts_origin_facebook');
     case 'apple':
       return t('data_accounts_origin_apple');
+    case 'alias_candidates':
+      return 'Alias';
     default:
       return t('data_accounts_origin_other');
   }
@@ -99,6 +103,21 @@ const aliasReasonLabel = (t: AccountsSubTabProps['t'], reason: PlayerAccountAlia
       return t('data_accounts_alias_reason_close_name');
     default:
       return t('data_accounts_alias_reason_existing_stats');
+  }
+};
+
+const accountMergeReasonLabel = (reason: PlayerAccountMergeReason) => {
+  switch (reason) {
+    case 'same_canonical':
+      return 'Stesso giocatore collegato';
+    case 'same_birthdate':
+      return 'Stessa data di nascita';
+    case 'exact_name':
+      return 'Nome identico';
+    case 'close_name':
+      return 'Nome molto simile';
+    default:
+      return 'Statistiche identiche';
   }
 };
 
@@ -185,10 +204,25 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     [remoteRows, state]
   );
 
+  const accountMergeSuggestionMap = React.useMemo(
+    () => new Map(rows.map((row) => [row.id, buildPlayerAccountMergeSuggestions(rows, row)])),
+    [rows]
+  );
+
+  const aliasCandidateIds = React.useMemo(
+    () => new Set(
+      rows
+        .filter((row) => (accountMergeSuggestionMap.get(row.id) || []).length > 0)
+        .map((row) => row.id)
+    ),
+    [rows, accountMergeSuggestionMap]
+  );
+
   const filteredRows = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
     return rows.filter((row) => {
-      if (filter !== 'all' && !(row.providerOrigins || [row.origin]).includes(filter)) return false;
+      if (filter === 'alias_candidates' && !aliasCandidateIds.has(row.id)) return false;
+      if (filter !== 'all' && filter !== 'alias_candidates' && !(row.providerOrigins || [row.origin]).includes(filter)) return false;
       if (!needle) return true;
       const haystack = [
         row.email,
@@ -200,7 +234,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [rows, filter, search]);
+  }, [rows, filter, search, aliasCandidateIds]);
 
   const selectedRow = React.useMemo(() => {
     if (!filteredRows.length) return null;
@@ -242,6 +276,11 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     if (!selectedRow || !selectedRow.canonicalPlayerId || !selectedRow.linkedPlayerName) return [];
     return buildPlayerAccountAliasSuggestions(state, selectedRow).slice(0, 6);
   }, [selectedRow, state]);
+
+  const accountMergeSuggestions = React.useMemo(
+    () => (selectedRow ? (accountMergeSuggestionMap.get(selectedRow.id) || []).slice(0, 6) : []),
+    [selectedRow, accountMergeSuggestionMap]
+  );
 
   const saveSelected = async () => {
     if (!selectedRow) return;
@@ -328,6 +367,106 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         await grantAdminPlayerAccount({ userId: selectedRow.id, email: selectedRow.email });
         setFeedback({ tone: 'success', message: t('data_accounts_admin_grant_done') });
       }
+      setRefreshNonce((value) => value + 1);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+    }
+  };
+
+  const applyIdentityToAccount = async (
+    row: (typeof rows)[number],
+    canonicalPlayerName: string,
+    birthDateValue: string
+  ) => {
+    const payload = buildPlayerAccountAliasTargetProfilePayload(canonicalPlayerName, birthDateValue);
+    if (!payload.firstName || !payload.lastName || !payload.birthDate) {
+      throw new Error('Per integrare gli account serve un profilo con nome, cognome e data di nascita validi.');
+    }
+    if (row.mode === 'live') {
+      await pushAdminPlayerAppProfile({
+        userId: row.id,
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+        birthDate: payload.birthDate,
+        canonicalPlayerId: payload.canonicalPlayerId,
+        canonicalPlayerName: payload.canonicalPlayerName,
+      });
+      return;
+    }
+    updatePlayerPreviewAccountAdmin(row.id, {
+      email: row.email,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      birthDate: payload.birthDate,
+    });
+  };
+
+  const integrateSelectedWithAccount = async (candidateAccountId: string) => {
+    if (!selectedRow) return;
+    const candidateRow = rows.find((row) => row.id === candidateAccountId);
+    if (!candidateRow) {
+      setFeedback({ tone: 'error', message: 'Account candidato non trovato.' });
+      return;
+    }
+
+    try {
+      const selectedIdentity = {
+        canonicalPlayerName: String(selectedRow.linkedPlayerName || '').trim(),
+        birthDate: normalizeBirthDateInput(selectedRow.birthDate || undefined) || '',
+        score:
+          (selectedRow.linkedPlayerName ? 3 : 0)
+          + (normalizeBirthDateInput(selectedRow.birthDate || undefined) ? 3 : 0)
+          + (selectedRow.canonicalPlayerId ? 2 : 0)
+          + (selectedRow.hasProfile ? 1 : 0)
+          + (selectedRow.totalTitles > 0 || selectedRow.totalCanestri > 0 || selectedRow.totalSoffi > 0 ? 1 : 0),
+      };
+      const candidateIdentity = {
+        canonicalPlayerName: String(candidateRow.linkedPlayerName || '').trim(),
+        birthDate: normalizeBirthDateInput(candidateRow.birthDate || undefined) || '',
+        score:
+          (candidateRow.linkedPlayerName ? 3 : 0)
+          + (normalizeBirthDateInput(candidateRow.birthDate || undefined) ? 3 : 0)
+          + (candidateRow.canonicalPlayerId ? 2 : 0)
+          + (candidateRow.hasProfile ? 1 : 0)
+          + (candidateRow.totalTitles > 0 || candidateRow.totalCanestri > 0 || candidateRow.totalSoffi > 0 ? 1 : 0),
+      };
+
+      const master =
+        candidateIdentity.score > selectedIdentity.score
+          ? candidateIdentity
+          : selectedIdentity.score > candidateIdentity.score
+            ? selectedIdentity
+            : candidateRow.totalTitles + candidateRow.totalCanestri + candidateRow.totalSoffi
+                > selectedRow.totalTitles + selectedRow.totalCanestri + selectedRow.totalSoffi
+              ? candidateIdentity
+              : selectedIdentity;
+
+      if (!master.canonicalPlayerName || !master.birthDate) {
+        throw new Error('Per integrare due account serve almeno un profilo con giocatore collegato e data di nascita valida.');
+      }
+
+      const currentSelectedBirthDate = normalizeBirthDateInput(selectedRow.birthDate || undefined) || '';
+      const currentCandidateBirthDate = normalizeBirthDateInput(candidateRow.birthDate || undefined) || '';
+      const selectedAligned =
+        String(selectedRow.linkedPlayerName || '').trim() === master.canonicalPlayerName
+        && currentSelectedBirthDate === master.birthDate;
+      const candidateAligned =
+        String(candidateRow.linkedPlayerName || '').trim() === master.canonicalPlayerName
+        && currentCandidateBirthDate === master.birthDate;
+
+      if (!selectedAligned) {
+        await applyIdentityToAccount(selectedRow, master.canonicalPlayerName, master.birthDate);
+      }
+      if (!candidateAligned) {
+        await applyIdentityToAccount(candidateRow, master.canonicalPlayerName, master.birthDate);
+      }
+
+      setFeedback({
+        tone: 'success',
+        message: selectedAligned && candidateAligned
+          ? 'I due account risultano già integrati sullo stesso profilo giocatore.'
+          : 'Account integrati correttamente sullo stesso profilo giocatore.',
+      });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
       setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
@@ -479,6 +618,17 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                   </button>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => setFilter('alias_candidates')}
+                className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                  filter === 'alias_candidates'
+                    ? 'border-rose-700 bg-rose-700 text-white'
+                    : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                }`}
+              >
+                {`${originLabel(t, 'alias_candidates')} ${aliasCandidateIds.size}`}
+              </button>
             </div>
           </div>
 
@@ -601,6 +751,75 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                   {t('data_accounts_live_profile_hint')}
                 </div>
               ) : null}
+
+              <div className="rounded-2xl border border-rose-200 bg-rose-50/70 px-4 py-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-sm font-black text-rose-950">{`Possibili account da integrare`}</div>
+                    <div className="mt-1 text-xs font-bold leading-5 text-rose-900/80">
+                      {`Qui trovi altri account che sembrano appartenere alla stessa persona anche se usano email o provider diversi.`}
+                    </div>
+                  </div>
+                  <div className="rounded-full border border-rose-200 bg-white px-3 py-1 text-[11px] font-black text-rose-800">
+                    {accountMergeSuggestions.length}
+                  </div>
+                </div>
+
+                {accountMergeSuggestions.length ? (
+                  <div className="mt-4 space-y-3">
+                    {accountMergeSuggestions.map((suggestion) => (
+                      <div key={suggestion.id} className="rounded-2xl border border-rose-200 bg-white px-4 py-4">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-slate-950">{suggestion.candidateEmail}</div>
+                            <div className="mt-1 text-xs font-bold text-slate-500">
+                              {suggestion.candidateProviders.join(' • ')} • {suggestion.candidateMode === 'live' ? 'Live' : 'Preview'}
+                            </div>
+                            <div className="mt-2 text-xs font-bold text-slate-600">
+                              {suggestion.candidateDisplayName}
+                              {suggestion.candidateBirthDateLabel !== 'ND' ? ` · ${suggestion.candidateBirthDateLabel}` : ''}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                                suggestion.confidence === 'high'
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-slate-100 text-slate-700'
+                              }`}>
+                                {suggestion.confidence === 'high' ? t('data_accounts_alias_confidence_high') : t('data_accounts_alias_confidence_medium')}
+                              </div>
+                              {suggestion.reasons.map((reason) => (
+                                <div key={reason} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                  {accountMergeReasonLabel(reason)}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid gap-2 text-right text-[11px] font-black text-slate-600 sm:grid-cols-2">
+                            <div>{t('titles')}: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                            <div>{t('scores_label')}: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                            <div>{t('soffi_label')}: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => void integrateSelectedWithAccount(suggestion.candidateAccountId)}
+                            className="inline-flex items-center justify-center rounded-xl border border-rose-600 bg-rose-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2"
+                          >
+                            {`Integra account`}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-rose-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
+                    {`Per questo account non risultano altri profili compatibili da integrare.`}
+                  </div>
+                )}
+              </div>
 
               <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">

@@ -2,7 +2,7 @@ import type { AppState } from './storageService';
 import type { PlayerProfileSnapshot } from '../types';
 import type { PlayerAccountAdminRow } from './playerAppService';
 import { buildPlayerProfileSnapshots } from './playerDataProvenance';
-import { getPlayerKey, normalizeBirthDateInput, resolvePlayerKey } from './playerIdentity';
+import { getPlayerKey, getPlayerKeyLabel, normalizeBirthDateInput, resolvePlayerKey } from './playerIdentity';
 import { mergeAliasIntoBirthdatedProfile } from './playerProfileAdmin';
 import { normalizeNameLower, splitCanonicalPlayerName } from './textUtils';
 
@@ -17,6 +17,30 @@ export type PlayerAccountAliasMergeMode =
   | 'candidate_into_account'
   | 'account_into_candidate'
   | 'alias_candidate_into_account';
+
+export type PlayerAccountMergeReason =
+  | 'same_canonical'
+  | 'same_birthdate'
+  | 'exact_name'
+  | 'close_name'
+  | 'same_stats';
+
+export interface PlayerAccountMergeSuggestion {
+  id: string;
+  accountId: string;
+  candidateAccountId: string;
+  candidateEmail: string;
+  candidateProviders: string[];
+  candidateMode: 'preview' | 'live';
+  candidateDisplayName: string;
+  candidateBirthDate?: string;
+  candidateBirthDateLabel: string;
+  candidateTotalTitles: number;
+  candidateTotalCanestri: number;
+  candidateTotalSoffi: number;
+  confidence: PlayerAccountAliasConfidence;
+  reasons: PlayerAccountMergeReason[];
+}
 
 export interface PlayerAccountAliasSuggestion {
   id: string;
@@ -65,6 +89,22 @@ const getBirthDateLabel = (birthDate?: string) => {
   const [year, month, day] = normalized.split('-');
   return `${day}/${month}/${year}`;
 };
+
+const getAccountComparableName = (row: PlayerAccountAdminRow): string => {
+  const linkedName = String(row.linkedPlayerName || '').trim();
+  if (linkedName) return linkedName;
+  const canonicalLabel = getPlayerKeyLabel(String(row.canonicalPlayerId || '').trim()).name;
+  return String(canonicalLabel || '').trim();
+};
+
+const getAccountBirthDate = (row: PlayerAccountAdminRow): string | undefined =>
+  normalizeBirthDateInput(row.birthDate || extractBirthDateFromPlayerId(String(row.canonicalPlayerId || '').trim()) || undefined);
+
+const hasSameStatsFingerprint = (left: PlayerAccountAdminRow, right: PlayerAccountAdminRow) =>
+  left.totalTitles > 0
+  && left.totalTitles === right.totalTitles
+  && left.totalCanestri === right.totalCanestri
+  && left.totalSoffi === right.totalSoffi;
 
 const hasPrefixCompatibility = (left: string, right: string) => {
   if (!left || !right) return false;
@@ -199,6 +239,74 @@ export const buildPlayerAccountAliasSuggestions = (
       if (rightScore !== leftScore) return rightScore - leftScore;
       return left!.candidateDisplayName.localeCompare(right!.candidateDisplayName, 'it', { sensitivity: 'base' });
     }) as PlayerAccountAliasSuggestion[];
+};
+
+export const buildPlayerAccountMergeSuggestions = (
+  rows: PlayerAccountAdminRow[],
+  row: PlayerAccountAdminRow
+): PlayerAccountMergeSuggestion[] => {
+  const sourceName = getAccountComparableName(row);
+  const sourceBirthDate = getAccountBirthDate(row);
+  const sourceCanonicalId = String(row.canonicalPlayerId || '').trim();
+
+  return rows
+    .filter((candidate) => candidate.id !== row.id)
+    .map((candidate) => {
+      const candidateName = getAccountComparableName(candidate);
+      const candidateBirthDate = getAccountBirthDate(candidate);
+      const candidateCanonicalId = String(candidate.canonicalPlayerId || '').trim();
+      const reasons: PlayerAccountMergeReason[] = [];
+      let confidence: PlayerAccountAliasConfidence = 'medium';
+
+      if (sourceCanonicalId && candidateCanonicalId && sourceCanonicalId === candidateCanonicalId) {
+        reasons.push('same_canonical');
+        confidence = 'high';
+      } else {
+        if (!sourceName || !candidateName) return null;
+        const names = compareCanonicalNames(sourceName, candidateName);
+        if (!names.exactName && !names.closeName) return null;
+        if (sourceBirthDate && candidateBirthDate && sourceBirthDate !== candidateBirthDate) return null;
+        if (sourceBirthDate && candidateBirthDate && sourceBirthDate === candidateBirthDate) {
+          reasons.push('same_birthdate');
+          confidence = 'high';
+        }
+        if (names.exactName) reasons.push('exact_name');
+        else if (names.closeName) reasons.push('close_name');
+      }
+
+      if (hasSameStatsFingerprint(row, candidate)) {
+        reasons.push('same_stats');
+      }
+
+      if (!reasons.length) return null;
+
+      return {
+        id: `${String(row.id || '').trim()}::account::${String(candidate.id || '').trim()}`,
+        accountId: String(row.id || '').trim(),
+        candidateAccountId: String(candidate.id || '').trim(),
+        candidateEmail: String(candidate.email || '').trim(),
+        candidateProviders: candidate.providers || [],
+        candidateMode: candidate.mode,
+        candidateDisplayName: candidateName || candidate.email || candidate.id,
+        candidateBirthDate,
+        candidateBirthDateLabel: getBirthDateLabel(candidateBirthDate),
+        candidateTotalTitles: candidate.totalTitles,
+        candidateTotalCanestri: candidate.totalCanestri,
+        candidateTotalSoffi: candidate.totalSoffi,
+        confidence,
+        reasons: dedupeReasons(reasons) as PlayerAccountMergeReason[],
+      } satisfies PlayerAccountMergeSuggestion;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const confidenceDiff =
+        (left!.confidence === 'high' ? 1 : 0) - (right!.confidence === 'high' ? 1 : 0);
+      if (confidenceDiff !== 0) return confidenceDiff * -1;
+      const sameCanonicalLeft = left!.reasons.includes('same_canonical') ? 1 : 0;
+      const sameCanonicalRight = right!.reasons.includes('same_canonical') ? 1 : 0;
+      if (sameCanonicalLeft !== sameCanonicalRight) return sameCanonicalRight - sameCanonicalLeft;
+      return left!.candidateEmail.localeCompare(right!.candidateEmail, 'it', { sensitivity: 'base' });
+    }) as PlayerAccountMergeSuggestion[];
 };
 
 export const ignorePlayerAccountAliasSuggestion = (
