@@ -49,6 +49,11 @@ class UiErrorBoundary extends React.Component<UiErrorBoundaryProps, UiErrorBound
     componentDidCatch(err: any) {
         // eslint-disable-next-line no-console
         console.error('[UI ErrorBoundary]', err);
+
+        const msg = String(err?.message || err || '');
+        if (msg.includes('Failed to fetch dynamically imported module') || msg.includes('Importing a module script failed')) {
+            window.location.reload();
+        }
     }
 
     render() {

@@ -152,6 +152,12 @@ class AdminRenderRecoveryBoundary extends React.Component<
             // ignore
         }
 
+        const msg = String(error?.message || error || '');
+        if (msg.includes('Failed to fetch dynamically imported module') || msg.includes('Importing a module script failed')) {
+            window.location.reload();
+            return;
+        }
+
         if (!this.state.didAutoRecover) {
             // Best-effort: clear persisted Admin navigation keys to avoid crash loops.
             clearAdminSessionNavKeys();
