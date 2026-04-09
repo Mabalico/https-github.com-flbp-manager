@@ -3744,7 +3744,7 @@ while (guard < 5000) {
                                     onClick={closeAdminToolsMenu}
                                     className="fixed inset-0 z-10 hidden bg-slate-950/25 group-open:block sm:hidden"
                                 />
-                                <div className="fixed inset-x-4 top-24 bottom-4 z-20 hidden overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-2xl group-open:block sm:absolute sm:right-0 sm:top-full sm:bottom-auto sm:mt-2 sm:w-[360px] sm:max-w-[92vw] sm:rounded-2xl sm:p-3">
+                                <div className="fixed inset-x-4 top-24 bottom-4 z-20 hidden overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-2xl group-open:block sm:absolute sm:left-auto sm:right-0 sm:top-full sm:bottom-auto sm:mt-2 sm:w-[360px] sm:max-w-[92vw] sm:rounded-2xl sm:p-3">
                                     <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-3 sm:hidden">
                                         <div>
                                             <div className="text-xs font-black uppercase tracking-wide text-slate-500">{t('admin_tools')}</div>
