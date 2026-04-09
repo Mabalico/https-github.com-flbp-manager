@@ -1296,7 +1296,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
                     <button type="button" onClick={() => void submitRecoveryPassword()} className={btnPrimary}>
                       <BadgeCheck className="h-4 w-4" /> {t('player_area_recovery_apply_password')}
                     </button>
-                    <button type="button" onClick={() => void signOut()} className={btnSecondary}>
+                    <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
                       <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
                     </button>
                   </div>

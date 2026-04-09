@@ -1,0 +1,15 @@
+{
+  "workspace_id": "default",
+  "state": {
+    "logo": "",
+    "teams": [],
+    "matches": [],
+    "hallOfFame": [],
+    "tournament": null,
+    "playerAliases": {},
+    "tournamentHistory": [],
+    "tournamentMatches": [],
+    "integrationsScorers": []
+  },
+  "updated_at": "2026-04-09T11:56:20.024879+02:00"
+}

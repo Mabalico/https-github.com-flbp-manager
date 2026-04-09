@@ -1236,9 +1236,24 @@ const App: React.FC = () => {
             : 'text-white/80 border-transparent hover:bg-white/5 hover:text-white'}`;
     };
 
-    const playerNavLabel = playerPresence
-        ? `${playerPresence.firstName || playerPresence.displayName || 'Profilo'} · ${t('logout')}`
-        : t('player_area_sign_in');
+    const handleGlobalSignOut = async () => {
+        if (!playerPresence) return;
+        if (!window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) return;
+
+        clearPlayerPresenceSnapshot();
+        if (playerPresence.mode === 'live') {
+            const playerSignOutTask = playerSignOutSupabase().catch(() => {});
+            const adminSignOutTask = signOutSupabase().catch(() => {});
+            await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
+            window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+            return;
+        }
+        signOutPlayerPreviewSession();
+        try { sessionStorage.removeItem('flbp_admin_legacy_auth'); } catch {}
+        clearSupabaseSession();
+        window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+    };
+
 
 
     return (
@@ -1439,19 +1454,50 @@ const App: React.FC = () => {
                             ) : null}
 
                             <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => { void navigateToView('player_area'); }}
-                                    onMouseEnter={() => primeViewChunk('player_area')}
-                                    onFocus={() => primeViewChunk('player_area')}
-                                    className={isPublicView
-                                        ? "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-white/10 bg-white/10 text-white hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
-                                        : "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
-                                    title={t('player_area')}
-                                >
-                                    <UserRound className="w-4 h-4" aria-hidden />
-                                    <span className="max-w-[42vw] truncate">{playerNavLabel}</span>
-                                </button>
+                                {playerPresence ? (
+                                    <div className={isPublicView
+                                        ? "flex items-stretch rounded-xl border border-white/10 bg-white/10 text-white shadow-sm overflow-hidden"
+                                        : "flex items-stretch rounded-[14px] border border-slate-200 bg-white text-slate-700 shadow-sm overflow-hidden"}>
+                                        <button
+                                            type="button"
+                                            onClick={() => { void navigateToView('player_area'); }}
+                                            onMouseEnter={() => primeViewChunk('player_area')}
+                                            onFocus={() => primeViewChunk('player_area')}
+                                            className={isPublicView
+                                                ? "inline-flex items-center gap-2 px-3 py-2 text-sm font-black hover:bg-white/15 transition focus:outline-none focus:bg-white/15 border-r border-white/10"
+                                                : "inline-flex items-center gap-2 px-3 py-2 text-sm font-black hover:bg-slate-50 transition focus:outline-none focus:bg-slate-50 border-r border-slate-200"}
+                                            title={t('player_area')}
+                                        >
+                                            <UserRound className="w-4 h-4" aria-hidden />
+                                            <span className="max-w-[28vw] truncate">{playerPresence.firstName || playerPresence.displayName || 'Account'}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleGlobalSignOut}
+                                            title={t('logout') || 'Esci'}
+                                            className={isPublicView
+                                                ? "inline-flex items-center gap-2 px-3 py-2 text-sm font-black text-red-100 hover:bg-red-500/20 hover:text-white transition focus:outline-none focus:bg-red-500/20"
+                                                : "inline-flex items-center gap-2 px-3 py-2 text-sm font-black text-red-600 hover:bg-red-50 hover:text-red-700 transition focus:outline-none focus:bg-red-50"}
+                                        >
+                                            <span className="hidden sm:inline">{t('logout') || 'Esci'}</span>
+                                            <LogOut className="w-4 h-4 ml-1 sm:ml-0" aria-hidden />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => { void navigateToView('player_area'); }}
+                                        onMouseEnter={() => primeViewChunk('player_area')}
+                                        onFocus={() => primeViewChunk('player_area')}
+                                        className={isPublicView
+                                            ? "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-white/10 bg-white/10 text-white hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
+                                            : "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
+                                        title={t('player_area')}
+                                    >
+                                        <UserRound className="w-4 h-4" aria-hidden />
+                                        <span className="max-w-[42vw] truncate">{t('player_area_sign_in')}</span>
+                                    </button>
+                                )}
 
                                 {isToolsView ? (
                                     <button
