@@ -3745,34 +3745,29 @@ while (guard < 5000) {
                         <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center p-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm text-slate-700" title={t('admin_tools')}>
                             <Settings className="w-5 h-5" />
                         </summary>
-                        <div className="absolute right-0 mt-2 min-w-[280px] max-w-[90vw] bg-white border border-slate-200 shadow-xl rounded-[24px] p-4 z-[90] flex flex-col gap-4">
-                            <div className="text-sm font-black uppercase tracking-wider text-slate-400">{t('admin_tools')}</div>
-                            
-                            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex flex-col gap-2 text-sm font-semibold">
-                                <div className="truncate text-slate-700 font-bold" title={supabaseEmail ? `${t('admin_supabase_label')}: ${supabaseEmail}` : t('admin_session_active')}>
-                                    {supabaseEmail ? (<>{t('admin_supabase_label')}: {supabaseEmail}</>) : (<>{t('admin_session_active')}</>)}
-                                </div>
+                        <div className="absolute right-0 mt-2 w-[260px] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-3 z-[999] flex flex-col gap-2">
+                            {/* Account */}
+                            <div className="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+                                <span className="text-[11px] font-bold text-slate-600 truncate min-w-0" title={supabaseEmail || undefined}>
+                                    {supabaseEmail ? supabaseEmail : t('admin_session_active')}
+                                </span>
                                 <button onClick={async () => {
                                     if (!confirm(t('admin_supabase_logout_confirm'))) return;
                                     await performAdminLogout();
-                                }} className="text-xs font-black px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 transition-colors inline-block text-center mt-1">
+                                }} className="text-[11px] font-black px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 flex-shrink-0 whitespace-nowrap">
                                     {t('admin_logout')}
                                 </button>
                             </div>
 
-                            {/* Sync stato visibile anche nel dropdown per dettaglio */}
-                            <div className={`text-[11px] font-black px-3 py-2 rounded-2xl flex items-center justify-center text-center ${adminSyncState.phase === 'synced' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 border' : adminSyncState.phase === 'syncing' ? 'bg-sky-50 text-sky-800 border border-sky-200' : adminSyncState.phase === 'pending' ? 'bg-amber-50 text-amber-900 border-amber-200 border' : adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200 border' : 'bg-slate-100 text-slate-600 border border-slate-200'}`} title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}` }>
-                                 {adminSyncState.phase === 'synced' ? t('admin_sync_ok') : adminSyncState.phase === 'syncing' ? t('admin_syncing') : adminSyncState.phase === 'pending' ? t('admin_pending') : adminSyncState.phase === 'error' ? t('admin_sync_err') : adminSyncState.phase === 'conflict' ? t('admin_sync_conflict') : t('admin_autosave')}
-                            </div>
-
-                            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex flex-col gap-2">
-                                <div className="flex items-center justify-between text-xs font-black uppercase tracking-wide text-slate-500">
-                                    {t('admin_offline_cache')}
-                                    <div className={`px-2 py-0.5 rounded-full ${swDisabled ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-800'}`}>
-                                        {swDisabled ? t('admin_cache_off') : t('admin_cache_on')}
+                            {/* Cache + Modalità in griglia 2 col */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-slate-50 rounded-xl p-2 border border-slate-100 flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between gap-1">
+                                        <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">{t('admin_offline_cache')}</span>
+                                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${swDisabled ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-800'}`}>
+                                            {swDisabled ? t('admin_cache_off') : t('admin_cache_on')}
+                                        </span>
                                     </div>
-                                </div>
-                                <div className="flex flex-col gap-1.5 mt-1">
                                     <button onClick={async () => {
                                         const next = !swDisabled;
                                         const msg = next ? t('admin_disable_cache_confirm') : t('admin_enable_cache_confirm');
@@ -3781,7 +3776,7 @@ while (guard < 5000) {
                                         setSwDisabled(next);
                                         if (next) await bestEffortClearSwCaches();
                                         window.location.reload();
-                                    }} className={`text-xs font-black px-3 py-1.5 rounded-xl border ${swDisabled ? 'bg-white text-slate-800 hover:bg-slate-50 border-slate-200' : 'bg-blue-50 text-blue-800 hover:bg-blue-100 border-blue-200'}`}>
+                                    }} className={`text-[10px] font-black px-2 py-1 rounded-lg border w-full text-center ${swDisabled ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50' : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'}`}>
                                         {swDisabled ? t('admin_enable_cache') : t('admin_disable_cache')}
                                     </button>
                                     <button onClick={async () => {
@@ -3790,29 +3785,29 @@ while (guard < 5000) {
                                         try { localStorage.removeItem('flbp_sw_disabled'); } catch {}
                                         setSwDisabled(false);
                                         window.location.reload();
-                                    }} className="text-xs font-black px-3 py-1.5 rounded-xl bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 inline-flex items-center justify-center gap-1">
+                                    }} className="text-[10px] font-black px-2 py-1 rounded-lg bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 w-full text-center inline-flex items-center justify-center gap-1">
                                         <Trash2 className="w-3 h-3" /> {t('admin_clear_cache')}
                                     </button>
                                 </div>
-                            </div>
 
-                            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex flex-col gap-2">
-                                 <div className="text-xs font-black uppercase tracking-wide text-slate-500">{t('admin_mode')}</div>
-                                 {isAppModeLockedForPublicDeploy ? (
-                                      <div className="text-[11px] font-bold text-emerald-800 bg-emerald-50 rounded-xl p-2 border border-emerald-200 leading-tight">
-                                           {t('admin_public_build_locked')}: <br/><span className="font-black text-sm">{t('admin_official_mode')}</span>
-                                      </div>
-                                 ) : (
-                                      <button onClick={() => {
-                                           const next = (APP_MODE === 'tester') ? 'official' : 'tester';
-                                           const msg = next === 'tester' ? t('admin_switch_to_tester_confirm') : t('admin_switch_to_official_confirm');
-                                           if (!confirm(msg)) return;
-                                           setAppModeOverride(next);
-                                           window.location.reload();
-                                      }} className={`text-xs font-black px-3 py-2 rounded-xl border ${APP_MODE === 'tester' ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'}`}>
-                                          {APP_MODE === 'tester' ? t('admin_tester_mode') : t('admin_official_mode')}
-                                      </button>
-                                 )}
+                                <div className="bg-slate-50 rounded-xl p-2 border border-slate-100 flex flex-col gap-1.5">
+                                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">{t('admin_mode')}</span>
+                                    {isAppModeLockedForPublicDeploy ? (
+                                        <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 rounded-lg p-1.5 border border-emerald-200 text-center leading-tight">
+                                            {t('admin_official_mode')}
+                                        </div>
+                                    ) : (
+                                        <button onClick={() => {
+                                            const next = (APP_MODE === 'tester') ? 'official' : 'tester';
+                                            const msg = next === 'tester' ? t('admin_switch_to_tester_confirm') : t('admin_switch_to_official_confirm');
+                                            if (!confirm(msg)) return;
+                                            setAppModeOverride(next);
+                                            window.location.reload();
+                                        }} className={`text-[10px] font-black px-2 py-1 rounded-lg border w-full text-center ${APP_MODE === 'tester' ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'}`}>
+                                            {APP_MODE === 'tester' ? t('admin_tester_mode') : t('admin_official_mode')}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </details>
