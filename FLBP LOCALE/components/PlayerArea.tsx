@@ -22,6 +22,7 @@ import { formatBirthDateDisplay, normalizeBirthDateInput } from '../services/pla
 import type { PlayerSupabaseProfileRow, PlayerSupabaseSession, PlayerSupabaseSignUpResult } from '../services/supabaseRest';
 import {
   acknowledgePlayerAppCall,
+  clearSupabaseSession,
   consumePlayerSupabaseSessionFromUrl,
   ensureFreshPlayerSupabaseSession,
   getPlayerOAuthAuthorizeUrl,
@@ -31,6 +32,8 @@ import {
   playerSignInWithPassword,
   playerSignOutSupabase,
   playerSignUpWithPassword,
+  setSupabaseSession,
+  signOutSupabase,
   playerUpdatePassword,
   pullPlayerAppCalls,
   pullPlayerAppProfile,
@@ -83,6 +86,7 @@ const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hov
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-500`;
 const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v1';
+const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
 
 const schedulePlayerAreaTask = (task: () => void) => {
   if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
@@ -240,6 +244,26 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const liveRuntimeRequestRef = React.useRef(0);
   const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
 
+  const syncUnifiedAuthFromPlayerSession = React.useCallback((session: PlayerSupabaseSession | null) => {
+    setLiveSession(session);
+    try {
+      sessionStorage.removeItem(ADMIN_LEGACY_AUTH_LS_KEY);
+    } catch {
+      // ignore
+    }
+    if (!session?.accessToken || session.flowType === 'recovery') {
+      clearSupabaseSession();
+      return;
+    }
+    setSupabaseSession({
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken || null,
+      expiresAt: session.expiresAt || null,
+      email: session.email || null,
+      userId: session.userId || null,
+    });
+  }, []);
+
   const loginEntryNote = liveBackendEnabled
     ? 'Email e password sono gia attive sul backend live. Google, Facebook e Apple restano in attesa finche non attiviamo i provider social su Supabase.'
     : t('player_area_preview_note');
@@ -369,7 +393,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       const nextSession = forcedSession === undefined ? await ensureFreshPlayerSupabaseSession() : forcedSession;
       if (!nextSession?.accessToken) {
         applyIfCurrent(() => {
-          setLiveSession(null);
+          syncUnifiedAuthFromPlayerSession(null);
           setLiveProfileRow(null);
           setLiveCalls([]);
           setLiveRuntimeStatus('disabled');
@@ -377,7 +401,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
         return;
       }
 
-      applyIfCurrent(() => setLiveSession(nextSession));
+      applyIfCurrent(() => syncUnifiedAuthFromPlayerSession(nextSession));
       let backendPending = false;
       let pendingMessage = '';
       let nextProfile: PlayerSupabaseProfileRow | null = null;
@@ -445,7 +469,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
     try {
       const consumed = consumePlayerSupabaseSessionFromUrl();
       if (consumed?.accessToken) {
-        setLiveSession(consumed);
+        syncUnifiedAuthFromPlayerSession(consumed);
         const flowType = consumed.flowType === 'recovery' ? 'recovery' : 'session';
         setLiveAuthFlow(flowType);
         if (flowType === 'recovery') {
@@ -478,7 +502,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       return;
     }
     void refreshLiveRuntime();
-  }, [liveAuthFlow, liveBackendEnabled, liveRuntimeArmed, liveSession?.accessToken, refreshLiveRuntime, t]);
+  }, [liveAuthFlow, liveBackendEnabled, liveRuntimeArmed, liveSession?.accessToken, refreshLiveRuntime, syncUnifiedAuthFromPlayerSession, t]);
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !liveRuntimeArmed || liveCallRefreshNonce === 0) return;
@@ -728,7 +752,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
 
         setLiveAuthFlow('session');
         setLiveRuntimeArmed(true);
-        setLiveSession(session);
+        syncUnifiedAuthFromPlayerSession(session);
 
         if (registerIdentity) {
           const identity = buildPlayerCanonicalIdentity(
@@ -830,7 +854,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
       setRecoveryPasswordConfirm('');
       setLiveAuthFlow('session');
       setLiveRuntimeArmed(true);
-      setLiveSession(session);
+      syncUnifiedAuthFromPlayerSession(session);
       await refreshLiveRuntime(session);
       setFeedback({ tone: 'success', message: t('player_area_recovery_password_success') });
     } catch (error: any) {
@@ -933,21 +957,31 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees })
   const signOut = async () => {
     clearPlayerPresenceSnapshot();
     if (effectiveSession?.mode === 'live') {
+      const playerSignOutTask = playerSignOutSupabase().catch(() => {
+        // best effort only
+      });
+      const adminSignOutTask = signOutSupabase().catch(() => {
+        // best effort only
+      });
       liveRuntimeRequestRef.current += 1;
       setLiveRuntimeArmed(false);
-      setLiveSession(null);
+      syncUnifiedAuthFromPlayerSession(null);
       setLiveProfileRow(null);
       setLiveCalls([]);
       setLiveRuntimeStatus('disabled');
       setLiveRuntimeError(null);
       setLiveCallRefreshNonce((value) => value + 1);
-      void playerSignOutSupabase().catch(() => {
-        // best effort only
-      });
       setLiveAuthFlow('session');
+      await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
       return;
     }
     signOutPlayerPreviewSession();
+    try {
+      sessionStorage.removeItem(ADMIN_LEGACY_AUTH_LS_KEY);
+    } catch {
+      // ignore
+    }
+    clearSupabaseSession();
     setRefreshNonce((value) => value + 1);
   };
 

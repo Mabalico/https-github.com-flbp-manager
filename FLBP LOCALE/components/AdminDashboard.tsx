@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -502,7 +502,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         let alive = true;
 
         const syncSupabaseSessionMeta = async () => {
-            if (adminAuthMode !== 'legacy') {
+            const currentAdminAuthMode =
+                adminAuthMode === 'legacy' && safeSessionGet(ADMIN_LEGACY_AUTH_LS_KEY) !== '1'
+                    ? 'none'
+                    : adminAuthMode;
+
+            if (currentAdminAuthMode !== adminAuthMode) {
+                setAdminAuthMode(currentAdminAuthMode);
+            }
+
+            if (currentAdminAuthMode !== 'legacy') {
                 const playerSession = getPlayerSupabaseSession();
                 if (playerSession?.accessToken && playerSession.flowType !== 'recovery') {
                     setAdminSessionChecking(true);
@@ -524,7 +533,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             }
 
             if (!session?.accessToken) {
-                if (adminAuthMode === 'legacy') {
+                if (currentAdminAuthMode === 'legacy') {
                     setAdminSessionChecking(true);
                     const bootstrapped = await tryBootstrapLegacySupabaseSession();
                     if (!alive) return;
@@ -557,22 +566,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                         email: resolvedEmail,
                         userId: session.userId || null,
                     });
-                    applyAdminAuthState(resolvedEmail, adminAuthMode === 'legacy');
+                    applyAdminAuthState(resolvedEmail, currentAdminAuthMode === 'legacy');
                     return;
                 }
 
                 if (isFatalAdminAccessFailure(access.reason)) {
-                    if (adminAuthMode === 'player' || adminSessionMatchesPlayer(session)) {
+                    if (currentAdminAuthMode === 'player' || adminSessionMatchesPlayer(session)) {
                         clearSupabaseSession();
                     } else {
                         await signOutSupabase();
                     }
                     if (!alive) return;
-                    if (adminAuthMode === 'legacy') {
+                    if (currentAdminAuthMode === 'legacy') {
                         setAuthed(true);
                         setSupabaseEmail(getConfiguredAdminEmail());
                         setAdminAuthError('');
-                    } else if (adminAuthMode === 'player') {
+                    } else if (currentAdminAuthMode === 'player') {
                         setAuthed(false);
                         setSupabaseEmail(null);
                         setAdminAuthError('');
@@ -591,15 +600,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
         void syncSupabaseSessionMeta();
         const onFocus = () => { void syncSupabaseSessionMeta(); };
+        const onAuthStateChange = () => { void syncSupabaseSessionMeta(); };
         const onVisibilityChange = () => {
             if (document.visibilityState === 'visible') void syncSupabaseSessionMeta();
         };
         window.addEventListener('focus', onFocus);
+        window.addEventListener('storage', onAuthStateChange);
+        window.addEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, onAuthStateChange as EventListener);
         document.addEventListener('visibilitychange', onVisibilityChange);
         const id = window.setInterval(() => { void syncSupabaseSessionMeta(); }, 60000);
         return () => {
             alive = false;
             window.removeEventListener('focus', onFocus);
+            window.removeEventListener('storage', onAuthStateChange);
+            window.removeEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, onAuthStateChange as EventListener);
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
@@ -3206,12 +3220,10 @@ while (guard < 5000) {
     };
 
     const performAdminLogout = async (reload: boolean = true) => {
-        const shouldPreservePlayerSession = adminAuthMode === 'player' || adminSessionMatchesPlayer(getSupabaseSession());
-        if (shouldPreservePlayerSession) {
-            clearSupabaseSession();
-        } else {
-            await signOutSupabase();
-        }
+        await Promise.allSettled([
+            signOutSupabase(),
+            playerSignOutSupabase(),
+        ]);
         safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
         setAuthed(false);
         setAdminAuthMode('none');

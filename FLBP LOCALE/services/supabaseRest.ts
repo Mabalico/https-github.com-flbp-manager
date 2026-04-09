@@ -31,6 +31,7 @@ export const PLAYER_SUPABASE_EXPIRES_AT_LS_KEY = 'flbp_player_supabase_expires_a
 export const PLAYER_SUPABASE_USER_EMAIL_LS_KEY = 'flbp_player_supabase_user_email';
 export const PLAYER_SUPABASE_USER_ID_LS_KEY = 'flbp_player_supabase_user_id';
 export const PLAYER_SUPABASE_FLOW_TYPE_LS_KEY = 'flbp_player_supabase_flow_type';
+export const SUPABASE_AUTH_STATE_CHANGE_EVENT = 'flbp-supabase-auth-state-change';
 const LEGACY_ADMIN_BOOTSTRAP_PASSWORD = 'Giobotta@flbp';
 
 // Tracks the remote snapshot version that the user is currently "based on".
@@ -255,6 +256,16 @@ export interface SupabasePublicTournamentMatchStatRow {
     soffi: number;
 }
 
+export const emitSupabaseAuthStateChange = () => {
+    try {
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent(SUPABASE_AUTH_STATE_CHANGE_EVENT));
+        }
+    } catch {
+        // ignore
+    }
+};
+
 export const getSupabaseAccessToken = (): string | null => {
     try {
         const v = (localStorage.getItem(SUPABASE_ACCESS_TOKEN_LS_KEY) || '').trim();
@@ -303,6 +314,8 @@ export const setSupabaseSession = (s: SupabaseSession | null) => {
         else localStorage.removeItem(SUPABASE_USER_ID_LS_KEY);
     } catch {
         // ignore
+    } finally {
+        emitSupabaseAuthStateChange();
     }
 };
 
@@ -356,6 +369,8 @@ export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
         localStorage.setItem(PLAYER_SUPABASE_FLOW_TYPE_LS_KEY, s.flowType === 'recovery' ? 'recovery' : 'session');
     } catch {
         // ignore
+    } finally {
+        emitSupabaseAuthStateChange();
     }
 };
 
