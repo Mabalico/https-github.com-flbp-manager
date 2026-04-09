@@ -25,6 +25,7 @@ export class RemoteRepository implements AppStateRepository {
   private listeners = new Set<(state: AppState, meta?: RepositoryUpdateMeta) => void>();
   private lastRemoteUpdatedAt: string | null = null;
   private lastStateFingerprint = '';
+  private conflictedDraftFingerprint: string | null = null;
 
   private isAdminViewActive(): boolean {
     try {
@@ -142,6 +143,7 @@ export class RemoteRepository implements AppStateRepository {
   private rememberRemoteState(state: AppState, updatedAt?: string | null) {
     this.lastStateFingerprint = this.fingerprint(state);
     this.lastRemoteUpdatedAt = updatedAt || null;
+    this.conflictedDraftFingerprint = null;
 
     try {
       setRemoteBaseUpdatedAt(updatedAt || null);
@@ -151,6 +153,37 @@ export class RemoteRepository implements AppStateRepository {
       });
     } catch {
       // ignore
+    }
+  }
+
+  private clearConflictPauseIfStateChanged(nextFingerprint?: string | null) {
+    if (!this.conflictedDraftFingerprint) return;
+    if (!nextFingerprint || nextFingerprint !== this.conflictedDraftFingerprint) {
+      this.conflictedDraftFingerprint = null;
+    }
+  }
+
+  private async resolveEquivalentRemoteConflict(localState: AppState, localFingerprint: string): Promise<boolean> {
+    try {
+      const row = await pullWorkspaceState({
+        source: 'RemoteRepository.resolveEquivalentRemoteConflict',
+        kind: 'admin',
+      });
+      if (!row?.state) return false;
+
+      const remoteState = coerceAppState(row.state);
+      const remoteFingerprint = this.fingerprint(remoteState);
+      if (remoteFingerprint !== localFingerprint) return false;
+
+      this.pendingState = null;
+      clearRemoteDraftCache();
+      this.rememberRemoteState(remoteState, row.updated_at || null);
+      clearDbSyncCurrentIssue();
+      markDbSyncOk('snapshot');
+      markAdminSyncSynced(row.updated_at || null, this.source);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -183,6 +216,10 @@ export class RemoteRepository implements AppStateRepository {
       }
     }
     if (this.pendingState || hasRemoteDraftCache()) {
+      const pendingFingerprint = this.pendingState ? this.fingerprint(this.pendingState) : null;
+      if (pendingFingerprint && this.conflictedDraftFingerprint === pendingFingerprint) {
+        return;
+      }
       await this.flushNow();
       if (this.pendingState || hasRemoteDraftCache()) return;
     }
@@ -211,6 +248,7 @@ export class RemoteRepository implements AppStateRepository {
     if (!this.lastRemoteUpdatedAt && !this.hasMeaningfulState(state)) return;
 
     const fingerprint = this.fingerprint(state);
+    this.clearConflictPauseIfStateChanged(fingerprint);
     if (fingerprint === this.lastStateFingerprint && !this.pendingState) {
       clearRemoteDraftCache();
       markAdminSyncSynced(this.lastRemoteUpdatedAt, this.source);
@@ -284,7 +322,12 @@ export class RemoteRepository implements AppStateRepository {
     if (fingerprint === this.lastStateFingerprint) {
       this.pendingState = null;
       clearRemoteDraftCache();
+      this.conflictedDraftFingerprint = null;
       markAdminSyncSynced(this.lastRemoteUpdatedAt, this.source);
+      return;
+    }
+
+    if (this.conflictedDraftFingerprint === fingerprint) {
       return;
     }
 
@@ -299,19 +342,25 @@ export class RemoteRepository implements AppStateRepository {
       markDbSyncOk('snapshot');
       markAdminSyncSynced(row.updated_at || null, this.source);
     } catch (e: any) {
+      if (e?.code === 'FLBP_DB_CONFLICT') {
+        const equivalentRemote = await this.resolveEquivalentRemoteConflict(state, fingerprint);
+        if (equivalentRemote) return;
+      }
       this.pendingState = state;
       writeRemoteDraftCache(state);
 
       if (e?.code === 'FLBP_DB_CONFLICT') {
+        this.conflictedDraftFingerprint = fingerprint;
         markDbSyncConflict(e?.message || 'Conflitto DB', {
           remoteUpdatedAt: e?.remoteUpdatedAt || null,
           remoteBaseUpdatedAt: e?.remoteBaseUpdatedAt || null
         });
         markAdminSyncConflictState(
-          'Errore di sincronizzazione: il DB è stato aggiornato da un altro admin. Le modifiche locali non sono state perse.',
+          'Conflitto di sincronizzazione: un altro admin ha già aggiornato il DB. Ho messo in pausa i retry automatici su questo device finché non fai recovery o una nuova modifica reale.',
           this.source
         );
       } else {
+        this.conflictedDraftFingerprint = null;
         markDbSyncError(e?.message || 'Sync snapshot fallita (offline/non autorizzato).');
         markAdminSyncErrorState(
           'Errore di sincronizzazione. Mantengo le modifiche locali e riprovo automaticamente alla prossima riconnessione.',

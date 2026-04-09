@@ -598,14 +598,29 @@ const tryBootstrapLegacyAdminSupabaseSession = async (): Promise<SupabaseSession
     }
 };
 
+let adminWriteSessionBootstrapPromise: Promise<SupabaseSession | null> | null = null;
+
+const bootstrapSupabaseWriteSession = async (): Promise<SupabaseSession | null> => {
+    if (adminWriteSessionBootstrapPromise) return adminWriteSessionBootstrapPromise;
+    adminWriteSessionBootstrapPromise = (async () => {
+        let session = await ensureFreshSupabaseSession();
+        if (!session?.accessToken) {
+            session = await tryBootstrapAdminSessionFromPlayer();
+        }
+        if (!session?.accessToken) {
+            session = await tryBootstrapLegacyAdminSupabaseSession();
+        }
+        return session;
+    })();
+    try {
+        return await adminWriteSessionBootstrapPromise;
+    } finally {
+        adminWriteSessionBootstrapPromise = null;
+    }
+};
+
 const requireSupabaseWriteSession = async (): Promise<SupabaseSession> => {
-    let session = await ensureFreshSupabaseSession();
-    if (!session?.accessToken) {
-        session = await tryBootstrapAdminSessionFromPlayer();
-    }
-    if (!session?.accessToken) {
-        session = await tryBootstrapLegacyAdminSupabaseSession();
-    }
+    const session = await bootstrapSupabaseWriteSession();
     if (!session?.accessToken) {
         throw new Error('Sessione admin assente o scaduta. Esegui il login Supabase in Admin → Dati / Persistenza prima di scrivere sul database.');
     }

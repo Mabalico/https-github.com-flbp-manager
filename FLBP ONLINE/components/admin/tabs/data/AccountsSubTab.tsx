@@ -109,16 +109,21 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
     const loadRemoteRows = async () => {
       setRemoteStatus('loading');
       try {
-        const [liveRows, liveAdmins] = await Promise.all([
-          pullAdminPlayerAccounts(),
-          pullAdminUserRoles(),
-        ]);
+        const liveRows = await pullAdminPlayerAccounts();
         if (cancelled) return;
-        const liveAdminIds = new Set(
-          liveAdmins
-            .map((row) => String(row.user_id || '').trim())
-            .filter(Boolean)
-        );
+        let liveAdminIds = new Set<string>();
+        let rolesMessage = '';
+        try {
+          const liveAdmins = await pullAdminUserRoles();
+          if (cancelled) return;
+          liveAdminIds = new Set(
+            liveAdmins
+              .map((row) => String(row.user_id || '').trim())
+              .filter(Boolean)
+          );
+        } catch (rolesError: any) {
+          rolesMessage = String(rolesError?.message || rolesError || '').trim();
+        }
         setRemoteRows(
           liveRows.map((row) =>
             buildPlayerAccountAdminRowFromLive(state, {
@@ -128,7 +133,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, t }) => {
           )
         );
         setRemoteStatus('ready');
-        setRemoteError(null);
+        setRemoteError(rolesMessage || null);
       } catch (error: any) {
         if (cancelled) return;
         const message = String(error?.message || error || '').trim();
