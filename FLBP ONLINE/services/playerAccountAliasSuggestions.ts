@@ -59,6 +59,19 @@ export interface PlayerAccountAliasSuggestion {
   candidateAliasCount: number;
 }
 
+export interface PlayerRegistrationAliasSuggestion {
+  id: string;
+  candidatePlayerId: string;
+  candidateDisplayName: string;
+  candidateBirthDate?: string;
+  candidateBirthDateLabel: string;
+  confidence: PlayerAccountAliasConfidence;
+  reasons: PlayerAccountAliasReason[];
+  candidateTotalTitles: number;
+  candidateTotalCanestri: number;
+  candidateTotalSoffi: number;
+}
+
 interface MergeResult {
   state: AppState;
   nextCanonicalPlayerId: string;
@@ -180,6 +193,58 @@ const collectSuggestionReasons = (
 };
 
 const dedupeReasons = (reasons: PlayerAccountAliasReason[]) => Array.from(new Set(reasons));
+
+export const buildPlayerRegistrationAliasSuggestions = (
+  state: AppState,
+  input: {
+    firstName: string;
+    lastName: string;
+    birthDate?: string;
+  }
+): PlayerRegistrationAliasSuggestion[] => {
+  const firstName = String(input.firstName || '').trim();
+  const lastName = String(input.lastName || '').trim();
+  if (!firstName || !lastName) return [];
+  const sourceName = `${lastName} ${firstName}`.trim();
+  const sourceBirthDate = normalizeBirthDateInput(input.birthDate || undefined);
+  if (!sourceName) return [];
+
+  return buildPlayerProfileSnapshots(state)
+    .filter((profile) =>
+      profile.totalTitles > 0
+      || profile.totalCanestri > 0
+      || profile.totalSoffi > 0
+      || profile.hasArchivedData
+      || profile.hasManualData
+    )
+    .map((candidate) => {
+      const match = collectSuggestionReasons(sourceName, sourceBirthDate, candidate);
+      if (!match) return null;
+      const candidateBirthDate = extractBirthDateFromPlayerId(candidate.playerId);
+      return {
+        id: `${candidate.playerId}::registration`,
+        candidatePlayerId: candidate.playerId,
+        candidateDisplayName: candidate.displayName,
+        candidateBirthDate,
+        candidateBirthDateLabel: getBirthDateLabel(candidateBirthDate),
+        confidence: match.confidence,
+        reasons: dedupeReasons(match.reasons),
+        candidateTotalTitles: candidate.totalTitles,
+        candidateTotalCanestri: candidate.totalCanestri,
+        candidateTotalSoffi: candidate.totalSoffi,
+      } satisfies PlayerRegistrationAliasSuggestion;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const confidenceDiff =
+        (left!.confidence === 'high' ? 1 : 0) - (right!.confidence === 'high' ? 1 : 0);
+      if (confidenceDiff !== 0) return confidenceDiff * -1;
+      const leftScore = left!.candidateTotalTitles * 1000 + left!.candidateTotalCanestri * 10 + left!.candidateTotalSoffi;
+      const rightScore = right!.candidateTotalTitles * 1000 + right!.candidateTotalCanestri * 10 + right!.candidateTotalSoffi;
+      if (rightScore !== leftScore) return rightScore - leftScore;
+      return left!.candidateDisplayName.localeCompare(right!.candidateDisplayName, 'it', { sensitivity: 'base' });
+    }) as PlayerRegistrationAliasSuggestion[];
+};
 
 export const buildPlayerAccountAliasSuggestions = (
   state: AppState,

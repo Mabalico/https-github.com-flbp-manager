@@ -42,6 +42,7 @@ import {
   pullPlayerAppProfile,
   pushPlayerAppProfile,
   registerPlayerAppDevice,
+  submitPlayerAccountMergeRequest,
 } from '../services/supabaseRest';
 import {
   acknowledgePlayerPreviewCall,
@@ -73,6 +74,11 @@ import {
   type NativePushRegistrationSnapshot,
 } from '../services/nativePushBridge';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
+import {
+  buildPlayerRegistrationAliasSuggestions,
+  type PlayerAccountAliasReason,
+  type PlayerRegistrationAliasSuggestion,
+} from '../services/playerAccountAliasSuggestions';
 
 interface PlayerAreaProps {
   state: AppState;
@@ -271,6 +277,19 @@ const MetricCard: React.FC<{ label: string; value: React.ReactNode; hint?: React
   </div>
 );
 
+const registrationAliasReasonLabel = (reason: PlayerAccountAliasReason) => {
+  switch (reason) {
+    case 'same_birthdate':
+      return 'Stessa data di nascita';
+    case 'exact_name':
+      return 'Nome identico';
+    case 'close_name':
+      return 'Nome molto simile';
+    default:
+      return 'Storico già presente';
+  }
+};
+
 const isPlayerBackendPendingError = (message: string) =>
   /player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_call_team|relation .*player_app_|function .*flbp_player_/i.test(message);
 
@@ -381,6 +400,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [lastName, setLastName] = React.useState('');
   const [birthDate, setBirthDate] = React.useState('');
   const [feedback, setFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [registerAliasModalOpen, setRegisterAliasModalOpen] = React.useState(false);
+  const [registerAliasSelectionId, setRegisterAliasSelectionId] = React.useState('');
+  const [registerAliasComment, setRegisterAliasComment] = React.useState('');
+  const [registerAliasSubmitting, setRegisterAliasSubmitting] = React.useState(false);
   const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(initialStoredSession);
   const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
@@ -431,6 +454,37 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const socialPendingNote = liveBackendEnabled
     ? 'Accesso email live disponibile gia ora. I provider social verranno attivati in un secondo passaggio.'
     : t('player_area_social_pending');
+
+  const registrationAliasSuggestions = React.useMemo(
+    () =>
+      authMode === 'register'
+        ? buildPlayerRegistrationAliasSuggestions(state, {
+            firstName,
+            lastName,
+            birthDate,
+          }).slice(0, 4)
+        : [],
+    [authMode, birthDate, firstName, lastName, state]
+  );
+
+  const selectedRegistrationAlias = React.useMemo(
+    () => registrationAliasSuggestions.find((row) => row.id === registerAliasSelectionId) || registrationAliasSuggestions[0] || null,
+    [registerAliasSelectionId, registrationAliasSuggestions]
+  );
+
+  React.useEffect(() => {
+    if (!registerAliasModalOpen) return;
+    if (!registrationAliasSuggestions.length) {
+      setRegisterAliasModalOpen(false);
+      setRegisterAliasSelectionId('');
+      setRegisterAliasComment('');
+      setRegisterAliasSubmitting(false);
+      return;
+    }
+    if (!registrationAliasSuggestions.some((row) => row.id === registerAliasSelectionId)) {
+      setRegisterAliasSelectionId(registrationAliasSuggestions[0]?.id || '');
+    }
+  }, [registerAliasModalOpen, registerAliasSelectionId, registrationAliasSuggestions]);
 
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
@@ -888,10 +942,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     }
   };
 
-  const submitAuth = async () => {
+  const closeRegisterAliasModal = () => {
+    setRegisterAliasModalOpen(false);
+    setRegisterAliasSelectionId('');
+    setRegisterAliasComment('');
+    setRegisterAliasSubmitting(false);
+  };
+
+  const completeAuth = async (options?: {
+    skipAliasPrompt?: boolean;
+    aliasSuggestion?: PlayerRegistrationAliasSuggestion | null;
+    aliasComment?: string;
+  }) => {
+    const stopAliasSubmitting = () => {
+      if (options?.skipAliasPrompt) {
+        setRegisterAliasSubmitting(false);
+      }
+    };
     const safeEmail = email.trim();
     const safePassword = password.trim();
     if (!safeEmail || !safePassword) {
+      stopAliasSubmitting();
       setFeedback({ tone: 'error', message: 'Inserisci email e password prima di continuare.' });
       return;
     }
@@ -903,16 +974,41 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         }
       : null;
     if (registerIdentity && (!registerIdentity.firstName || !registerIdentity.lastName || !registerIdentity.birthDate)) {
+      stopAliasSubmitting();
       setFeedback({ tone: 'error', message: 'Per registrarti servono nome, cognome e data di nascita.' });
       return;
     }
     const normalizedRegisterBirthDate = registerIdentity ? normalizeBirthDateInput(registerIdentity.birthDate) : undefined;
     if (registerIdentity && !normalizedRegisterBirthDate) {
+      stopAliasSubmitting();
       setFeedback({ tone: 'error', message: PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE });
       return;
     }
 
+    if (
+      liveBackendEnabled
+      && authMode === 'register'
+      && !options?.skipAliasPrompt
+      && registrationAliasSuggestions.length
+    ) {
+      stopAliasSubmitting();
+      setRegisterAliasSelectionId((current) => current && registrationAliasSuggestions.some((row) => row.id === current)
+        ? current
+        : registrationAliasSuggestions[0]?.id || '');
+      setRegisterAliasModalOpen(true);
+      return;
+    }
+
+    const registrationIdentity = registerIdentity
+      ? buildPlayerCanonicalIdentity(
+          registerIdentity.firstName,
+          registerIdentity.lastName,
+          normalizedRegisterBirthDate || registerIdentity.birthDate
+        )
+      : null;
+
     try {
+      let finalFeedback: { tone: 'success' | 'error'; message: string } | null = null;
       if (liveBackendEnabled) {
         let session: PlayerSupabaseSession | null = null;
         let signUpResult: PlayerSupabaseSignUpResult | null = null;
@@ -923,13 +1019,35 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             birth_date: normalizedRegisterBirthDate || null,
           });
           if (signUpResult.status === 'confirm_email') {
+            let mergeRequestMessage = '';
+            if (options?.aliasSuggestion && registerIdentity && registrationIdentity) {
+              try {
+                await submitPlayerAccountMergeRequest({
+                  requesterUserId: signUpResult.userId || null,
+                  requesterEmail: signUpResult.email || safeEmail,
+                  requesterFirstName: registerIdentity.firstName,
+                  requesterLastName: registerIdentity.lastName,
+                  requesterBirthDate: registrationIdentity.birthDate,
+                  requesterCanonicalPlayerId: registrationIdentity.canonicalPlayerId,
+                  requesterCanonicalPlayerName: registrationIdentity.canonicalPlayerName,
+                  candidatePlayerId: options.aliasSuggestion.candidatePlayerId,
+                  candidatePlayerName: options.aliasSuggestion.candidateDisplayName,
+                  candidateBirthDate: options.aliasSuggestion.candidateBirthDate || null,
+                  comment: options.aliasComment || null,
+                });
+                mergeRequestMessage = ' La tua richiesta di merge è stata inviata agli admin.';
+              } catch {
+                mergeRequestMessage = ' L’account è stato creato, ma non siamo riusciti a inviare subito la richiesta di merge.';
+              }
+            }
             setPassword('');
             setFeedback({
               tone: 'success',
-              message: `Account creato. Controlla la mail ${signUpResult.email}: se Supabase richiede conferma, dovrai aprire il link prima del primo accesso.`,
+              message: `Account creato. Controlla la mail ${signUpResult.email}: se Supabase richiede conferma, dovrai aprire il link prima del primo accesso.${mergeRequestMessage}`,
             });
             setLiveRuntimeStatus('disabled');
             setLiveRuntimeError(null);
+            closeRegisterAliasModal();
             return;
           }
           session = signUpResult.session;
@@ -941,19 +1059,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         setLiveRuntimeArmed(true);
         syncUnifiedAuthFromPlayerSession(session);
 
-        if (registerIdentity) {
-          const identity = buildPlayerCanonicalIdentity(
-            registerIdentity.firstName,
-            registerIdentity.lastName,
-            normalizedRegisterBirthDate || registerIdentity.birthDate
-          );
+        if (registerIdentity && registrationIdentity) {
           try {
             const row = await pushPlayerAppProfile({
-              firstName: identity.firstName,
-              lastName: identity.lastName,
-              birthDate: identity.birthDate,
-              canonicalPlayerId: identity.canonicalPlayerId,
-              canonicalPlayerName: identity.canonicalPlayerName,
+              firstName: registrationIdentity.firstName,
+              lastName: registrationIdentity.lastName,
+              birthDate: registrationIdentity.birthDate,
+              canonicalPlayerId: registrationIdentity.canonicalPlayerId,
+              canonicalPlayerName: registrationIdentity.canonicalPlayerName,
             });
             setLiveProfileRow(row);
           } catch (error: any) {
@@ -964,6 +1077,34 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             } else {
               throw error;
             }
+          }
+        }
+
+        if (options?.aliasSuggestion && registerIdentity && registrationIdentity) {
+          try {
+            await submitPlayerAccountMergeRequest({
+              accessToken: session?.accessToken || null,
+              requesterUserId: session?.userId || signUpResult?.userId || null,
+              requesterEmail: session?.email || safeEmail,
+              requesterFirstName: registerIdentity.firstName,
+              requesterLastName: registerIdentity.lastName,
+              requesterBirthDate: registrationIdentity.birthDate,
+              requesterCanonicalPlayerId: registrationIdentity.canonicalPlayerId,
+              requesterCanonicalPlayerName: registrationIdentity.canonicalPlayerName,
+              candidatePlayerId: options.aliasSuggestion.candidatePlayerId,
+              candidatePlayerName: options.aliasSuggestion.candidateDisplayName,
+              candidateBirthDate: options.aliasSuggestion.candidateBirthDate || null,
+              comment: options.aliasComment || null,
+            });
+            finalFeedback = {
+              tone: 'success',
+              message: 'Registrazione completata. La richiesta di merge è stata inviata agli admin.',
+            };
+          } catch {
+            finalFeedback = {
+              tone: 'success',
+              message: 'Registrazione completata, ma la richiesta di merge non è partita subito. Potrai segnalarla nuovamente agli admin dall’area account.',
+            };
           }
         }
 
@@ -984,10 +1125,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
       setPassword('');
       if (liveBackendEnabled) {
-        setFeedback(null);
+        setFeedback(finalFeedback);
       }
       setRefreshNonce((value) => value + 1);
       setLiveCallRefreshNonce((value) => value + 1);
+      closeRegisterAliasModal();
     } catch (error: any) {
       setFeedback({
         tone: 'error',
@@ -996,7 +1138,33 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           'Non siamo riusciti a completare la registrazione o l’accesso. Controlla i dati e riprova.'
         ),
       });
+    } finally {
+      if (options?.skipAliasPrompt) {
+        setRegisterAliasSubmitting(false);
+      }
     }
+  };
+
+  const submitAuth = async () => {
+    await completeAuth();
+  };
+
+  const continueRegisterWithoutAliasRequest = () => {
+    setRegisterAliasSubmitting(true);
+    void completeAuth({ skipAliasPrompt: true });
+  };
+
+  const continueRegisterWithAliasRequest = () => {
+    if (!selectedRegistrationAlias) {
+      setFeedback({ tone: 'error', message: 'Seleziona prima il profilo da segnalare agli admin.' });
+      return;
+    }
+    setRegisterAliasSubmitting(true);
+    void completeAuth({
+      skipAliasPrompt: true,
+      aliasSuggestion: selectedRegistrationAlias,
+      aliasComment: registerAliasComment,
+    });
   };
 
   const requestPasswordReset = async () => {
@@ -1307,10 +1475,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                         </div>
                       ) : null}
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => setAuthMode('login')} className={authMode === 'login' ? btnPrimary : btnSecondary}>
+                        <button type="button" onClick={() => { closeRegisterAliasModal(); setAuthMode('login'); }} className={authMode === 'login' ? btnPrimary : btnSecondary}>
                           <LogIn className="h-4 w-4" /> {t('player_area_sign_in')}
                         </button>
-                        <button type="button" onClick={() => setAuthMode('register')} className={authMode === 'register' ? btnPrimary : btnSecondary}>
+                        <button type="button" onClick={() => { setFeedback(null); setAuthMode('register'); }} className={authMode === 'register' ? btnPrimary : btnSecondary}>
                           <UserPlus className="h-4 w-4" /> {t('player_area_register')}
                         </button>
                       </div>
@@ -1400,6 +1568,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                               />
                               <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
                             </div>
+                            {registrationAliasSuggestions.length ? (
+                              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
+                                Abbiamo trovato {registrationAliasSuggestions.length} profilo{registrationAliasSuggestions.length === 1 ? '' : 'i'} già presente{registrationAliasSuggestions.length === 1 ? '' : 'i'} nelle classifiche con dati molto simili. Continuando ti chiederemo se vuoi segnalarlo agli admin per un possibile merge.
+                              </div>
+                            ) : null}
                           </>
                         ) : null}
                       </div>
@@ -1413,6 +1586,102 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                         <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
                       </button>
                     </form>
+                    {registerAliasModalOpen && authMode === 'register' ? (
+                      <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+                        <div className="w-full max-w-2xl rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/15 md:p-6">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="text-xl font-black tracking-tight text-slate-950">Possibile account alias rilevato</div>
+                              <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                                Il nome che stai registrando assomiglia a un giocatore già presente nelle classifiche. Se sei tu, puoi inviare subito una richiesta di merge agli admin con un commento esplicativo.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={closeRegisterAliasModal}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+                              disabled={registerAliasSubmitting}
+                            >
+                              Chiudi
+                            </button>
+                          </div>
+
+                          <div className="mt-5 space-y-3">
+                            {registrationAliasSuggestions.map((suggestion) => (
+                              <button
+                                key={suggestion.id}
+                                type="button"
+                                onClick={() => setRegisterAliasSelectionId(suggestion.id)}
+                                className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
+                                  selectedRegistrationAlias?.id === suggestion.id
+                                    ? 'border-rose-300 bg-rose-50 shadow-sm shadow-rose-100'
+                                    : 'border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-base font-black text-slate-950">{suggestion.candidateDisplayName}</div>
+                                    <div className="mt-1 text-xs font-bold text-slate-500">
+                                      {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : 'Data di nascita non disponibile'}
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                                        suggestion.confidence === 'high'
+                                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                          : 'border-slate-200 bg-white text-slate-700'
+                                      }`}>
+                                        {suggestion.confidence === 'high' ? 'Alta compatibilità' : 'Compatibilità media'}
+                                      </div>
+                                      {suggestion.reasons.map((reason) => (
+                                        <div key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                          {registrationAliasReasonLabel(reason)}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className="grid gap-1 text-right text-[11px] font-black text-slate-600">
+                                    <div>Titoli: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                                    <div>Canestri: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                                    <div>Soffi: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="mt-5">
+                            <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">Commento per gli admin</div>
+                            <textarea
+                              value={registerAliasComment}
+                              onChange={(event) => setRegisterAliasComment(event.target.value)}
+                              rows={4}
+                              className={`${inputClass} min-h-[112px] resize-y`}
+                              placeholder="Spiega perché pensi che questo account vada unito: vecchia email, login social diverso, cambio cognome, chiarimenti utili..."
+                              disabled={registerAliasSubmitting}
+                            />
+                          </div>
+
+                          <div className="mt-5 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={continueRegisterWithAliasRequest}
+                              disabled={registerAliasSubmitting || !selectedRegistrationAlias}
+                              className={btnPrimary}
+                            >
+                              <BadgeCheck className="h-4 w-4" /> Invia richiesta e continua
+                            </button>
+                            <button
+                              type="button"
+                              onClick={continueRegisterWithoutAliasRequest}
+                              disabled={registerAliasSubmitting}
+                              className={btnSecondary}
+                            >
+                              <ChevronRight className="h-4 w-4" /> Continua senza segnalare
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                 </div>
               </div>
             ) : liveAuthFlow === 'recovery' ? (

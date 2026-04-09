@@ -25,10 +25,13 @@ import {
   deleteAdminPlayerAccount,
   grantAdminPlayerAccount,
   playerRequestPasswordReset,
+  pullAdminPlayerAccountMergeRequests,
   pullAdminPlayerAccounts,
   pullAdminUserRoles,
   pushAdminPlayerAppProfile,
   revokeAdminPlayerAccount,
+  setAdminPlayerAccountMergeRequestStatus,
+  type PlayerAccountMergeRequestRow,
 } from '../../../../services/supabaseRest';
 
 interface AccountsSubTabProps {
@@ -121,9 +124,21 @@ const accountMergeReasonLabel = (reason: PlayerAccountMergeReason) => {
   }
 };
 
+const mergeRequestStatusLabel = (status: PlayerAccountMergeRequestRow['status']) => {
+  switch (status) {
+    case 'resolved':
+      return 'Gestita';
+    case 'ignored':
+      return 'Ignorata';
+    default:
+      return 'In attesa';
+  }
+};
+
 export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState, t }) => {
   const [refreshNonce, setRefreshNonce] = React.useState(0);
   const [remoteRows, setRemoteRows] = React.useState<ReturnType<typeof listPlayerPreviewAccountsAdminRows>>([]);
+  const [remoteMergeRequests, setRemoteMergeRequests] = React.useState<PlayerAccountMergeRequestRow[]>([]);
   const [remoteStatus, setRemoteStatus] = React.useState<'idle' | 'loading' | 'ready' | 'backend_pending' | 'auth_expired' | 'unavailable'>('idle');
   const [remoteError, setRemoteError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<AccountFilter>('all');
@@ -154,6 +169,8 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         if (cancelled) return;
         let liveAdminIds = new Set<string>();
         let rolesMessage = '';
+        let mergeRequests: PlayerAccountMergeRequestRow[] = [];
+        let mergeRequestsMessage = '';
         try {
           const liveAdmins = await pullAdminUserRoles();
           if (cancelled) return;
@@ -165,6 +182,12 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         } catch (rolesError: any) {
           rolesMessage = String(rolesError?.message || rolesError || '').trim();
         }
+        try {
+          mergeRequests = await pullAdminPlayerAccountMergeRequests('pending');
+          if (cancelled) return;
+        } catch (mergeRequestError: any) {
+          mergeRequestsMessage = String(mergeRequestError?.message || mergeRequestError || '').trim();
+        }
         setRemoteRows(
           liveRows.map((row) =>
             buildPlayerAccountAdminRowFromLive(state, {
@@ -173,17 +196,19 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
             })
           )
         );
+        setRemoteMergeRequests(mergeRequests);
         setRemoteStatus('ready');
-        setRemoteError(rolesMessage || null);
+        setRemoteError([rolesMessage, mergeRequestsMessage].filter(Boolean).join(' · ') || null);
       } catch (error: any) {
         if (cancelled) return;
         const message = String(error?.message || error || '').trim();
         setRemoteRows([]);
+        setRemoteMergeRequests([]);
         if (/invalid jwt|jwt expired|sessione admin assente o scaduta|sessione admin/i.test(message)) {
           setRemoteStatus('auth_expired');
           setRemoteError(null);
         } else if (
-          /flbp_admin_list_player_accounts|player_app_profiles|player_app_devices|player_app_calls|function .*flbp_admin_list_player_accounts|relation .*player_app_/i.test(message)
+          /flbp_admin_list_player_accounts|player_app_profiles|player_app_devices|player_app_calls|player_account_merge_requests|function .*flbp_admin_list_player_accounts|relation .*player_app_|relation .*player_account_merge_requests/i.test(message)
         ) {
           setRemoteStatus('backend_pending');
           setRemoteError(message || null);
@@ -281,6 +306,70 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     () => (selectedRow ? (accountMergeSuggestionMap.get(selectedRow.id) || []).slice(0, 6) : []),
     [selectedRow, accountMergeSuggestionMap]
   );
+
+  const relatedAccountRows = React.useMemo(() => {
+    if (!selectedRow) return [];
+    const candidateIds = new Set(accountMergeSuggestions.map((row) => row.candidateAccountId));
+    const sameCanonicalRows = rows.filter((row) =>
+      row.id !== selectedRow.id
+      && !!selectedRow.canonicalPlayerId
+      && !!row.canonicalPlayerId
+      && row.canonicalPlayerId === selectedRow.canonicalPlayerId
+    );
+    const relatedBySuggestion = rows.filter((row) => row.id !== selectedRow.id && candidateIds.has(row.id));
+    const deduped = new Map<string, (typeof rows)[number]>();
+    [...sameCanonicalRows, ...relatedBySuggestion].forEach((row) => {
+      deduped.set(row.id, row);
+    });
+    return Array.from(deduped.values()).sort((left, right) =>
+      left.email.localeCompare(right.email, 'it', { sensitivity: 'base' })
+    );
+  }, [accountMergeSuggestions, rows, selectedRow]);
+
+  const emailCards = React.useMemo(() => {
+    if (!selectedRow) return [];
+    const deduped = new Map<string, { key: string; email: string; providers: string; editable: boolean }>();
+    const pushCard = (row: (typeof rows)[number], editable: boolean) => {
+      const emailValue = String(row.email || '').trim();
+      if (!emailValue) return;
+      const key = `${row.id}:${emailValue}`;
+      if (deduped.has(key)) return;
+      deduped.set(key, {
+        key,
+        email: emailValue,
+        providers: row.providers.join(' • '),
+        editable,
+      });
+    };
+    pushCard(selectedRow, selectedRow.mode !== 'live');
+    relatedAccountRows.forEach((row) => pushCard(row, false));
+    return Array.from(deduped.values());
+  }, [relatedAccountRows, selectedRow]);
+
+  const selectedMergeRequests = React.useMemo(() => {
+    if (!selectedRow) return [];
+    const relatedIds = new Set([selectedRow.id, ...relatedAccountRows.map((row) => row.id)]);
+    const relatedEmails = new Set(
+      [selectedRow.email, ...relatedAccountRows.map((row) => row.email)]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const relatedCanonicalIds = new Set(
+      [selectedRow.canonicalPlayerId, ...relatedAccountRows.map((row) => row.canonicalPlayerId)]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    );
+    return remoteMergeRequests.filter((request) => {
+      const requesterUserId = String(request.requester_user_id || '').trim();
+      const requesterEmail = String(request.requester_email || '').trim().toLowerCase();
+      const requesterCanonical = String(request.requester_canonical_player_id || '').trim();
+      const candidatePlayerId = String(request.candidate_player_id || '').trim();
+      return relatedIds.has(requesterUserId)
+        || relatedEmails.has(requesterEmail)
+        || relatedCanonicalIds.has(requesterCanonical)
+        || relatedCanonicalIds.has(candidatePlayerId);
+    });
+  }, [relatedAccountRows, remoteMergeRequests, selectedRow]);
 
   const saveSelected = async () => {
     if (!selectedRow) return;
@@ -461,11 +550,59 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         await applyIdentityToAccount(candidateRow, master.canonicalPlayerName, master.birthDate);
       }
 
+      const masterPayload = buildPlayerAccountAliasTargetProfilePayload(master.canonicalPlayerName, master.birthDate);
+      const relatedIds = new Set([selectedRow.id, candidateRow.id]);
+      const relatedEmails = new Set(
+        [selectedRow.email, candidateRow.email]
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const relevantRequestIds = remoteMergeRequests
+        .filter((request) => {
+          const requesterUserId = String(request.requester_user_id || '').trim();
+          const requesterEmail = String(request.requester_email || '').trim().toLowerCase();
+          const candidatePlayerId = String(request.candidate_player_id || '').trim();
+          const requesterCanonicalId = String(request.requester_canonical_player_id || '').trim();
+          return relatedIds.has(requesterUserId)
+            || relatedEmails.has(requesterEmail)
+            || candidatePlayerId === masterPayload.canonicalPlayerId
+            || requesterCanonicalId === masterPayload.canonicalPlayerId;
+        })
+        .map((request) => request.id);
+
+      if (relevantRequestIds.length) {
+        await Promise.allSettled(
+          relevantRequestIds.map((requestId) =>
+            setAdminPlayerAccountMergeRequestStatus({ requestId, status: 'resolved' })
+          )
+        );
+      }
+
       setFeedback({
         tone: 'success',
         message: selectedAligned && candidateAligned
           ? 'I due account risultano già integrati sullo stesso profilo giocatore.'
-          : 'Account integrati correttamente sullo stesso profilo giocatore.',
+          : relevantRequestIds.length
+            ? 'Account integrati correttamente sullo stesso profilo giocatore. Ho segnato come gestite anche le richieste di merge collegate.'
+            : 'Account integrati correttamente sullo stesso profilo giocatore.',
+      });
+      setRefreshNonce((value) => value + 1);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_preview_error')) });
+    }
+  };
+
+  const updateMergeRequestStatus = async (
+    requestId: string,
+    status: 'resolved' | 'ignored'
+  ) => {
+    try {
+      await setAdminPlayerAccountMergeRequestStatus({ requestId, status });
+      setFeedback({
+        tone: 'success',
+        message: status === 'resolved'
+          ? 'Richiesta di merge segnata come gestita.'
+          : 'Richiesta di merge ignorata.',
       });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
@@ -690,16 +827,21 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
           {selectedRow ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</div>
-                  <input
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    className={inputClass}
-                    disabled={selectedRow.mode === 'live'}
-                    title={selectedRow.mode === 'live' ? t('data_accounts_live_email_readonly') : undefined}
-                  />
-                </div>
+                {emailCards.map((emailCard, index) => (
+                  <div key={emailCard.key}>
+                    <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">
+                      {index === 0 ? t('player_area_email') : 'Email collegata'}
+                    </div>
+                    <input
+                      value={index === 0 ? email : emailCard.email}
+                      onChange={index === 0 ? (event) => setEmail(event.target.value) : undefined}
+                      className={inputClass}
+                      disabled={!emailCard.editable}
+                      title={!emailCard.editable ? t('data_accounts_live_email_readonly') : undefined}
+                    />
+                    <div className="mt-1 text-[11px] font-bold text-slate-500">{emailCard.providers || 'Account collegato'}</div>
+                  </div>
+                ))}
                 <div>
                   <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('data_accounts_provider_label')}</div>
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
@@ -744,6 +886,90 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                   <div className="mt-1">{t('birth_date')}: <span className="font-black text-slate-900">{formatBirthDateDisplay(selectedRow.birthDate || '') || 'ND'}</span></div>
                   <div className="mt-1">{t('data_accounts_admin_role_label')}: <span className={`font-black ${selectedRow.isAdmin ? 'text-violet-700' : 'text-slate-900'}`}>{selectedRow.isAdmin ? t('data_accounts_admin_role_yes') : t('data_accounts_admin_role_no')}</span></div>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-rose-200 bg-rose-50/70 px-4 py-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-sm font-black text-rose-950">Richieste merge inviate</div>
+                    <div className="mt-1 text-xs font-bold leading-5 text-rose-900/80">
+                      Qui trovi le segnalazioni ricevute dal giocatore o dagli account collegati a questo profilo. Il commento dell’utente compare qui sotto.
+                    </div>
+                  </div>
+                  <div className="rounded-full border border-rose-200 bg-white px-3 py-1 text-[11px] font-black text-rose-800">
+                    {selectedMergeRequests.length}
+                  </div>
+                </div>
+
+                {selectedMergeRequests.length ? (
+                  <div className="mt-4 space-y-3">
+                    {selectedMergeRequests.map((request) => (
+                      <div key={request.id} className="rounded-2xl border border-rose-200 bg-white px-4 py-4">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-slate-950">
+                              {request.requester_email}
+                              {request.requester_user_id === selectedRow.id ? ' · Account selezionato' : ''}
+                            </div>
+                            <div className="mt-1 text-xs font-bold text-slate-500">
+                              {`${request.requester_last_name} ${request.requester_first_name}`.trim()}
+                              {request.requester_birth_date ? ` · ${formatBirthDateDisplay(request.requester_birth_date)}` : ''}
+                            </div>
+                            <div className="mt-2 text-xs font-bold text-slate-600">
+                              Candidato merge: {request.candidate_player_name}
+                              {request.candidate_birth_date ? ` · ${formatBirthDateDisplay(request.candidate_birth_date)}` : ''}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                                request.status === 'resolved'
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : request.status === 'ignored'
+                                    ? 'border-slate-200 bg-slate-100 text-slate-700'
+                                    : 'border-rose-200 bg-rose-50 text-rose-700'
+                              }`}>
+                                {mergeRequestStatusLabel(request.status)}
+                              </div>
+                              <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                {formatDateTime(request.created_at ? Date.parse(request.created_at) : undefined)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {request.comment ? (
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-700">
+                            {request.comment}
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+                            Nessun commento lasciato dall’utente.
+                          </div>
+                        )}
+
+                        <div className="mt-4 flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => void updateMergeRequestStatus(request.id, 'resolved')}
+                            className="inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                          >
+                            Segna gestita
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void updateMergeRequestStatus(request.id, 'ignored')}
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+                          >
+                            Ignora
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-rose-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
+                    Nessuna richiesta di merge collegata a questo account in questo momento.
+                  </div>
+                )}
               </div>
 
               {selectedRow.mode === 'live' ? (

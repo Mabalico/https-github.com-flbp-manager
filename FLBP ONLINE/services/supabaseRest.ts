@@ -170,6 +170,29 @@ export interface AdminUserRoleRow {
     email?: string | null;
 }
 
+export type PlayerAccountMergeRequestStatus = 'pending' | 'resolved' | 'ignored';
+
+export interface PlayerAccountMergeRequestRow {
+    id: string;
+    workspace_id: string;
+    requester_user_id?: string | null;
+    requester_email: string;
+    requester_first_name: string;
+    requester_last_name: string;
+    requester_birth_date: string;
+    requester_canonical_player_id?: string | null;
+    requester_canonical_player_name?: string | null;
+    candidate_player_id: string;
+    candidate_player_name: string;
+    candidate_birth_date?: string | null;
+    comment?: string | null;
+    status: PlayerAccountMergeRequestStatus;
+    created_at?: string | null;
+    updated_at?: string | null;
+    resolved_at?: string | null;
+    resolved_by_user_id?: string | null;
+}
+
 export interface SupabaseWorkspaceStateRow {
     workspace_id: string;
     state: Json;
@@ -1303,6 +1326,122 @@ export const pullAdminUserRoles = async (): Promise<AdminUserRoleRow[]> => {
     if (!res.ok) throw new Error(await readErrorBody(res));
     const payload = await res.json() as { ok?: boolean; rows?: AdminUserRoleRow[] };
     return Array.isArray(payload?.rows) ? payload.rows : [];
+};
+
+export const submitPlayerAccountMergeRequest = async (input: {
+    requesterEmail: string;
+    requesterFirstName: string;
+    requesterLastName: string;
+    requesterBirthDate: string;
+    requesterUserId?: string | null;
+    requesterCanonicalPlayerId?: string | null;
+    requesterCanonicalPlayerName?: string | null;
+    candidatePlayerId: string;
+    candidatePlayerName: string;
+    candidateBirthDate?: string | null;
+    comment?: string | null;
+    accessToken?: string | null;
+    workspaceId?: string | null;
+}): Promise<PlayerAccountMergeRequestRow> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const safeAccessToken = String(input.accessToken || '').trim();
+    const headers: Record<string, string> = {
+        'apikey': cfg.anonKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    };
+    if (safeAccessToken) {
+        headers.Authorization = `Bearer ${safeAccessToken}`;
+    }
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                action: 'submit_merge_request',
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+                requesterUserId: String(input.requesterUserId || '').trim() || null,
+                requesterEmail: String(input.requesterEmail || '').trim(),
+                requesterFirstName: String(input.requesterFirstName || '').trim(),
+                requesterLastName: String(input.requesterLastName || '').trim(),
+                requesterBirthDate: normalizeBirthDateInput(input.requesterBirthDate) || String(input.requesterBirthDate || '').trim(),
+                requesterCanonicalPlayerId: String(input.requesterCanonicalPlayerId || '').trim() || null,
+                requesterCanonicalPlayerName: String(input.requesterCanonicalPlayerName || '').trim() || null,
+                candidatePlayerId: String(input.candidatePlayerId || '').trim(),
+                candidatePlayerName: String(input.candidatePlayerName || '').trim(),
+                candidateBirthDate: normalizeBirthDateInput(input.candidateBirthDate) || String(input.candidateBirthDate || '').trim() || null,
+                comment: String(input.comment || '').trim() || null,
+            }),
+        },
+        8000,
+        { source: 'submitPlayerAccountMergeRequest', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; row?: PlayerAccountMergeRequestRow };
+    if (!payload?.row) throw new Error('Richiesta merge non restituita dal backend.');
+    return payload.row;
+};
+
+export const pullAdminPlayerAccountMergeRequests = async (
+    status: PlayerAccountMergeRequestStatus | null = 'pending'
+): Promise<PlayerAccountMergeRequestRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action: 'list_merge_requests',
+                workspaceId: cfg.workspaceId,
+                status: status ? String(status).trim() : null,
+            }),
+        },
+        8000,
+        { source: 'pullAdminPlayerAccountMergeRequests', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; rows?: PlayerAccountMergeRequestRow[] };
+    return Array.isArray(payload?.rows) ? payload.rows : [];
+};
+
+export const setAdminPlayerAccountMergeRequestStatus = async (input: {
+    requestId: string;
+    status: Exclude<PlayerAccountMergeRequestStatus, 'pending'>;
+    workspaceId?: string | null;
+}): Promise<PlayerAccountMergeRequestRow> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const requestId = String(input.requestId || '').trim();
+    const status = String(input.status || '').trim().toLowerCase();
+    if (!requestId) throw new Error('Richiesta merge non valida.');
+    if (status !== 'resolved' && status !== 'ignored') {
+        throw new Error('Stato richiesta merge non valido.');
+    }
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action: 'set_merge_request_status',
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+                requestId,
+                status,
+            }),
+        },
+        8000,
+        { source: 'setAdminPlayerAccountMergeRequestStatus', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; row?: PlayerAccountMergeRequestRow };
+    if (!payload?.row) throw new Error('Aggiornamento richiesta merge non restituito dal backend.');
+    return payload.row;
 };
 
 export const pushAdminPlayerAppProfile = async (input: {

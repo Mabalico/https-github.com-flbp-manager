@@ -70,6 +70,40 @@ export interface PlayerSupabaseSession extends SupabaseSession {
     flowType?: 'session' | 'recovery';
 }
 
+const normalizeSessionText = (value: unknown): string | null => {
+    const normalized = String(value ?? '').trim();
+    return normalized ? normalized : null;
+};
+
+const normalizePlayerFlowType = (value: PlayerSupabaseSession['flowType']): 'session' | 'recovery' => {
+    return value === 'recovery' ? 'recovery' : 'session';
+};
+
+const sameSupabaseSession = (
+    left: SupabaseSession | null | undefined,
+    right: SupabaseSession | null | undefined
+): boolean => {
+    const leftAccess = normalizeSessionText(left?.accessToken);
+    const rightAccess = normalizeSessionText(right?.accessToken);
+    if (!leftAccess && !rightAccess) return true;
+    return leftAccess === rightAccess
+        && normalizeSessionText(left?.refreshToken) === normalizeSessionText(right?.refreshToken)
+        && normalizeSessionText(left?.expiresAt) === normalizeSessionText(right?.expiresAt)
+        && normalizeSessionText(left?.email) === normalizeSessionText(right?.email)
+        && normalizeSessionText(left?.userId) === normalizeSessionText(right?.userId);
+};
+
+const sameStoredPlayerSupabaseSession = (
+    left: PlayerSupabaseSession | null | undefined,
+    right: PlayerSupabaseSession | null | undefined
+): boolean => {
+    if (!sameSupabaseSession(left, right)) return false;
+    const leftAccess = normalizeSessionText(left?.accessToken);
+    const rightAccess = normalizeSessionText(right?.accessToken);
+    if (!leftAccess && !rightAccess) return true;
+    return normalizePlayerFlowType(left?.flowType) === normalizePlayerFlowType(right?.flowType);
+};
+
 export type PlayerSupabaseSignUpResult =
     | { status: 'signed_in'; session: PlayerSupabaseSession }
     | { status: 'confirm_email'; email: string; userId?: string | null };
@@ -134,6 +168,29 @@ export interface AdminPlayerAccountCatalogRow {
 export interface AdminUserRoleRow {
     user_id: string;
     email?: string | null;
+}
+
+export type PlayerAccountMergeRequestStatus = 'pending' | 'resolved' | 'ignored';
+
+export interface PlayerAccountMergeRequestRow {
+    id: string;
+    workspace_id: string;
+    requester_user_id?: string | null;
+    requester_email: string;
+    requester_first_name: string;
+    requester_last_name: string;
+    requester_birth_date: string;
+    requester_canonical_player_id?: string | null;
+    requester_canonical_player_name?: string | null;
+    candidate_player_id: string;
+    candidate_player_name: string;
+    candidate_birth_date?: string | null;
+    comment?: string | null;
+    status: PlayerAccountMergeRequestStatus;
+    created_at?: string | null;
+    updated_at?: string | null;
+    resolved_at?: string | null;
+    resolved_by_user_id?: string | null;
 }
 
 export interface SupabaseWorkspaceStateRow {
@@ -294,6 +351,8 @@ export const getSupabaseSession = (): SupabaseSession | null => {
 };
 
 export const setSupabaseSession = (s: SupabaseSession | null) => {
+    const current = getSupabaseSession();
+    if (sameSupabaseSession(current, s)) return;
     try {
         if (!s?.accessToken) {
             localStorage.removeItem(SUPABASE_ACCESS_TOKEN_LS_KEY);
@@ -347,6 +406,8 @@ export const getPlayerSupabaseSession = (): PlayerSupabaseSession | null => {
 };
 
 export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
+    const current = getPlayerSupabaseSession();
+    if (sameStoredPlayerSupabaseSession(current, s)) return;
     try {
         if (!s?.accessToken) {
             localStorage.removeItem(PLAYER_SUPABASE_ACCESS_TOKEN_LS_KEY);
@@ -1267,6 +1328,122 @@ export const pullAdminUserRoles = async (): Promise<AdminUserRoleRow[]> => {
     return Array.isArray(payload?.rows) ? payload.rows : [];
 };
 
+export const submitPlayerAccountMergeRequest = async (input: {
+    requesterEmail: string;
+    requesterFirstName: string;
+    requesterLastName: string;
+    requesterBirthDate: string;
+    requesterUserId?: string | null;
+    requesterCanonicalPlayerId?: string | null;
+    requesterCanonicalPlayerName?: string | null;
+    candidatePlayerId: string;
+    candidatePlayerName: string;
+    candidateBirthDate?: string | null;
+    comment?: string | null;
+    accessToken?: string | null;
+    workspaceId?: string | null;
+}): Promise<PlayerAccountMergeRequestRow> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const safeAccessToken = String(input.accessToken || '').trim();
+    const headers: Record<string, string> = {
+        'apikey': cfg.anonKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    };
+    if (safeAccessToken) {
+        headers.Authorization = `Bearer ${safeAccessToken}`;
+    }
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                action: 'submit_merge_request',
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+                requesterUserId: String(input.requesterUserId || '').trim() || null,
+                requesterEmail: String(input.requesterEmail || '').trim(),
+                requesterFirstName: String(input.requesterFirstName || '').trim(),
+                requesterLastName: String(input.requesterLastName || '').trim(),
+                requesterBirthDate: normalizeBirthDateInput(input.requesterBirthDate) || String(input.requesterBirthDate || '').trim(),
+                requesterCanonicalPlayerId: String(input.requesterCanonicalPlayerId || '').trim() || null,
+                requesterCanonicalPlayerName: String(input.requesterCanonicalPlayerName || '').trim() || null,
+                candidatePlayerId: String(input.candidatePlayerId || '').trim(),
+                candidatePlayerName: String(input.candidatePlayerName || '').trim(),
+                candidateBirthDate: normalizeBirthDateInput(input.candidateBirthDate) || String(input.candidateBirthDate || '').trim() || null,
+                comment: String(input.comment || '').trim() || null,
+            }),
+        },
+        8000,
+        { source: 'submitPlayerAccountMergeRequest', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; row?: PlayerAccountMergeRequestRow };
+    if (!payload?.row) throw new Error('Richiesta merge non restituita dal backend.');
+    return payload.row;
+};
+
+export const pullAdminPlayerAccountMergeRequests = async (
+    status: PlayerAccountMergeRequestStatus | null = 'pending'
+): Promise<PlayerAccountMergeRequestRow[]> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action: 'list_merge_requests',
+                workspaceId: cfg.workspaceId,
+                status: status ? String(status).trim() : null,
+            }),
+        },
+        8000,
+        { source: 'pullAdminPlayerAccountMergeRequests', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; rows?: PlayerAccountMergeRequestRow[] };
+    return Array.isArray(payload?.rows) ? payload.rows : [];
+};
+
+export const setAdminPlayerAccountMergeRequestStatus = async (input: {
+    requestId: string;
+    status: Exclude<PlayerAccountMergeRequestStatus, 'pending'>;
+    workspaceId?: string | null;
+}): Promise<PlayerAccountMergeRequestRow> => {
+    const cfg = getSupabaseConfig();
+    const session = await requireSupabaseWriteSession();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const requestId = String(input.requestId || '').trim();
+    const status = String(input.status || '').trim().toLowerCase();
+    if (!requestId) throw new Error('Richiesta merge non valida.');
+    if (status !== 'resolved' && status !== 'ignored') {
+        throw new Error('Stato richiesta merge non valido.');
+    }
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                action: 'set_merge_request_status',
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+                requestId,
+                status,
+            }),
+        },
+        8000,
+        { source: 'setAdminPlayerAccountMergeRequestStatus', kind: 'admin' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; row?: PlayerAccountMergeRequestRow };
+    if (!payload?.row) throw new Error('Aggiornamento richiesta merge non restituito dal backend.');
+    return payload.row;
+};
+
 export const pushAdminPlayerAppProfile = async (input: {
     userId: string;
     firstName: string;
@@ -1493,7 +1670,9 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
         userId,
         email: hit.email || session.email || null
     };
-    setSupabaseSession(nextSession);
+    if (!sameSupabaseSession(session, nextSession)) {
+        setSupabaseSession(nextSession);
+    }
 
     return {
         ok: true,
