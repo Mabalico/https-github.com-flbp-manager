@@ -42,7 +42,7 @@ interface AccountsSubTabProps {
 
 type AccountFilter = 'all' | PlayerAccountAdminOrigin | 'alias_candidates';
 
-const cardClass = 'animate-pop-in rounded-3xl border border-slate-200/50 bg-white/95 backdrop-blur-md p-5 shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
+const cardClass = 'rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md';
 const inputClass =
   'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2';
 

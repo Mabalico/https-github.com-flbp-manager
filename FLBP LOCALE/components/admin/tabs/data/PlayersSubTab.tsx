@@ -41,9 +41,9 @@ type SnackbarState =
 type PlayerListFilter = 'all' | 'archived' | 'manual' | 'mixed' | 'aliases';
 type PlayerListSort = 'impact' | 'titles' | 'canestri' | 'name';
 
-const surfaceClass = 'rounded-[24px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
-const sectionSurfaceClass = 'rounded-[22px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
-const subCardClass = 'rounded-[18px] border border-slate-200/50 bg-slate-50/80 backdrop-blur-sm';
+const surfaceClass = 'rounded-[24px] border border-slate-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md';
+const sectionSurfaceClass = 'rounded-[22px] border border-slate-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md';
+const subCardClass = 'rounded-[18px] border border-slate-200 bg-slate-50';
 const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2';
 const inputBase =
   `w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400 transition focus:border-blue-300 ${ring}`;
