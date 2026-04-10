@@ -255,6 +255,7 @@ const App: React.FC = () => {
     const [publicDbState, setPublicDbState] = useState<AppState | null>(null);
     const [publicDbUpdatedAt, setPublicDbUpdatedAt] = useState<string | null>(null);
     const VIEW_KEY = 'flbp_view';
+    const POST_RELOAD_VIEW_KEY = 'flbp_post_reload_view';
     const LANG_KEY = 'flbp_lang';
     const SELECTED_TOURNAMENT_KEY = 'flbp_selected_tournament';
     const PUBLIC_DB_READ_LS_KEY = 'flbp_public_db_read';
@@ -282,7 +283,16 @@ const App: React.FC = () => {
         return `${year}-${month}-${day}`;
     };
 
-    const [view, setView] = useState(() => (hasPlayerSupabaseAuthPayloadInUrl() ? 'player_area' : 'home'));
+    const [view, setView] = useState(() => {
+        if (hasPlayerSupabaseAuthPayloadInUrl()) return 'player_area';
+        try {
+            const postReloadView = sessionStorage.getItem(POST_RELOAD_VIEW_KEY);
+            if (postReloadView) return safeView(postReloadView);
+        } catch {
+            // ignore
+        }
+        return 'home';
+    });
     const [tvMode, setTvMode] = useState<TvProjection | null>(() => {
         const stored = localStorage.getItem('flbp_tv_mode');
         return stored ? assertTvProjectionSafe(stored) : null;
@@ -842,6 +852,10 @@ const App: React.FC = () => {
 
     useEffect(() => {
         try { localStorage.removeItem(VIEW_KEY); } catch {}
+    }, []);
+
+    useEffect(() => {
+        try { sessionStorage.removeItem(POST_RELOAD_VIEW_KEY); } catch {}
     }, []);
 
     useEffect(() => {

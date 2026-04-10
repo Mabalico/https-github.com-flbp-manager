@@ -352,6 +352,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
     const playerBootstrapDeniedKeyRef = useRef<string | null>(null);
+    const reloadIntoAdmin = React.useCallback(() => {
+        try {
+            sessionStorage.setItem('flbp_post_reload_view', 'admin');
+        } catch {
+            // ignore
+        }
+        window.location.reload();
+    }, []);
 
     const sessionStorageWritable = useMemo(() => {
         // Best-effort probe: never crash if storage is blocked.
@@ -373,10 +381,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
         if (APP_MODE !== 'official') {
             setAppModeOverride('official');
-            window.location.reload();
+            reloadIntoAdmin();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionStorageWritable]);
+    }, [reloadIntoAdmin, sessionStorageWritable]);
 
     // Offline/cache controls (service worker)
     const [swDisabled, setSwDisabled] = useState<boolean>(() => {
@@ -3785,7 +3793,7 @@ while (guard < 5000) {
                                         try { if (next) localStorage.setItem('flbp_sw_disabled', '1'); else localStorage.removeItem('flbp_sw_disabled'); } catch {}
                                         setSwDisabled(next);
                                         if (next) await bestEffortClearSwCaches();
-                                        window.location.reload();
+                                        reloadIntoAdmin();
                                     }} className={`text-[10px] font-black px-2 py-1 rounded-lg border w-full text-center ${swDisabled ? 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50' : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'}`}>
                                         {swDisabled ? t('admin_enable_cache') : t('admin_disable_cache')}
                                     </button>
@@ -3794,7 +3802,7 @@ while (guard < 5000) {
                                         await bestEffortClearSwCaches();
                                         try { localStorage.removeItem('flbp_sw_disabled'); } catch {}
                                         setSwDisabled(false);
-                                        window.location.reload();
+                                        reloadIntoAdmin();
                                     }} className="text-[10px] font-black px-2 py-1 rounded-lg bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 w-full text-center inline-flex items-center justify-center gap-1">
                                         <Trash2 className="w-3 h-3" /> {t('admin_clear_cache')}
                                     </button>
@@ -3812,7 +3820,7 @@ while (guard < 5000) {
                                             const msg = next === 'tester' ? t('admin_switch_to_tester_confirm') : t('admin_switch_to_official_confirm');
                                             if (!confirm(msg)) return;
                                             setAppModeOverride(next);
-                                            window.location.reload();
+                                            reloadIntoAdmin();
                                         }} className={`text-[10px] font-black px-2 py-1 rounded-lg border w-full text-center ${APP_MODE === 'tester' ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'}`}>
                                             {APP_MODE === 'tester' ? t('admin_tester_mode') : t('admin_official_mode')}
                                         </button>
