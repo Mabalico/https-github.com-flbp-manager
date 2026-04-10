@@ -309,6 +309,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const initialSupabaseSession = useMemo(() => getSupabaseSession(), []);
     const supabaseConfig = useMemo(() => getSupabaseConfig(), []);
+    const adminSectionMenuRef = useRef<HTMLDetailsElement | null>(null);
+    const adminTvMenuRef = useRef<HTMLDetailsElement | null>(null);
     const adminToolsMenuRef = useRef<HTMLDetailsElement | null>(null);
     const [authed, setAuthed] = useState<boolean>(false);
     const [adminAuthMode, setAdminAuthMode] = useState<'none' | 'supabase' | 'legacy' | 'player'>(() => {
@@ -323,15 +325,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     useEffect(() => {
         const handlePointerDown = (event: PointerEvent) => {
-            const menu = adminToolsMenuRef.current;
             const target = event.target as Node | null;
-            if (!menu || !menu.hasAttribute('open') || !target) return;
-            if (menu.contains(target)) return;
-            menu.removeAttribute('open');
+            if (!target) return;
+
+            [adminSectionMenuRef.current, adminTvMenuRef.current, adminToolsMenuRef.current].forEach((menu) => {
+                if (!menu || !menu.hasAttribute('open')) return;
+                if (menu.contains(target)) return;
+                menu.removeAttribute('open');
+            });
         };
 
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }, []);
+    const closeAdminSectionMenu = React.useCallback(() => {
+        adminSectionMenuRef.current?.removeAttribute('open');
+    }, []);
+    const closeAdminTvMenu = React.useCallback(() => {
+        adminTvMenuRef.current?.removeAttribute('open');
     }, []);
     const closeAdminToolsMenu = React.useCallback(() => {
         adminToolsMenuRef.current?.removeAttribute('open');
@@ -3639,20 +3650,20 @@ while (guard < 5000) {
                     
                     <div className="hidden md:block w-px h-5 bg-slate-200 mx-0.5"></div>
 
-                    <details className="relative group">
+                    <details ref={adminSectionMenuRef} className="relative group">
                         <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-black hover:bg-slate-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm">
                             {adminSection === 'live' ? <><PlayCircle className="w-3.5 h-3.5"/> <span>{t('admin_live_management')}</span></> : adminSection === 'data' ? <><Settings className="w-3.5 h-3.5"/> <span>{t('admin_data_management')}</span></> : <><Brackets className="w-3.5 h-3.5"/> <span>{t('admin_structural_editor')}</span></>}
                             <ChevronDown className="w-3.5 h-3.5 opacity-80" />
                         </summary>
                         <div className="absolute left-0 mt-2 min-w-[220px] max-w-[90vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
                             <div className="grid gap-1">
-                                <button type="button" onClick={() => { void switchAdminSection('live'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='live' ? 'bg-emerald-50 text-emerald-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
+                                <button type="button" onClick={() => { closeAdminSectionMenu(); void switchAdminSection('live'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='live' ? 'bg-emerald-50 text-emerald-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
                                     <PlayCircle className="w-3.5 h-3.5" /> {t('admin_live_management')}
                                 </button>
-                                <button type="button" onClick={() => { void switchAdminSection('data'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='data' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
+                                <button type="button" onClick={() => { closeAdminSectionMenu(); void switchAdminSection('data'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='data' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
                                     <Settings className="w-3.5 h-3.5" /> {t('admin_data_management')}
                                 </button>
-                                <button type="button" onClick={() => { void switchAdminSection('editor'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='editor' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
+                                <button type="button" onClick={() => { closeAdminSectionMenu(); void switchAdminSection('editor'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='editor' ? 'bg-blue-50 text-blue-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
                                     <Brackets className="w-3.5 h-3.5" /> {t('admin_structural_editor')}
                                 </button>
                             </div>
@@ -3675,23 +3686,23 @@ while (guard < 5000) {
                 <div className="flex items-center gap-1.5">
                     {adminSection === 'live' && (
                         <>
-                            <details className="relative group">
+                            <details ref={adminTvMenuRef} className="relative group">
                                 <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-1.5 bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-black hover:bg-emerald-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm">
                                     <MonitorPlay className="w-3.5 h-3.5" /> <span>{t('admin_open_tv')}</span>
                                     <ChevronDown className="w-3.5 h-3.5 opacity-80" />
                                 </summary>
                                 <div className="absolute right-0 mt-2 min-w-[220px] max-w-[90vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
                                     <div className="grid gap-1">
-                                        <button type="button" onClick={() => onEnterTv('groups')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                        <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('groups'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups')}
                                         </button>
-                                        <button type="button" onClick={() => onEnterTv('groups_bracket')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                        <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('groups_bracket'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups_bracket')}
                                         </button>
-                                        <button type="button" onClick={() => onEnterTv('bracket')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                        <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('bracket'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket')}
                                         </button>
-                                        <button type="button" onClick={() => onEnterTv('scorers')} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                        <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('scorers'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
                                         </button>
                                     </div>
@@ -3740,7 +3751,7 @@ while (guard < 5000) {
                         </>
                     )}
 
-                    <details className="relative group">
+                    <details ref={adminToolsMenuRef} className="relative group">
                         <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center p-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm text-slate-700" title={t('admin_tools')}>
                             <Settings className="w-4 h-4" />
                         </summary>
