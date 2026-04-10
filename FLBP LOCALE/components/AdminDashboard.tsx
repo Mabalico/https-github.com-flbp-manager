@@ -3649,7 +3649,7 @@ while (guard < 5000) {
             }}
         >
 	        <div className="animate-fade-in flex flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
-            <header className="relative z-[60] flex flex-row items-center justify-between gap-2 bg-white/80 backdrop-blur-3xl px-4 py-3 rounded-[20px] lg:rounded-[28px] shadow-sm border border-slate-200 border-white/40">
+            <header className="relative z-[60] flex flex-row items-center justify-between gap-2 bg-white px-4 py-3 rounded-[20px] lg:rounded-[28px] shadow-sm border border-slate-200">
                 <div className="flex items-center gap-2">
                     <h2 className="hidden md:flex text-base font-black items-center gap-1.5">
                         <ShieldCheck className="w-5 h-5 text-beer-500 drop-shadow-sm" />
@@ -3833,7 +3833,7 @@ while (guard < 5000) {
             </header>
 
             {adminSection === 'live' && isTesterMode && (
-                <div className="bg-amber-50/90 backdrop-blur-md rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">
+                <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
                          <div className="flex items-center gap-2 font-black text-amber-900 text-sm">
                               <span className="text-xl">🧪</span> {t('admin_tester_tools')}
@@ -3853,7 +3853,7 @@ while (guard < 5000) {
                 </div>
             )}
 
-            <main className="flex-1 rounded-[24px] lg:rounded-[32px] border border-slate-200 border-white/40 bg-white/70 backdrop-blur-3xl shadow-lg shadow-black/5 p-4 md:p-6 overflow-hidden flex flex-col">
+            <main className="flex-1 rounded-[24px] lg:rounded-[32px] border border-slate-200 bg-white shadow-lg shadow-black/5 p-4 md:p-6 overflow-hidden flex flex-col">
 
                     {adminSection === 'live' ? (
                         <nav aria-label={t('admin_tabs_aria')} className="bg-white rounded-xl border border-slate-200 p-3">
