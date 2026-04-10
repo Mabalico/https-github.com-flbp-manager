@@ -325,9 +325,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                             <div className="text-2xl leading-tight font-black text-slate-950">
                                 {t('data_integrations_title')}
                             </div>
-                            <div className="text-sm leading-7 font-bold text-slate-600">
-                                {t('data_integrations_desc')}
-                            </div>
                         </div>
                     </div>
                 </button>
@@ -351,9 +348,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         <div className="space-y-2">
                             <div className="text-2xl leading-tight font-black text-slate-950">
                                 {t('data_views_title')}
-                            </div>
-                            <div className="text-sm leading-7 font-bold text-slate-600">
-                                {t('data_views_desc')}
                             </div>
                         </div>
                     </div>
@@ -379,9 +373,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                             <div className="text-2xl leading-tight font-black text-slate-950">
                                 {t('data_traffic_title')}
                             </div>
-                            <div className="text-sm leading-7 font-bold text-slate-600">
-                                {t('data_traffic_desc')}
-                            </div>
                         </div>
                     </div>
                 </button>
@@ -405,9 +396,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                             <div className="text-2xl leading-tight font-black text-slate-950">
                                 {t('data_persistence_title')}
                             </div>
-                            <div className="text-sm leading-7 font-bold text-slate-600">
-                                {t('data_persistence_desc')}
-                            </div>
                         </div>
                     </div>
                 </button>
@@ -430,9 +418,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         <div className="space-y-2">
                             <div className="text-2xl leading-tight font-black text-slate-950">
                                 {t('data_accounts_title')}
-                            </div>
-                            <div className="text-sm leading-7 font-bold text-slate-600">
-                                {t('data_accounts_desc')}
                             </div>
                         </div>
                     </div>
