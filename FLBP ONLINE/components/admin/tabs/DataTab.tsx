@@ -307,8 +307,135 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 <button
                     type="button"
                     onClick={() => setMainSection('integrations')}
-                    className={entryBtnClass('integrations')}
+                    className={`${entryBtnClass('integrations')} min-h-[260px]`}
                 >
+                    <div className="flex h-full flex-col gap-5">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-200">
+                                <Link2 className="w-6 h-6" />
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {pill(t('data_pill_history').replace('{count}', String(archiveCount)))}
+                                {pill(t('data_pill_hof').replace('{count}', String(hofCount)))}
+                                {pill(t('data_pill_scorers').replace('{count}', String(scorersCount)))}
+                                {pill(t('data_pill_aliases').replace('{count}', String(aliasesCount)))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="text-2xl leading-tight font-black text-slate-950">
+                                {t('data_integrations_title')}
+                            </div>
+                            <div className="text-sm leading-7 font-bold text-slate-600">
+                                {t('data_integrations_desc')}
+                            </div>
+                        </div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setMainSection('views')}
+                    className={`${entryBtnClass('views')} min-h-[260px]`}
+                >
+                    <div className="flex h-full flex-col gap-5">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-sky-500 text-white shadow-sm shadow-sky-200">
+                                <BarChart3 className="w-6 h-6" />
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {pill(t('data_pill_counter'))}
+                                {pill(t('data_pill_chart'))}
+                                {pill(t('data_pill_range'))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="text-2xl leading-tight font-black text-slate-950">
+                                {t('data_views_title')}
+                            </div>
+                            <div className="text-sm leading-7 font-bold text-slate-600">
+                                {t('data_views_desc')}
+                            </div>
+                        </div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setMainSection('traffic')}
+                    className={`${entryBtnClass('traffic')} min-h-[260px]`}
+                >
+                    <div className="flex h-full flex-col gap-5">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-violet-500 text-white shadow-sm shadow-violet-200">
+                                <Activity className="w-6 h-6" />
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {pill(t('data_pill_bytes'))}
+                                {pill(t('data_pill_requests'))}
+                                {pill(t('data_pill_range'))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="text-2xl leading-tight font-black text-slate-950">
+                                {t('data_traffic_title')}
+                            </div>
+                            <div className="text-sm leading-7 font-bold text-slate-600">
+                                {t('data_traffic_desc')}
+                            </div>
+                        </div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setMainSection('persistence')}
+                    className={`${entryBtnClass('persistence')} min-h-[260px]`}
+                >
+                    <div className="flex h-full flex-col gap-5">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-600 text-white shadow-sm shadow-emerald-200">
+                                <Database className="w-6 h-6" />
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {pill(t('data_pill_backup_file'))}
+                                {pill(t('data_pill_sync_online'))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="text-2xl leading-tight font-black text-slate-950">
+                                {t('data_persistence_title')}
+                            </div>
+                            <div className="text-sm leading-7 font-bold text-slate-600">
+                                {t('data_persistence_desc')}
+                            </div>
+                        </div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setMainSection('accounts')}
+                    className={`${entryBtnClass('accounts')} min-h-[260px]`}
+                >
+                    <div className="flex h-full flex-col gap-5">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-600 text-white shadow-sm shadow-amber-200">
+                                <Users className="w-6 h-6" />
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {pill(t('data_pill_auth_account'))}
+                                {pill(t('data_pill_player_profile'))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="text-2xl leading-tight font-black text-slate-950">
+                                {t('data_accounts_title')}
+                            </div>
+                            <div className="text-sm leading-7 font-bold text-slate-600">
+                                {t('data_accounts_desc')}
+                            </div>
+                        </div>
+                    </div>
                 </button>
             </div>
 

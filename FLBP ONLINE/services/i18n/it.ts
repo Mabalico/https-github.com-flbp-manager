@@ -408,6 +408,8 @@ export const dictionary: TranslationDictionary = {
   "data_pill_counter": "Contatore",
   "data_pill_chart": "Grafico",
   "data_pill_range": "Range",
+  "data_pill_auth_account": "Auth account",
+  "data_pill_player_profile": "Profilo giocatore",
   "data_pill_backup_file": "Backup file",
   "data_pill_sync_online": "Sync online",
   "data_active_edit": "Modifica attiva",
