@@ -1431,7 +1431,7 @@ const App: React.FC = () => {
     const mobileBottomNavItemClass = (active: boolean) => {
         return `flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-black uppercase tracking-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 ${
             active
-                ? 'bg-slate-950 text-beer-400 shadow-sm'
+                ? 'bg-slate-950 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
         }`;
     };
