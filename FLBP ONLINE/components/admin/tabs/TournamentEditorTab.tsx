@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Save,
   ShieldAlert,
+  Trash2,
   TriangleAlert,
   Undo2,
   Redo2,
@@ -36,8 +37,10 @@ import {
 import {
   canInsertTeamIntoBracketSlot,
   canInsertTeamIntoGroup,
+  canClearBracketSlot,
   canMoveBracketSlot,
   canMoveTeamBetweenGroups,
+  canRemoveTeamFromGroup,
   canReplaceBracketSlot,
   canReplaceGroupTeam,
   canSwapBracketSlots,
@@ -88,6 +91,24 @@ interface PoolEntry {
   placementLabel: string;
   badgeLabel: string;
   disabled: boolean;
+}
+
+interface DuplicateOccurrence {
+  key: string;
+  phase: 'groups' | 'bracket';
+  teamId: string;
+  teamName: string;
+  location: string;
+  groupId?: string;
+  slotKey?: string;
+  locked: boolean;
+}
+
+interface DuplicateRemediationSection {
+  scope: 'groups' | 'bracket';
+  teamId: string;
+  teamName: string;
+  occurrences: DuplicateOccurrence[];
 }
 
 const EMPTY_TOURNAMENT: TournamentData = {
@@ -491,6 +512,19 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     setLiveOutOfSync(true);
   }, [draft, draft.diff.changed, hasLiveTournament, sourceSignature, sourceSnapshot]);
 
+  const slotDisplayLabel = React.useCallback(
+    (slotKey?: string) => {
+      const [matchId, side] = String(slotKey || '').split('|');
+      if (!matchId || (side !== 'A' && side !== 'B')) return t('editor_target_bracket');
+      const match = getMatchById(draft.state.present, matchId);
+      if (!match) return t('editor_target_bracket');
+      const roundLabel = match.roundName || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('editor_target_bracket'));
+      const codeLabel = match.code ? ` · ${match.code}` : '';
+      return `${roundLabel}${codeLabel} · lato ${side}`;
+    },
+    [draft.state.present, t]
+  );
+
   const poolEntries = React.useMemo<PoolEntry[]>(() => {
     return (draft.state.present.catalogTeams || [])
       .filter((team) => !team.isBye)
@@ -500,7 +534,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
         const placementLabel = eligibility.currentPlacement
           ? eligibility.currentPlacement.phase === 'groups'
             ? `${eligibility.currentPlacement.containerName || t('groups_label').slice(0, -1)}`
-            : `${eligibility.currentPlacement.containerName || t('editor_target_bracket')} · ${eligibility.currentPlacement.slotKey || ''}`
+            : slotDisplayLabel(eligibility.currentPlacement.slotKey)
           : '';
         return {
           team,
@@ -517,7 +551,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
         if (d !== 0) return d;
         return a.team.name.localeCompare(b.team.name);
       });
-  }, [currentPhase, draft.state.present]);
+  }, [currentPhase, draft.state.present, slotDisplayLabel, t]);
 
   const filteredPoolEntries = React.useMemo(
     () => poolEntries.filter((entry) => filterPoolEntry(entry, poolFilter)).filter((entry) => matchesPoolQuery(entry, poolQuery)),
@@ -551,6 +585,69 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   );
 
   const changedGroupTeamIds = React.useMemo(() => new Set(draft.diff.groupChanges.map((change) => change.teamId)), [draft.diff.groupChanges]);
+  const duplicateRemediationSections = React.useMemo<DuplicateRemediationSection[]>(() => {
+    const teamName = (teamId: string) => getCatalogTeam(draft.state.present, teamId)?.name || teamId;
+    const buildSections = (
+      scope: 'groups' | 'bracket',
+      occurrencesByTeam: Map<string, DuplicateOccurrence[]>
+    ): DuplicateRemediationSection[] =>
+      Array.from(occurrencesByTeam.entries())
+        .filter(([, occurrences]) => occurrences.length > 1)
+        .map(([teamId, occurrences]) => ({
+          scope,
+          teamId,
+          teamName: teamName(teamId),
+          occurrences,
+        }));
+
+    const groupOccurrences = new Map<string, DuplicateOccurrence[]>();
+    for (const group of draft.state.present.tournament.groups || []) {
+      for (const [index, team] of (group.teams || []).entries()) {
+        const teamId = String(team.id || '').trim();
+        if (!teamId || isPlaceholderTeamId(teamId) || team.hidden || team.isBye) continue;
+        const check = canRemoveTeamFromGroup(draft.state.present, teamId, group.id);
+        const occurrence: DuplicateOccurrence = {
+          key: `group:${group.id}:${teamId}:${index}`,
+          phase: 'groups',
+          teamId,
+          teamName: team.name || teamName(teamId),
+          location: group.name,
+          groupId: group.id,
+          locked: !check.allowed,
+        };
+        groupOccurrences.set(teamId, [...(groupOccurrences.get(teamId) || []), occurrence]);
+      }
+    }
+
+    const bracketOccurrences = new Map<string, DuplicateOccurrence[]>();
+    for (const match of getRound1Matches(draft.state.present)) {
+      for (const side of ['A', 'B'] as const) {
+        const slotKey = `${match.id}|${side}`;
+        const teamId = String(side === 'A' ? match.teamAId || '' : match.teamBId || '').trim();
+        if (!teamId || isPlaceholderTeamId(teamId)) continue;
+        const check = canClearBracketSlot(draft.state.present, slotKey);
+        const occurrence: DuplicateOccurrence = {
+          key: `bracket:${slotKey}`,
+          phase: 'bracket',
+          teamId,
+          teamName: teamName(teamId),
+          location: slotDisplayLabel(slotKey),
+          slotKey,
+          locked: !check.allowed,
+        };
+        bracketOccurrences.set(teamId, [...(bracketOccurrences.get(teamId) || []), occurrence]);
+      }
+    }
+
+    return [
+      ...buildSections('groups', groupOccurrences),
+      ...buildSections('bracket', bracketOccurrences),
+    ];
+  }, [draft.state.present, slotDisplayLabel]);
+  const duplicateOccurrenceCount = React.useMemo(
+    () => duplicateRemediationSections.reduce((sum, section) => sum + section.occurrences.length, 0),
+    [duplicateRemediationSections]
+  );
   const originalCatalogTeamIds = React.useMemo(
     () => new Set((draft.state.original.catalogTeams || []).map((team) => String(team.id || '').trim()).filter(Boolean)),
     [draft.state.original.catalogTeams]
@@ -614,6 +711,25 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       return false;
     },
     [clearInteraction, draft]
+  );
+
+  const handleDeleteDuplicateOccurrence = React.useCallback(
+    (occurrence: DuplicateOccurrence) => {
+      const confirmed = window.confirm(
+        `Eliminare questa occorrenza di ${occurrence.teamName} da ${occurrence.location}?`
+      );
+      if (!confirmed) return;
+
+      if (occurrence.phase === 'groups' && occurrence.groupId) {
+        applyOperation({ type: 'REMOVE_GROUP_TEAM', teamId: occurrence.teamId, groupId: occurrence.groupId }, 'success');
+        return;
+      }
+
+      if (occurrence.phase === 'bracket' && occurrence.slotKey) {
+        applyOperation({ type: 'CLEAR_BRACKET_SLOT', slotKey: occurrence.slotKey }, 'success');
+      }
+    },
+    [applyOperation]
   );
 
 
@@ -978,16 +1094,53 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       if (isPlaceholderTeamId(teamId)) return teamId;
       return getCatalogTeam(draft.state.present, teamId)?.name || teamId;
     },
-    [draft.state.present]
+    [draft.state.present, t]
   );
 
   const placementLabel = React.useCallback((placement?: CurrentPlacement) => {
     if (!placement) return t('editor_not_assigned_lower');
     if (placement.phase === 'groups') return placement.containerName || t('group_word');
-    return `${placement.containerName || t('bracket_word')}${placement.slotKey ? ` · ${placement.slotKey}` : ''}`;
-  }, []);
+    return placement.slotKey ? slotDisplayLabel(placement.slotKey) : (placement.containerName || t('bracket_word'));
+  }, [slotDisplayLabel, t]);
 
   const recentOperations = React.useMemo(() => draft.state.log.slice(-8).reverse(), [draft.state.log]);
+  const operationLabel = React.useCallback((type: StructuralOperation['type']) => {
+    switch (type) {
+      case 'INSERT_TEAM_IN_GROUP':
+        return 'Inserimento nei gironi';
+      case 'MOVE_TEAM_BETWEEN_GROUPS':
+        return 'Spostamento nei gironi';
+      case 'SWAP_GROUP_TEAMS':
+        return 'Scambio nei gironi';
+      case 'REPLACE_GROUP_TEAM':
+        return 'Sostituzione nei gironi';
+      case 'REMOVE_GROUP_TEAM':
+        return 'Rimozione dai gironi';
+      case 'INSERT_TEAM_IN_BRACKET_SLOT':
+        return 'Inserimento nel tabellone';
+      case 'REPLACE_BRACKET_SLOT':
+        return 'Sostituzione nel tabellone';
+      case 'MOVE_BRACKET_SLOT':
+        return 'Spostamento nel tabellone';
+      case 'SWAP_BRACKET_SLOTS':
+        return 'Scambio nel tabellone';
+      case 'CLEAR_BRACKET_SLOT':
+        return 'Rimozione dal tabellone';
+      case 'ADD_CATALOG_TEAM':
+        return 'Nuova squadra';
+      case 'ADD_PRELIMINARY_BRACKET_ROUND':
+        return 'Nuovo turno preliminare';
+      default:
+        return 'Aggiornamento struttura';
+    }
+  }, []);
+  const issueLabel = React.useCallback((code?: string, fallback = 'Da correggere') => {
+    if (!code) return fallback;
+    if (code.includes('duplicate')) return 'Squadra duplicata';
+    if (code.includes('locked')) return 'Match bloccato';
+    if (code.includes('placeholder') || code.includes('excluded')) return 'Squadra da sistemare';
+    return fallback;
+  }, []);
   const draftStatusLabel = draft.validation.blockingErrors.length
     ? t('editor_status_blocking_errors')
     : hasEditorChanges
@@ -1703,6 +1856,59 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             </div>
           </div>
 
+          {duplicateRemediationSections.length ? (
+            <div className="rounded-[18px] border border-[color:var(--editor-danger-100)] bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-[var(--editor-danger-700)] inline-flex items-center gap-2">
+                    <Trash2 className="w-4 h-4" />
+                    Duplicati da correggere
+                  </div>
+                  <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">
+                    Elimina solo l’occorrenza sbagliata, poi applica la bozza.
+                  </div>
+                </div>
+                <span className="rounded-full border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-2.5 py-1 text-[11px] font-bold text-[var(--editor-danger-700)]">
+                  {duplicateOccurrenceCount}
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                {duplicateRemediationSections.map((section) => (
+                  <div key={`${section.scope}:${section.teamId}`} className="rounded-[16px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-black text-[var(--editor-text-primary)]">{section.teamName}</div>
+                      <span className="rounded-full border border-[color:var(--editor-border-subtle)] bg-white px-2 py-0.5 text-[10px] font-bold text-[var(--editor-text-muted)]">
+                        {section.scope === 'groups' ? t('groups_label') : t('bracket_word')}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {section.occurrences.map((occurrence) => (
+                        <div key={occurrence.key} className="flex flex-col gap-2 rounded-[14px] border border-[color:var(--editor-border-subtle)] bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-[var(--editor-text-primary)]">{occurrence.location}</div>
+                            {occurrence.locked ? (
+                              <div className="mt-0.5 text-[11px] font-medium text-[var(--editor-danger-700)]">Questa occorrenza è protetta da un match già avviato.</div>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={occurrence.locked}
+                            onClick={() => handleDeleteDuplicateOccurrence(occurrence)}
+                            className="inline-flex h-9 items-center justify-center gap-2 rounded-[12px] border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {t('delete')}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {draft.validation.blockingErrors.length ? (
             <div className="rounded-[18px] border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] p-4">
               <div className="text-sm font-bold text-[var(--editor-danger-700)] inline-flex items-center gap-2">
@@ -1717,7 +1923,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     onClick={() => navigateToIssue(issue)}
                     className="w-full rounded-[16px] border border-[color:var(--editor-danger-100)] bg-white px-3 py-3 text-left transition-all duration-150 hover:bg-[var(--editor-danger-50)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-danger-600)] focus-visible:ring-offset-2"
                   >
-                    <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-danger-700)]">{issue.code}</div>
+                    <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-danger-700)]">{issueLabel(issue.code)}</div>
                     <div className="mt-1 text-sm font-semibold text-[var(--editor-text-primary)]">{issue.message}</div>
                   </button>
                 ))}
@@ -1739,7 +1945,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     onClick={() => navigateToIssue(issue)}
                     className="w-full rounded-[16px] border border-[color:var(--editor-warning-100)] bg-white px-3 py-3 text-left transition-all duration-150 hover:bg-[var(--editor-warning-50)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-warning-600)] focus-visible:ring-offset-2"
                   >
-                    <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-warning-700)]">{issue.code}</div>
+                    <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-warning-700)]">{issueLabel(issue.code, t('editor_warnings_label'))}</div>
                     <div className="mt-1 text-sm font-semibold text-[var(--editor-text-primary)]">{issue.message}</div>
                   </button>
                 ))}
@@ -1790,7 +1996,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   <div className="mt-2 space-y-2">
                     {draft.diff.bracketChanges.map((change) => (
                       <div key={`${change.slotKey}:${change.afterTeamId || 'empty'}`} className="text-sm font-semibold text-[var(--editor-text-primary)]">
-                        <span className="font-bold">{change.slotKey}</span>
+                        <span className="font-bold">{slotDisplayLabel(change.slotKey)}</span>
                         <div className="mt-0.5 text-xs font-medium text-[var(--editor-text-muted)]">
                           {teamLabel(change.beforeTeamId)} → {teamLabel(change.afterTeamId)}
                         </div>
@@ -1806,7 +2012,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   <div className="mt-2 space-y-2">
                     {draft.diff.futureBracketChanges.map((change) => (
                       <div key={`${change.slotKey}:${change.afterTeamId || 'empty'}`} className="text-sm font-semibold text-[var(--editor-text-primary)]">
-                        <span className="font-bold">{change.slotKey}</span>
+                        <span className="font-bold">{slotDisplayLabel(change.slotKey)}</span>
                         <div className="mt-0.5 text-xs font-medium text-[var(--editor-text-muted)]">
                           {teamLabel(change.beforeTeamId)} → {teamLabel(change.afterTeamId)}
                         </div>
@@ -1836,7 +2042,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             <div className="mt-3 space-y-2">
               {recentOperations.length ? recentOperations.map((entry) => (
                 <div key={entry.id} className="rounded-[16px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-3 py-3">
-                  <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-text-muted)]">{entry.type}</div>
+                  <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-text-muted)]">{operationLabel(entry.type)}</div>
                   <div className="mt-1 text-sm font-semibold text-[var(--editor-text-primary)]">{entry.message}</div>
                 </div>
               )) : (

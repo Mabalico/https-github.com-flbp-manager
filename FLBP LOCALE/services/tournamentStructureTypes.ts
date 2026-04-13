@@ -107,6 +107,11 @@ export type StructuralOperation =
       groupId: string;
     }
   | {
+      type: 'REMOVE_GROUP_TEAM';
+      teamId: string;
+      groupId: string;
+    }
+  | {
       type: 'INSERT_TEAM_IN_BRACKET_SLOT';
       teamId: string;
       slotKey: string;
@@ -125,6 +130,10 @@ export type StructuralOperation =
       type: 'MOVE_BRACKET_SLOT';
       fromSlotKey: string;
       toSlotKey: string;
+    }
+  | {
+      type: 'CLEAR_BRACKET_SLOT';
+      slotKey: string;
     }
   | {
       type: 'ADD_CATALOG_TEAM';

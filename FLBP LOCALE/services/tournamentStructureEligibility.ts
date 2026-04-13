@@ -336,6 +336,36 @@ export const canReplaceGroupTeam = (
   return allowed('ok', `Sostituzione consentita in ${group.name}.`);
 };
 
+export const canRemoveTeamFromGroup = (
+  snapshot: TournamentStructureSnapshot,
+  teamId: string,
+  groupId: string
+): StructuralTargetCheck => {
+  const id = String(teamId || '').trim();
+  if (!id || isPlaceholderTeamId(id)) return blocked('team_not_found', 'Squadra non valida.');
+  if (hasRealBracketStarted(snapshot)) {
+    return blocked(
+      'group_edit_blocked_by_bracket_phase',
+      'Non posso rimuovere squadre dai gironi dopo l’avvio del bracket.'
+    );
+  }
+
+  const group = getGroupById(snapshot, groupId);
+  if (!group) return blocked('unknown', 'Girone non trovato.');
+  if (isFinalGroup(group)) return blocked('group_is_final', 'Il Girone Finale non è modificabile.');
+  if (isGroupConcluded(snapshot, groupId)) {
+    return blocked('group_is_concluded', `Il girone ${group.name} è già concluso.`);
+  }
+  if (!(group.teams || []).some((team) => team.id === id)) {
+    return blocked('team_not_in_group', 'La squadra non è nel girone selezionato.');
+  }
+  if (findTeamStartedInPhase(snapshot, id, 'groups')) {
+    return blocked('locked_by_group_match', 'La squadra ha già iniziato i gironi e non può essere rimossa.');
+  }
+
+  return allowed('ok', `Rimozione consentita da ${group.name}.`);
+};
+
 export const canInsertTeamIntoBracketSlot = (
   snapshot: TournamentStructureSnapshot,
   teamId: string,
@@ -416,6 +446,24 @@ export const canMoveBracketSlot = (
     return blocked('target_locked', 'Il match destinazione è già giocato o in corso.');
   }
   return allowed('ok', 'Spostamento consentito verso lo slot selezionato.');
+};
+
+export const canClearBracketSlot = (
+  snapshot: TournamentStructureSnapshot,
+  slotKey: string
+): StructuralTargetCheck => {
+  const parsed = parseSlotKey(slotKey);
+  if (!parsed) return blocked('invalid_slot', 'Slot bracket non valido.');
+  const match = getMatchById(snapshot, parsed.matchId);
+  if (!match) return blocked('invalid_slot', 'Match bracket non trovato.');
+  if (isLockedBracketMatchForStructureEdit(match)) {
+    return blocked('slot_locked', 'Il match è già giocato o in corso.');
+  }
+  const currentValue = getSlotValue(snapshot, slotKey);
+  if (!currentValue || isPlaceholderTeamId(currentValue)) {
+    return blocked('slot_not_placeholder', 'Lo slot è già libero.');
+  }
+  return allowed('ok', 'Slot liberato. I turni futuri non ancora giocati verranno riallineati.');
 };
 
 export const canSwapBracketSlots = (

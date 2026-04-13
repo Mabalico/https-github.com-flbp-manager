@@ -1,12 +1,14 @@
 import type { Match, Team } from '../types';
 import { uuid } from './id';
 import { syncBracketFromGroups } from './tournamentEngine';
-import { isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
+import { getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
 import {
+  canClearBracketSlot,
   canInsertTeamIntoBracketSlot,
   canInsertTeamIntoGroup,
   canMoveBracketSlot,
   canMoveTeamBetweenGroups,
+  canRemoveTeamFromGroup,
   canReplaceBracketSlot,
   canReplaceGroupTeam,
   canSwapBracketSlots,
@@ -452,6 +454,34 @@ const applyReplaceGroupTeam = (
   return makeResult(synced, 'REPLACE_GROUP_TEAM', `Sostituita ${oldTeam?.name || oldTeamId} con ${newTeam.name} in ${group.name}.`, check);
 };
 
+const applyRemoveTeamFromGroup = (
+  snapshot: TournamentStructureSnapshot,
+  teamId: string,
+  groupId: string
+): StructuralOperationResult => {
+  const check = canRemoveTeamFromGroup(snapshot, teamId, groupId);
+  if (!check.allowed) return makeBlockedResult(check);
+  const group = getGroupById(snapshot, groupId);
+  const team = getCatalogTeam(snapshot, teamId);
+  if (!group) return makeBlockedResult(blockedLike('unknown', 'Girone non trovato.'));
+
+  const next = cloneSnapshot(snapshot);
+  const nextGroup = getGroupById(next, groupId);
+  if (!nextGroup) return makeBlockedResult(blockedLike('unknown', 'Girone non trovato.'));
+  nextGroup.teams = (nextGroup.teams || []).filter((row) => row.id !== teamId);
+  next.matches = next.matches.filter(
+    (match) =>
+      !(
+        match.phase === 'groups' &&
+        (match.groupName || '') === group.name &&
+        getMatchParticipantIds(match).includes(teamId)
+      )
+  );
+
+  const synced = syncGroupsSnapshot(next);
+  return makeResult(synced, 'REMOVE_GROUP_TEAM', `Rimossa ${team?.name || teamId} da ${group.name}.`, check);
+};
+
 const applyInsertTeamInBracketSlot = (
   snapshot: TournamentStructureSnapshot,
   teamId: string,
@@ -467,7 +497,7 @@ const applyInsertTeamInBracketSlot = (
   (match as any)[parsed.field] = teamId;
   Object.assign(match, resetEditableBracketMatch(match));
   const synced = realignFutureBracketFromRound1(next);
-  return makeResult(synced, 'INSERT_TEAM_IN_BRACKET_SLOT', `Inserita ${team.name} nello slot ${slotKey}.`, check);
+  return makeResult(synced, 'INSERT_TEAM_IN_BRACKET_SLOT', `Inserita ${team.name} nel tabellone.`, check);
 };
 
 const applyReplaceBracketSlot = (
@@ -485,7 +515,25 @@ const applyReplaceBracketSlot = (
   (match as any)[parsed.field] = newTeamId;
   Object.assign(match, resetEditableBracketMatch(match));
   const synced = realignFutureBracketFromRound1(next);
-  return makeResult(synced, 'REPLACE_BRACKET_SLOT', `Sostituita la squadra nello slot ${slotKey} con ${team.name}.`, check);
+  return makeResult(synced, 'REPLACE_BRACKET_SLOT', `Sostituita la squadra nel tabellone con ${team.name}.`, check);
+};
+
+const applyClearBracketSlot = (
+  snapshot: TournamentStructureSnapshot,
+  slotKey: string
+): StructuralOperationResult => {
+  const check = canClearBracketSlot(snapshot, slotKey);
+  if (!check.allowed) return makeBlockedResult(check);
+  const parsed = parseSlotKey(slotKey)!;
+  const next = cloneSnapshot(snapshot);
+  const match = getMatchById(next, parsed.matchId);
+  if (!match) return makeBlockedResult(blockedLike('unknown', 'Match bracket non trovato.'));
+  const currentValue = String((match as any)[parsed.field] || '').trim();
+  const teamName = getCatalogTeam(snapshot, currentValue)?.name || currentValue;
+  (match as any)[parsed.field] = 'BYE';
+  Object.assign(match, resetEditableBracketMatch(match));
+  const synced = realignFutureBracketFromRound1(next);
+  return makeResult(synced, 'CLEAR_BRACKET_SLOT', `Rimossa ${teamName} dal tabellone.`, check);
 };
 
 const applyMoveBracketSlot = (
@@ -508,7 +556,7 @@ const applyMoveBracketSlot = (
   Object.assign(fromMatch, resetEditableBracketMatch(fromMatch));
   Object.assign(toMatch, resetEditableBracketMatch(toMatch));
   const synced = realignFutureBracketFromRound1(next);
-  return makeResult(synced, 'MOVE_BRACKET_SLOT', `Spostata la squadra ${getCatalogTeam(snapshot, value)?.name || value} da ${fromSlotKey} a ${toSlotKey}.`, check);
+  return makeResult(synced, 'MOVE_BRACKET_SLOT', `Spostata la squadra ${getCatalogTeam(snapshot, value)?.name || value} nel tabellone.`, check);
 };
 
 const applySwapBracketSlots = (
@@ -544,7 +592,7 @@ const applySwapBracketSlots = (
   Object.assign(matchA, resetEditableBracketMatch(matchA));
   Object.assign(matchB, resetEditableBracketMatch(matchB));
   const synced = realignFutureBracketFromRound1(next);
-  return makeResult(synced, 'SWAP_BRACKET_SLOTS', `Scambiati gli slot ${slotAKey} e ${slotBKey}.`, check);
+  return makeResult(synced, 'SWAP_BRACKET_SLOTS', 'Scambiate due posizioni nel tabellone.', check);
 };
 
 
@@ -671,12 +719,16 @@ export const applyStructuralOperation = (
       return applySwapGroupTeams(snapshot, operation.teamAId, operation.teamBId, operation.groupAId, operation.groupBId);
     case 'REPLACE_GROUP_TEAM':
       return applyReplaceGroupTeam(snapshot, operation.oldTeamId, operation.newTeamId, operation.groupId);
+    case 'REMOVE_GROUP_TEAM':
+      return applyRemoveTeamFromGroup(snapshot, operation.teamId, operation.groupId);
     case 'INSERT_TEAM_IN_BRACKET_SLOT':
       return applyInsertTeamInBracketSlot(snapshot, operation.teamId, operation.slotKey);
     case 'REPLACE_BRACKET_SLOT':
       return applyReplaceBracketSlot(snapshot, operation.slotKey, operation.newTeamId);
     case 'MOVE_BRACKET_SLOT':
       return applyMoveBracketSlot(snapshot, operation.fromSlotKey, operation.toSlotKey);
+    case 'CLEAR_BRACKET_SLOT':
+      return applyClearBracketSlot(snapshot, operation.slotKey);
     case 'SWAP_BRACKET_SLOTS':
       return applySwapBracketSlots(snapshot, operation.slotAKey, operation.slotBKey);
     case 'ADD_CATALOG_TEAM':
