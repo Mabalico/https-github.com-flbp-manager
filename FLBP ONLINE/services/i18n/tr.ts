@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "Kazanma %'si",
   "player_area_open_tournament": "Açık turnuva",
   "player_area_unknown_tournament": "Turnuva arşivlendi",
+  "player_area_integrated_history": "Entegre geçmiş veriler",
   "player_area_live_title": "Canlı durum",
   "player_area_live_empty": "Şu anda profilinize bağlı canlı turnuva yok.",
   "player_area_live_referee": "Bu profil canlı bir hakemdir: Hakemler alanını turnuva şifresi olmadan açabilirsiniz.",

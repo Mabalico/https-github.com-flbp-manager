@@ -21,6 +21,7 @@ type PublicPlayerDetailProps = {
 
 type PublicParticipationRow = {
   id: string;
+  openTournamentId: string | null;
   name: string;
   year: string;
   team: string;
@@ -261,11 +262,12 @@ const buildPlayerPerformanceSummary = (state: AppState, profile: PlayerProfileSn
   };
 };
 
-const buildParticipationRows = (profile: PlayerProfileSnapshot): PublicParticipationRow[] => {
+const buildParticipationRows = (profile: PlayerProfileSnapshot, t: (key: string) => string): PublicParticipationRow[] => {
   const rows = new Map<string, PublicParticipationRow>();
 
   const ensureRow = (input: {
     id?: string | null;
+    openTournamentId?: string | null;
     name?: string | null;
     year?: string | null;
     team?: string | null;
@@ -274,6 +276,7 @@ const buildParticipationRows = (profile: PlayerProfileSnapshot): PublicParticipa
     const existing = rows.get(id);
     const next = existing || {
       id,
+      openTournamentId: cleanDisplayValue(input.openTournamentId) || null,
       name: cleanDisplayValue(input.name) || id,
       year: cleanDisplayValue(input.year) || '',
       team: cleanTeamLabel(input.team) || '',
@@ -283,6 +286,7 @@ const buildParticipationRows = (profile: PlayerProfileSnapshot): PublicParticipa
       titles: 0,
     };
     next.name = next.name || cleanDisplayValue(input.name) || id;
+    next.openTournamentId = next.openTournamentId || cleanDisplayValue(input.openTournamentId) || null;
     next.year = next.year || cleanDisplayValue(input.year) || '';
     next.team = next.team || cleanTeamLabel(input.team) || '';
     rows.set(id, next);
@@ -290,9 +294,12 @@ const buildParticipationRows = (profile: PlayerProfileSnapshot): PublicParticipa
   };
 
   profile.contributions.forEach((row) => {
+    const tournamentId = cleanDisplayValue(row.tournamentId);
+
     const item = ensureRow({
-      id: row.tournamentId || row.sourceLabel || row.id,
-      name: row.tournamentName || row.sourceLabel || null,
+      id: tournamentId || 'integrated-history',
+      openTournamentId: tournamentId,
+      name: row.tournamentName || (tournamentId ? null : t('player_area_integrated_history')),
       year: row.tournamentYear || null,
       team: row.teamName || null,
     });
@@ -302,8 +309,10 @@ const buildParticipationRows = (profile: PlayerProfileSnapshot): PublicParticipa
   });
 
   profile.titles.forEach((row) => {
+    const tournamentId = cleanDisplayValue(row.tournamentId || row.sourceTournamentId);
     const item = ensureRow({
-      id: row.tournamentId || row.sourceTournamentId || row.entryId,
+      id: tournamentId || row.entryId,
+      openTournamentId: tournamentId,
       name: row.tournamentName || row.sourceTournamentName || null,
       year: row.year || null,
       team: row.teamName || null,
@@ -333,7 +342,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
     [fallbackStats, playerBirthDate, playerId, playerName, state]
   );
   const performance = React.useMemo(() => buildPlayerPerformanceSummary(state, profile), [profile, state]);
-  const participations = React.useMemo(() => buildParticipationRows(profile), [profile]);
+  const participations = React.useMemo(() => buildParticipationRows(profile, t), [profile, t]);
   const identityLabel = (() => {
     const raw = String(profile.yobLabel || '').trim();
     if (!raw || raw === 'ND') return null;
@@ -416,11 +425,11 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
                   </>
                 );
 
-                return onOpenTournament && row.id ? (
+                return onOpenTournament && row.openTournamentId ? (
                   <button
                     key={row.id}
                     type="button"
-                    onClick={() => onOpenTournament(row.id)}
+                    onClick={() => onOpenTournament(row.openTournamentId!)}
                     className="group flex w-full items-start justify-between gap-3 overflow-hidden rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3 text-left shadow-sm transition-all hover:border-sky-100 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
                   >
                     {body}

@@ -1805,6 +1805,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "Vittorie %",
   "player_area_open_tournament": "Apri torneo",
   "player_area_unknown_tournament": "Torneo archiviato",
+  "player_area_integrated_history": "Dati storici integrati",
   "player_area_live_title": "Stato live",
   "player_area_live_empty": "Nessun torneo live collegato al tuo profilo in questo momento.",
   "player_area_live_referee": "Questo profilo risulta arbitro del live: puoi aprire l'area arbitri senza password torneo.",

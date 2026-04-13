@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "勝率%",
   "player_area_open_tournament": "オープントーナメント",
   "player_area_unknown_tournament": "トーナメントがアーカイブされました",
+  "player_area_integrated_history": "統合済み履歴データ",
   "player_area_live_title": "ライブステータス",
   "player_area_live_empty": "現時点では、あなたのプロフィールにリンクされているライブ トーナメントはありません。",
   "player_area_live_referee": "このプロフィールはライブ審判です。トーナメントのパスワードなしで審判エリアを開くことができます。",

@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "Wygrane%",
   "player_area_open_tournament": "Otwarty turniej",
   "player_area_unknown_tournament": "Turniej zarchiwizowany",
+  "player_area_integrated_history": "Zintegrowane dane historyczne",
   "player_area_live_title": "Stan na żywo",
   "player_area_live_empty": "Obecnie z Twoim profilem nie są powiązane żadne turnieje na żywo.",
   "player_area_live_referee": "Ten profil jest sędzią na żywo: możesz otworzyć strefę sędziowską bez hasła turniejowego.",

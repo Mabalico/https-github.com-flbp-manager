@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "% de victoires",
   "player_area_open_tournament": "Tournoi ouvert",
   "player_area_unknown_tournament": "Tournoi archivé",
+  "player_area_integrated_history": "Données historiques intégrées",
   "player_area_live_title": "Statut en direct",
   "player_area_live_empty": "Aucun tournoi en direct lié à votre profil pour le moment.",
   "player_area_live_referee": "Ce profil est un arbitre en direct : vous pouvez ouvrir l'espace arbitres sans mot de passe du tournoi.",

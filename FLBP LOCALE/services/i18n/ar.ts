@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "نسبة الانتصارات",
   "player_area_open_tournament": "بطولة مفتوحة",
   "player_area_unknown_tournament": "البطولة مؤرشفة",
+  "player_area_integrated_history": "بيانات تاريخية مدمجة",
   "player_area_live_title": "الحالة الحية",
   "player_area_live_empty": "لا توجد بطولات مباشرة مرتبطة بملفك الشخصي في الوقت الحالي.",
   "player_area_live_referee": "هذا الملف الشخصي عبارة عن حكم مباشر: يمكنك فتح منطقة الحكام بدون كلمة مرور البطولة.",

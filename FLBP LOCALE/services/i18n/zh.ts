@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "胜率%",
   "player_area_open_tournament": "公开赛",
   "player_area_unknown_tournament": "比赛已存档",
+  "player_area_integrated_history": "已整合历史数据",
   "player_area_live_title": "实时状态",
   "player_area_live_empty": "目前没有任何现场锦标赛链接到您的个人资料。",
   "player_area_live_referee": "此配置文件是现场裁判：无需锦标赛密码即可打开裁判区。",

@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "% побед",
   "player_area_open_tournament": "Открытый турнир",
   "player_area_unknown_tournament": "Турнир в архиве",
+  "player_area_integrated_history": "Интегрированные исторические данные",
   "player_area_live_title": "Живой статус",
   "player_area_live_empty": "В настоящее время с вашим профилем не связано ни одного живого турнира.",
   "player_area_live_referee": "Этот профиль представляет собой живого рефери: вы можете открыть зону рефери без турнирного пароля.",

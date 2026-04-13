@@ -1804,6 +1804,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_win_rate": "Gewinnt %",
   "player_area_open_tournament": "Offenes Turnier",
   "player_area_unknown_tournament": "Turnier archiviert",
+  "player_area_integrated_history": "Integrierte historische Daten",
   "player_area_live_title": "Live-Status",
   "player_area_live_empty": "Derzeit sind keine Live-Turniere mit Ihrem Profil verknüpft.",
   "player_area_live_referee": "Dieses Profil ist ein Live-Schiedsrichter: Sie können den Schiedsrichterbereich ohne Turnierpasswort öffnen.",
