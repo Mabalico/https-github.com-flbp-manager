@@ -1428,13 +1428,14 @@ const App: React.FC = () => {
             ? 'bg-white/10 text-white border-white/20'
             : 'text-white/80 border-transparent hover:bg-white/5 hover:text-white'}`;
     };
-    const mobileBottomNavItemClass = (active: boolean) => {
-        return `flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-black uppercase tracking-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 ${
-            active
-                ? 'bg-slate-950 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+    const mobileBottomNavItemClass = (_active: boolean) =>
+        'flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] font-black uppercase tracking-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
+    const mobileBottomNavIconClass = (active: boolean) =>
+        `flex h-7 w-7 items-center justify-center rounded-xl transition ${
+            active ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500'
         }`;
-    };
+    const mobileBottomNavLabelClass = (active: boolean) =>
+        active ? 'text-slate-950' : 'text-slate-500';
 
     const handleGlobalSignOut = async () => {
         if (!playerPresence) return;
@@ -1827,8 +1828,8 @@ const App: React.FC = () => {
                                 onFocus={() => primeViewChunk('home')}
                                 className={mobileBottomNavItemClass(view === 'home')}
                             >
-                                <HomeIcon className="h-5 w-5" />
-                                <span className="truncate">{t('dashboard')}</span>
+                                <span className={mobileBottomNavIconClass(view === 'home')}><HomeIcon className="h-5 w-5" /></span>
+                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'home')}`}>{t('dashboard')}</span>
                             </button>
                             <button
                                 type="button"
@@ -1838,8 +1839,8 @@ const App: React.FC = () => {
                                 onFocus={() => primeViewChunk('tournament')}
                                 className={mobileBottomNavItemClass(view === 'tournament' || view === 'tournament_detail')}
                             >
-                                <Swords className="h-5 w-5" />
-                                <span className="truncate">{t('tournaments')}</span>
+                                <span className={mobileBottomNavIconClass(view === 'tournament' || view === 'tournament_detail')}><Swords className="h-5 w-5" /></span>
+                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'tournament' || view === 'tournament_detail')}`}>{t('tournaments')}</span>
                             </button>
                             <button
                                 type="button"
@@ -1849,8 +1850,8 @@ const App: React.FC = () => {
                                 onFocus={() => primeViewChunk('leaderboard')}
                                 className={mobileBottomNavItemClass(view === 'leaderboard')}
                             >
-                                <BarChart3 className="h-5 w-5" />
-                                <span className="truncate">{t('historical')}</span>
+                                <span className={mobileBottomNavIconClass(view === 'leaderboard')}><BarChart3 className="h-5 w-5" /></span>
+                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'leaderboard')}`}>{t('historical')}</span>
                             </button>
                             <button
                                 type="button"
@@ -1860,8 +1861,8 @@ const App: React.FC = () => {
                                 onFocus={() => primeViewChunk('hof')}
                                 className={mobileBottomNavItemClass(view === 'hof')}
                             >
-                                <Trophy className="h-5 w-5" />
-                                <span className="truncate">{t('hof')}</span>
+                                <span className={mobileBottomNavIconClass(view === 'hof')}><Trophy className="h-5 w-5" /></span>
+                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'hof')}`}>{t('hof')}</span>
                             </button>
                             <button
                                 type="button"
@@ -1871,8 +1872,8 @@ const App: React.FC = () => {
                                 onFocus={() => primeViewChunk('player_area')}
                                 className={mobileBottomNavItemClass(view === 'player_area')}
                             >
-                                <UserRound className="h-5 w-5" />
-                                <span className="truncate">{t('player_area')}</span>
+                                <span className={mobileBottomNavIconClass(view === 'player_area')}><UserRound className="h-5 w-5" /></span>
+                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'player_area')}`}>{t('player_area')}</span>
                             </button>
                         </div>
                     </nav>
