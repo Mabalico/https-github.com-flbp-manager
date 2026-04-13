@@ -583,19 +583,19 @@ export const readPlayerFeatureStatus = (): PlayerFeatureStatus => {
   };
 };
 
+const resolveTeamPlayerKey = (
+  state: AppState,
+  name?: string | null,
+  birthDate?: string | null,
+  yob?: number | null
+) => {
+  if (!name) return '';
+  return resolvePlayerKey(state, getPlayerKey(name, pickPlayerIdentityValue(birthDate, yob)));
+};
+
 const teamContainsCanonicalPlayer = (state: AppState, team: Team, canonicalPlayerId: string) => {
-  const p1Key = team.player1
-    ? resolvePlayerKey(
-        state,
-        getPlayerKey(team.player1, pickPlayerIdentityValue((team as any).player1BirthDate, team.player1YoB))
-      )
-    : '';
-  const p2Key = team.player2
-    ? resolvePlayerKey(
-        state,
-        getPlayerKey(team.player2, pickPlayerIdentityValue((team as any).player2BirthDate, team.player2YoB))
-      )
-    : '';
+  const p1Key = resolveTeamPlayerKey(state, team.player1, (team as any).player1BirthDate, team.player1YoB);
+  const p2Key = resolveTeamPlayerKey(state, team.player2, (team as any).player2BirthDate, team.player2YoB);
   return p1Key === canonicalPlayerId || p2Key === canonicalPlayerId;
 };
 
@@ -724,31 +724,36 @@ export const cancelPreviewTeamCall = (tournamentId: string, teamId: string): Pla
   return next;
 };
 
-const deriveRefereeBypassEligible = (state: AppState, profile: PlayerRuntimeProfile | null, linkedTeam: Team | null) => {
-  if (!profile || !state.tournament) return false;
-  if (linkedTeam) {
-    const canonical = resolvePlayerKey(state, profile.canonicalPlayerId);
-    const p1Key = linkedTeam.player1
-      ? resolvePlayerKey(
-          state,
-          getPlayerKey(linkedTeam.player1, pickPlayerIdentityValue((linkedTeam as any).player1BirthDate, linkedTeam.player1YoB))
-        )
-      : '';
-    const p2Key = linkedTeam.player2
-      ? resolvePlayerKey(
-          state,
-          getPlayerKey(linkedTeam.player2, pickPlayerIdentityValue((linkedTeam as any).player2BirthDate, linkedTeam.player2YoB))
-        )
-      : '';
-    if (p1Key === canonical && (!!(linkedTeam as any).player1IsReferee || (!!linkedTeam.isReferee && !(linkedTeam as any).player2IsReferee))) {
-      return true;
+export const findRefereeBypassNameForProfile = (state: AppState, profile: PlayerRuntimeProfile | null) => {
+  if (!profile || !state.tournament) return '';
+  const canonical = resolvePlayerKey(state, profile.canonicalPlayerId);
+  const liveTeams = Array.isArray(state.tournament.teams) ? state.tournament.teams : [];
+  for (const team of liveTeams) {
+    const p1Key = resolveTeamPlayerKey(state, team.player1, (team as any).player1BirthDate, team.player1YoB);
+    const p2Key = resolveTeamPlayerKey(state, team.player2, (team as any).player2BirthDate, team.player2YoB);
+    const p1Ref = !!(team as any).player1IsReferee || (!!team.isReferee && !(team as any).player2IsReferee);
+    const p2Ref = !!(team as any).player2IsReferee;
+    if (p1Key === canonical && p1Ref) {
+      return String(team.player1 || profile.canonicalPlayerName || '').trim();
     }
-    if (p2Key === canonical && !!(linkedTeam as any).player2IsReferee) return true;
+    if (p2Key === canonical && p2Ref) {
+      return String(team.player2 || profile.canonicalPlayerName || '').trim();
+    }
   }
 
   const roster = Array.isArray((state.tournament as any)?.refereesRoster) ? ((state.tournament as any).refereesRoster as string[]) : [];
-  const fullName = `${profile.lastName} ${profile.firstName}`.trim().toLowerCase();
-  return roster.some((row) => String(row || '').trim().toLowerCase() === fullName);
+  const candidateNames = new Set(
+    [profile.canonicalPlayerName, `${profile.lastName} ${profile.firstName}`.trim()]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .map((value) => value.toLowerCase())
+  );
+  const rosterName = roster.find((row) => candidateNames.has(String(row || '').trim().toLowerCase()));
+  return String(rosterName || '').trim();
+};
+
+const deriveRefereeBypassEligible = (state: AppState, profile: PlayerRuntimeProfile | null, _linkedTeam: Team | null) => {
+  return !!findRefereeBypassNameForProfile(state, profile);
 };
 
 export const derivePlayerLiveStatus = (

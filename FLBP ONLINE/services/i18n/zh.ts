@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "锦标赛",
   "admin": "管理区",
   "referees_area": "裁判区",
+  "referees_checking_player_bypass": "正在检查你的玩家账号是否已获准担任当前实时赛事的裁判。",
   "teams": "团队",
   "new_team": "新",
   "advanced_actions": "提前",

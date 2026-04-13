@@ -8,11 +8,11 @@ import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
-import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
+import { ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
-import { buildPlayerAreaSnapshot } from '../services/playerAppService';
+import { buildPlayerAreaSnapshot, findRefereeBypassNameForProfile, toPlayerRuntimeProfile } from '../services/playerAppService';
 import { tryMergeRemoteStateConflict } from '../services/stateConflictMerge';
 
 interface RefereesAreaProps {
@@ -59,6 +59,18 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         && !isLocalOnlyMode()
         && !!getSupabaseConfig()
         && !getSupabaseAccessToken();
+    const initialPlayerSession = getPlayerSupabaseSession();
+    const [liveRefereeBypassName, setLiveRefereeBypassName] = useState('');
+    const [liveRefereeBypassChecking, setLiveRefereeBypassChecking] = useState<boolean>(() =>
+        !!initialLiveId
+        && !previewRefereeBypass
+        && !!initialPlayerSession?.accessToken
+        && initialPlayerSession.flowType !== 'recovery'
+        && !isLocalOnlyMode()
+        && !!getSupabaseConfig()
+    );
+    const liveRefereeBypass = previewRefereeBypass || !!liveRefereeBypassName;
+    const liveRefereeBypassSelectedName = liveRefereeBypassName || previewRefereeName;
 
     const [authed, setAuthed] = useState<boolean>(() => {
         try {
@@ -121,6 +133,53 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         && !!getSupabaseConfig()
         && !getSupabaseAccessToken();
 
+    useEffect(() => {
+        let cancelled = false;
+        const liveId = liveTournament?.id || '';
+        const cfg = getSupabaseConfig();
+        const storedPlayerSession = getPlayerSupabaseSession();
+        if (!liveId || isLocalOnlyMode() || !cfg || !storedPlayerSession?.accessToken || storedPlayerSession.flowType === 'recovery') {
+            setLiveRefereeBypassName('');
+            setLiveRefereeBypassChecking(false);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        setLiveRefereeBypassChecking(true);
+        void (async () => {
+            try {
+                const session = await ensureFreshPlayerSupabaseSession();
+                if (!session?.accessToken || session.flowType === 'recovery') {
+                    if (!cancelled) setLiveRefereeBypassName('');
+                    return;
+                }
+                const profileRow = await pullPlayerAppProfile();
+                const runtimeProfile = profileRow
+                    ? toPlayerRuntimeProfile({
+                        accountId: profileRow.user_id,
+                        firstName: profileRow.first_name,
+                        lastName: profileRow.last_name,
+                        birthDate: profileRow.birth_date,
+                        canonicalPlayerId: profileRow.canonical_player_id || '',
+                        canonicalPlayerName: String(profileRow.canonical_player_name || '').trim()
+                            || `${profileRow.last_name || ''} ${profileRow.first_name || ''}`.trim(),
+                    })
+                    : null;
+                const bypassName = findRefereeBypassNameForProfile(state, runtimeProfile);
+                if (!cancelled) setLiveRefereeBypassName(bypassName);
+            } catch {
+                if (!cancelled) setLiveRefereeBypassName('');
+            } finally {
+                if (!cancelled) setLiveRefereeBypassChecking(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [state, liveTournament?.id]);
+
     // Keep auth scoped to the current live tournament.
     useEffect(() => {
         const liveId = liveTournament?.id || '';
@@ -135,7 +194,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
         try {
             const liveAuthVersion = String((liveTournament as any)?.refereesAuthVersion || '').trim();
-            if (previewRefereeBypass) {
+            if (liveRefereeBypass) {
                 if (!authed) setAuthed(true);
                 return;
             }
@@ -151,7 +210,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         } catch {
             if (authed) setAuthed(false);
         }
-    }, [liveTournament?.id, (liveTournament as any)?.refereesAuthVersion, authed, requiresTransientRefereeSecret, previewRefereeBypass]);
+    }, [liveTournament?.id, (liveTournament as any)?.refereesAuthVersion, authed, requiresTransientRefereeSecret, liveRefereeBypass]);
 
     useEffect(() => {
         syncedPasswordRef.current = '';
@@ -393,11 +452,17 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
     };
 
     useEffect(() => {
-        if (!previewRefereeBypass) return;
-        if (!previewRefereeName) return;
-        if (selectedReferee) return;
-        persistSelectedReferee(previewRefereeName);
-    }, [previewRefereeBypass, previewRefereeName, selectedReferee]);
+        if (!liveRefereeBypass) return;
+        if (!liveRefereeBypassSelectedName) return;
+        const current = normalizeName(selectedReferee).toLowerCase();
+        const next = normalizeName(liveRefereeBypassSelectedName).toLowerCase();
+        if (current !== next) {
+            persistSelectedReferee(liveRefereeBypassSelectedName);
+        }
+        if (page === 'select') {
+            setPage('match');
+        }
+    }, [liveRefereeBypass, liveRefereeBypassSelectedName, page, selectedReferee]);
 
     const persistReportCode = (code: string) => {
         const c = (code || '').trim().toUpperCase();
@@ -1301,6 +1366,22 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         >
                             {t('back')}
                         </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!authed && liveRefereeBypassChecking) {
+        return (
+            <div className="min-h-[70vh] flex items-center justify-center p-4">
+                <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center gap-2 text-2xl font-black tracking-tight">
+                        <Repeat2 className="w-6 h-6 animate-spin text-slate-500" />
+                        <span>{t('referees_area')}</span>
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-900">
+                        {t('referees_checking_player_bypass')}
                     </div>
                 </div>
             </div>

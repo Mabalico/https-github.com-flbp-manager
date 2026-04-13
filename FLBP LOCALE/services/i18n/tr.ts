@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "Turnuvalar",
   "admin": "Yönetici Alanı",
   "referees_area": "Hakem Alanı",
+  "referees_checking_player_bypass": "Oyuncu hesabının canlı turnuva için hakem olarak yetkili olup olmadığını kontrol ediyorum.",
   "teams": "Takımlar",
   "new_team": "Yeni",
   "advanced_actions": "İlerleme",

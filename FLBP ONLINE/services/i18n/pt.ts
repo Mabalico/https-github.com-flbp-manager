@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "Torneios",
   "admin": "Área administrativa",
   "referees_area": "Área de Arbitragem",
+  "referees_checking_player_bypass": "A verificar se a tua conta de jogador está habilitada como árbitro para o torneio ao vivo.",
   "teams": "Equipes",
   "new_team": "Novo",
   "advanced_actions": "Avançar",

@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "البطولات",
   "admin": "المنطقة الادارية",
   "referees_area": "منطقة الحكام",
+  "referees_checking_player_bypass": "أتحقق مما إذا كان حساب اللاعب مفعّلًا كحكم للبطولة المباشرة.",
   "teams": "فرق",
   "new_team": "جديد",
   "advanced_actions": "تقدم",

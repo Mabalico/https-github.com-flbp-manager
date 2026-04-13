@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "Turniere",
   "admin": "Admin-Bereich",
   "referees_area": "Schiedsrichterbereich",
+  "referees_checking_player_bypass": "Ich prüfe, ob dein Spielerkonto für das Live-Turnier als Schiedsrichter freigeschaltet ist.",
   "teams": "Mannschaften",
   "new_team": "Neu",
   "advanced_actions": "Vorwärts",

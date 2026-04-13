@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "Turnieje",
   "admin": "Strefa administracyjna",
   "referees_area": "Strefa sędziowska",
+  "referees_checking_player_bypass": "Sprawdzam, czy Twoje konto gracza jest uprawnione jako sędzia w turnieju live.",
   "teams": "Zespoły",
   "new_team": "Nowy",
   "advanced_actions": "Postęp",

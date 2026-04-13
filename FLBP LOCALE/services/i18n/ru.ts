@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "Турниры",
   "admin": "Админка",
   "referees_area": "Зона для судей",
+  "referees_checking_player_bypass": "Проверяю, включён ли ваш игровой аккаунт как судья для live-турнира.",
   "teams": "Команды",
   "new_team": "Новый",
   "advanced_actions": "заранее",

@@ -8,6 +8,7 @@ export const dictionary: TranslationDictionary = {
   "tournaments": "トーナメント",
   "admin": "管理エリア",
   "referees_area": "審判エリア",
+  "referees_checking_player_bypass": "プレイヤーアカウントがライブ大会の審判として有効か確認しています。",
   "teams": "チーム",
   "new_team": "新しい",
   "advanced_actions": "前進",
