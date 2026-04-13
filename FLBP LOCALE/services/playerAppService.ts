@@ -593,6 +593,37 @@ const resolveTeamPlayerKey = (
   return resolvePlayerKey(state, getPlayerKey(name, pickPlayerIdentityValue(birthDate, yob)));
 };
 
+const normalizeRefereeNameKey = (value: string) => {
+  const raw = String(value || '').trim().replace(/\s+/g, ' ');
+  if (!raw) return '';
+  try {
+    return raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  } catch {
+    return raw.toLowerCase();
+  }
+};
+
+const buildRefereeNameCandidateKeys = (profile: PlayerRuntimeProfile) => {
+  const candidateNames = new Set<string>();
+  const add = (value?: string | null) => {
+    const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+    if (!normalized) return;
+    const key = normalizeRefereeNameKey(normalized);
+    if (key) candidateNames.add(key);
+
+    const parts = normalized.split(' ').filter(Boolean);
+    if (parts.length === 2) {
+      const reversedKey = normalizeRefereeNameKey(`${parts[1]} ${parts[0]}`);
+      if (reversedKey) candidateNames.add(reversedKey);
+    }
+  };
+
+  add(profile.canonicalPlayerName);
+  add(`${profile.lastName} ${profile.firstName}`.trim());
+  add(`${profile.firstName} ${profile.lastName}`.trim());
+  return candidateNames;
+};
+
 const teamContainsCanonicalPlayer = (state: AppState, team: Team, canonicalPlayerId: string) => {
   const p1Key = resolveTeamPlayerKey(state, team.player1, (team as any).player1BirthDate, team.player1YoB);
   const p2Key = resolveTeamPlayerKey(state, team.player2, (team as any).player2BirthDate, team.player2YoB);
@@ -742,13 +773,8 @@ export const findRefereeBypassNameForProfile = (state: AppState, profile: Player
   }
 
   const roster = Array.isArray((state.tournament as any)?.refereesRoster) ? ((state.tournament as any).refereesRoster as string[]) : [];
-  const candidateNames = new Set(
-    [profile.canonicalPlayerName, `${profile.lastName} ${profile.firstName}`.trim()]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-      .map((value) => value.toLowerCase())
-  );
-  const rosterName = roster.find((row) => candidateNames.has(String(row || '').trim().toLowerCase()));
+  const candidateNames = buildRefereeNameCandidateKeys(profile);
+  const rosterName = roster.find((row) => candidateNames.has(normalizeRefereeNameKey(row)));
   return String(rosterName || '').trim();
 };
 

@@ -5,6 +5,20 @@ export interface MatchStats {
     soffi: number;
 }
 
+export type RefereeReportAuditSource = 'admin' | 'referee';
+
+export interface RefereeReportAuditEntry {
+    id: string;
+    matchId: string;
+    source: RefereeReportAuditSource;
+    refereeName: string;
+    savedAt: string;
+    scoreA: number;
+    scoreB: number;
+    scoresByTeam?: Record<string, number>;
+    stats?: MatchStats[];
+}
+
 export interface Match {
     id: string;
     teamAId?: string;
@@ -31,6 +45,12 @@ export interface Match {
     isTieBreak?: boolean;
     /** Target score for simulation/gameplay (default 10). For group tie-break usually 1. */
     targetScore?: number;
+    /** Live-only audit trail for reports saved by Admin or referees. Stripped from archived tournaments. */
+    refereeReportAudit?: RefereeReportAuditEntry[];
+    refereeReportFinalId?: string;
+    refereeReportSource?: RefereeReportAuditSource;
+    refereeReportAuthorName?: string;
+    refereeReportSavedAt?: string;
 }
 
 export type TournamentMatch = Match;

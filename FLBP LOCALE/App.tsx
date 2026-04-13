@@ -5,8 +5,8 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { clearPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession } from './services/supabaseRest';
-import { PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerPresenceSnapshot, clearPlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
+import { acknowledgePlayerAppCall, clearPlayerSupabaseSession, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullPlayerAppCalls, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession } from './services/supabaseRest';
+import { PLAYER_APP_CHANGE_EVENT, mapSupabaseCallRowToPlayerCallRequest, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerCallRequest, type PlayerPresenceSnapshot, clearPlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -16,7 +16,7 @@ import { readVitePublicDbRead } from './services/viteEnv';
 import {
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
-import { Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut } from 'lucide-react';
+import { BadgeCheck, BellRing, Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut } from 'lucide-react';
 
 type UiErrorBoundaryProps = {
     title: string;
@@ -199,6 +199,167 @@ export const useTranslation = () => {
         t,
         lang
     };
+};
+
+const GLOBAL_PLAYER_CALL_DISMISSED_KEY = 'flbp_global_player_call_dismissed_v1';
+
+const readDismissedGlobalPlayerCallId = () => {
+    try {
+        return sessionStorage.getItem(GLOBAL_PLAYER_CALL_DISMISSED_KEY) || '';
+    } catch {
+        return '';
+    }
+};
+
+const writeDismissedGlobalPlayerCallId = (callId: string) => {
+    try {
+        sessionStorage.setItem(GLOBAL_PLAYER_CALL_DISMISSED_KEY, callId);
+    } catch {
+        // ignore
+    }
+};
+
+const GlobalPlayerCallNotice: React.FC<{
+    playerPresence: PlayerPresenceSnapshot | null;
+    onOpenPlayerArea: () => void;
+}> = ({ playerPresence, onOpenPlayerArea }) => {
+    const { t } = useTranslation();
+    const [activeCall, setActiveCall] = useState<PlayerCallRequest | null>(null);
+    const [dismissedCallId, setDismissedCallId] = useState(() => readDismissedGlobalPlayerCallId());
+    const [ackBusy, setAckBusy] = useState(false);
+
+    useEffect(() => {
+        if (playerPresence?.mode !== 'live') {
+            setActiveCall(null);
+            return;
+        }
+
+        let cancelled = false;
+        const refresh = async () => {
+            try {
+                const session = await ensureFreshPlayerSupabaseSession();
+                if (!session?.accessToken) {
+                    if (!cancelled) setActiveCall(null);
+                    return;
+                }
+                const rows = await pullPlayerAppCalls();
+                const nextCall = rows
+                    .map(mapSupabaseCallRowToPlayerCallRequest)
+                    .filter((call) => call.status === 'ringing' || call.status === 'acknowledged')
+                    .sort((a, b) => b.requestedAt - a.requestedAt)[0] || null;
+                if (!cancelled) setActiveCall(nextCall);
+            } catch (error) {
+                console.warn('FLBP global player call refresh failed', error);
+                if (!cancelled) setActiveCall(null);
+            }
+        };
+
+        const refreshNow = () => { void refresh(); };
+        refreshNow();
+        const intervalId = window.setInterval(refreshNow, 12000);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') refreshNow();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', refreshNow);
+        window.addEventListener(PLAYER_APP_CHANGE_EVENT, refreshNow as EventListener);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', refreshNow);
+            window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refreshNow as EventListener);
+        };
+    }, [playerPresence?.accountId, playerPresence?.mode]);
+
+    if (!activeCall || activeCall.id === dismissedCallId) return null;
+
+    const dismiss = () => {
+        writeDismissedGlobalPlayerCallId(activeCall.id);
+        setDismissedCallId(activeCall.id);
+    };
+
+    const openPlayerArea = () => {
+        dismiss();
+        onOpenPlayerArea();
+    };
+
+    const acknowledge = async () => {
+        if (!activeCall?.id || ackBusy) return;
+        setAckBusy(true);
+        try {
+            await acknowledgePlayerAppCall(activeCall.id);
+            setActiveCall({
+                ...activeCall,
+                status: 'acknowledged',
+                acknowledgedAt: Date.now(),
+            });
+            window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+        } catch (error) {
+            console.warn('FLBP global player call acknowledge failed', error);
+        } finally {
+            setAckBusy(false);
+        }
+    };
+
+    const teamName = activeCall.teamName || 'la tua squadra';
+    const alreadyAcknowledged = activeCall.status === 'acknowledged';
+    const callBody = t('global_player_call_body').replace('{team}', teamName);
+
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="global-player-call-title">
+            <div className="w-full max-w-lg overflow-hidden rounded-[30px] border border-amber-200/40 bg-white shadow-2xl shadow-slate-950/30">
+                <div className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-6 py-6 text-white">
+                    <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-amber-400/20 blur-2xl" aria-hidden />
+                    <div className="relative flex items-start gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-amber-300/50 bg-amber-400/20 text-amber-200">
+                            <BellRing className="h-7 w-7" />
+                        </div>
+                        <div className="min-w-0">
+                            <div id="global-player-call-title" className="text-2xl font-black tracking-tight">{t('global_player_call_title')}</div>
+                            <p className="mt-2 text-sm font-semibold leading-6 text-white/80">
+                                {callBody}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div className="space-y-4 px-6 py-5">
+                    {alreadyAcknowledged ? (
+                        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                            <BadgeCheck className="h-4 w-4" />
+                            {t('global_player_call_confirmed')}
+                        </div>
+                    ) : null}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                            type="button"
+                            onClick={acknowledge}
+                            disabled={ackBusy || alreadyAcknowledged}
+                            className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl bg-amber-400 px-4 py-2 text-sm font-black text-slate-950 shadow-sm transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            <BadgeCheck className="h-4 w-4" />
+                            {ackBusy ? t('global_player_call_confirming') : alreadyAcknowledged ? t('global_player_call_confirmed_button') : t('global_player_call_confirm')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={openPlayerArea}
+                            className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm transition hover:bg-slate-50"
+                        >
+                            {t('global_player_call_open_area')}
+                        </button>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={dismiss}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black text-slate-600 transition hover:bg-slate-100"
+                    >
+                        {t('global_player_call_close')}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const assertTvProjectionSafe = (val: string | null | undefined): TvProjection => {
@@ -1292,6 +1453,10 @@ const App: React.FC = () => {
         <LanguageContext.Provider value={language}>
             <TranslationDictionariesContext.Provider value={translationDictionaries}>
             <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+                <GlobalPlayerCallNotice
+                    playerPresence={playerPresence}
+                    onOpenPlayerArea={() => { void navigateToView('player_area'); }}
+                />
                 {/* Sidebar Menu */}
                 <div className={`fixed inset-y-0 left-0 bg-white w-64 shadow-2xl z-40 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                     <div className="p-6 flex justify-between items-start border-b border-slate-100">

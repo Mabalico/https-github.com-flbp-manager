@@ -26,6 +26,7 @@ import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
+import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
 
 
 const loadTeamsTabModule = () => import('./admin/tabs/TeamsTab');
@@ -2617,13 +2618,62 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
 
     const handleUpdateLiveMatch = (updated: Match) => {
         const nextMatches = (state.tournamentMatches || []).map(m =>
-            m.id === updated.id ? { ...m, ...updated } : m
+            m.id === updated.id
+                ? (() => {
+                    const next = { ...m, ...updated };
+                    const baseStats = JSON.stringify(m.stats || []);
+                    const nextStats = JSON.stringify(next.stats || []);
+                    const baseScoresByTeam = JSON.stringify(m.scoresByTeam || null);
+                    const nextScoresByTeam = JSON.stringify(next.scoresByTeam || null);
+                    const reportChanged = next.status === 'finished' && (
+                        m.status !== next.status ||
+                        m.played !== next.played ||
+                        m.scoreA !== next.scoreA ||
+                        m.scoreB !== next.scoreB ||
+                        baseStats !== nextStats ||
+                        baseScoresByTeam !== nextScoresByTeam
+                    );
+                    return reportChanged
+                        ? withRefereeReportAudit(m, next, { source: 'admin', refereeName: 'Admin' })
+                        : next;
+                })()
+                : m
         );
         // Keep tournament.matches in sync for parts of the app that read from the tournament object.
         const nextTournament = state.tournament
             ? { ...state.tournament, matches: nextMatches }
             : state.tournament;
         setState({ ...state, tournament: nextTournament, tournamentMatches: nextMatches });
+    };
+
+    const handleDeleteLiveReport = (matchId: string) => {
+        if (!state.tournament) return;
+        const match = (state.tournamentMatches || []).find((m) => m.id === matchId);
+        if (!match) return;
+        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha già propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
+        if (!ok) return;
+        const nextMatches = (state.tournamentMatches || []).map((m) =>
+            m.id === matchId ? clearRefereeReportFromMatch(m) : m
+        );
+        const nextTournament = { ...state.tournament, matches: nextMatches };
+        setState({ ...state, tournament: nextTournament, tournamentMatches: nextMatches });
+    };
+
+    const prepareRefereeCounterEmailDraft = (snapshot: AppState) => {
+        const rows = buildRefereeReportCounterRows(snapshot.tournamentMatches || []);
+        if (!rows.length) return;
+        const tournamentName = snapshot.tournament?.name || 'Torneo FLBP';
+        const body = [
+            `Riepilogo arbitraggi - ${tournamentName}`,
+            '',
+            ...rows.map((row) => `${row.name}: ${row.count} partite arbitrate`),
+        ].join('\n');
+        const subject = `Riepilogo arbitraggi - ${tournamentName}`;
+        try {
+            window.location.href = `mailto:info@flbp.it?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        } catch {
+            // If the device has no mail client configured, the tournament close must not fail.
+        }
     };
 
     const handleUpdateTournamentAndMatches = (tournament: TournamentData, matches: Match[]) => {
@@ -3266,7 +3316,7 @@ while (guard < 5000) {
             updated.stats = nextStats.length ? nextStats : updated.stats;
         }
 
-        matches[idx] = updated;
+        matches[idx] = withRefereeReportAudit(base, updated, { source: 'admin', refereeName: 'Admin' });
 
         // Sync bracket from groups when in groups+elimination mode (fills placeholders / reseeds when groups are complete).
         let finalMatches = matches;
@@ -4117,6 +4167,7 @@ while (guard < 5000) {
                     setRefTables={setRefTables}
                     getTeamName={getTeamName}
                     updateLiveRefereesPassword={updateLiveRefereesPassword}
+                    onDeleteReport={handleDeleteLiveReport}
                 />
             )}
 
@@ -4172,6 +4223,7 @@ while (guard < 5000) {
         onClose={() => { setMvpModalOpen(false); setMvpModalForArchive(false); setArchiveIncludeU25Awards(true); }}
         onArchiveWithoutMvp={() => {
             // Archivia anche senza MVP (premi automatici = campioni + classifica marcatori).
+            prepareRefereeCounterEmailDraft(state);
             const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
             setState(next);
             setMvpModalOpen(false);
@@ -4185,6 +4237,7 @@ while (guard < 5000) {
             }
             if (mvpModalForArchive) {
                 let next = applyMvpsToState(state, mvpSelectedIds);
+                prepareRefereeCounterEmailDraft(next);
                 next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
                 setState(next);
                 setMvpModalOpen(false);
