@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -50,18 +52,20 @@ private class NativePushJavascriptBridge(
     private val onRequestPermission: () -> Unit,
     private val onRefreshRegistration: () -> Unit,
 ) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     @JavascriptInterface
     fun getRegistrationJson(): String = NativePushRegistry.registrationJson(context)
 
     @JavascriptInterface
     fun requestPermission(): String {
-        onRequestPermission()
+        mainHandler.post { onRequestPermission() }
         return NativePushRegistry.registrationJson(context)
     }
 
     @JavascriptInterface
     fun refreshRegistration(): String {
-        onRefreshRegistration()
+        mainHandler.post { onRefreshRegistration() }
         return NativePushRegistry.registrationJson(context)
     }
 }

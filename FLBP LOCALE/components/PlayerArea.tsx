@@ -426,6 +426,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
   const liveRuntimeRequestRef = React.useRef(0);
+  const nativePushPermissionRequestedRef = React.useRef(false);
+  const nativePushSyncKeyRef = React.useRef('');
   const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
 
   const syncUnifiedAuthFromPlayerSession = React.useCallback((session: PlayerSupabaseSession | null) => {
@@ -505,6 +507,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     return subscribeNativePushRegistration(setNativePushRegistration);
   }, [embeddedNativeShell]);
 
+  const persistNativePushRegistration = React.useCallback((registration: NativePushRegistrationSnapshot | null) => {
+    if (!registration?.deviceId) return Promise.resolve(null);
+    return registerPlayerAppDevice({
+      id: registration.deviceId,
+      platform: registration.platform,
+      deviceToken: registration.deviceToken,
+      pushEnabled: registration.permission === 'granted' && !!registration.deviceToken,
+    });
+  }, []);
+
   const syncLiveDeviceRegistration = React.useCallback(async () => {
     if (!liveBackendEnabled) return null;
     if (!embeddedNativeShell) return null;
@@ -514,21 +526,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       return null;
     }
 
-    if (registration.permission === 'prompt') {
-      const hasPrompted = (() => {
-        try {
-          return localStorage.getItem(PLAYER_NATIVE_PUSH_PROMPT_KEY) === '1';
-        } catch {
-          return false;
-        }
-      })();
-      if (!hasPrompted) {
-        try {
-          localStorage.setItem(PLAYER_NATIVE_PUSH_PROMPT_KEY, '1');
-        } catch {
-          // ignore
-        }
-        registration = await requestNativePushPermission();
+    if (registration.permission === 'prompt' && !nativePushPermissionRequestedRef.current) {
+      nativePushPermissionRequestedRef.current = true;
+      try {
+        localStorage.setItem(PLAYER_NATIVE_PUSH_PROMPT_KEY, '1');
+      } catch {
+        // ignore
+      }
+      const requestedRegistration = await requestNativePushPermission();
+      if (requestedRegistration) {
+        registration = requestedRegistration;
       }
     }
 
@@ -536,13 +543,44 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     if (!registration?.deviceId) return null;
 
     setNativePushRegistration(registration);
-    return registerPlayerAppDevice({
-      id: registration.deviceId,
-      platform: registration.platform,
-      deviceToken: registration.deviceToken,
-      pushEnabled: registration.permission === 'granted' && !!registration.deviceToken,
+    return persistNativePushRegistration(registration);
+  }, [embeddedNativeShell, liveBackendEnabled, persistNativePushRegistration]);
+
+  React.useEffect(() => {
+    if (!liveBackendEnabled || !embeddedNativeShell || liveAuthFlow === 'recovery' || !liveSession?.accessToken || !nativePushRegistration?.deviceId) return;
+    const syncKey = [
+      liveSession.userId || '',
+      nativePushRegistration.deviceId,
+      nativePushRegistration.deviceToken || '',
+      nativePushRegistration.permission,
+      nativePushRegistration.pushEnabled ? '1' : '0',
+      nativePushRegistration.configReady ? '1' : '0',
+    ].join('|');
+    if (nativePushSyncKeyRef.current === syncKey) return;
+    nativePushSyncKeyRef.current = syncKey;
+    let cancelled = false;
+    void persistNativePushRegistration(nativePushRegistration).catch((error) => {
+      if (cancelled) return;
+      nativePushSyncKeyRef.current = '';
+      console.warn('FLBP native push device sync failed', error);
     });
-  }, [embeddedNativeShell, liveBackendEnabled]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    embeddedNativeShell,
+    liveAuthFlow,
+    liveBackendEnabled,
+    liveSession?.accessToken,
+    liveSession?.userId,
+    nativePushRegistration?.configReady,
+    nativePushRegistration?.deviceId,
+    nativePushRegistration?.deviceToken,
+    nativePushRegistration?.permission,
+    nativePushRegistration?.platform,
+    nativePushRegistration?.pushEnabled,
+    persistNativePushRegistration,
+  ]);
 
   React.useEffect(() => {
     if (liveRuntimeArmed || liveSession?.accessToken) {

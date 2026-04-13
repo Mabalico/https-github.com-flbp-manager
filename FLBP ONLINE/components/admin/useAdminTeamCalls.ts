@@ -18,6 +18,7 @@ import {
   getSupabaseConfig,
   pullAdminPlayerCalls,
   pullAdminPlayerCallTargets,
+  type PlayerCallPushDispatchResult,
 } from '../../services/supabaseRest';
 
 type LiveCallTarget = {
@@ -41,6 +42,27 @@ export interface AdminTeamCallMeta {
   activeCall: PlayerCallRequest | null;
   liveTarget: LiveCallTarget | undefined;
 }
+
+const getPushDispatchWarning = (result: PlayerCallPushDispatchResult | null | undefined) => {
+  if (!result) return null;
+  if (result.skipped) {
+    return result.reason || 'nessun dispositivo con notifiche attive trovato per questo giocatore';
+  }
+  const deliveries = Array.isArray(result.deliveries) ? result.deliveries : [];
+  const failed = deliveries.filter((delivery) => !delivery.ok);
+  if (!deliveries.length && result.ok === false) {
+    return result.reason || 'la funzione push non ha restituito consegne valide';
+  }
+  if (failed.length && failed.length === deliveries.length) {
+    return failed[0]?.reason || 'tutti i dispositivi hanno rifiutato la notifica';
+  }
+  return null;
+};
+
+const getPushErrorMessage = (error: unknown) => {
+  const raw = String((error as { message?: unknown } | null)?.message ?? error ?? '').trim();
+  return raw || 'errore sconosciuto durante l’invio della notifica';
+};
 
 export const useAdminTeamCalls = (state: AppState) => {
   const [callRefreshNonce, setCallRefreshNonce] = React.useState(0);
@@ -223,12 +245,23 @@ export const useAdminTeamCalls = (state: AppState) => {
         const callId = String((result as any)?.call_id || '').trim();
         if (callId) {
           try {
-            await dispatchPlayerCallPush({
+            const pushResult = await dispatchPlayerCallPush({
               callId,
               action: 'ringing',
             });
+            const pushWarning = getPushDispatchWarning(pushResult);
+            if (pushWarning) {
+              setCallRefreshNonce((value) => value + 1);
+              throw new Error(`Chiamata registrata, ma notifica push non inviata: ${pushWarning}`);
+            }
           } catch (pushError) {
+            const pushMessage = getPushErrorMessage(pushError);
             console.warn('FLBP call push dispatch failed after ring', pushError);
+            setCallRefreshNonce((value) => value + 1);
+            if (/^Chiamata registrata, ma notifica push non inviata:/i.test(pushMessage)) {
+              throw pushError;
+            }
+            throw new Error(`Chiamata registrata, ma notifica push non inviata: ${pushMessage}`);
           }
         }
       }

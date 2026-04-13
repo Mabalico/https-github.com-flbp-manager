@@ -118,20 +118,25 @@ const waitForNativePushRegistration = (timeoutMs = 1600): Promise<NativePushRegi
   });
 };
 
-const invokeBridgeMethod = async (method: keyof NativePushBridge): Promise<NativePushRegistrationSnapshot | null> => {
+const invokeBridgeMethod = async (
+  method: keyof NativePushBridge,
+  options: { waitForFreshSnapshot?: boolean; timeoutMs?: number } = {}
+): Promise<NativePushRegistrationSnapshot | null> => {
   const bridge = readBridge();
   const fn = bridge?.[method];
   if (!fn) return readNativePushRegistration();
   try {
     const immediate = tryParseRegistrationJson(fn());
-    return immediate || await waitForNativePushRegistration();
+    if (!options.waitForFreshSnapshot && immediate && immediate.permission !== 'prompt') return immediate;
+    const fromEvent = await waitForNativePushRegistration(options.timeoutMs ?? (options.waitForFreshSnapshot ? 6000 : 1800));
+    return fromEvent || immediate || readNativePushRegistration();
   } catch {
-    return await waitForNativePushRegistration();
+    return await waitForNativePushRegistration(options.timeoutMs ?? (options.waitForFreshSnapshot ? 6000 : 1800));
   }
 };
 
 export const requestNativePushPermission = async (): Promise<NativePushRegistrationSnapshot | null> =>
-  invokeBridgeMethod('requestPermission');
+  invokeBridgeMethod('requestPermission', { waitForFreshSnapshot: true });
 
 export const refreshNativePushRegistration = async (): Promise<NativePushRegistrationSnapshot | null> =>
   invokeBridgeMethod('refreshRegistration');
