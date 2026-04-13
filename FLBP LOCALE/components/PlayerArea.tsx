@@ -115,6 +115,54 @@ const schedulePlayerAreaTask = (task: () => void) => {
   return () => window.clearTimeout(timerId);
 };
 
+type LiveCallRequest = ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>;
+type RefreshLiveRuntimeOptions = { silent?: boolean };
+
+const sameNullableText = (left?: string | null, right?: string | null) => String(left || '') === String(right || '');
+
+const samePlayerSupabaseSession = (left: PlayerSupabaseSession | null, right: PlayerSupabaseSession | null) => {
+  if (!left || !right) return left === right;
+  return sameNullableText(left.accessToken, right.accessToken)
+    && sameNullableText(left.refreshToken, right.refreshToken)
+    && sameNullableText(left.expiresAt, right.expiresAt)
+    && sameNullableText(left.email, right.email)
+    && sameNullableText(left.userId, right.userId)
+    && sameNullableText(left.provider, right.provider)
+    && (left.flowType || 'session') === (right.flowType || 'session');
+};
+
+const sameLiveProfileRow = (left: PlayerSupabaseProfileRow | null, right: PlayerSupabaseProfileRow | null) => {
+  if (!left || !right) return left === right;
+  return sameNullableText(left.workspace_id, right.workspace_id)
+    && sameNullableText(left.user_id, right.user_id)
+    && sameNullableText(left.first_name, right.first_name)
+    && sameNullableText(left.last_name, right.last_name)
+    && sameNullableText(left.birth_date, right.birth_date)
+    && sameNullableText(left.canonical_player_id, right.canonical_player_id)
+    && sameNullableText(left.canonical_player_name, right.canonical_player_name)
+    && sameNullableText(left.created_at, right.created_at)
+    && sameNullableText(left.updated_at, right.updated_at);
+};
+
+const sameLiveCall = (left: LiveCallRequest, right: LiveCallRequest) => (
+  left.id === right.id
+  && left.tournamentId === right.tournamentId
+  && left.teamId === right.teamId
+  && left.teamName === right.teamName
+  && left.targetAccountId === right.targetAccountId
+  && left.targetPlayerId === right.targetPlayerId
+  && left.targetPlayerName === right.targetPlayerName
+  && left.requestedAt === right.requestedAt
+  && left.acknowledgedAt === right.acknowledgedAt
+  && left.cancelledAt === right.cancelledAt
+  && left.status === right.status
+  && left.previewOnly === right.previewOnly
+);
+
+const sameLiveCalls = (left: LiveCallRequest[], right: LiveCallRequest[]) => (
+  left.length === right.length && left.every((call, index) => sameLiveCall(call, right[index]))
+);
+
 const oneDecimalFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
@@ -410,7 +458,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
   const [liveRuntimeArmed, setLiveRuntimeArmed] = React.useState(initialLiveSessionPresent && !initialRecoveryFlow);
   const [liveCallRefreshNonce, setLiveCallRefreshNonce] = React.useState(0);
-  const [liveCalls, setLiveCalls] = React.useState<ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>[]>([]);
+  const [liveCalls, setLiveCalls] = React.useState<LiveCallRequest[]>([]);
   const [liveRuntimeStatus, setLiveRuntimeStatus] = React.useState<'disabled' | 'loading' | 'ready' | 'backend_pending' | 'error'>(
     initialLiveSessionPresent && !initialRecoveryFlow ? 'loading' : 'disabled'
   );
@@ -434,7 +482,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
 
   const syncUnifiedAuthFromPlayerSession = React.useCallback((session: PlayerSupabaseSession | null) => {
-    setLiveSession(session);
+    setLiveSession((current) => (samePlayerSupabaseSession(current, session) ? current : session));
     try {
       sessionStorage.removeItem(ADMIN_LEGACY_AUTH_LS_KEY);
     } catch {
@@ -664,7 +712,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     };
   }, [liveRuntimeArmed, liveSession?.accessToken, refreshNonce, safeSnapshot, state, t]);
 
-  const refreshLiveRuntime = React.useCallback(async (forcedSession?: PlayerSupabaseSession | null) => {
+  const refreshLiveRuntime = React.useCallback(async (
+    forcedSession?: PlayerSupabaseSession | null,
+    options: RefreshLiveRuntimeOptions = {}
+  ) => {
+    const silent = options.silent === true;
     const requestId = ++liveRuntimeRequestRef.current;
     const applyIfCurrent = (fn: () => void) => {
       if (liveRuntimeRequestRef.current !== requestId) return;
@@ -682,7 +734,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     }
 
     applyIfCurrent(() => {
-      setLiveRuntimeStatus('loading');
+      if (!silent) setLiveRuntimeStatus('loading');
       setLiveRuntimeError(null);
     });
 
@@ -702,7 +754,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       let backendPending = false;
       let pendingMessage = '';
       let nextProfile: PlayerSupabaseProfileRow | null = null;
-      let nextCalls: ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>[] = [];
+      let nextCalls: LiveCallRequest[] = [];
 
       try {
         await syncLiveDeviceRegistration();
@@ -744,12 +796,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
 
       applyIfCurrent(() => {
-        setLiveProfileRow(nextProfile);
-        setLiveCalls(nextCalls);
+        setLiveProfileRow((current) => (sameLiveProfileRow(current, nextProfile) ? current : nextProfile));
+        setLiveCalls((current) => (sameLiveCalls(current, nextCalls) ? current : nextCalls));
         setLiveRuntimeStatus(backendPending ? 'backend_pending' : 'ready');
         setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
       });
     } catch (error: any) {
+      if (silent) {
+        console.warn('[PlayerArea] Silent live runtime refresh failed', error);
+        return;
+      }
       const message = getPlayerAreaFriendlyErrorMessage(
         error,
         'Non siamo riusciti ad aggiornare l’area giocatore. Riprova tra un attimo.'
@@ -803,7 +859,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !liveRuntimeArmed || liveCallRefreshNonce === 0) return;
-    void refreshLiveRuntime();
+    void refreshLiveRuntime(undefined, { silent: true });
   }, [liveBackendEnabled, liveCallRefreshNonce, liveRuntimeArmed, refreshLiveRuntime]);
 
   React.useEffect(() => {
