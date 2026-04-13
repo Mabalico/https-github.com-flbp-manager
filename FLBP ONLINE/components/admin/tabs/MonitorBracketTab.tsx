@@ -82,7 +82,7 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
 
     // Lightweight Admin UI tokens (local): keeps toolbar controls consistent with other tabs.
     const toolbarInput =
-        'w-64 max-w-full pl-9 pr-9 px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-sm font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
+        'w-full sm:w-64 max-w-full pl-9 pr-9 px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-sm font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
     const btnSecondarySm =
         'px-3 py-2.5 rounded-xl font-black border border-slate-200 bg-white hover:bg-slate-50 text-xs disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
 
@@ -1325,10 +1325,10 @@ const handleSwapSlots = React.useCallback(() => {
     }, [state.tournament, state.tournamentMatches, integrity?.bracketLocked, tournamentTeams, handleUpdateTournamentAndMatches]);
 
     return (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-                <h3 className="text-xl font-black flex items-center gap-2">
+        <div className="max-w-full overflow-hidden bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+        <div className="flex min-w-0 max-w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 max-w-full">
+                <h3 className="flex max-w-full items-center gap-2 text-lg font-black sm:text-xl">
                     <LayoutDashboard className="w-5 h-5" /> Monitor Tabellone
                 </h3>
                 <div className="text-xs font-bold text-slate-500 mt-1">
@@ -1336,9 +1336,9 @@ const handleSwapSlots = React.useCallback(() => {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('monitor_bracket_toolbar_aria')}>
-                    <div className="relative">
+            <div className="flex min-w-0 max-w-full flex-col gap-2 sm:items-end">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('monitor_bracket_toolbar_aria')}>
+                    <div className="relative w-full sm:w-auto">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                             value={query}
