@@ -146,6 +146,8 @@ private struct NativeWebMirrorWebView: UIViewRepresentable {
                 NativePushRegistry.requestPermission()
             case "refreshregistration":
                 NativePushRegistry.refreshRegistration()
+            case "opensettings":
+                NativePushRegistry.openNotificationSettings()
             default:
                 break
             }

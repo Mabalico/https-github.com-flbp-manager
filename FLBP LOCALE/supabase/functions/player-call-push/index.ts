@@ -316,6 +316,7 @@ const sendIosPush = async (env: RuntimeEnv, device: DeviceRow, action: PushActio
       'apns-push-type': isSilentClear ? 'background' : 'alert',
       'apns-priority': isSilentClear ? '5' : '10',
       'apns-collapse-id': `call-${call.id}`,
+      'apns-expiration': isSilentClear ? '0' : String(Math.floor(Date.now() / 1000) + 3600),
       'content-type': 'application/json',
     },
     body: JSON.stringify({

@@ -68,6 +68,7 @@ import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchU
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import {
+  openNativePushSettings,
   readNativePushRegistration,
   refreshNativePushRegistration,
   requestNativePushPermission,
@@ -559,8 +560,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const confirmNativePushPermission = React.useCallback(async () => {
     setNativePushPermissionPromptOpen(false);
-    let registration = await requestNativePushPermission();
-    registration = registration || readNativePushRegistration() || nativePushPermissionRegistrationRef.current;
+    const pendingRegistration =
+      readNativePushRegistration() || nativePushPermissionRegistrationRef.current || nativePushRegistration;
+    const shouldOpenSettings = pendingRegistration?.platform === 'ios' && pendingRegistration.permission === 'denied';
+    let registration = await (shouldOpenSettings ? openNativePushSettings() : requestNativePushPermission());
+    registration = registration || readNativePushRegistration() || pendingRegistration;
     nativePushPermissionRegistrationRef.current = null;
     if (!registration?.deviceId) return;
 
@@ -570,7 +574,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     } catch (error) {
       console.warn('FLBP native push permission sync failed', error);
     }
-  }, [persistNativePushRegistration]);
+  }, [nativePushRegistration, persistNativePushRegistration]);
 
   const dismissNativePushPermission = React.useCallback(() => {
     nativePushPermissionRegistrationRef.current = null;

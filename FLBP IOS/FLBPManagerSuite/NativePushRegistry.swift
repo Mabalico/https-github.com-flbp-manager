@@ -12,6 +12,7 @@ struct NativePushRegistrationSnapshot {
     let deviceId: String
     let deviceToken: String?
     let permission: String
+    let permissionDetail: String
     let pushEnabled: Bool
     let configReady: Bool
     let appVersion: String?
@@ -24,6 +25,7 @@ struct NativePushRegistrationSnapshot {
             "deviceId": deviceId,
             "deviceToken": deviceToken,
             "permission": permission,
+            "permissionDetail": permissionDetail,
             "pushEnabled": pushEnabled,
             "configReady": configReady,
             "appVersion": appVersion,
@@ -40,6 +42,7 @@ struct NativePushRegistrationSnapshot {
 enum NativePushRegistry {
     private static let defaults = UserDefaults.standard
     private static let permissionKey = "flbp.native.push.permission"
+    private static let permissionDetailKey = "flbp.native.push.permission.detail"
     private static let tokenKey = "flbp.native.push.token"
     private static let errorKey = "flbp.native.push.error"
     static let bridgeEventName = "flbp-native-push-registration"
@@ -51,6 +54,9 @@ enum NativePushRegistry {
         let permission = defaults.string(forKey: permissionKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nonEmpty(or: "unknown") ?? "unknown"
+        let permissionDetail = defaults.string(forKey: permissionDetailKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty(or: nil) ?? defaultPermissionDetail(for: permission)
         let lastError = defaults.string(forKey: errorKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nonEmpty(or: nil)
@@ -64,6 +70,7 @@ enum NativePushRegistry {
             deviceId: deviceId,
             deviceToken: token,
             permission: permission,
+            permissionDetail: permissionDetail,
             pushEnabled: permission == "granted" && token != nil,
             configReady: true,
             appVersion: appVersion,
@@ -89,6 +96,12 @@ enum NativePushRegistry {
                 window.webkit.messageHandlers.flbpNativePush.postMessage({ type: 'refreshRegistration' });
               }
               return true;
+            },
+            openSettings: function () {
+              if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.flbpNativePush) {
+                window.webkit.messageHandlers.flbpNativePush.postMessage({ type: 'openSettings' });
+              }
+              return true;
             }
           };
         })();
@@ -112,18 +125,10 @@ enum NativePushRegistry {
 
     static func refreshRegistration() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            let permission: String
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
-                permission = "granted"
-            case .denied:
-                permission = "denied"
-            case .notDetermined:
-                permission = "prompt"
-            @unknown default:
-                permission = "unknown"
-            }
+            let snapshot = normalizedPermission(from: settings)
+            let permission = snapshot.permission
             defaults.set(permission, forKey: permissionKey)
+            defaults.set(snapshot.detail, forKey: permissionDetailKey)
             if permission == "granted" {
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
@@ -141,23 +146,27 @@ enum NativePushRegistry {
                 defaults.removeObject(forKey: errorKey)
             }
             defaults.set(granted ? "granted" : "denied", forKey: permissionKey)
+            defaults.set(granted ? "authorized" : "denied", forKey: permissionDetailKey)
             if granted {
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
-                }
-            } else {
-                DispatchQueue.main.async {
-                    openAppNotificationSettings()
                 }
             }
             postSnapshotChanged()
         }
     }
 
+    static func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        guard UIApplication.shared.canOpenURL(url) else { return }
+        UIApplication.shared.open(url)
+    }
+
     static func handleDeviceToken(_ deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         defaults.set(token, forKey: tokenKey)
         defaults.set("granted", forKey: permissionKey)
+        defaults.set("authorized", forKey: permissionDetailKey)
         defaults.removeObject(forKey: errorKey)
         postSnapshotChanged()
     }
@@ -171,15 +180,71 @@ enum NativePushRegistry {
         NotificationCenter.default.post(name: .flbpNativePushRegistrationDidChange, object: nil)
     }
 
-    private static func openAppNotificationSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        guard UIApplication.shared.canOpenURL(url) else { return }
-        UIApplication.shared.open(url)
-    }
-
     private static func jsonStringLiteral(_ value: String) -> String {
         let data = (try? JSONEncoder().encode(value)) ?? Data("\"{}\"".utf8)
         return String(data: data, encoding: .utf8) ?? "\"{}\""
+    }
+
+    private static func normalizedPermission(from settings: UNNotificationSettings) -> (permission: String, detail: String) {
+        switch settings.authorizationStatus {
+        case .authorized:
+            return ("granted", "authorized")
+        case .provisional:
+            return ("granted", "provisional")
+        case .ephemeral:
+            return ("granted", "ephemeral")
+        case .denied:
+            return ("denied", "denied")
+        case .notDetermined:
+            return ("prompt", "not_determined")
+        @unknown default:
+            return ("unknown", "unknown")
+        }
+    }
+
+    private static func defaultPermissionDetail(for permission: String) -> String {
+        switch permission {
+        case "prompt":
+            return "not_determined"
+        case "granted":
+            return "authorized"
+        case "denied":
+            return "denied"
+        default:
+            return "unknown"
+        }
+    }
+
+    fileprivate static func flbpPayload(from raw: Any?) -> [String: Any]? {
+        if let payload = raw as? [String: Any] {
+            return payload
+        }
+        guard let payload = raw as? [AnyHashable: Any] else {
+            return nil
+        }
+        return payload.reduce(into: [String: Any]()) { result, entry in
+            guard let key = entry.key as? String else { return }
+            result[key] = entry.value
+        }
+    }
+
+    fileprivate static func clearDeliveredCallNotifications(callId: String, completion: (() -> Void)? = nil) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let idsToRemove = delivered.compactMap { notification -> String? in
+                let info = notification.request.content.userInfo
+                guard let flbp = flbpPayload(from: info["flbp"]) else { return nil }
+                let notificationCallId = (flbp["callId"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return notificationCallId == callId ? notification.request.identifier : nil
+            }
+
+            if !idsToRemove.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: idsToRemove)
+            }
+
+            completion?()
+        }
     }
 }
 
@@ -214,7 +279,7 @@ final class NativeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         guard
-            let flbp = userInfo["flbp"] as? [String: Any],
+            let flbp = NativePushRegistry.flbpPayload(from: userInfo["flbp"]),
             let action = (flbp["action"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             let callId = (flbp["callId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
             !callId.isEmpty,
@@ -224,9 +289,10 @@ final class NativeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
             return
         }
 
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [callId, "call-\(callId)"])
-        NativePushRegistry.refreshRegistration()
-        completionHandler(.newData)
+        NativePushRegistry.clearDeliveredCallNotifications(callId: callId) {
+            NativePushRegistry.refreshRegistration()
+            completionHandler(.newData)
+        }
     }
 }
 

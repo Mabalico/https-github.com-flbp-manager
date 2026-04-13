@@ -1,6 +1,7 @@
 import { getNativeShellPlatform } from './nativeShell';
 
 export type NativePushPermissionState = 'prompt' | 'granted' | 'denied' | 'unsupported' | 'unknown';
+export type NativePushPermissionDetail = 'not_determined' | 'denied' | 'authorized' | 'provisional' | 'ephemeral' | 'unknown';
 export type NativePushProvider = 'fcm' | 'apns';
 
 export interface NativePushRegistrationSnapshot {
@@ -9,6 +10,7 @@ export interface NativePushRegistrationSnapshot {
   deviceId: string;
   deviceToken: string | null;
   permission: NativePushPermissionState;
+  permissionDetail: NativePushPermissionDetail;
   pushEnabled: boolean;
   configReady: boolean;
   appVersion: string | null;
@@ -21,6 +23,7 @@ type NativePushBridge = {
   getRegistrationJson?: () => string;
   requestPermission?: () => unknown;
   refreshRegistration?: () => unknown;
+  openSettings?: () => unknown;
 };
 
 declare global {
@@ -37,6 +40,18 @@ const normalizePermission = (value: unknown): NativePushPermissionState => {
   return 'unknown';
 };
 
+const normalizePermissionDetail = (value: unknown): NativePushPermissionDetail => {
+  const safe = String(value || '').trim().toLowerCase();
+  if (
+    safe === 'not_determined' ||
+    safe === 'denied' ||
+    safe === 'authorized' ||
+    safe === 'provisional' ||
+    safe === 'ephemeral'
+  ) return safe;
+  return 'unknown';
+};
+
 const normalizeSnapshot = (value: unknown): NativePushRegistrationSnapshot | null => {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
@@ -48,6 +63,7 @@ const normalizeSnapshot = (value: unknown): NativePushRegistrationSnapshot | nul
   const provider: NativePushProvider = providerRaw === 'apns' ? 'apns' : 'fcm';
   const token = String(raw.deviceToken || '').trim();
   const permission = normalizePermission(raw.permission);
+  const permissionDetail = normalizePermissionDetail(raw.permissionDetail);
   const configReady = raw.configReady === false ? false : true;
   const pushEnabled = raw.pushEnabled === true || (permission === 'granted' && !!token);
   const appVersion = String(raw.appVersion || '').trim() || null;
@@ -58,6 +74,7 @@ const normalizeSnapshot = (value: unknown): NativePushRegistrationSnapshot | nul
     deviceId,
     deviceToken: token || null,
     permission,
+    permissionDetail,
     pushEnabled,
     configReady,
     appVersion,
@@ -140,6 +157,9 @@ export const requestNativePushPermission = async (): Promise<NativePushRegistrat
 
 export const refreshNativePushRegistration = async (): Promise<NativePushRegistrationSnapshot | null> =>
   invokeBridgeMethod('refreshRegistration');
+
+export const openNativePushSettings = async (): Promise<NativePushRegistrationSnapshot | null> =>
+  invokeBridgeMethod('openSettings', { waitForFreshSnapshot: true, timeoutMs: 2400 });
 
 export const subscribeNativePushRegistration = (onChange: (snapshot: NativePushRegistrationSnapshot | null) => void) => {
   if (typeof window === 'undefined') return () => {};
