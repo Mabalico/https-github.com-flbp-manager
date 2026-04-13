@@ -124,6 +124,10 @@ const buildDataPayload = (action: PushAction, call: CallRow) => ({
 });
 
 const buildPushDataPayload = (action: PushAction, call: CallRow) => {
+  if (action === 'cancelled' || action === 'acknowledged') {
+    return buildDataPayload(action, call);
+  }
+
   const content = buildNotificationContent(action, call);
   return {
     ...buildDataPayload(action, call),

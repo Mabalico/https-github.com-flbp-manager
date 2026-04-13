@@ -125,11 +125,8 @@ fun NativeWebMirrorHost(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
+    ) { _ ->
         NativePushRegistry.refreshRegistration(context)
-        if (!granted || !areAppNotificationsEnabled(context)) {
-            openAppNotificationSettings(context)
-        }
     }
 
     val requestNotificationPermission = remember(context) {
@@ -142,9 +139,11 @@ fun NativeWebMirrorHost(
                 ) == PackageManager.PERMISSION_GRANTED
                 if (permissionGranted && areAppNotificationsEnabled(context)) {
                     NativePushRegistry.refreshRegistration(context)
-                } else if (!permissionGranted) {
+                } else if (!permissionGranted && !NativePushRegistry.hasRequestedNotificationPermission(context)) {
+                    NativePushRegistry.markNotificationPermissionRequested(context)
                     permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
+                    NativePushRegistry.refreshRegistration(context)
                     openAppNotificationSettings(context)
                 }
             } else if (areAppNotificationsEnabled(context)) {

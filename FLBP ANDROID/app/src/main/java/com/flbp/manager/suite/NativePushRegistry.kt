@@ -15,6 +15,7 @@ private const val PUSH_PREFS = "flbp_native_push"
 private const val KEY_DEVICE_ID = "device_id"
 private const val KEY_DEVICE_TOKEN = "device_token"
 private const val KEY_LAST_ERROR = "last_error"
+private const val KEY_PERMISSION_REQUESTED = "notification_permission_requested"
 
 data class NativePushRegistrationSnapshot(
     val platform: String,
@@ -86,6 +87,17 @@ object NativePushRegistry {
 
     fun registrationJson(context: Context): String = readSnapshot(context).toJsonString()
 
+    fun hasRequestedNotificationPermission(context: Context): Boolean =
+        context.getSharedPreferences(PUSH_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_PERMISSION_REQUESTED, false)
+
+    fun markNotificationPermissionRequested(context: Context) {
+        context.getSharedPreferences(PUSH_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_PERMISSION_REQUESTED, true)
+            .apply()
+    }
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = ContextCompat.getSystemService(context, android.app.NotificationManager::class.java) ?: return
@@ -137,14 +149,15 @@ object NativePushRegistry {
     }
 
     private fun notificationPermissionState(context: Context): String {
+        val appNotificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.POST_NOTIFICATIONS,
             ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) return "prompt"
+            if (!granted) return if (hasRequestedNotificationPermission(context)) "denied" else "prompt"
         }
-        return if (NotificationManagerCompat.from(context).areNotificationsEnabled()) "granted" else "denied"
+        return if (appNotificationsEnabled) "granted" else "denied"
     }
 
     private fun hasFirebaseConfig(context: Context): Boolean {

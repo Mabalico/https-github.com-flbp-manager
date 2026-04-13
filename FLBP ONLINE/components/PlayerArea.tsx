@@ -540,10 +540,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
     const shouldAskForNativePush =
       registration.configReady &&
-      !registration.pushEnabled &&
-      (registration.permission === 'prompt' ||
-        registration.permission === 'denied' ||
-        (registration.permission === 'granted' && !registration.deviceToken));
+      (registration.permission === 'prompt' || registration.permission === 'denied');
 
     if (shouldAskForNativePush && !nativePushPermissionRequestedRef.current) {
       nativePushPermissionRequestedRef.current = true;
@@ -579,6 +576,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     nativePushPermissionRegistrationRef.current = null;
     setNativePushPermissionPromptOpen(false);
   }, []);
+
+  const openNativePushPermissionPrompt = React.useCallback(() => {
+    const registration = readNativePushRegistration() || nativePushRegistration;
+    nativePushPermissionRegistrationRef.current = registration;
+    if (registration) {
+      setNativePushRegistration(registration);
+    }
+    setNativePushPermissionPromptOpen(true);
+  }, [nativePushRegistration]);
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !embeddedNativeShell || liveAuthFlow === 'recovery' || !liveSession?.accessToken || !nativePushRegistration?.deviceId) return;
@@ -948,6 +954,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               : nativePushRegistration.permission === 'granted'
                 ? 'Token mancante'
                 : 'In attesa device';
+  const canManuallyOpenNativePushPrompt =
+    embeddedNativeShell &&
+    !!nativePushRegistration?.configReady &&
+    (nativePushRegistration.permission === 'prompt' || nativePushRegistration.permission === 'denied');
+  const nativePushStatusMessage =
+    nativePushRegistration?.permission === 'granted' && !nativePushRegistration.deviceToken
+      ? 'Inizializzazione notifiche in corso. Non serve nessuna azione da parte tua.'
+      : activationPushLabel;
 
   React.useEffect(() => {
     if (!feedback || (effectiveSession && liveAuthFlow !== 'recovery')) {
@@ -1427,40 +1441,149 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setRefreshNonce((value) => value + 1);
   };
 
-  return (
-    <div className="p-4 md:p-6 space-y-5 [overflow-anchor:none]">
-      {nativePushPermissionPromptOpen ? (
-        <div className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-          <div className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
-            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
-                <BellRing className="h-6 w-6" />
+  const nativePushPromptModal =
+    nativePushPermissionPromptOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+            <div className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
+              <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
+                  <BellRing className="h-6 w-6" />
+                </div>
+                <div className="mt-4 text-2xl font-black tracking-tight">{t('player_native_push_prompt_title')}</div>
+                <p className="mt-2 text-sm font-semibold leading-6 text-white/78">
+                  {t('player_native_push_prompt_body')}
+                </p>
               </div>
-              <div className="mt-4 text-2xl font-black tracking-tight">{t('player_native_push_prompt_title')}</div>
-              <p className="mt-2 text-sm font-semibold leading-6 text-white/78">
-                {t('player_native_push_prompt_body')}
-              </p>
+              <div className="space-y-3 px-5 py-5">
+                <button
+                  type="button"
+                  onClick={confirmNativePushPermission}
+                  className={`${btnPrimary} w-full justify-center`}
+                >
+                  <BellRing className="h-4 w-4" />
+                  {t('player_native_push_prompt_enable')}
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissNativePushPermission}
+                  className={`${btnSecondary} w-full justify-center`}
+                >
+                  {t('player_native_push_prompt_later')}
+                </button>
+              </div>
             </div>
-            <div className="space-y-3 px-5 py-5">
-              <button
-                type="button"
-                onClick={confirmNativePushPermission}
-                className={`${btnPrimary} w-full justify-center`}
-              >
-                <BellRing className="h-4 w-4" />
-                {t('player_native_push_prompt_enable')}
-              </button>
-              <button
-                type="button"
-                onClick={dismissNativePushPermission}
-                className={`${btnSecondary} w-full justify-center`}
-              >
-                {t('player_native_push_prompt_later')}
-              </button>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const registerAliasRequestModal =
+    registerAliasModalOpen && authMode === 'register' && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="flbp-mobile-sheet fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+            <div className="flbp-mobile-sheet-panel w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/15 md:p-6">
+              <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
+                <div>
+                  <div className="text-xl font-black tracking-tight text-slate-950">Possibile account alias rilevato</div>
+                  <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                    Il nome che stai registrando assomiglia a un giocatore già presente nelle classifiche. Se sei tu, puoi inviare subito una richiesta di merge agli admin con un commento esplicativo.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeRegisterAliasModal}
+                  className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-600 transition hover:bg-slate-50"
+                  disabled={registerAliasSubmitting}
+                >
+                  Chiudi
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {registrationAliasSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.id}
+                    type="button"
+                    onClick={() => setRegisterAliasSelectionId(suggestion.id)}
+                    className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
+                      selectedRegistrationAlias?.id === suggestion.id
+                        ? 'border-rose-300 bg-rose-50 shadow-sm shadow-rose-100'
+                        : 'border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white'
+                    }`}
+                  >
+                    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+                      <div className="min-w-0">
+                        <div className="text-base font-black text-slate-950">{suggestion.candidateDisplayName}</div>
+                        <div className="mt-1 text-xs font-bold text-slate-500">
+                          {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : 'Data di nascita non disponibile'}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                            suggestion.confidence === 'high'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-slate-200 bg-white text-slate-700'
+                          }`}>
+                            {suggestion.confidence === 'high' ? 'Alta compatibilità' : 'Compatibilità media'}
+                          </div>
+                          {suggestion.reasons.map((reason) => (
+                            <div key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
+                              {registrationAliasReasonLabel(reason)}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid w-full grid-cols-3 gap-1 text-left text-[11px] font-black text-slate-600 sm:w-auto sm:grid-cols-1 sm:text-right">
+                        <div>Titoli: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                        <div>Canestri: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                        <div>Soffi: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-5">
+                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">Commento per gli admin</div>
+                <textarea
+                  value={registerAliasComment}
+                  onChange={(event) => setRegisterAliasComment(event.target.value)}
+                  rows={4}
+                  className={`${inputClass} min-h-[112px] resize-y`}
+                  placeholder="Spiega perché pensi che questo account vada unito: vecchia email, login social diverso, cambio cognome, chiarimenti utili..."
+                  disabled={registerAliasSubmitting}
+                />
+              </div>
+
+              <div className="flbp-mobile-actions mt-5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={continueRegisterWithAliasRequest}
+                  disabled={registerAliasSubmitting || !selectedRegistrationAlias}
+                  className={btnPrimary}
+                >
+                  <BadgeCheck className="h-4 w-4" /> Invia richiesta e continua
+                </button>
+                <button
+                  type="button"
+                  onClick={continueRegisterWithoutAliasRequest}
+                  disabled={registerAliasSubmitting}
+                  className={btnSecondary}
+                >
+                  <ChevronRight className="h-4 w-4" /> Continua senza segnalare
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      ) : null}
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <>
+    {nativePushPromptModal}
+    {registerAliasRequestModal}
+    <div className="p-4 md:p-6 space-y-5 [overflow-anchor:none]">
       <div className={cardClass}>
         <div className="border-b border-slate-100 px-5 py-5 md:px-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -1703,102 +1826,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                         <Mail className="h-4 w-4" /> {t('player_area_forgot_password')}
                       </button>
                     </form>
-                    {registerAliasModalOpen && authMode === 'register' ? (
-                      <div className="flbp-mobile-sheet fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
-                        <div className="flbp-mobile-sheet-panel w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/15 md:p-6">
-                          <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
-                            <div>
-                              <div className="text-xl font-black tracking-tight text-slate-950">Possibile account alias rilevato</div>
-                              <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                                Il nome che stai registrando assomiglia a un giocatore già presente nelle classifiche. Se sei tu, puoi inviare subito una richiesta di merge agli admin con un commento esplicativo.
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={closeRegisterAliasModal}
-                              className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-600 transition hover:bg-slate-50"
-                              disabled={registerAliasSubmitting}
-                            >
-                              Chiudi
-                            </button>
-                          </div>
-
-                          <div className="mt-5 space-y-3">
-                            {registrationAliasSuggestions.map((suggestion) => (
-                              <button
-                                key={suggestion.id}
-                                type="button"
-                                onClick={() => setRegisterAliasSelectionId(suggestion.id)}
-                                className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
-                                  selectedRegistrationAlias?.id === suggestion.id
-                                    ? 'border-rose-300 bg-rose-50 shadow-sm shadow-rose-100'
-                                    : 'border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white'
-                                }`}
-                              >
-                                <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
-                                  <div className="min-w-0">
-                                    <div className="text-base font-black text-slate-950">{suggestion.candidateDisplayName}</div>
-                                    <div className="mt-1 text-xs font-bold text-slate-500">
-                                      {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : 'Data di nascita non disponibile'}
-                                    </div>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                      <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
-                                        suggestion.confidence === 'high'
-                                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                          : 'border-slate-200 bg-white text-slate-700'
-                                      }`}>
-                                        {suggestion.confidence === 'high' ? 'Alta compatibilità' : 'Compatibilità media'}
-                                      </div>
-                                      {suggestion.reasons.map((reason) => (
-                                        <div key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
-                                          {registrationAliasReasonLabel(reason)}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  <div className="grid w-full grid-cols-3 gap-1 text-left text-[11px] font-black text-slate-600 sm:w-auto sm:grid-cols-1 sm:text-right">
-                                    <div>Titoli: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
-                                    <div>Canestri: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
-                                    <div>Soffi: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-
-                          <div className="mt-5">
-                            <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">Commento per gli admin</div>
-                            <textarea
-                              value={registerAliasComment}
-                              onChange={(event) => setRegisterAliasComment(event.target.value)}
-                              rows={4}
-                              className={`${inputClass} min-h-[112px] resize-y`}
-                              placeholder="Spiega perché pensi che questo account vada unito: vecchia email, login social diverso, cambio cognome, chiarimenti utili..."
-                              disabled={registerAliasSubmitting}
-                            />
-                          </div>
-
-                          <div className="flbp-mobile-actions mt-5 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={continueRegisterWithAliasRequest}
-                              disabled={registerAliasSubmitting || !selectedRegistrationAlias}
-                              className={btnPrimary}
-                            >
-                              <BadgeCheck className="h-4 w-4" /> Invia richiesta e continua
-                            </button>
-                            <button
-                              type="button"
-                              onClick={continueRegisterWithoutAliasRequest}
-                              disabled={registerAliasSubmitting}
-                              className={btnSecondary}
-                            >
-                              <ChevronRight className="h-4 w-4" /> Continua senza segnalare
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
                 </div>
               </div>
             ) : liveAuthFlow === 'recovery' ? (
@@ -2144,6 +2171,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           {t('player_area_call_none')}
                         </div>
                       )}
+                      {embeddedNativeShell && nativePushRegistration?.configReady ? (
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-sm font-semibold text-amber-900">
+                          <div className="text-[11px] font-black uppercase tracking-[0.08em] text-amber-700">Notifiche dispositivo</div>
+                          <div className="mt-1">{nativePushStatusMessage}</div>
+                          {canManuallyOpenNativePushPrompt ? (
+                            <button
+                              type="button"
+                              onClick={openNativePushPermissionPrompt}
+                              className="mt-3 inline-flex min-h-[38px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+                            >
+                              <BellRing className="h-4 w-4" /> {t('player_native_push_prompt_enable')}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -2155,5 +2197,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         </div>
       </div>
     </div>
+    </>
   );
 };
