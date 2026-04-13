@@ -736,16 +736,17 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                     return (
                         <div className="space-y-4">
                             <div className="flex flex-wrap items-center gap-2">
-                                <button type="button" onClick={() => setViewMode('availability')} className={`${btnBase} ${viewMode === 'availability' ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800' : ''}`}>
+                                <button type="button" onClick={() => setViewMode('availability')} className={viewMode === 'availability' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
                                     <ShieldCheck className="w-4 h-4" /> Disponibilità
                                 </button>
-                                <button type="button" onClick={() => setViewMode('reports')} className={`${btnBase} ${viewMode === 'reports' ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800' : ''}`}>
+                                <button type="button" onClick={() => setViewMode('reports')} className={viewMode === 'reports' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
                                     <ClipboardList className="w-4 h-4" /> Arbitraggi
                                 </button>
-                                <button type="button" onClick={() => setViewMode('counter')} className={`${btnBase} ${viewMode === 'counter' ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800' : ''}`}>
+                                <button type="button" onClick={() => setViewMode('counter')} className={viewMode === 'counter' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
                                     <ListChecks className="w-4 h-4" /> Contatore
                                 </button>
                             </div>
+
 
                             {viewMode === 'availability' && (
                                 <>
