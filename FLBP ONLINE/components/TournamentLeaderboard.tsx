@@ -1,11 +1,13 @@
 import React, { useId, useMemo, useState } from 'react';
 import { Team, Match, HallOfFameEntry, PlayerStats } from '../types';
+import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { Trophy, Medal, Search, Baby, ChevronDown, ChevronUp, ArrowDown, ArrowUpDown, Wind } from 'lucide-react';
 import { isU25, getPlayerKey, resolvePlayerKey } from '../services/storageService';
 import { deriveYoBFromBirthDate, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
+import { PublicPlayerDetail } from './PublicPlayerDetail';
 
 type TournamentLeaderboardVariant = 'sidebar' | 'page';
 type SortField = 'points' | 'soffi' | 'gamesPlayed' | 'winRate' | 'avgPoints' | 'avgSoffi';
@@ -17,6 +19,8 @@ interface TournamentLeaderboardProps {
     compact?: boolean;
     variant?: TournamentLeaderboardVariant;
     playerAliases?: Record<string, string>;
+    publicState?: AppState;
+    onOpenTournament?: (tournamentId: string) => void;
 }
 
 const getSortValue = (player: PlayerStats, field: SortField): number => {
@@ -74,6 +78,8 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     compact = false,
     variant = 'sidebar',
     playerAliases = {},
+    publicState,
+    onOpenTournament,
 }) => {
     const { t } = useTranslation();
     const nativeShell = isEmbeddedNativeShell();
@@ -82,6 +88,7 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     const [sortField, setSortField] = useState<SortField>('points');
     const [searchTerm, setSearchTerm] = useState('');
     const [onlyU25, setOnlyU25] = useState(false);
+    const [selectedPlayer, setSelectedPlayer] = useState<PlayerStats | null>(null);
     const stickyTh = nativeShell ? '' : 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
     const pageTableScrollClass = nativeShell ? 'overflow-x-auto' : 'max-h-[68vh] overflow-auto overscroll-contain';
 
@@ -291,6 +298,20 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     };
 
     if (variant === 'page') {
+        if (selectedPlayer && publicState) {
+            return (
+                <PublicPlayerDetail
+                    state={publicState}
+                    playerId={selectedPlayer.id}
+                    playerName={selectedPlayer.name}
+                    playerBirthDate={selectedPlayer.birthDate}
+                    fallbackStats={selectedPlayer}
+                    onBack={() => setSelectedPlayer(null)}
+                    onOpenTournament={onOpenTournament}
+                />
+            );
+        }
+
         return (
             <div className="space-y-5">
                 <div className="relative overflow-hidden rounded-[28px] bg-slate-900 px-5 py-5 text-white shadow-[0_28px_70px_-40px_rgba(15,23,42,0.9)] sm:px-6">
@@ -436,7 +457,23 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-sm font-medium text-slate-700">
                                 {displayStats.map((player, index) => (
-                                    <tr key={player.id} className="transition hover:bg-slate-50">
+                                    <tr
+                                        key={player.id}
+                                        className={`${publicState ? 'cursor-pointer' : ''} transition hover:bg-slate-50 focus-within:bg-slate-50`}
+                                        onClick={() => {
+                                            if (publicState) setSelectedPlayer(player);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (!publicState) return;
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                setSelectedPlayer(player);
+                                            }
+                                        }}
+                                        role={publicState ? 'button' : undefined}
+                                        tabIndex={publicState ? 0 : undefined}
+                                        aria-label={publicState ? `Apri dati giocatore ${player.name}` : undefined}
+                                    >
                                         <td className="px-4 py-3 text-center font-black text-slate-400">
                                             {index < 3 ? (
                                                 index === 0 ? <Trophy className="mx-auto h-5 w-5 text-yellow-500" /> :

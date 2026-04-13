@@ -1147,6 +1147,7 @@ const App: React.FC = () => {
                                 logo={stateForPublicViews.logo}
                                 hallOfFame={stateForPublicViews.hallOfFame}
                                 playerAliases={stateForPublicViews.playerAliases}
+                                publicState={stateForPublicViews}
                             />
                         </React.Suspense>
                     );

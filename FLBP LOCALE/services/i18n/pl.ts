@@ -1767,6 +1767,7 @@ export const dictionary: TranslationDictionary = {
   "account_section": "Konta",
   "player_area": "Strefa Gracza",
   "player_area_dashboard_title": "Profil gracza",
+  "player_public_detail_title": "Dane zawodnika",
   "player_area_login_title": "Zaloguj się / Zarejestruj się",
   "player_area_desc": "Zaloguj się, aby połączyć swój profil gracza, zobaczyć swoje osobiste wyniki i otrzymywać na żywo powołania do swojego zespołu.",
   "player_area_preview_active": "Podgląd aktywny",

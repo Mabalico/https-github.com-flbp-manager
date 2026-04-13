@@ -1767,6 +1767,7 @@ export const dictionary: TranslationDictionary = {
   "account_section": "账户",
   "player_area": "玩家区",
   "player_area_dashboard_title": "球员简介",
+  "player_public_detail_title": "球员数据",
   "player_area_login_title": "登录/注册",
   "player_area_desc": "登录以连接您的球员个人资料、查看您的个人成绩并接收您球队的实时征召。",
   "player_area_preview_active": "预览活动",

@@ -1767,6 +1767,7 @@ export const dictionary: TranslationDictionary = {
   "account_section": "アカウント",
   "player_area": "プレイヤーエリア",
   "player_area_dashboard_title": "選手プロフィール",
+  "player_public_detail_title": "プレイヤーデータ",
   "player_area_login_title": "ログイン/登録",
   "player_area_desc": "ログインしてプレーヤー プロフィールに接続し、個人成績を確認し、チームのライブ招集を受け取ります。",
   "player_area_preview_active": "プレビューがアクティブです",

@@ -11,6 +11,8 @@ import { readVitePublicDbRead } from '../services/viteEnv';
 import { readCachedPublicHallOfFameEntries, writeCachedPublicHallOfFameEntries } from '../services/publicViewCache';
 import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
+import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
+import { PublicPlayerDetail } from './PublicPlayerDetail';
 
 type HallOfFameProps = {
   stateOverride?: AppState;
@@ -20,7 +22,9 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
   const { t } = useTranslation();
   const nativeShell = isEmbeddedNativeShell();
   const [localStateSnapshot] = useState<AppState | null>(() => (stateOverride ? null : loadState()));
+  const sourceState = stateOverride || localStateSnapshot || ({ tournament: null, tournamentHistory: [], hallOfFame: [], playerAliases: {} } as AppState);
   const [entries, setEntries] = useState<HallOfFameEntry[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<{ playerId?: string; playerName: string; playerBirthDate?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<
     'winner' | 'top_scorer' | 'top_scorer_u25' | 'defender' | 'defender_u25' | 'mvp' | 'titled'
   >('winner');
@@ -123,6 +127,16 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     const directStartDate = getTournamentStartDate(entry);
     return safeDateLabel(directStartDate) || String(entry.year || '').trim() || '—';
   }, [getTournamentStartDate, safeDateLabel]);
+
+  const openPlayerDetail = React.useCallback((input: { playerId?: string | null; playerName?: string | null; playerBirthDate?: string | null }) => {
+    const playerName = String(input.playerName || '').trim();
+    if (!playerName && !input.playerId) return;
+    setSelectedPlayer({
+      playerId: String(input.playerId || '').trim() || undefined,
+      playerName,
+      playerBirthDate: String(input.playerBirthDate || '').trim() || undefined,
+    });
+  }, []);
 
   const updateTabFades = React.useCallback(() => {
     const el = tabListRef.current;
@@ -244,11 +258,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     const q = (searchTerm || '').trim().toLowerCase();
 
     if (activeTab === 'titled') {
-      const titledState = (stateOverride || localStateSnapshot || {
-        tournament: null,
-        tournamentHistory: [],
-        playerAliases: {},
-      }) as Pick<AppState, 'tournament' | 'tournamentHistory' | 'playerAliases'>;
+      const titledState = sourceState as Pick<AppState, 'tournament' | 'tournamentHistory' | 'playerAliases'>;
       const players = buildTitledHallOfFameRows(titledState, entries);
 
       const sortedPlayers = players.sort((a, b) => {
@@ -399,7 +409,20 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
 
               <tbody className="divide-y divide-slate-100">
                 {searchedPlayers.map((p, idx) => (
-                  <tr key={`${p.name}_${idx}`} className="hover:bg-slate-50 transition">
+                  <tr
+                    key={`${p.name}_${idx}`}
+                    className="cursor-pointer hover:bg-slate-50 transition focus-within:bg-slate-50"
+                    onClick={() => openPlayerDetail({ playerId: p.key, playerName: p.name })}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openPlayerDetail({ playerId: p.key, playerName: p.name });
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Apri dati giocatore ${p.name}`}
+                  >
                     <td className="py-3 px-3 sm:p-4 text-center font-bold text-slate-400">{idx + 1}</td>
                     <td className="py-3 px-3 sm:p-4 font-black text-slate-800 text-lg sm:whitespace-nowrap break-words">{p.name}</td>
 
@@ -457,6 +480,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map(entry => {
+          const playerRefs = getHallOfFamePlayerRefs(sourceState, entry);
           const isIndividualAward = entry.type !== 'winner';
           const primaryLabel = isIndividualAward
             ? (entry.playerNames?.join(', ') || entry.teamName || 'ND')
@@ -475,9 +499,46 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                  </span>
                </div>
                <div className="text-xl font-black text-slate-800">
-                 <span>{primaryLabel}</span>
+                 {isIndividualAward && playerRefs[0] ? (
+                   <button
+                     type="button"
+                     onClick={() => openPlayerDetail({
+                       playerId: playerRefs[0].playerId || playerRefs[0].rawPlayerId,
+                       playerName: playerRefs[0].playerName,
+                       playerBirthDate: entry.playerBirthDate,
+                     })}
+                     className="rounded-lg text-left transition hover:text-beer-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
+                   >
+                     {primaryLabel}
+                   </button>
+                 ) : (
+                   <span>{primaryLabel}</span>
+                 )}
                </div>
-               {secondaryLabel && <div className="text-sm text-slate-500 font-medium mt-1">{secondaryLabel}</div>}
+               {secondaryLabel && (
+                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-500">
+                   {isIndividualAward ? (
+                     <span>{secondaryLabel}</span>
+                   ) : (
+                     playerRefs.length
+                       ? playerRefs.map((ref) => (
+                         <button
+                           key={`${entry.id}:${ref.playerId}:${ref.slotIndex ?? 0}`}
+                           type="button"
+                           onClick={() => openPlayerDetail({
+                             playerId: ref.playerId || ref.rawPlayerId,
+                             playerName: ref.playerName,
+                             playerBirthDate: entry.playerBirthDate,
+                           })}
+                           className="rounded-lg px-1 font-bold text-slate-600 transition hover:bg-beer-50 hover:text-beer-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
+                         >
+                           {ref.playerName}
+                         </button>
+                       ))
+                       : <span>{secondaryLabel}</span>
+                   )}
+                 </div>
+               )}
              </div>
              {showMetric && (
                <div className="text-center">
@@ -496,6 +557,17 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     );
   };
 
+  if (selectedPlayer) {
+    return (
+      <PublicPlayerDetail
+        state={sourceState}
+        playerId={selectedPlayer.playerId}
+        playerName={selectedPlayer.playerName}
+        playerBirthDate={selectedPlayer.playerBirthDate}
+        onBack={() => setSelectedPlayer(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-8 animate-fade-in">

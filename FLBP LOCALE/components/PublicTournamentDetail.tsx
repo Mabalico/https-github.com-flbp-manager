@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Team, TournamentData, Match, HallOfFameEntry } from '../types';
+import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { TournamentBracket } from './TournamentBracket';
 import { TournamentLeaderboard } from './TournamentLeaderboard';
@@ -19,6 +20,7 @@ interface PublicTournamentDetailProps {
   logo: string;
   hallOfFame: HallOfFameEntry[];
   playerAliases?: Record<string, string>;
+  publicState: AppState;
 }
 
 export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
@@ -30,6 +32,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   logo,
   hallOfFame,
   playerAliases = {},
+  publicState,
 }) => {
   const { t } = useTranslation();
 
@@ -1077,6 +1080,7 @@ const visibleTeamsCount = React.useMemo(() => {
                   matches={matches}
                   awards={tournamentAwards}
                   playerAliases={playerAliases}
+                  publicState={publicState}
                 />
               )}
 

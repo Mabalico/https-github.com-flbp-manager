@@ -9,6 +9,7 @@ import { isLocalOnlyMode, isRemoteRepositoryEnabled } from '../services/reposito
 import { normalizeNameLower } from '../services/textUtils';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
+import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { readVitePublicDbRead } from '../services/viteEnv';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import {
@@ -92,6 +93,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
     const [onlyPro, setOnlyPro] = useState(false);
     const [onlyU25, setOnlyU25] = useState(false);
     const [sortField, setSortField] = useState<'points' | 'soffi' | 'gamesPlayed' | 'winRate' | 'avgPoints' | 'avgSoffi'>('points');
+    const [selectedPlayer, setSelectedPlayer] = useState<PlayerStats | null>(null);
 
     const [dbStats, setDbStats] = useState<PlayerStats[] | null>(null);
     const [dbHoF, setDbHoF] = useState<import('../types').HallOfFameEntry[] | null>(null);
@@ -419,6 +421,18 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         </th>
     );
 
+    if (selectedPlayer) {
+        return (
+            <PublicPlayerDetail
+                state={state}
+                playerId={selectedPlayer.id}
+                playerName={selectedPlayer.name}
+                playerBirthDate={selectedPlayer.birthDate}
+                fallbackStats={selectedPlayer}
+                onBack={() => setSelectedPlayer(null)}
+            />
+        );
+    }
 
     return (
         <div className="space-y-8 animate-fade-in">
@@ -553,7 +567,20 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-sm font-medium text-slate-700">
                             {filteredStats.map((p, idx) => (
-                                <tr key={p.id} className="hover:bg-slate-50 transition">
+                                <tr
+                                    key={p.id}
+                                    className="cursor-pointer hover:bg-slate-50 transition focus-within:bg-slate-50"
+                                    onClick={() => setSelectedPlayer(p)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            setSelectedPlayer(p);
+                                        }
+                                    }}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Apri dati giocatore ${p.name}`}
+                                >
                                     <td className={`${thPad} text-center font-black text-slate-400`}>
                                         {idx < 3 ? (
                                             idx === 0 ? <Trophy className="w-5 h-5 text-yellow-500 mx-auto" /> :

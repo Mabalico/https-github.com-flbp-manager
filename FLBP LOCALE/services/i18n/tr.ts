@@ -1767,6 +1767,7 @@ export const dictionary: TranslationDictionary = {
   "account_section": "Hesaplar",
   "player_area": "Oyuncu Alanı",
   "player_area_dashboard_title": "Oyuncu profili",
+  "player_public_detail_title": "Oyuncu bilgileri",
   "player_area_login_title": "Giriş yap / Kayıt ol",
   "player_area_desc": "Oyuncu profilinize bağlanmak, kişisel sonuçlarınızı görmek ve takımınız için canlı çağrılar almak için giriş yapın.",
   "player_area_preview_active": "Önizleme etkin",
