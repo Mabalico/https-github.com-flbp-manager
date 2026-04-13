@@ -517,6 +517,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     });
   }, []);
 
+  const disableNativePushRegistration = React.useCallback((registration: NativePushRegistrationSnapshot | null) => {
+    if (!registration?.deviceId) return Promise.resolve(null);
+    return registerPlayerAppDevice({
+      id: registration.deviceId,
+      platform: registration.platform,
+      deviceToken: registration.deviceToken,
+      pushEnabled: false,
+    });
+  }, []);
+
   const syncLiveDeviceRegistration = React.useCallback(async () => {
     if (!liveBackendEnabled) return null;
     if (!embeddedNativeShell) return null;
@@ -1350,6 +1360,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const signOut = async () => {
     clearPlayerPresenceSnapshot();
     if (effectiveSession?.mode === 'live') {
+      await disableNativePushRegistration(readNativePushRegistration() || nativePushRegistration).catch(() => {
+        // Best effort: the local logout must still complete even if the network is unavailable.
+      });
       const playerSignOutTask = playerSignOutSupabase().catch(() => {
         // best effort only
       });
@@ -1365,6 +1378,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       setLiveRuntimeError(null);
       setLiveCallRefreshNonce((value) => value + 1);
       setLiveAuthFlow('session');
+      nativePushSyncKeyRef.current = '';
       await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
       window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
       return;
