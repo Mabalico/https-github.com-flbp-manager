@@ -145,6 +145,10 @@ enum NativePushRegistry {
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
                 }
+            } else {
+                DispatchQueue.main.async {
+                    openAppNotificationSettings()
+                }
             }
             postSnapshotChanged()
         }
@@ -165,6 +169,12 @@ enum NativePushRegistry {
 
     private static func postSnapshotChanged() {
         NotificationCenter.default.post(name: .flbpNativePushRegistrationDidChange, object: nil)
+    }
+
+    private static func openAppNotificationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        guard UIApplication.shared.canOpenURL(url) else { return }
+        UIApplication.shared.open(url)
     }
 
     private static func jsonStringLiteral(_ value: String) -> String {

@@ -579,18 +579,19 @@ const fetchWithTimeout = async (input: RequestInfo | URL, init?: RequestInit, ti
 // Supabase Auth helpers (optional)
 // -----------------------------
 
-export const ensureFreshSupabaseSession = async (): Promise<SupabaseSession | null> => {
+export const ensureFreshSupabaseSession = async (options?: { force?: boolean }): Promise<SupabaseSession | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) return null;
     const cur = getSupabaseSession();
     if (!cur?.accessToken) return null;
+    const force = !!options?.force;
 
-    // If no expiry is known, we can't refresh safely.
+    // If no expiry is known, we avoid refreshing unless a caller is recovering from a rejected JWT.
     const expTs = cur.expiresAt ? Date.parse(cur.expiresAt) : NaN;
-    if (!Number.isFinite(expTs)) return cur;
+    if (!force && !Number.isFinite(expTs)) return cur;
 
     // Refresh if token expired or expires within 60s.
-    if (expTs > Date.now() + 60_000) return cur;
+    if (!force && expTs > Date.now() + 60_000) return cur;
 
     if (!cur.refreshToken) {
         clearSupabaseSession();
@@ -637,6 +638,16 @@ const ensureFreshAuthForSupabaseOps = async () => {
     } catch {
         // ignore: requests will still fall back to the stored token/anon key
     }
+};
+
+const isRejectedAdminEdgeSession = (status: number, body: string): boolean => {
+    return status === 401 && /Admin session invalid or expired|JWT expired|Invalid JWT/i.test(body);
+};
+
+const recoverRejectedAdminWriteSession = async (): Promise<SupabaseSession | null> => {
+    const refreshed = await ensureFreshSupabaseSession({ force: true });
+    if (refreshed?.accessToken) return refreshed;
+    return await bootstrapSupabaseWriteSession();
 };
 
 const tryBootstrapAdminSessionFromPlayer = async (): Promise<SupabaseSession | null> => {
@@ -1263,7 +1274,7 @@ export const dispatchPlayerCallPush = async (input: {
     action: PlayerCallPushDispatchAction;
 }): Promise<PlayerCallPushDispatchResult> => {
     const cfg = getSupabaseConfig();
-    const session = await requireSupabaseWriteSession();
+    let session = await requireSupabaseWriteSession();
     if (!cfg) throw new Error('Supabase non configurato');
     const callId = String(input.callId || '').trim();
     if (!callId) throw new Error('Convocazione non valida.');
@@ -1272,11 +1283,11 @@ export const dispatchPlayerCallPush = async (input: {
         throw new Error('Azione push non valida.');
     }
 
-    const res = await fetchWithTimeout(
+    const postDispatch = (writeSession: SupabaseSession) => fetchWithTimeout(
         functionsUrl(cfg, 'player-call-push'),
         {
             method: 'POST',
-            headers: buildHeaders(cfg, session.accessToken),
+            headers: buildHeaders(cfg, writeSession.accessToken),
             body: JSON.stringify({
                 workspaceId: cfg.workspaceId,
                 callId,
@@ -1286,6 +1297,22 @@ export const dispatchPlayerCallPush = async (input: {
         8000,
         { source: 'dispatchPlayerCallPush', kind: 'sync' }
     );
+
+    let res = await postDispatch(session);
+    if (!res.ok) {
+        const body = await readErrorBody(res);
+        if (isRejectedAdminEdgeSession(res.status, body)) {
+            const retrySession = await recoverRejectedAdminWriteSession();
+            if (retrySession?.accessToken) {
+                session = retrySession;
+                res = await postDispatch(session);
+            } else {
+                throw new Error(body);
+            }
+        } else {
+            throw new Error(body);
+        }
+    }
     if (!res.ok) throw new Error(await readErrorBody(res));
     return await res.json() as PlayerCallPushDispatchResult;
 };

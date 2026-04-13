@@ -2,10 +2,14 @@ package com.flbp.manager.suite
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -17,6 +21,8 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,6 +93,23 @@ private fun pushNativeRegistrationIntoWebView(webView: WebView?, context: androi
     target.evaluateJavascript(script, null)
 }
 
+private fun areAppNotificationsEnabled(context: android.content.Context): Boolean =
+    NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+private fun openAppNotificationSettings(context: android.content.Context) {
+    val notificationSettingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.parse("package:${context.packageName}")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    if (!runCatching { context.startActivity(notificationSettingsIntent) }.isSuccess) {
+        runCatching { context.startActivity(appSettingsIntent) }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun NativeWebMirrorHost(
@@ -102,16 +125,32 @@ fun NativeWebMirrorHost(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-    ) {
+    ) { granted ->
         NativePushRegistry.refreshRegistration(context)
+        if (!granted || !areAppNotificationsEnabled(context)) {
+            openAppNotificationSettings(context)
+        }
     }
 
     val requestNotificationPermission = remember(context) {
         {
+            NativePushRegistry.createNotificationChannel(context)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
+                val permissionGranted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (permissionGranted && areAppNotificationsEnabled(context)) {
+                    NativePushRegistry.refreshRegistration(context)
+                } else if (!permissionGranted) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    openAppNotificationSettings(context)
+                }
+            } else if (areAppNotificationsEnabled(context)) {
                 NativePushRegistry.refreshRegistration(context)
+            } else {
+                openAppNotificationSettings(context)
             }
         }
     }

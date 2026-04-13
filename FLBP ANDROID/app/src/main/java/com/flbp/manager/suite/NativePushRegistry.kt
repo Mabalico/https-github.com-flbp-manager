@@ -3,6 +3,7 @@ package com.flbp.manager.suite
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -136,6 +137,7 @@ object NativePushRegistry {
     }
 
     private fun notificationPermissionState(context: Context): String {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return "denied"
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return "granted"
         val granted = ContextCompat.checkSelfPermission(
             context,
