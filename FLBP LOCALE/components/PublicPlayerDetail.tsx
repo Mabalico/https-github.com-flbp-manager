@@ -381,7 +381,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <MetricCard label={t('titles')} value={profile.totalTitles} />
+        <MetricCard label={t('games')} value={performance.totalGames} />
         <MetricCard label={t('scores_label')} value={profile.totalCanestri} />
         <MetricCard label={t('soffi_label')} value={profile.totalSoffi} />
         <MetricCard label={t('player_area_avg_scores')} value={oneDecimalFormatter.format(performance.avgPoints)} />
