@@ -168,7 +168,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
     const tabBtnBase = `px-3 py-2.5 rounded-xl font-black border text-sm inline-flex items-center gap-2 ${ring}`;
     const tabBtnActive = 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800';
     const tabBtnInactive = 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50';
-    const entryBtnBase = `group relative overflow-hidden text-left rounded-2xl border p-4 transition-all duration-200 flex flex-col justify-between h-full ${ring}`;
+    const entryBtnBase = `group relative overflow-hidden text-left rounded-2xl border p-3 sm:p-4 transition-all duration-200 flex flex-col justify-between h-full ${ring}`;
 
     const entryBtnClass = (section: 'integrations' | 'views' | 'traffic' | 'persistence' | 'accounts') => {
         const isActive = mainSection === section;
@@ -303,17 +303,17 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 </div>
             ) : null}
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
                 <button
                     type="button"
                     onClick={() => setMainSection('integrations')}
-                    className={`${entryBtnClass('integrations')} min-h-[140px]`}
+                    className={`${entryBtnClass('integrations')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-200 shrink-0">
                             <Link2 className="w-5 h-5" />
                         </div>
-                        <div className="flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
+                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
                             {pill(t('data_pill_history').replace('{count}', String(archiveCount)))}
                             {pill(t('data_pill_hof').replace('{count}', String(hofCount)))}
                             {pill(t('data_pill_scorers').replace('{count}', String(scorersCount)))}
@@ -330,13 +330,13 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 <button
                     type="button"
                     onClick={() => setMainSection('views')}
-                    className={`${entryBtnClass('views')} min-h-[140px]`}
+                    className={`${entryBtnClass('views')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-sky-500 text-white shadow-sm shadow-sky-200 shrink-0">
                             <BarChart3 className="w-5 h-5" />
                         </div>
-                        <div className="flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
+                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
                             {pill(t('data_pill_counter'))}
                             {pill(t('data_pill_chart'))}
                             {pill(t('data_pill_range'))}
@@ -352,13 +352,13 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 <button
                     type="button"
                     onClick={() => setMainSection('traffic')}
-                    className={`${entryBtnClass('traffic')} min-h-[140px]`}
+                    className={`${entryBtnClass('traffic')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500 text-white shadow-sm shadow-violet-200 shrink-0">
                             <Activity className="w-5 h-5" />
                         </div>
-                        <div className="flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
+                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
                             {pill(t('data_pill_bytes'))}
                             {pill(t('data_pill_requests'))}
                             {pill(t('data_pill_range'))}
@@ -374,13 +374,13 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 <button
                     type="button"
                     onClick={() => setMainSection('persistence')}
-                    className={`${entryBtnClass('persistence')} min-h-[140px]`}
+                    className={`${entryBtnClass('persistence')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-200 shrink-0">
                             <Database className="w-5 h-5" />
                         </div>
-                        <div className="flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
+                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
                             {pill(t('data_pill_backup_file'))}
                             {pill(t('data_pill_sync_online'))}
                         </div>
@@ -395,13 +395,13 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                 <button
                     type="button"
                     onClick={() => setMainSection('accounts')}
-                    className={`${entryBtnClass('accounts')} min-h-[140px]`}
+                    className={`${entryBtnClass('accounts')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-600 text-white shadow-sm shadow-amber-200 shrink-0">
                             <Users className="w-5 h-5" />
                         </div>
-                        <div className="flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
+                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
                             {pill(t('data_pill_auth_account'))}
                             {pill(t('data_pill_player_profile'))}
                         </div>
@@ -439,7 +439,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap" role="toolbar" aria-label={t('data_integrations_subsections_aria')}>
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1" role="toolbar" aria-label={t('data_integrations_subsections_aria')}>
                         <button type="button"
                             onClick={() => {
                                 setDataSubTab('archive');

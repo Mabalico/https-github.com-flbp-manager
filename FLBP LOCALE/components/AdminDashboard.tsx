@@ -835,7 +835,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // UI helpers (Admin tabs)
     const tabBtnClass = (active: boolean) => {
-        const base = 'px-4 py-2.5 rounded-xl font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
+        const base = 'shrink-0 px-4 py-2.5 rounded-xl font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
         return `${base} ${active ? 'bg-blue-700/95 backdrop-blur-md text-white border-blue-600 shadow-[0_4px_12px_-2px_rgba(29,78,216,0.3)] transform -translate-y-0.5' : 'bg-white/90 backdrop-blur-sm text-slate-700 border-slate-200/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-white'}`;
     };
     const liveTabMeta: Record<LiveAdminTab, { title: string; helper: string }> = {
@@ -3903,32 +3903,32 @@ while (guard < 5000) {
                 </div>
             )}
 
-            <main className="flex-1 rounded-[24px] lg:rounded-[32px] border border-slate-200 bg-white shadow-lg shadow-black/5 p-4 md:p-6 overflow-hidden flex flex-col">
+            <main className="flex-1 rounded-[24px] lg:rounded-[32px] border border-slate-200 bg-white shadow-lg shadow-black/5 p-3 sm:p-4 md:p-6 overflow-visible flex flex-col">
 
                     {adminSection === 'live' ? (
                         <nav aria-label={t('admin_tabs_aria')} className="bg-white rounded-xl border border-slate-200 p-3">
                             <div className="flex flex-col gap-3">
-                                <div className="flex flex-wrap items-center gap-2.5">
-                                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-wide">{t('admin_ops_hub')}</span>
-                                    <div className="text-sm font-black text-blue-800 bg-blue-50 border border-blue-200 rounded-full px-3.5 py-1.5 shadow-sm">
+                                <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+                                    <span className="shrink-0 text-[11px] font-black text-slate-500 uppercase tracking-wide">{t('admin_ops_hub')}</span>
+                                    <div className="shrink-0 text-xs sm:text-sm font-black text-blue-800 bg-blue-50 border border-blue-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_area_label')}: <span className="font-black">{liveTabMeta[tab as LiveAdminTab]?.title || '-'}</span>
                                     </div>
-                                    <div className="text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
+                                    <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_guiding_match')}:  <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
                                     </div>
-                                    <div className="text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
+                                    <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_to_play')}:  <span className="font-black">{liveOpsSummary.scheduledCount}</span>
                                     </div>
-                                    <div className="text-sm font-black text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-3.5 py-1.5 shadow-sm">
+                                    <div className="shrink-0 text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_playing_count_label')}:  <span className="font-black">{liveOpsSummary.playingCount}</span>
                                     </div>
-                                    <div className="text-sm font-black text-rose-800 bg-rose-50 border border-rose-200 rounded-full px-3.5 py-1.5 shadow-sm">
+                                    <div className="shrink-0 text-xs sm:text-sm font-black text-rose-800 bg-rose-50 border border-rose-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_finished_count_label')}:  <span className="font-black">{liveOpsSummary.finishedCount}</span>
                                     </div>
                                 </div>
 
                                 <div className="relative border-t border-slate-100 pt-3">
-                                    <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
                                         <button
                                             type="button"
                                             aria-current={tab === 'teams' ? 'page' : undefined}

@@ -18,7 +18,7 @@ interface PublicTournamentsProps {
 export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTournament, history, liveMatches, liveTeams, onViewTournament, onEnterTv }) => {
   const { t } = useTranslation();
 
-  const btnBaseDark = "inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none";
+  const btnBaseDark = "inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none sm:w-auto sm:px-8 sm:py-4";
   const btnPrimaryDark = `${btnBaseDark} bg-beer-500 text-slate-900 shadow-lg hover:bg-beer-600`;
   const btnGhostDark = `${btnBaseDark} bg-white/10 text-white border border-white/10 hover:bg-white/20`;
 
@@ -283,7 +283,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
 
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        className="flbp-mobile-sheet fixed inset-0 z-50 flex items-center justify-center p-4"
         role="dialog"
         aria-modal="true"
         aria-label={t('turns_dialog')}
@@ -293,7 +293,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
       >
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden />
 
-        <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+        <div className="flbp-mobile-sheet-panel relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
           <div className="flex items-start justify-between gap-3 p-5 border-b border-white/10">
             <div className="min-w-0">
               <div className="text-xs font-black uppercase tracking-wide text-beer-200">{t('turns_dialog')}</div>
@@ -537,10 +537,10 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
 
         {/* Live Tournament Hero */}
         {liveTournament && (
-            <div className="bg-slate-900 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden border border-white/10">
-                <div className="relative z-10 flex flex-col md:flex-row gap-8 items-center">
-                    <div className="bg-white/10 p-6 rounded-2xl backdrop-blur-sm border border-white/10">
-                        <Activity className="w-16 h-16 text-beer-500 animate-pulse" />
+            <div className="bg-slate-900 rounded-3xl p-5 sm:p-8 text-white shadow-xl relative overflow-hidden border border-white/10">
+                <div className="relative z-10 flex flex-col md:flex-row gap-5 sm:gap-8 items-center">
+                    <div className="bg-white/10 p-4 sm:p-6 rounded-2xl backdrop-blur-sm border border-white/10">
+                        <Activity className="w-10 h-10 sm:w-16 sm:h-16 text-beer-500 animate-pulse" />
                     </div>
                     <div className="text-center md:text-left flex-1">
                         <PublicBrandStack className="mb-3 inline-block text-center md:text-left" />
@@ -567,7 +567,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                               <span className={badgeTopDark}>{t('top_count').replace('{count}', String((liveTournament as any).config.advancingPerGroup))}</span>
                             )}
                         </div>
-                        <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                        <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4 justify-center md:justify-start">
                             <button 
                               onClick={() => onViewTournament(liveTournament, true)}
                               className={btnPrimaryDark}

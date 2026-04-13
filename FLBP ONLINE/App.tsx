@@ -1428,6 +1428,13 @@ const App: React.FC = () => {
             ? 'bg-white/10 text-white border-white/20'
             : 'text-white/80 border-transparent hover:bg-white/5 hover:text-white'}`;
     };
+    const mobileBottomNavItemClass = (active: boolean) => {
+        return `flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-black uppercase tracking-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 ${
+            active
+                ? 'bg-slate-950 text-beer-400 shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+        }`;
+    };
 
     const handleGlobalSignOut = async () => {
         if (!playerPresence) return;
@@ -1448,6 +1455,8 @@ const App: React.FC = () => {
     };
 
 
+
+    const showMobileBottomNav = ['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area'].includes(view);
 
     return (
         <LanguageContext.Provider value={language}>
@@ -1804,6 +1813,70 @@ const App: React.FC = () => {
                         ) : null}
                     </div>
                 </div>
+                {showMobileBottomNav ? (
+                    <nav
+                        className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.4rem)] pt-2 shadow-[0_-18px_40px_-28px_rgba(15,23,42,0.8)] backdrop-blur md:hidden"
+                        aria-label={t('public_nav')}
+                    >
+                        <div className="mx-auto flex max-w-lg items-center gap-1">
+                            <button
+                                type="button"
+                                aria-current={view === 'home' ? 'page' : undefined}
+                                onClick={() => { void navigateToView('home'); }}
+                                onMouseEnter={() => primeViewChunk('home')}
+                                onFocus={() => primeViewChunk('home')}
+                                className={mobileBottomNavItemClass(view === 'home')}
+                            >
+                                <HomeIcon className="h-5 w-5" />
+                                <span className="truncate">{t('dashboard')}</span>
+                            </button>
+                            <button
+                                type="button"
+                                aria-current={view === 'tournament' || view === 'tournament_detail' ? 'page' : undefined}
+                                onClick={() => { void navigateToView('tournament'); }}
+                                onMouseEnter={() => primeViewChunk('tournament')}
+                                onFocus={() => primeViewChunk('tournament')}
+                                className={mobileBottomNavItemClass(view === 'tournament' || view === 'tournament_detail')}
+                            >
+                                <Swords className="h-5 w-5" />
+                                <span className="truncate">{t('tournaments')}</span>
+                            </button>
+                            <button
+                                type="button"
+                                aria-current={view === 'leaderboard' ? 'page' : undefined}
+                                onClick={() => { void navigateToView('leaderboard'); }}
+                                onMouseEnter={() => primeViewChunk('leaderboard')}
+                                onFocus={() => primeViewChunk('leaderboard')}
+                                className={mobileBottomNavItemClass(view === 'leaderboard')}
+                            >
+                                <BarChart3 className="h-5 w-5" />
+                                <span className="truncate">{t('historical')}</span>
+                            </button>
+                            <button
+                                type="button"
+                                aria-current={view === 'hof' ? 'page' : undefined}
+                                onClick={() => { void navigateToView('hof'); }}
+                                onMouseEnter={() => primeViewChunk('hof')}
+                                onFocus={() => primeViewChunk('hof')}
+                                className={mobileBottomNavItemClass(view === 'hof')}
+                            >
+                                <Trophy className="h-5 w-5" />
+                                <span className="truncate">{t('hof')}</span>
+                            </button>
+                            <button
+                                type="button"
+                                aria-current={view === 'player_area' ? 'page' : undefined}
+                                onClick={() => { void navigateToView('player_area'); }}
+                                onMouseEnter={() => primeViewChunk('player_area')}
+                                onFocus={() => primeViewChunk('player_area')}
+                                className={mobileBottomNavItemClass(view === 'player_area')}
+                            >
+                                <UserRound className="h-5 w-5" />
+                                <span className="truncate">{t('player_area')}</span>
+                            </button>
+                        </div>
+                    </nav>
+                ) : null}
             </div>
             </TranslationDictionariesContext.Provider>
         </LanguageContext.Provider>

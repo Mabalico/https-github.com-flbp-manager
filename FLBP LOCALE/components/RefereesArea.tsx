@@ -1470,25 +1470,25 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
     }
 
     return (
-        <div className="p-4 md:p-6">
+        <div className="p-3 sm:p-4 md:p-6">
             {/* OCR Modal */}
             {ocrModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-                    <div className="w-full max-w-4xl bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden">
-                        <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+                <div className="flbp-mobile-sheet fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+                    <div className="flbp-mobile-sheet-panel w-full max-w-4xl bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden">
+                        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
                             <div>
                                 <div className="text-lg font-black">{t('referees_ocr_confirm_title') || 'Conferma OCR'}</div>
                                 <div className="text-xs text-slate-600 font-semibold mt-1">{t('referees_ocr_confirm_desc') || 'Controlla e correggi i dati estratti prima di aprire l\'inserimento manuale.'}</div>
                             </div>
                             <button
                                 onClick={closeOcrModal}
-                                className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50"
+                                className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50"
                             >
                                 {t('close') || 'Chiudi'}
                             </button>
                         </div>
 
-                        <div className="p-5 grid gap-4 lg:grid-cols-2">
+                        <div className="grid max-h-[calc(92dvh-88px)] gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-2">
                             <div>
                                 <div className="text-xs font-black text-slate-700">{t('referees_ocr_preview') || 'Anteprima'}</div>
                                 {ocrModalImageUrl ? (
@@ -1545,16 +1545,16 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                     {ocrModalError && (
                                         <div className="text-xs font-black text-red-600">{ocrModalError}</div>
                                     )}
-                                    <div className="flex gap-2">
+                                    <div className="flbp-mobile-actions flex flex-wrap gap-2">
                                         <button
                                             onClick={confirmOcrModal}
-                                            className="flex-1 rounded-2xl bg-slate-900 text-white font-black py-3 hover:bg-slate-800"
+                                            className="min-h-[46px] flex-1 rounded-2xl bg-slate-900 text-white font-black py-3 hover:bg-slate-800"
                                         >
                                             {t('referees_ocr_apply') || 'Apri inserimento manuale'}
                                         </button>
                                         <button
                                             onClick={closeOcrModal}
-                                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-3 hover:bg-slate-50"
+                                            className="min-h-[46px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-3 hover:bg-slate-50"
                                         >
                                             {t('referees_ocr_cancel') || 'Annulla'}
                                         </button>
@@ -1566,7 +1566,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 </div>
             )}
 
-            <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 pt-4 pb-4 bg-white/85 backdrop-blur border-b border-slate-200">
+            <div className="sticky top-0 z-30 -mx-3 px-3 pt-3 pb-3 bg-white/85 backdrop-blur border-b border-slate-200 sm:-mx-4 sm:px-4 sm:pt-4 sm:pb-4 md:-mx-6 md:px-6">
             <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                     <div className="flex items-center gap-2 text-2xl md:text-3xl font-black tracking-tight">
@@ -1586,11 +1586,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         </div>
                     )}
                 </div>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flbp-mobile-actions flex w-full flex-wrap gap-2 sm:w-auto">
                     {!liveRefereeBypass && (page === 'match' || page === 'report') && (
                         <button
                             onClick={backToSelectPage}
-                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
                         >
                             <span className="inline-flex items-center gap-2"><Repeat2 className="w-4 h-4" /> {t('referees_change_referee')}</span>
                         </button>
@@ -1598,7 +1598,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     {page === 'report' && (
                         <button
                             onClick={backToMatchStep}
-                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
                         >
                             Scegli altro match
                         </button>
@@ -1606,7 +1606,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     {page === 'report' && !!foundMatch && (
                         <button
                             onClick={backToModeStep}
-                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
                         >
                             Cambia modalità
                         </button>
@@ -1614,21 +1614,21 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     {page === 'report' && !!(supportImageUrl || supportOcrText || supportOcrData) && (
                         <button
                             onClick={clearOcrSupport}
-                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
                         >
                             {t('referees_clear_ocr_button') || 'Pulisci OCR'}
                         </button>
                     )}
                     <button
                         onClick={doLogout}
-                        className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                        className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
                         title={t('logout')}
                     >
                         <span className="inline-flex items-center gap-2"><LogOut className="w-4 h-4" /> {t('logout')}</span>
                     </button>
                     <button
                         onClick={onBack}
-                        className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                        className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
                     >
                         <span className="inline-flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> {t('back')}</span>
                     </button>
@@ -1839,7 +1839,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                         {t('referees_no_matches_current_search') || 'Nessun match corrisponde alla ricerca corrente.'}
                                     </div>
                                 ) : (
-                                    <div className="mt-4 max-h-[620px] space-y-4 overflow-auto pr-1">
+                                    <div className="flbp-mobile-scroll-natural mt-4 space-y-4 sm:max-h-[620px] sm:overflow-auto sm:pr-1">
                                         {!!filteredPlayingMatches.length && (
                                             <div>
                                                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -1968,11 +1968,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 {t('referees_choose_entry_desc') || 'Scegli la modalità e completa il referto del match selezionato.'}
                             </div>
                         </div>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flbp-mobile-actions flex flex-wrap gap-2">
                                 {foundMatch && (
                                     <button
                                         onClick={backToMatchStep}
-                                        className="rounded-2xl border border-slate-200 bg-white font-black px-3 py-2 hover:bg-slate-50 transition"
+                                        className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-3 py-2 hover:bg-slate-50 transition"
                                     >
                                         {t('referees_back_to_match_list') || 'Torna alla lista match'}
                                     </button>
@@ -1980,18 +1980,18 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 {entryMode && (
                                     <button
                                         onClick={backToModeStep}
-                                        className="rounded-2xl border border-slate-200 bg-white font-black px-3 py-2 hover:bg-slate-50 transition"
+                                        className="min-h-[44px] rounded-2xl border border-slate-200 bg-white font-black px-3 py-2 hover:bg-slate-50 transition"
                                     >
                                         {t('referees_back_to_entry_mode') || 'Torna alla modalità'}
                                     </button>
                                 )}
                             </div>
                         </div>
-                        <div className="mt-4 flex gap-2 flex-wrap">
+                        <div className="flbp-mobile-actions mt-4 flex gap-2 flex-wrap">
                             <button
                                 onClick={() => { if (!foundMatch) return; setEntryMode('manual'); }}
                                 disabled={!foundMatch}
-                                className={`rounded-2xl font-black px-4 py-2 border transition ${entryMode === 'manual' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'} disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-100`}
+                                className={`min-h-[44px] rounded-2xl font-black px-4 py-2 border transition ${entryMode === 'manual' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'} disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-100`}
                             >
                                 {t('referees_entry_manual')}
                             </button>
@@ -2003,7 +2003,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                     try { ocrInputRef.current?.click(); } catch { /* ignore */ }
                                 }}
                                 disabled={!foundMatch}
-                                className={`rounded-2xl font-black px-4 py-2 border transition ${entryMode === 'ocr' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'} disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-100`}
+                                className={`min-h-[44px] rounded-2xl font-black px-4 py-2 border transition ${entryMode === 'ocr' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'} disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-100`}
                             >
                                 {t('referees_entry_ocr')}
                             </button>
@@ -2165,9 +2165,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                                         const key = `${tt.id}||${p}`;
                                                         const f = reportStatsForm[key] || { canestri: '0', soffi: '0' };
                                                         return (
-                                                            <div key={key} className="grid grid-cols-12 gap-2 items-center">
-                                                                <div className="col-span-6 text-sm font-black text-slate-800">{p}</div>
-                                                                <div className="col-span-3">
+                                                            <div key={key} className="grid grid-cols-2 gap-2 items-center rounded-2xl bg-slate-50/70 p-2 sm:grid-cols-12 sm:bg-transparent sm:p-0">
+                                                                <div className="col-span-2 text-sm font-black text-slate-800 sm:col-span-6">{p}</div>
+                                                                <div className="col-span-1 sm:col-span-3">
                                                                     <label className="text-[10px] font-black text-slate-500">PT</label>
                                                                     <input
                                                                         value={f.canestri}
@@ -2182,7 +2182,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                                                         onBlur={handleZeroValueBlur}
                                                                     />
                                                                 </div>
-                                                                <div className="col-span-3">
+                                                                <div className="col-span-1 sm:col-span-3">
                                                                     <label className="text-[10px] font-black text-slate-500">SF</label>
                                                                     <input
                                                                         value={f.soffi}
@@ -2240,7 +2240,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 <button
                                     onClick={() => { void saveReport(); }}
                                     disabled={saveBusy || !foundMatch}
-                                    className={`mt-4 w-full rounded-2xl font-black py-3 transition ${saveBusy ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                                    className={`sticky bottom-3 z-10 mt-4 w-full rounded-2xl font-black py-3 transition sm:static ${saveBusy ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                                 >
                                     {saveBusy ? (t('referees_save_busy') || 'Salvataggio…') : (t('referees_save_report') || 'Salva referto')}
                                 </button>

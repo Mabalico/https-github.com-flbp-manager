@@ -36,7 +36,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const btnBaseDark = "inline-flex items-center justify-center gap-2 rounded-xl font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none";
+  const btnBaseDark = "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none";
   const btnGhostDark = `${btnBaseDark} text-white bg-white/10 hover:bg-white/20 border border-white/10 px-4 py-2 text-xs`;
   const btnPrimaryDark = `${btnBaseDark} bg-beer-500 text-slate-900 shadow-lg hover:bg-beer-600 px-5 py-3`;
 
@@ -266,7 +266,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
 
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        className="flbp-mobile-sheet fixed inset-0 z-50 flex items-center justify-center p-4"
         role="dialog"
         aria-modal="true"
         aria-label={t('turns_dialog')}
@@ -276,7 +276,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
       >
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-hidden />
 
-        <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+        <div className="flbp-mobile-sheet-panel relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl">
           <div className="flex items-start justify-between gap-3 p-5 border-b border-white/10">
             <div className="min-w-0">
               <div className="text-xs font-black uppercase tracking-wide text-beer-200">{t('turns_dialog')}</div>
@@ -536,8 +536,8 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
     if (availableViews.length <= 1) return null;
 
     const containerClass = tone === 'dark'
-      ? 'flex flex-wrap bg-white/10 p-1 rounded-xl border border-white/10'
-      : 'flex flex-wrap bg-white p-1 rounded-xl border border-slate-200';
+      ? 'flex max-w-full flex-nowrap overflow-x-auto bg-white/10 p-1 rounded-xl border border-white/10'
+      : 'flex max-w-full flex-nowrap overflow-x-auto bg-white p-1 rounded-xl border border-slate-200';
     const activeClass = tone === 'dark'
       ? 'bg-white shadow text-slate-900'
       : 'bg-slate-900 shadow text-white';
@@ -555,7 +555,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
             key={key}
             onClick={() => setView(key)}
             aria-pressed={view === key}
-            className={`px-4 py-2 rounded-lg font-black uppercase text-xs transition flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${focusClass} ${
+            className={`shrink-0 px-4 py-2 rounded-lg font-black uppercase text-xs transition flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${focusClass} ${
               view === key ? activeClass : inactiveClass
             }`}
           >
@@ -659,7 +659,7 @@ const visibleTeamsCount = React.useMemo(() => {
     <div className="space-y-6 animate-fade-in min-h-screen pb-12">
       {renderTurnsModal()}
       {/* Header */}
-      <div className="bg-slate-900 rounded-3xl p-6 md:p-8 text-white shadow-xl border border-white/10 relative overflow-hidden">
+      <div className="bg-slate-900 rounded-3xl p-5 sm:p-6 md:p-8 text-white shadow-xl border border-white/10 relative overflow-hidden">
         {/* Decoration */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-beer-500/20 to-transparent"></div>
@@ -679,7 +679,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
               <div className="min-w-0">
                 <PublicBrandStack className="mb-3" />
-                <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tight leading-tight whitespace-normal break-words">{data.name}</h2>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase tracking-tight leading-tight whitespace-normal break-words">{data.name}</h2>
                 <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-300">
 
                   {isLive && (
@@ -1092,8 +1092,8 @@ const visibleTeamsCount = React.useMemo(() => {
       </div>
 
       {selectedMatch && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedMatch(null)}>
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="match-dialog-title" onClick={(e) => e.stopPropagation()}>
+        <div className="flbp-mobile-sheet fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedMatch(null)}>
+          <div className="flbp-mobile-sheet-panel bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="match-dialog-title" onClick={(e) => e.stopPropagation()}>
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
               <h3 id="match-dialog-title" className="font-black uppercase">{t('match_detail')}</h3>
               <button
@@ -1127,8 +1127,8 @@ const visibleTeamsCount = React.useMemo(() => {
 
       {/* Awards Modal */}
       {showAwards && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAwards(false)}>
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-slide-up" role="dialog" aria-modal="true" aria-labelledby="awards-dialog-title" onClick={(e) => e.stopPropagation()}>
+        <div className="flbp-mobile-sheet fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAwards(false)}>
+          <div className="flbp-mobile-sheet-panel bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-slide-up" role="dialog" aria-modal="true" aria-labelledby="awards-dialog-title" onClick={(e) => e.stopPropagation()}>
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
               <h3 id="awards-dialog-title" className="font-black uppercase flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-beer-500" /> {t('hof')}

@@ -11,23 +11,23 @@ interface HomeProps {
 export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive }) => {
   const { t } = useTranslation();
 
-  const btnBase = "inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
+  const btnBase = "inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-6 py-3 font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 sm:w-auto";
   const btnWhite = `${btnBase} bg-white text-blue-950 shadow-lg hover:bg-blue-50`;
   const btnPrimary = `${btnBase} bg-beer-500 text-white shadow-lg hover:bg-beer-600`;
 
   const badgeBase = "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-wide";
   const badgeLiveLight = `${badgeBase} bg-beer-50 text-beer-700 border border-beer-100`;
 
-  const cardBase = "text-left bg-white/95 backdrop-blur p-6 rounded-[24px] shadow-sm border border-slate-200 hover:shadow-xl hover:-translate-y-0.5 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2";
+  const cardBase = "text-left bg-white/95 backdrop-blur p-5 sm:p-6 rounded-[24px] shadow-sm border border-slate-200 hover:shadow-xl hover:-translate-y-0.5 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2";
   const cardIconBase = "w-12 h-12 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition";
   const cardChevron = "w-5 h-5 text-slate-300 mt-1 group-hover:text-slate-500 group-hover:translate-x-0.5 transition";
 
   return (
-    <div className="space-y-10 animate-fade-in">
+    <div className="space-y-6 sm:space-y-10 animate-fade-in">
       {/* Hero Section */}
-      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-slate-900 rounded-3xl p-8 md:p-12 text-white shadow-2xl relative overflow-hidden border border-white/10">
+      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-slate-900 rounded-3xl p-5 sm:p-8 md:p-12 text-white shadow-2xl relative overflow-hidden border border-white/10">
         <div className="relative z-10 max-w-2xl">
-          <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tight leading-[0.95] mb-4">
+          <h1 className="text-3xl sm:text-4xl md:text-6xl font-black uppercase tracking-tight leading-[0.95] mb-4">
             <span className="block"><span className="text-beer-500">F</span>EDERAZIONE</span>
             <span className="block"><span className="text-beer-500">L</span>UCENSE</span>
             <span className="block"><span className="text-beer-500">B</span>EER</span>
@@ -44,7 +44,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive }) => {
           <p className="max-w-xl text-sm md:text-base font-bold leading-relaxed text-white/70">
             {t('hero_public_subtitle')}
           </p>
-          <div className="flex flex-wrap gap-4 mt-8 items-center">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-4 mt-6 sm:mt-8 items-stretch sm:items-center">
             {tournamentActive ? (
               <>
                 <button
@@ -151,15 +151,15 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive }) => {
       </div>
 
       {/* Admin Shortcut (separato per non "rubare" attenzione alla parte pubblica) */}
-      <div className="rounded-[24px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-sm">
+      <div className="rounded-[24px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 sm:p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-sm">
         <div className="flex items-start gap-4">
           <div className="bg-slate-200/60 w-12 h-12 rounded-full flex items-center justify-center shadow-inner">
             <Settings className="w-6 h-6 text-slate-700" />
           </div>
           <div>
             <div className="font-black text-lg text-slate-900 tracking-tight">{t('admin')}</div>
-            <div className="text-sm text-slate-600 leading-snug">{t('home_admin_desc')}</div>
-            <div className="mt-1 text-xs font-semibold text-slate-500">{t('admin_auth_desc')}</div>
+            <div className="hidden sm:block text-sm text-slate-600 leading-snug">{t('home_admin_desc')}</div>
+            <div className="hidden sm:block mt-1 text-xs font-semibold text-slate-500">{t('admin_auth_desc')}</div>
           </div>
         </div>
         <button

@@ -72,7 +72,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
     return (
       <button 
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center gap-2 group border-2 border-beer-500"
+        className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-50 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center gap-2 group border-2 border-beer-500 sm:bottom-6 sm:right-6"
       >
         <HelpCircle className="w-6 h-6 text-beer-500" />
         <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 font-bold whitespace-nowrap">Aiuto Rapido</span>
@@ -81,9 +81,9 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-end p-6 bg-black/20 backdrop-blur-sm animate-fade-in" onClick={() => setIsOpen(false)}>
+    <div className="flbp-mobile-sheet fixed inset-0 z-50 flex items-end justify-end p-4 bg-black/20 backdrop-blur-sm animate-fade-in sm:p-6" onClick={() => setIsOpen(false)}>
       <div 
-        className="bg-white w-full max-w-sm rounded-3xl shadow-2xl border-4 border-slate-900 overflow-hidden animate-slide-up"
+        className="flbp-mobile-sheet-panel bg-white w-full max-w-sm rounded-3xl shadow-2xl border-4 border-slate-900 overflow-hidden animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
         <div className="bg-slate-900 p-6 text-white flex justify-between items-center">

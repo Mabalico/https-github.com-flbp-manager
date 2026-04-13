@@ -22,3 +22,52 @@
     touch-action: manipulation;
   }
 }
+
+@layer utilities {
+  .flbp-mobile-sheet {
+    width: 100%;
+  }
+
+  @media (max-width: 640px) {
+    .flbp-mobile-sheet {
+      align-items: flex-end;
+      padding: 0;
+    }
+
+    .flbp-mobile-sheet-panel {
+      max-height: min(92dvh, 760px);
+      width: 100%;
+      border-radius: 1.75rem 1.75rem 0 0;
+    }
+
+    .flbp-mobile-scroll-natural {
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    .flbp-mobile-actions > * {
+      min-height: 44px;
+      flex: 1 1 100%;
+      justify-content: center;
+    }
+
+    .flbp-mobile-scroll-hint::after {
+      content: "Scorri";
+      position: absolute;
+      right: 0.75rem;
+      top: 0.75rem;
+      z-index: 2;
+      border-radius: 999px;
+      border: 1px solid rgb(226 232 240);
+      background: rgba(255, 255, 255, 0.92);
+      padding: 0.25rem 0.55rem;
+      font-size: 0.625rem;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgb(100 116 139);
+      pointer-events: none;
+    }
+  }
+}

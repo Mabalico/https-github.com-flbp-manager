@@ -3,7 +3,7 @@ import WebKit
 
 enum NativeWebMirrorConfig {
     static let enabled = true
-    static let baseUrl = URL(string: "https://flbp-pages.pages.dev/?native_shell=ios&shell_rev=20260403f")!
+    static let baseUrl = URL(string: "https://flbp-pages.pages.dev/?native_shell=ios&shell_rev=20260413a")!
 }
 
 struct NativeWebMirrorHostView<Fallback: View>: View {

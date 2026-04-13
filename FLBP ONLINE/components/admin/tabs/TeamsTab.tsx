@@ -123,7 +123,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     const inputBase =
         'w-full border border-slate-200 bg-white rounded-xl px-3 py-2.5 font-bold text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
     const btnBase =
-        'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
+        'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
     const btnSecondary = `${btnBase} bg-white border border-slate-200 text-slate-900 hover:bg-slate-50`;
     const btnPrimary = `${btnBase} bg-blue-700 border border-blue-700 text-white hover:bg-blue-800 focus-visible:ring-blue-500`;
     const btnSuccess = `${btnBase} bg-emerald-600 border border-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-500`;
@@ -132,7 +132,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
         'inline-flex items-center justify-center rounded-xl px-3 py-2 font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
     const checkbox = 'h-4 w-4 accent-beer-500';
     const toggleBtn =
-        'inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
+        'inline-flex min-h-[40px] items-center justify-center rounded-lg px-3 py-2 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
 
     const handleTeamSort = React.useCallback((nextKey: 'registration' | 'team_name' | 'player1' | 'player2') => {
         if (teamSortKey === nextKey) {
@@ -453,21 +453,21 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     const totalCount = viewMode === 'team' ? allTeamRows.length : allPlayerRows.length;
 
     return (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
+    <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-xl font-black flex items-center gap-2"><Users className="w-5 h-5"/> {t('teams')}</h3>
 
             <div className="flex flex-col gap-2 sm:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('teams_search_toolbar')}>
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end" role="toolbar" aria-label={t('teams_search_toolbar')}>
                     <input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder={t('search')}
                         aria-label={t('teams_search_aria')}
-                        className={`${inputBase} w-64 max-w-full`}
+                        className={`${inputBase} w-full sm:w-64 sm:max-w-full`}
                     />
 
-                    <div className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
+                    <div className="inline-flex w-full items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto">
                         <span className="px-2 text-xs font-black uppercase tracking-wide text-slate-500">{t('sort_by')}:</span>
                         <button
                             type="button"
@@ -486,7 +486,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('teams_actions_aria')}>
+                <div className="flbp-mobile-actions flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('teams_actions_aria')}>
                     <input ref={fileRef} type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => {
                         const f = e.target.files?.[0];
                         if (f) importFile(f);
@@ -512,11 +512,11 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                     </button>
 
                     {isTesterMode && (
-                        <details className="relative">
+                        <details className="relative w-full sm:w-auto">
                             <summary className={`list-none cursor-pointer select-none ${btnSecondary}`}>
                                 <MoreHorizontal className="w-4 h-4"/> {t('advanced_actions')} <ChevronDown className="w-4 h-4 opacity-70"/>
                             </summary>
-                            <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-lg p-1 z-20">
+                            <div className="absolute right-0 mt-2 w-full min-w-[16rem] bg-white border border-slate-200 rounded-2xl shadow-lg p-1 z-20 sm:w-64">
                                 <button type="button" onClick={(e) => { exportTeamsXlsx(); (e.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open'); }} className="w-full text-left px-3 py-2 rounded-xl font-black hover:bg-slate-50 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2">
                                     <Download className="w-4 h-4"/> {t('export_excel')}
                                 </button>
@@ -639,7 +639,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                     </div>
                 </div>
             </div>
-            <div className="flex gap-2 mt-3">
+            <div className="flbp-mobile-actions flex flex-wrap gap-2 mt-3">
                 <button type="button" onClick={saveTeam} className={btnPrimary}>
                     <Plus className="w-4 h-4"/> {editingId ? t('save_changes') : t('referees_add_confirm')}
                 </button>
@@ -790,7 +790,127 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
             <div className="bg-slate-50 px-4 py-3 flex items-center justify-between">
                 <div className="font-black">{t('registered_list')} ({visibleCount})</div>
             </div>
-            <div className="overflow-auto">
+            <div className="sm:hidden">
+                {viewMode === 'team' ? (
+                    teamRows.length ? (
+                        <div className="divide-y divide-slate-100">
+                            {teamRows.map(({ team, registrationNumber }) => (
+                                <div key={team.id} className="p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">#{registrationNumber}</div>
+                                            <div className="mt-1 text-base font-black text-slate-950">{team.name}</div>
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => editTeam(team.id)}
+                                                title={t('edit')}
+                                                aria-label={t('edit')}
+                                                className={`${btnIcon} bg-white border border-slate-200 text-slate-900 hover:bg-slate-50`}
+                                            >
+                                                <Pencil className="w-4 h-4"/>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => deleteTeam(team.id)}
+                                                title={t('delete')}
+                                                aria-label={t('delete')}
+                                                className={`${btnIcon} bg-white border border-red-200 text-red-700 hover:bg-red-50 focus-visible:ring-red-400`}
+                                            >
+                                                <Trash2 className="w-4 h-4"/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 grid gap-2">
+                                        {([
+                                            { slot: 'G1' as const, name: team.player1, birthDate: (team as any).player1BirthDate, isReferee: !!(team as any).player1IsReferee || (!!team.isReferee && !(team as any).player1IsReferee && !(team as any).player2IsReferee) },
+                                            { slot: 'G2' as const, name: team.player2, birthDate: (team as any).player2BirthDate, isReferee: !!(team as any).player2IsReferee },
+                                        ]).map((player) => (
+                                            <div key={player.slot} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{player.slot}</div>
+                                                        <div className="mt-1 font-black text-slate-900">{player.name || t('not_available_short')}</div>
+                                                        <div className="mt-1 text-xs font-bold text-slate-500">
+                                                            {formatBirthDateDisplay(player.birthDate) || t('not_available_short')}
+                                                            {player.isReferee ? ` · ${t('referees')}` : ''}
+                                                        </div>
+                                                    </div>
+                                                    {player.name ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openProfileEditor(team, player.slot)}
+                                                            className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                                                            title={t('players_fix_profile_title')}
+                                                            aria-label={`${t('players_fix_profile_title')} ${player.name}`}
+                                                        >
+                                                            <Pencil className="w-4 h-4"/>
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-6 text-center text-slate-400">{sortedTeams.length ? t('no_results') : t('no_teams')}</div>
+                    )
+                ) : (
+                    playerRows.length ? (
+                        <div className="divide-y divide-slate-100">
+                            {playerRows.map((row) => (
+                                <div key={`${row.team.id}-${row.slot}`} className="p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">#{row.registrationNumber} · {row.slot}</div>
+                                            <div className="mt-1 text-base font-black text-slate-950">{row.playerName}</div>
+                                            <div className="mt-1 text-xs font-bold text-slate-500">
+                                                {row.team.name} · {formatBirthDateDisplay(row.birthDate) || t('not_available_short')}
+                                                {row.isReferee ? ` · ${t('referees')}` : ''}
+                                            </div>
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => openProfileEditor(row.team, row.slot)}
+                                                title={t('players_fix_profile_title')}
+                                                aria-label={`${t('players_fix_profile_title')} ${row.playerName}`}
+                                                className={`${btnIcon} bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 focus-visible:ring-blue-500`}
+                                            >
+                                                <Pencil className="w-4 h-4"/>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => editTeam(row.team.id)}
+                                                title={t('edit')}
+                                                aria-label={t('edit')}
+                                                className={`${btnIcon} bg-white border border-slate-200 text-slate-900 hover:bg-slate-50`}
+                                            >
+                                                <Pencil className="w-4 h-4"/>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => deleteTeam(row.team.id)}
+                                                title={t('delete')}
+                                                aria-label={t('delete')}
+                                                className={`${btnIcon} bg-white border border-red-200 text-red-700 hover:bg-red-50 focus-visible:ring-red-400`}
+                                            >
+                                                <Trash2 className="w-4 h-4"/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-6 text-center text-slate-400">{allPlayerRows.length ? t('no_results') : t('no_teams')}</div>
+                    )
+                )}
+            </div>
+            <div className="hidden overflow-auto sm:block">
                 {viewMode === 'team' ? (
                     <table className="min-w-full text-sm">
                         <thead className="bg-white sticky top-0 border-b border-slate-100">

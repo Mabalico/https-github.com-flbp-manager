@@ -158,9 +158,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         const k = `${teamId}||${playerName}`;
                         const f = reportStatsForm[k] || { canestri: '0', soffi: '0' };
                         return (
-                            <div key={k} className="grid grid-cols-12 gap-2 items-center py-1">
-                                <div className="col-span-6 min-w-0 font-black text-xs leading-tight text-slate-800 whitespace-normal break-words">{playerName}</div>
-                                <div className="col-span-3">
+                            <div key={k} className="grid grid-cols-2 gap-2 items-center py-2 sm:grid-cols-12 sm:py-1">
+                                <div className="col-span-2 min-w-0 font-black text-xs leading-tight text-slate-800 whitespace-normal break-words sm:col-span-6">{playerName}</div>
+                                <div className="col-span-1 sm:col-span-3">
                                     <input
                                         type="number"
                                         min={0}
@@ -179,7 +179,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         onBlur={handleZeroValueBlur}
                                     />
                                 </div>
-                                <div className="col-span-3">
+                                <div className="col-span-1 sm:col-span-3">
                                     <input
                                         type="number"
                                         min={0}
@@ -203,7 +203,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     };
 
                     const renderStatsHeader = () => (
-                        <div className="grid grid-cols-12 gap-2 items-center pb-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                        <div className="hidden sm:grid grid-cols-12 gap-2 items-center pb-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
                             <div className="col-span-6">{t('player_label')}</div>
                             <div className="col-span-3 text-center">{t('points')}</div>
                             <div className="col-span-3 text-center">{t('soffi')}</div>
@@ -267,7 +267,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                             type="button"
                                             onClick={() => current && handlePickReportMatch(current.id)}
                                             disabled={!current}
-                                            className={`flex-1 px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${current ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                            className={`min-h-[44px] flex-1 px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${current ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                                             title={t('reports_pick_next_match')}
                                         >
                                             {t('next_round')}
@@ -276,7 +276,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                             type="button"
                                             onClick={() => playing && handlePickReportMatch(playing.id)}
                                             disabled={!playing}
-                                            className={`px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center justify-center ${playing ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                            className={`min-h-[44px] px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center justify-center ${playing ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                                             aria-label={t('reports_go_playing_match')}
                                             title={playing ? t('reports_go_playing_match') : t('reports_no_playing_match')}
                                         >
@@ -454,7 +454,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                 handleSaveReport();
                                             }}
                                             disabled={selectedHasPlaceholder}
-                                            className={`w-full py-3 rounded-xl font-black uppercase transition flex items-center justify-center gap-2 ${
+                                            className={`sticky bottom-3 z-10 w-full py-3 rounded-xl font-black uppercase transition flex items-center justify-center gap-2 sm:static ${
                                                 selectedHasPlaceholder
                                                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                                     : 'bg-beer-500 text-white hover:bg-beer-600'
@@ -535,7 +535,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                 )}
 
                                                 {!reportImageBusy && reportImageUrl && (
-                                                    <div className="bg-white border border-slate-200 rounded-xl p-2 overflow-auto space-y-2">
+                                                    <div className="bg-white border border-slate-200 rounded-xl p-2 space-y-2 sm:overflow-auto">
                                                         <img src={reportImageUrl} alt="Referto allineato" className="w-full h-auto rounded-lg" />
                                                         <div className="flex items-center justify-between">
                                                             <div className="text-xs font-black text-slate-600 uppercase">{t('ocr_beta')}</div>

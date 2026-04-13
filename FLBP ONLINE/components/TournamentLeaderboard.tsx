@@ -361,13 +361,13 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                                 type="button"
                                 onClick={() => setOnlyU25((value) => !value)}
                                 aria-pressed={onlyU25}
-                                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyU25 ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                                className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 sm:w-auto ${onlyU25 ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
                                 title="U25"
                             >
                                 <Baby className="h-4 w-4" />
                                 U25
                             </button>
-                            <div className="relative min-w-[220px]">
+                            <div className="relative w-full sm:min-w-[220px]">
                                 <ArrowUpDown className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                                 <select
                                     value={sortField}
@@ -386,7 +386,77 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                         </div>
                     </div>
 
-                    <div className={pageTableScrollClass}>
+                    <div className="space-y-3 p-3 sm:hidden">
+                        {displayStats.map((player, index) => (
+                            <button
+                                key={player.id}
+                                type="button"
+                                onClick={() => {
+                                    if (publicState) setSelectedPlayer(player);
+                                }}
+                                disabled={!publicState}
+                                className={`w-full rounded-[22px] border border-slate-200 bg-white p-4 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${publicState ? 'hover:border-beer-200 hover:shadow-md' : ''}`}
+                                aria-label={publicState ? `Apri dati giocatore ${player.name}` : undefined}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-xs font-black text-white">
+                                                {index < 3 ? (
+                                                    index === 0 ? <Trophy className="h-4 w-4 text-yellow-400" /> :
+                                                    index === 1 ? <Medal className="h-4 w-4 text-slate-300" /> :
+                                                    <Medal className="h-4 w-4 text-orange-300" />
+                                                ) : (
+                                                    index + 1
+                                                )}
+                                            </span>
+                                            <div className="min-w-0">
+                                                <div className="truncate text-base font-black uppercase tracking-tight text-slate-950">{player.name}</div>
+                                                <div className="mt-0.5 truncate text-[11px] font-bold uppercase tracking-wide text-slate-500">{player.teamName}</div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-1">{getPlayerIcons(player)}</div>
+                                    </div>
+                                    <div className="shrink-0 rounded-2xl bg-slate-50 px-3 py-2 text-right">
+                                        <div className="text-[10px] font-black uppercase text-slate-500">{t('games')}</div>
+                                        <div className="text-xl font-black text-slate-950">{player.gamesPlayed}</div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-3 gap-2">
+                                    <div className="rounded-2xl bg-beer-50 px-3 py-2">
+                                        <div className="text-[10px] font-black uppercase text-beer-700">{t('points')}</div>
+                                        <div className="text-lg font-black text-slate-950">{player.points}</div>
+                                    </div>
+                                    <div className="rounded-2xl bg-sky-50 px-3 py-2">
+                                        <div className="text-[10px] font-black uppercase text-sky-700">{t('soffi')}</div>
+                                        <div className="text-lg font-black text-slate-950">{player.soffi}</div>
+                                    </div>
+                                    <div className="rounded-2xl bg-emerald-50 px-3 py-2">
+                                        <div className="text-[10px] font-black uppercase text-emerald-700">{t('standings_wins_short')}%</div>
+                                        <div className="text-lg font-black text-slate-950">{formatWinRate(player)}</div>
+                                    </div>
+                                </div>
+                                <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">{t('avg_points')}: <span className="text-slate-900">{player.avgPoints}</span></div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">{t('avg_soffi')}: <span className="text-slate-900">{player.avgSoffi}</span></div>
+                                </div>
+                            </button>
+                        ))}
+                        {displayStats.length === 0 && (
+                            <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-10 text-center">
+                                <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-slate-500">
+                                    <Medal className="h-8 w-8 text-slate-300" />
+                                    <div className="text-sm font-black text-slate-700">{t('no_players_found')}</div>
+                                    <div className="text-xs font-medium text-slate-500">
+                                        {t('reload_page_or_check_connection')}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className={`${pageTableScrollClass} hidden sm:block`}>
                         <table className="w-full min-w-[1020px] text-left">
                             <thead className="bg-white text-[11px] font-black uppercase tracking-wide text-slate-500">
                                 <tr>

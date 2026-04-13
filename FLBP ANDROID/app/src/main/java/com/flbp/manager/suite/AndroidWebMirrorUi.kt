@@ -44,7 +44,7 @@ import org.json.JSONObject
 
 object NativeWebMirrorConfig {
     const val enabled: Boolean = true
-    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260403f"
+    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260413a"
 }
 
 private class NativePushJavascriptBridge(

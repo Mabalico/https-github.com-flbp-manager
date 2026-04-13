@@ -360,7 +360,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
               <UserRound className="h-3.5 w-3.5" />
               {t('player_public_detail_title')}
             </div>
-            <h1 className="mt-3 text-3xl font-black tracking-tight text-blue-950 md:text-4xl">
+            <h1 className="mt-3 text-2xl font-black tracking-tight text-blue-950 sm:text-3xl md:text-4xl">
               {profile.displayName}
             </h1>
             {identityLabel ? (
@@ -380,7 +380,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <MetricCard label={t('games')} value={performance.totalGames} />
         <MetricCard label={t('scores_label')} value={profile.totalCanestri} />
         <MetricCard label={t('soffi_label')} value={profile.totalSoffi} />
@@ -401,7 +401,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
           </div>
 
           {participations.length > 0 ? (
-            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+            <div className="space-y-3 flbp-mobile-scroll-natural sm:max-h-[520px] sm:overflow-y-auto sm:pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
               {participations.map((row) => {
                 const subtitle = formatMetaLine(row.year, row.team);
                 const stats = formatMetaLine(
@@ -455,7 +455,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
           </div>
 
           {profile.titles.length > 0 ? (
-            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+            <div className="space-y-3 flbp-mobile-scroll-natural sm:max-h-[520px] sm:overflow-y-auto sm:pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
               {profile.titles.map((row) => {
                 const titleVisual = getTitleVisual(row.type, t);
                 const subtitle = formatMetaLine(row.year, cleanTeamLabel(row.teamName));

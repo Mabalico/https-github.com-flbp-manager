@@ -42,7 +42,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
     const selectBase =
         'border border-slate-200 bg-white rounded-xl px-3 py-2.5 text-sm font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
     const btnSecondary =
-        'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 font-black text-sm bg-white border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
+        'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black text-sm bg-white border border-slate-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
 
     const statusMeta = React.useMemo(() => ({
         scheduled: { label: t('match_status_scheduled'), pill: 'border-slate-200 bg-slate-50 text-slate-700' },
@@ -60,7 +60,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         if (!teams.length) return null;
 
         return (
-            <div className="flex items-center gap-1.5">
+            <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center">
                 {teams.map((team, index) => {
                     const meta = getTeamCallMeta(team);
                     const status = meta.status;
@@ -97,7 +97,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                     alert(String(error?.message || error || t('reports_call_team_disabled')));
                                 });
                             }}
-                            className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${className}`}
+                            className={`inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${className}`}
                         >
                             {icon}
                             <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-black/5 px-1 text-[10px] font-black">
@@ -111,7 +111,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
     }, [getTeamCallMeta, t, teamCatalog, triggerTeamCall]);
 
     return (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+    <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
                 <h3 className="text-xl font-black flex items-center gap-2">
@@ -123,15 +123,15 @@ export const CodesTab: React.FC<CodesTabProps> = ({
             </div>
 
             <div className="flex flex-col gap-2 sm:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('codes_toolbar_aria')}>
-                    <div className="relative">
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end" role="toolbar" aria-label={t('codes_toolbar_aria')}>
+                    <div className="relative w-full sm:w-auto">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                             placeholder={t('codes_search_placeholder')}
                             aria-label={t('codes_search_aria')}
-                            className={`w-60 max-w-full pl-9 pr-9 ${inputBase}`}
+                            className={`w-full sm:w-60 sm:max-w-full pl-9 pr-9 ${inputBase}`}
                         />
                         {query.trim() && (
                             <button
@@ -149,7 +149,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                     <select
                         value={codesStatusFilter}
                         onChange={(e) => setCodesStatusFilter(e.target.value as CodesStatusFilter)}
-                        className={selectBase}
+                        className={`w-full sm:w-auto ${selectBase}`}
                         aria-label={t('codes_filter_status_aria')}
                     >
                         <option value="all">{t('all')}</option>
@@ -263,13 +263,13 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 Match guida: <span className="ml-1 font-mono">{current.code || '-'}</span>
                                             </div>
                                         )}
-                                            <div className="flex flex-wrap gap-2">
+                                            <div className="flbp-mobile-actions flex flex-wrap gap-2">
                                             {current ? renderCallButtons(current) : null}
                                             <button
                                                 type="button"
                                                 onClick={() => current && openReportFromCodes(current.id)}
                                                 disabled={!current || getMatchParticipantIds(current as any).some(isPlaceholderTeamId)}
-                                                className={`px-4 py-2.5 rounded-xl font-black text-sm border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
+                                            className={`inline-flex min-h-[44px] items-center justify-center px-4 py-2.5 rounded-xl font-black text-sm border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
                                                     current && !getMatchParticipantIds(current as any).some(isPlaceholderTeamId)
                                                         ? 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'
                                                         : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
@@ -282,7 +282,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 type="button"
                                                 onClick={() => current && current.status !== 'finished' && toggleMatchStatus(current.id)}
                                                 disabled={!current || current.status === 'finished' || getMatchParticipantIds(current as any).some(isPlaceholderTeamId)}
-                                                className={`px-4 py-2.5 rounded-xl font-black text-sm border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
+                                                className={`inline-flex min-h-[44px] items-center justify-center px-4 py-2.5 rounded-xl font-black text-sm border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
                                                     current && current.status !== 'finished' && !getMatchParticipantIds(current as any).some(isPlaceholderTeamId)
                                                         ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
                                                         : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
@@ -321,7 +321,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                         <div
                                             key={m.id}
                                             onClick={isClickable ? () => openReportFromCodes(m.id) : undefined}
-                                            className={`border rounded-xl px-4 py-3 flex items-center justify-between gap-3 ${
+                                            className={`border rounded-xl px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
                                                 isClickable
                                                     ? 'cursor-pointer hover:brightness-95'
                                                     : (m.status === 'finished' && hasPlaceholder)
@@ -363,7 +363,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                         : (m.roundName || 'Bracket')}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3 shrink-0">
+                                            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:gap-3 sm:shrink-0">
                                                 <span className="font-mono font-black text-slate-700">{score}</span>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-black border uppercase ${meta.pill}`}>
                                                     {meta.label}
@@ -376,7 +376,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                         openReportFromCodes(m.id);
                                                     }}
                                                     disabled={hasPlaceholder}
-                                                    className={`px-3 py-2 rounded-xl font-black border border-slate-200 bg-white text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center gap-2 ${
+                                                    className={`min-h-[40px] px-3 py-2 rounded-xl font-black border border-slate-200 bg-white text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center justify-center gap-2 ${
                                                         hasPlaceholder ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'
                                                     }`}
                                                     title={hasPlaceholder ? t('codes_report_unavailable_tbd') : t('open_report')}
@@ -393,7 +393,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                             toggleMatchStatus(m.id);
                                                         }}
                                                         disabled={hasPlaceholder}
-                                                        className={`px-3 py-2 rounded-xl font-black border border-slate-200 bg-white text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center gap-2 ${
+                                                        className={`min-h-[40px] px-3 py-2 rounded-xl font-black border border-slate-200 bg-white text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center justify-center gap-2 ${
                                                             hasPlaceholder ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'
                                                         }`}
                                                         title={t('advance_match_status')}
