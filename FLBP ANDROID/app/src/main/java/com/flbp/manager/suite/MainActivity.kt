@@ -13,4 +13,9 @@ class MainActivity : ComponentActivity() {
             FLBPManagerSuiteApp()
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        NativePushRegistry.refreshRegistration(this)
+    }
 }

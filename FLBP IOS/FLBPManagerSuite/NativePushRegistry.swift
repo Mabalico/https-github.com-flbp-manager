@@ -207,6 +207,27 @@ final class NativeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]
     }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable : Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard
+            let flbp = userInfo["flbp"] as? [String: Any],
+            let action = (flbp["action"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            let callId = (flbp["callId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !callId.isEmpty,
+            action == "cancelled" || action == "acknowledged"
+        else {
+            completionHandler(.noData)
+            return
+        }
+
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [callId, "call-\(callId)"])
+        NativePushRegistry.refreshRegistration()
+        completionHandler(.newData)
+    }
 }
 
 private extension String {

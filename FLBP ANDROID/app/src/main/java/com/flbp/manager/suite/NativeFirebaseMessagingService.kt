@@ -12,6 +12,10 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 class NativeFirebaseMessagingService : FirebaseMessagingService() {
+    private fun notificationTagForCall(callId: String): String = "call-${callId.trim()}"
+
+    private fun notificationIdForCall(callId: String): Int =
+        2001 + (callId.trim().hashCode() and 0x3fffffff)
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -21,6 +25,15 @@ class NativeFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         NativePushRegistry.createNotificationChannel(this)
+        val action = message.data["action"]?.trim()?.lowercase().orEmpty()
+        val callId = message.data["callId"]?.trim().orEmpty()
+        val notificationManager = NotificationManagerCompat.from(this)
+
+        if ((action == "cancelled" || action == "acknowledged") && callId.isNotBlank()) {
+            notificationManager.cancel(notificationTagForCall(callId), notificationIdForCall(callId))
+            return
+        }
+
         val title = message.notification?.title
             ?: message.data["title"]
             ?: "Chiamata squadra"
@@ -53,6 +66,10 @@ class NativeFirebaseMessagingService : FirebaseMessagingService() {
         ) {
             return
         }
-        NotificationManagerCompat.from(this).notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+        if (callId.isNotBlank()) {
+            notificationManager.notify(notificationTagForCall(callId), notificationIdForCall(callId), notification)
+        } else {
+            notificationManager.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+        }
     }
 }

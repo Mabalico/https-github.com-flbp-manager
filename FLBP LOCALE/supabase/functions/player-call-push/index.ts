@@ -123,6 +123,15 @@ const buildDataPayload = (action: PushAction, call: CallRow) => ({
   route: 'player_area',
 });
 
+const buildPushDataPayload = (action: PushAction, call: CallRow) => {
+  const content = buildNotificationContent(action, call);
+  return {
+    ...buildDataPayload(action, call),
+    title: content.title,
+    body: content.body,
+  };
+};
+
 const ensureAdminUser = async (req: Request, env: RuntimeEnv) => {
   const token = readBearerToken(req);
   if (!token) {
@@ -184,11 +193,26 @@ const fetchTargetDevices = async (adminClient: ReturnType<typeof createClient>, 
     .from('player_app_devices')
     .select('id,platform,device_token,push_enabled')
     .eq('workspace_id', call.workspace_id)
-    .eq('user_id', call.target_user_id)
-    .eq('push_enabled', true);
+    .eq('user_id', call.target_user_id);
 
   if (error) throw new Error(error.message);
-  return (data || []).filter((device: DeviceRow) => normalizeText(device.device_token) && device.platform !== 'web');
+  return (data || []) as DeviceRow[];
+};
+
+const getNoReadyDeviceReason = (devices: DeviceRow[]) => {
+  if (!devices.length) {
+    return 'Nessun dispositivo nativo registrato per questo giocatore. Apri l’app FLBP sul telefono con questo account e attiva le notifiche.';
+  }
+  if (!devices.some((device) => device.platform === 'android' || device.platform === 'ios')) {
+    return 'Per questo giocatore risultano solo sessioni web: serve aprire l’app Android/iOS e accedere con lo stesso account.';
+  }
+  if (devices.some((device) => (device.platform === 'android' || device.platform === 'ios') && !device.push_enabled)) {
+    return 'Il dispositivo del giocatore è registrato, ma le notifiche non risultano abilitate. Apri l’app FLBP e consenti le notifiche.';
+  }
+  if (devices.some((device) => (device.platform === 'android' || device.platform === 'ios') && !normalizeText(device.device_token))) {
+    return 'Il dispositivo è registrato, ma non ha ancora un token push valido. Riapri l’app FLBP sul telefono e rientra nell’area giocatore.';
+  }
+  return 'Nessun dispositivo Android/iOS pronto per ricevere notifiche push.';
 };
 
 const fetchGoogleAccessToken = async (env: RuntimeEnv) => {
@@ -244,8 +268,7 @@ const buildApnsJwt = async (env: RuntimeEnv) => {
 
 const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushAction, call: CallRow): Promise<DispatchResult> => {
   const accessToken = await fetchGoogleAccessToken(env);
-  const content = buildNotificationContent(action, call);
-  const data = buildDataPayload(action, call);
+  const data = buildPushDataPayload(action, call);
   const response = await fetch(
     `https://fcm.googleapis.com/v1/projects/${env.fcmProjectId}/messages:send`,
     {
@@ -257,15 +280,9 @@ const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushA
       body: JSON.stringify({
         message: {
           token: normalizeText(device.device_token),
-          notification: content,
           data: Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])),
           android: {
             priority: 'high',
-            notification: {
-              channel_id: 'team_calls',
-              sound: 'default',
-              tag: `call-${call.id}`,
-            },
           },
         },
       }),
@@ -285,20 +302,25 @@ const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushA
 const sendIosPush = async (env: RuntimeEnv, device: DeviceRow, action: PushAction, call: CallRow): Promise<DispatchResult> => {
   const jwt = await buildApnsJwt(env);
   const content = buildNotificationContent(action, call);
+  const isSilentClear = action === 'cancelled' || action === 'acknowledged';
   const endpoint = env.apnsUseSandbox ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com';
   const response = await fetch(`${endpoint}/3/device/${normalizeText(device.device_token)}`, {
     method: 'POST',
     headers: {
       authorization: `bearer ${jwt}`,
       'apns-topic': env.apnsBundleId!,
-      'apns-push-type': 'alert',
-      'apns-priority': '10',
+      'apns-push-type': isSilentClear ? 'background' : 'alert',
+      'apns-priority': isSilentClear ? '5' : '10',
+      'apns-collapse-id': `call-${call.id}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      aps: {
+      aps: isSilentClear ? {
+        'content-available': 1,
+      } : {
         alert: content,
         sound: 'default',
+        'thread-id': 'team_calls',
       },
       flbp: buildDataPayload(action, call),
     }),
@@ -338,20 +360,25 @@ serve(async (req) => {
     const adminClient = await ensureAdminUser(req, env);
     const call = await fetchCallRow(adminClient, workspaceId, callId);
     const devices = await fetchTargetDevices(adminClient, call);
+    const readyDevices = devices.filter((device: DeviceRow) =>
+      normalizeText(device.device_token) &&
+      device.push_enabled === true &&
+      device.platform !== 'web'
+    );
 
-    if (!devices.length) {
+    if (!readyDevices.length) {
       return json(200, {
         ok: true,
         callId: call.id,
         action,
         skipped: true,
-        reason: 'No push-ready devices found for this player.',
+        reason: getNoReadyDeviceReason(devices),
         deliveries: [],
       });
     }
 
     const deliveries: DispatchResult[] = [];
-    for (const device of devices) {
+    for (const device of readyDevices) {
       try {
         if (device.platform === 'android') {
           deliveries.push(await sendAndroidPush(env, device, action, call));

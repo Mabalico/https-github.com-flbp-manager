@@ -225,14 +225,12 @@ export const useAdminTeamCalls = (state: AppState) => {
     if (liveCallMode === 'live_ready') {
       if (meta.activeCall) {
         await cancelPlayerAppCall(meta.activeCall.id);
-        try {
-          await dispatchPlayerCallPush({
-            callId: meta.activeCall.id,
-            action: 'cancelled',
-          });
-        } catch (pushError) {
-          console.warn('FLBP call push dispatch failed after cancel', pushError);
-        }
+        void dispatchPlayerCallPush({
+          callId: meta.activeCall.id,
+          action: 'cancelled',
+        }).catch((pushError) => {
+          console.warn('FLBP silent call cancellation dispatch failed', pushError);
+        });
       } else if (meta.liveTarget) {
         const result = await callPlayerAppTeam({
           tournamentId: state.tournament.id,

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 enum NativeWebMirrorConfig {
@@ -55,6 +56,9 @@ struct NativeWebMirrorHostView<Fallback: View>: View {
                     }
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            NativePushRegistry.refreshRegistration()
         }
     }
 }

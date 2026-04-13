@@ -802,6 +802,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     void refreshLiveRuntime();
   }, [liveBackendEnabled, liveCallRefreshNonce, liveRuntimeArmed, refreshLiveRuntime]);
 
+  React.useEffect(() => {
+    if (!liveBackendEnabled || !liveRuntimeArmed || !liveSession?.accessToken || liveAuthFlow === 'recovery') return;
+    const timer = window.setInterval(() => {
+      setLiveCallRefreshNonce((value) => value + 1);
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [liveAuthFlow, liveBackendEnabled, liveRuntimeArmed, liveSession?.accessToken]);
+
   const liveRuntimeSession = React.useMemo(
     () => (liveSession?.accessToken ? buildPlayerRuntimeSessionFromSupabase(liveSession) : null),
     [liveSession]
