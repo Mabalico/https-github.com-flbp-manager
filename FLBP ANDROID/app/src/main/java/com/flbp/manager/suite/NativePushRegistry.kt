@@ -137,13 +137,14 @@ object NativePushRegistry {
     }
 
     private fun notificationPermissionState(context: Context): String {
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return "denied"
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return "granted"
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
-        return if (granted) "granted" else "prompt"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) return "prompt"
+        }
+        return if (NotificationManagerCompat.from(context).areNotificationsEnabled()) "granted" else "denied"
     }
 
     private fun hasFirebaseConfig(context: Context): Boolean {

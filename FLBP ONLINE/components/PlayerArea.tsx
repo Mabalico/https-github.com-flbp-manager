@@ -96,7 +96,6 @@ const btnBase =
 const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] focus-visible:ring-blue-500`;
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98] focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 active:scale-[0.98] focus-visible:ring-rose-500`;
-const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v2';
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
 
 const schedulePlayerAreaTask = (task: () => void) => {
@@ -427,15 +426,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
   const [nativePushPermissionPromptOpen, setNativePushPermissionPromptOpen] = React.useState(false);
   const liveRuntimeRequestRef = React.useRef(0);
-  const nativePushPermissionRequestedRef = React.useRef(
-    (() => {
-      try {
-        return localStorage.getItem(PLAYER_NATIVE_PUSH_PROMPT_KEY) === '1';
-      } catch {
-        return false;
-      }
-    })()
-  );
+  const nativePushPermissionRequestedRef = React.useRef(false);
   const nativePushPermissionRegistrationRef = React.useRef<NativePushRegistrationSnapshot | null>(null);
   const nativePushSyncKeyRef = React.useRef('');
   const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
@@ -546,13 +537,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       return null;
     }
 
-    if (registration.permission === 'prompt' && !nativePushPermissionRequestedRef.current) {
+    const shouldAskForNativePush =
+      registration.configReady &&
+      !registration.pushEnabled &&
+      (registration.permission === 'prompt' ||
+        registration.permission === 'denied' ||
+        (registration.permission === 'granted' && !registration.deviceToken));
+
+    if (shouldAskForNativePush && !nativePushPermissionRequestedRef.current) {
       nativePushPermissionRequestedRef.current = true;
-      try {
-        localStorage.setItem(PLAYER_NATIVE_PUSH_PROMPT_KEY, '1');
-      } catch {
-        // ignore
-      }
       nativePushPermissionRegistrationRef.current = registration;
       setNativePushRegistration(registration);
       setNativePushPermissionPromptOpen(true);
@@ -1417,6 +1410,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       setLiveCallRefreshNonce((value) => value + 1);
       setLiveAuthFlow('session');
       nativePushSyncKeyRef.current = '';
+      nativePushPermissionRequestedRef.current = false;
       await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
       window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
       return;
