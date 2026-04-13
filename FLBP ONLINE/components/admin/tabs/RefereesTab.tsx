@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer, Search, ShieldCheck, X, Eye, EyeOff } from 'lucide-react';
+import { ClipboardList, ListChecks, Printer, Search, ShieldCheck, Trash2, X, Eye, EyeOff } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import { getPlayerKey, isU25, resolvePlayerKey } from '../../../services/storageService';
 import type { Match, Team } from '../../../types';
@@ -7,6 +7,7 @@ import { formatMatchTeamsLabel, getMatchParticipantIds } from '../../../services
 import { formatBirthDateDisplay, normalizeBirthDateInput } from '../../../services/playerIdentity';
 import { useTranslation } from '../../../App';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
+import { buildRefereeReportCounterRows, getRefereeReportAuditEntries, getRefereeReportDisplayAuthor, getRefereeReportFinalEntry } from '../../../services/refereeReportAudit';
 
 export interface RefereesTabProps {
     state: AppState;
@@ -14,10 +15,14 @@ export interface RefereesTabProps {
     setRefTables: (v: number) => void;
     getTeamName: (id?: string) => string;
     updateLiveRefereesPassword: (password: string) => { ok: boolean; message: string };
+    onDeleteReport: (matchId: string) => void;
 }
 
-export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setRefTables, getTeamName, updateLiveRefereesPassword }) => {
+export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setRefTables, getTeamName, updateLiveRefereesPassword, onDeleteReport }) => {
     const [query, setQuery] = React.useState('');
+    const [viewMode, setViewMode] = React.useState<'availability' | 'reports' | 'counter'>('availability');
+    const [reportQuery, setReportQuery] = React.useState('');
+    const [expandedReportId, setExpandedReportId] = React.useState<string | null>(null);
     const [passwordDraft, setPasswordDraft] = React.useState('');
     const [showPasswordDraft, setShowPasswordDraft] = React.useState(false);
     const [passwordOpen, setPasswordOpen] = React.useState(false);
@@ -550,9 +555,200 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                     };
     
                     const fmtMatch = (m: Match) => formatMatchTeamsLabel(m, (id) => getTeamName(id));
+
+                    const fmtDateTime = (value?: string) => {
+                        const ts = Date.parse(String(value || ''));
+                        return Number.isFinite(ts) ? new Date(ts).toLocaleString('it-IT') : 'ND';
+                    };
+
+                    const fmtAuditScore = (entry: ReturnType<typeof getRefereeReportFinalEntry> | null, match: Match) => {
+                        const target = entry || match;
+                        const scoresByTeam = (target as any)?.scoresByTeam as Record<string, number> | undefined;
+                        if (scoresByTeam && Object.keys(scoresByTeam).length) {
+                            return Object.values(scoresByTeam).map((v) => String(Number(v || 0))).join(' - ');
+                        }
+                        return `${Number((target as any)?.scoreA || 0)} - ${Number((target as any)?.scoreB || 0)}`;
+                    };
+
+                    const reportRows = (state.tournamentMatches || [])
+                        .filter((m) => m.status === 'finished' || m.played || getRefereeReportAuditEntries(m).length > 0)
+                        .map((match) => {
+                            const entries = getRefereeReportAuditEntries(match);
+                            const finalEntry = getRefereeReportFinalEntry(match);
+                            return {
+                                match,
+                                entries,
+                                finalEntry,
+                                author: getRefereeReportDisplayAuthor(match),
+                                label: fmtMatch(match),
+                            };
+                        })
+                        .sort((a, b) => (a.match.orderIndex ?? 0) - (b.match.orderIndex ?? 0));
+
+                    const reportNeedle = reportQuery.trim().toLowerCase();
+                    const filteredReportRows = !reportNeedle
+                        ? reportRows
+                        : reportRows.filter((row) =>
+                            row.author.toLowerCase().includes(reportNeedle) ||
+                            row.label.toLowerCase().includes(reportNeedle) ||
+                            String(row.match.code || row.match.id || '').toLowerCase().includes(reportNeedle)
+                        );
+
+                    const counterRows = buildRefereeReportCounterRows(state.tournamentMatches || []);
+                    const printCounter = () => {
+                        if (!counterRows.length) {
+                            alert('Nessun arbitraggio da stampare.');
+                            return;
+                        }
+                        const rowsHtml = counterRows.map((row) => `
+                            <tr>
+                                <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:800;">${escapeHtml(row.name)}</td>
+                                <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:900;">${row.count}</td>
+                            </tr>
+                        `).join('');
+                        openPrintWindow('Contatore arbitraggi', `
+                            <div style="font-family:Arial,Helvetica,sans-serif;padding:28px;color:#0f172a;">
+                                <h1 style="margin:0 0 8px;font-size:24px;">Contatore arbitraggi</h1>
+                                <div style="margin-bottom:18px;font-weight:700;color:#475569;">${escapeHtml(state.tournament?.name || 'Torneo FLBP')}</div>
+                                <table style="border-collapse:collapse;width:100%;font-size:14px;">
+                                    <thead>
+                                        <tr>
+                                            <th style="padding:10px 12px;border-bottom:2px solid #0f172a;text-align:left;">Arbitro</th>
+                                            <th style="padding:10px 12px;border-bottom:2px solid #0f172a;text-align:right;">Partite arbitrate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${rowsHtml}</tbody>
+                                </table>
+                            </div>
+                        `);
+                    };
+
+                    const renderReportsView = () => (
+                        <div className="border border-slate-200 rounded-xl bg-white p-4 space-y-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <div className="text-lg font-black text-slate-900">Arbitraggi</div>
+                                    <div className="text-xs font-bold text-slate-500">Referti finali e sovrascritti del torneo live.</div>
+                                </div>
+                                <div className="relative w-full lg:w-80">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        value={reportQuery}
+                                        onChange={(e) => setReportQuery(e.target.value)}
+                                        placeholder="Cerca arbitro, partita o codice..."
+                                        className={`w-full pl-9 pr-9 ${inputBase}`}
+                                    />
+                                    {reportQuery.trim() && (
+                                        <button type="button" onClick={() => setReportQuery('')} className={`${iconBtn} absolute right-2 top-1/2 -translate-y-1/2`}>
+                                            <X className="w-4 h-4 text-slate-500" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {!filteredReportRows.length ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">Nessun referto trovato.</div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {filteredReportRows.map((row) => {
+                                        const expanded = expandedReportId === row.match.id;
+                                        const canDelete = row.match.status === 'finished' || row.match.played;
+                                        return (
+                                            <div key={row.match.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-black text-slate-500">{row.match.code || row.match.id}</div>
+                                                        <div className="font-black text-slate-900 leading-tight break-words">{row.label}</div>
+                                                        <div className="text-sm font-bold text-slate-600 mt-1">
+                                                            Arbitro: <b>{row.author || 'Nessun referto finale'}</b> · Score: <b>{row.finalEntry ? fmtAuditScore(row.finalEntry, row.match) : 'cancellato'}</b> · {fmtDateTime(row.finalEntry?.savedAt || row.match.refereeReportSavedAt)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        {row.entries.length > 1 ? (
+                                                            <button type="button" onClick={() => setExpandedReportId(expanded ? null : row.match.id)} className={btnBase}>
+                                                                <ClipboardList className="w-4 h-4" /> {expanded ? 'Nascondi confronto' : 'Confronta referti'}
+                                                            </button>
+                                                        ) : null}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onDeleteReport(row.match.id)}
+                                                            disabled={!canDelete}
+                                                            className={`${btnBase} text-red-700 disabled:bg-slate-100 disabled:text-slate-400`}
+                                                        >
+                                                            <Trash2 className="w-4 h-4" /> Cancella referto
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                {expanded && (
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                        {row.entries.map((entry) => {
+                                                            const isFinal = !!row.finalEntry && entry.id === row.finalEntry.id;
+                                                            return (
+                                                                <div key={entry.id} className={`rounded-xl border p-3 ${isFinal ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <div className="text-xs font-black uppercase tracking-wide">{isFinal ? 'Finale attuale' : 'Sovrascritto'}</div>
+                                                                        <div className="text-xs font-bold text-slate-500">{fmtDateTime(entry.savedAt)}</div>
+                                                                    </div>
+                                                                    <div className="mt-2 font-black text-slate-900">{entry.refereeName || (entry.source === 'admin' ? 'Admin' : 'Arbitro')}</div>
+                                                                    <div className="text-sm font-bold text-slate-700">Score: {fmtAuditScore(entry, row.match)}</div>
+                                                                    <div className="text-xs font-bold text-slate-500 mt-1">
+                                                                        Canestri: {(entry.stats || []).reduce((sum, stat) => sum + Number(stat.canestri || 0), 0)} · Soffi: {(entry.stats || []).reduce((sum, stat) => sum + Number(stat.soffi || 0), 0)}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+
+                    const renderCounterView = () => (
+                        <div className="border border-slate-200 rounded-xl bg-white p-4 space-y-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div className="text-lg font-black text-slate-900">Contatore</div>
+                                    <div className="text-xs font-bold text-slate-500">Conteggio dei referti finali salvati per arbitro.</div>
+                                </div>
+                                <button type="button" onClick={printCounter} className={btnBase}>
+                                    <Printer className="w-4 h-4" /> Stampa contatore
+                                </button>
+                            </div>
+                            {!counterRows.length ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">Nessun referto finale salvato.</div>
+                            ) : (
+                                <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 overflow-hidden">
+                                    {counterRows.map((row) => (
+                                        <div key={row.name} className="flex items-center justify-between gap-3 p-3 bg-slate-50">
+                                            <div className="font-black text-slate-900">{row.name}</div>
+                                            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-black">{row.count}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    );
     
                     return (
                         <div className="space-y-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button type="button" onClick={() => setViewMode('availability')} className={`${btnBase} ${viewMode === 'availability' ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800' : ''}`}>
+                                    <ShieldCheck className="w-4 h-4" /> Disponibilità
+                                </button>
+                                <button type="button" onClick={() => setViewMode('reports')} className={`${btnBase} ${viewMode === 'reports' ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800' : ''}`}>
+                                    <ClipboardList className="w-4 h-4" /> Arbitraggi
+                                </button>
+                                <button type="button" onClick={() => setViewMode('counter')} className={`${btnBase} ${viewMode === 'counter' ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800' : ''}`}>
+                                    <ListChecks className="w-4 h-4" /> Contatore
+                                </button>
+                            </div>
+
+                            {viewMode === 'availability' && (
+                                <>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 <div className="border border-slate-200 rounded-xl p-4 bg-white">
                                     <div className="flex items-center justify-between gap-3 mb-2">
@@ -638,6 +834,11 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                             <div className="text-xs font-bold text-slate-500">
                                 {t('referees_rounds_note_prefix')} <b>{nTables}</b> {t('referees_rounds_note_suffix')}
                             </div>
+                                </>
+                            )}
+
+                            {viewMode === 'reports' && renderReportsView()}
+                            {viewMode === 'counter' && renderCounterView()}
                         </div>
                     );
                 })()}

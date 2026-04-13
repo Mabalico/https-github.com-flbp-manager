@@ -96,7 +96,7 @@ const btnBase =
 const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98] focus-visible:ring-blue-500`;
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98] focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 active:scale-[0.98] focus-visible:ring-rose-500`;
-const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v1';
+const PLAYER_NATIVE_PUSH_PROMPT_KEY = 'flbp_player_native_push_prompted_v2';
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
 
 const schedulePlayerAreaTask = (task: () => void) => {
@@ -425,8 +425,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [liveDerivedError, setLiveDerivedError] = React.useState<string | null>(null);
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
+  const [nativePushPermissionPromptOpen, setNativePushPermissionPromptOpen] = React.useState(false);
   const liveRuntimeRequestRef = React.useRef(0);
-  const nativePushPermissionRequestedRef = React.useRef(false);
+  const nativePushPermissionRequestedRef = React.useRef(
+    (() => {
+      try {
+        return localStorage.getItem(PLAYER_NATIVE_PUSH_PROMPT_KEY) === '1';
+      } catch {
+        return false;
+      }
+    })()
+  );
+  const nativePushPermissionRegistrationRef = React.useRef<NativePushRegistrationSnapshot | null>(null);
   const nativePushSyncKeyRef = React.useRef('');
   const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -543,10 +553,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       } catch {
         // ignore
       }
-      const requestedRegistration = await requestNativePushPermission();
-      if (requestedRegistration) {
-        registration = requestedRegistration;
-      }
+      nativePushPermissionRegistrationRef.current = registration;
+      setNativePushRegistration(registration);
+      setNativePushPermissionPromptOpen(true);
+      return persistNativePushRegistration(registration);
     }
 
     registration = registration || readNativePushRegistration();
@@ -555,6 +565,26 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setNativePushRegistration(registration);
     return persistNativePushRegistration(registration);
   }, [embeddedNativeShell, liveBackendEnabled, persistNativePushRegistration]);
+
+  const confirmNativePushPermission = React.useCallback(async () => {
+    setNativePushPermissionPromptOpen(false);
+    let registration = await requestNativePushPermission();
+    registration = registration || readNativePushRegistration() || nativePushPermissionRegistrationRef.current;
+    nativePushPermissionRegistrationRef.current = null;
+    if (!registration?.deviceId) return;
+
+    setNativePushRegistration(registration);
+    try {
+      await persistNativePushRegistration(registration);
+    } catch (error) {
+      console.warn('FLBP native push permission sync failed', error);
+    }
+  }, [persistNativePushRegistration]);
+
+  const dismissNativePushPermission = React.useCallback(() => {
+    nativePushPermissionRegistrationRef.current = null;
+    setNativePushPermissionPromptOpen(false);
+  }, []);
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !embeddedNativeShell || liveAuthFlow === 'recovery' || !liveSession?.accessToken || !nativePushRegistration?.deviceId) return;
@@ -1396,6 +1426,38 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   return (
     <div className="p-4 md:p-6 space-y-5 [overflow-anchor:none]">
+      {nativePushPermissionPromptOpen ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
+            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
+                <BellRing className="h-6 w-6" />
+              </div>
+              <div className="mt-4 text-2xl font-black tracking-tight">{t('player_native_push_prompt_title')}</div>
+              <p className="mt-2 text-sm font-semibold leading-6 text-white/78">
+                {t('player_native_push_prompt_body')}
+              </p>
+            </div>
+            <div className="space-y-3 px-5 py-5">
+              <button
+                type="button"
+                onClick={confirmNativePushPermission}
+                className={`${btnPrimary} w-full justify-center`}
+              >
+                <BellRing className="h-4 w-4" />
+                {t('player_native_push_prompt_enable')}
+              </button>
+              <button
+                type="button"
+                onClick={dismissNativePushPermission}
+                className={`${btnSecondary} w-full justify-center`}
+              >
+                {t('player_native_push_prompt_later')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className={cardClass}>
         <div className="border-b border-slate-100 px-5 py-5 md:px-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">

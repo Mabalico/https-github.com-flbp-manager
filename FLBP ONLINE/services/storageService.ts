@@ -4,6 +4,7 @@ import { isFinalGroup } from './groupUtils';
 import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from './playerIdentity';
 import { buildMetricAwardEntries } from './awardRules';
 import { normalizeNameLower } from './textUtils';
+import { stripRefereeReportAuditFromMatch } from './refereeReportAudit';
 
 const STORAGE_KEY = 'beer_pong_app_state';
 
@@ -467,7 +468,7 @@ export const archiveTournamentV2 = (state: AppState, options?: { includeU25Award
         ...state.tournament,
         includeU25Awards: options?.includeU25Awards ?? state.tournament.includeU25Awards ?? true,
         refereesRoster: [],
-        matches: state.tournamentMatches
+        matches: state.tournamentMatches.map(stripRefereeReportAuditFromMatch)
     };
 
     const nextHistory = [...(state.tournamentHistory || []), archivedTournament];

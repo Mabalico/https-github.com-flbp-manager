@@ -14,6 +14,7 @@ import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
 import { buildPlayerAreaSnapshot, findRefereeBypassNameForProfile, toPlayerRuntimeProfile } from '../services/playerAppService';
 import { tryMergeRemoteStateConflict } from '../services/stateConflictMerge';
+import { withRefereeReportAudit } from '../services/refereeReportAudit';
 
 interface RefereesAreaProps {
     state: AppState;
@@ -46,6 +47,8 @@ const sameSet = (a: string[], b: string[]) => {
     for (const x of b) if (!sa.has(x)) return false;
     return true;
 };
+
+const sameRefereeName = (a: string, b: string) => normalizeName(a).toLowerCase() === normalizeName(b).toLowerCase();
 
 export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onBack }) => {
     const { t } = useTranslation();
@@ -261,6 +264,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             if (p2Ref && typeof team.player2 === 'string') names.push(team.player2);
         }
 
+        if (liveRefereeBypass && liveRefereeBypassSelectedName) names.push(liveRefereeBypassSelectedName);
+
         // normalize + dedupe case-insensitive
         const map = new Map<string, string>();
         for (const raw of names) {
@@ -271,11 +276,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
 
         return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'it', { sensitivity: 'base' }));
-    }, [liveTournament]);
+    }, [liveTournament, liveRefereeBypass, liveRefereeBypassSelectedName]);
 
     useEffect(() => {
         if (!selectedReferee) return;
-        if (availableReferees.includes(selectedReferee)) return;
+        if (availableReferees.some((name) => sameRefereeName(name, selectedReferee))) return;
         setSelectedReferee('');
         try { sessionStorage.removeItem('flbp_ref_name'); } catch {}
     }, [availableReferees, selectedReferee]);
@@ -464,6 +469,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
     }, [liveRefereeBypass, liveRefereeBypassSelectedName, page, selectedReferee]);
 
+    const activeRefereeName = selectedReferee || (liveRefereeBypass ? normalizeName(liveRefereeBypassSelectedName) : '');
+
     const persistReportCode = (code: string) => {
         const c = (code || '').trim().toUpperCase();
         setReportCode(c);
@@ -563,7 +570,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
     };
 
-    const canProceedToMatch = !!liveTournament && !!selectedReferee;
+    const canProceedToMatch = !!liveTournament && !!activeRefereeName;
 
     const enterMatchPage = () => {
         if (!canProceedToMatch) return;
@@ -1116,7 +1123,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             if (nextStats.length) updated.stats = nextStats;
 
-            matches[idx] = updated;
+            matches[idx] = withRefereeReportAudit(base, updated, {
+                source: 'referee',
+                refereeName: activeRefereeName || 'Arbitro',
+            });
 
             // Sync bracket from groups in groups+elimination mode
             if (updated.phase === 'groups' && state.tournament?.type === 'groups_elimination') {
@@ -1570,14 +1580,14 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             <>{t('alert_no_live_active') || 'Nessun torneo live attivo.'}</>
                         )}
                     </div>
-                    {selectedReferee && (
+                    {activeRefereeName && (
                         <div className="text-xs font-black text-slate-700 mt-1">
-                            {t('referees_selected')}: <span className="text-slate-900">{selectedReferee}</span>
+                            {t('referees_selected')}: <span className="text-slate-900">{activeRefereeName}</span>
                         </div>
                     )}
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                    {(page === 'match' || page === 'report') && (
+                    {!liveRefereeBypass && (page === 'match' || page === 'report') && (
                         <button
                             onClick={backToSelectPage}
                             className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
@@ -1636,64 +1646,73 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             {t('referees_step_1_desc') || 'Scegli il tuo nome tra gli arbitri configurati per il torneo live, oppure aggiungi un arbitro.'}
                         </div>
                         <div className="mt-4">
-                            <label className="text-xs font-black text-slate-700">{t('referees_select_referee')}</label>
-                            <select
-                                value={selectedReferee}
-                                onChange={(e) => persistSelectedReferee(e.target.value)}
-                                disabled={!liveTournament}
-                                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-black outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
-                            >
-                                <option value="">{t('referees_select_placeholder')}</option>
-                                {availableReferees.map((n) => (
-                                    <option key={n} value={n}>{n}</option>
-                                ))}
-                            </select>
-                            {!availableReferees.length && (
-                                <div className="mt-2 text-xs font-bold text-slate-500">
-                                    {t('referees_no_referees_configured') || 'Nessun arbitro configurato per questo torneo.'}
+                            {liveRefereeBypass && activeRefereeName ? (
+                                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                                    <div className="text-[11px] font-black uppercase tracking-wide text-emerald-700">{t('referees_selected')}</div>
+                                    <div className="mt-1 text-lg font-black text-emerald-950">{activeRefereeName}</div>
                                 </div>
-                            )}
-
-                            <div className="mt-3 flex items-center gap-2 flex-wrap">
-                                <button
-                                    onClick={() => { setAddingManual(v => !v); setManualError(null); }}
-                                    disabled={!liveTournament}
-                                    className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition disabled:bg-slate-50 disabled:text-slate-400"
-                                >
-                                    {t('referees_add_manual')}
-                                </button>
-                            </div>
-
-                            {addingManual && (
-                                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                    <div className="text-xs font-black text-slate-700">{t('referees_add_manual')}</div>
-                                    <input
-                                        value={manualName}
-                                        onChange={(e) => { setManualName(e.target.value); setManualError(null); }}
-                                        placeholder={t('referees_add_name_placeholder')}
-                                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-black outline-none focus:ring-2 focus:ring-slate-200"
-                                    />
-                                    {manualError && (
-                                        <div className="mt-2 text-xs font-black text-red-600">{manualError}</div>
+                            ) : (
+                                <>
+                                    <label className="text-xs font-black text-slate-700">{t('referees_select_referee')}</label>
+                                    <select
+                                        value={selectedReferee}
+                                        onChange={(e) => persistSelectedReferee(e.target.value)}
+                                        disabled={!liveTournament}
+                                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-black outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
+                                    >
+                                        <option value="">{t('referees_select_placeholder')}</option>
+                                        {availableReferees.map((n) => (
+                                            <option key={n} value={n}>{n}</option>
+                                        ))}
+                                    </select>
+                                    {!availableReferees.length && (
+                                        <div className="mt-2 text-xs font-bold text-slate-500">
+                                            {t('referees_no_referees_configured') || 'Nessun arbitro configurato per questo torneo.'}
+                                        </div>
                                     )}
-                                    <div className="mt-3 flex gap-2">
+
+                                    <div className="mt-3 flex items-center gap-2 flex-wrap">
                                         <button
-                                            onClick={addManualReferee}
-                                            className="rounded-2xl bg-slate-900 text-white font-black px-4 py-2 hover:bg-slate-800 transition"
+                                            onClick={() => { setAddingManual(v => !v); setManualError(null); }}
+                                            disabled={!liveTournament}
+                                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition disabled:bg-slate-50 disabled:text-slate-400"
                                         >
-                                            {t('referees_add_confirm')}
-                                        </button>
-                                        <button
-                                            onClick={() => { setAddingManual(false); setManualName(''); setManualError(null); }}
-                                            className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
-                                        >
-                                            {t('referees_add_cancel')}
+                                            {t('referees_add_manual')}
                                         </button>
                                     </div>
-                                    <div className="mt-3 text-[11px] text-slate-600 font-semibold">
-                                        {t('referees_manual_name_added_note') || 'Il nome inserito verrà aggiunto al torneo live (solo come lista arbitri abilitati).'}
-                                    </div>
-                                </div>
+
+                                    {addingManual && (
+                                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                            <div className="text-xs font-black text-slate-700">{t('referees_add_manual')}</div>
+                                            <input
+                                                value={manualName}
+                                                onChange={(e) => { setManualName(e.target.value); setManualError(null); }}
+                                                placeholder={t('referees_add_name_placeholder')}
+                                                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-black outline-none focus:ring-2 focus:ring-slate-200"
+                                            />
+                                            {manualError && (
+                                                <div className="mt-2 text-xs font-black text-red-600">{manualError}</div>
+                                            )}
+                                            <div className="mt-3 flex gap-2">
+                                                <button
+                                                    onClick={addManualReferee}
+                                                    className="rounded-2xl bg-slate-900 text-white font-black px-4 py-2 hover:bg-slate-800 transition"
+                                                >
+                                                    {t('referees_add_confirm')}
+                                                </button>
+                                                <button
+                                                    onClick={() => { setAddingManual(false); setManualName(''); setManualError(null); }}
+                                                    className="rounded-2xl border border-slate-200 bg-white font-black px-4 py-2 hover:bg-slate-50 transition focus:outline-none focus:ring-2 focus:ring-slate-200"
+                                                >
+                                                    {t('referees_add_cancel')}
+                                                </button>
+                                            </div>
+                                            <div className="mt-3 text-[11px] text-slate-600 font-semibold">
+                                                {t('referees_manual_name_added_note') || 'Il nome inserito verrà aggiunto al torneo live (solo come lista arbitri abilitati).'}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
@@ -1708,11 +1727,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             onClick={enterMatchPage}
                             disabled={!canProceedToMatch}
                             className={`mt-4 w-full rounded-2xl font-black py-3 transition ${canProceedToMatch ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-400'}`}
-                            title={!liveTournament ? (t('alert_no_live_active') || 'Nessun torneo live attivo.') : (!selectedReferee ? (t('referees_select_referee_first') || 'Seleziona un arbitro') : '')}
+                            title={!liveTournament ? (t('alert_no_live_active') || 'Nessun torneo live attivo.') : (!activeRefereeName ? (t('referees_select_referee_first') || 'Seleziona un arbitro') : '')}
                         >
                             {t('referees_open_match_selection') || 'Apri selezione match'}
                         </button>
-                        {!selectedReferee && liveTournament && (
+                        {!activeRefereeName && liveTournament && (
                             <div className="mt-3 text-[11px] text-slate-500 font-semibold">
                                 {t('referees_select_name_first') || 'Seleziona prima il tuo nome per procedere.'}
                             </div>
