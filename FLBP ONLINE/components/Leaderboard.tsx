@@ -401,9 +401,9 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
     return a.name.localeCompare(b.name);
 });
 
-    const thPad = 'py-3 px-3 sm:p-4';
+    const thPad = 'py-3 px-2 sm:p-4';
     const stickyTh = nativeShell ? '' : 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
-    const tableScrollClass = nativeShell ? 'overflow-x-auto' : 'max-h-[68vh] overflow-auto overscroll-contain';
+    const tableScrollClass = nativeShell ? 'overflow-x-auto' : 'overflow-x-auto overscroll-x-contain sm:max-h-[68vh] sm:overflow-auto sm:overscroll-contain';
     const sortBtnBase = 'inline-flex items-center justify-center gap-1 w-full rounded-md focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 outline-none';
     const SortTh: React.FC<{ field: typeof sortField; children: React.ReactNode; className?: string }> = ({ field, children, className }) => (
         <th
@@ -626,7 +626,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                 </div>
             </div>
 
-            <div className="space-y-3 sm:hidden">
+            <div className="hidden">
                 {filteredStats.map((p, idx) => (
                     <button
                         key={p.id}
@@ -687,9 +687,9 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                 )}
             </div>
 
-            <div className="hidden bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden sm:block">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className={tableScrollClass}>
-                    <table className="w-full min-w-[1020px] text-left">
+                    <table className="w-full min-w-[820px] text-left text-[13px] sm:min-w-[1020px] sm:text-sm">
                         <thead className="bg-slate-50 text-slate-500 text-xs font-black uppercase tracking-wider">
                             <tr>
                                 <th className={`${thPad} ${stickyTh} w-16 text-center`}>{t('rank')}</th>

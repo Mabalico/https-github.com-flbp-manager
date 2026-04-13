@@ -90,7 +90,7 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     const [onlyU25, setOnlyU25] = useState(false);
     const [selectedPlayer, setSelectedPlayer] = useState<PlayerStats | null>(null);
     const stickyTh = nativeShell ? '' : 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
-    const pageTableScrollClass = nativeShell ? 'overflow-x-auto' : 'max-h-[68vh] overflow-auto overscroll-contain';
+    const pageTableScrollClass = nativeShell ? 'overflow-x-auto' : 'overflow-x-auto overscroll-x-contain sm:max-h-[68vh] sm:overflow-auto sm:overscroll-contain';
 
     const stats = useMemo(() => {
         const playerMap: Record<string, PlayerStats> = {};
@@ -386,7 +386,7 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                         </div>
                     </div>
 
-                    <div className="space-y-3 p-3 sm:hidden">
+                    <div className="hidden">
                         {displayStats.map((player, index) => (
                             <button
                                 key={player.id}
@@ -456,8 +456,8 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                         )}
                     </div>
 
-                    <div className={`${pageTableScrollClass} hidden sm:block`}>
-                        <table className="w-full min-w-[1020px] text-left">
+                    <div className={pageTableScrollClass}>
+                        <table className="w-full min-w-[900px] text-left text-[13px] sm:min-w-[1020px] sm:text-sm">
                             <thead className="bg-white text-[11px] font-black uppercase tracking-wide text-slate-500">
                                 <tr>
                                     <th className={`px-4 py-3 text-center ${stickyTh}`}>{t('rank')}</th>
