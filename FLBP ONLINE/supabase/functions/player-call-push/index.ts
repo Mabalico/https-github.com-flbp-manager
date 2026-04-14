@@ -91,6 +91,10 @@ const readBearerToken = (req: Request) => {
   return authHeader.replace(/^Bearer\s+/i, '').trim();
 };
 
+const createAdminClient = (env: RuntimeEnv) => createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
 const buildNotificationContent = (action: PushAction, call: CallRow) => {
   const safeTeam = call.team_name || 'La tua squadra';
   switch (action) {
@@ -136,7 +140,7 @@ const buildPushDataPayload = (action: PushAction, call: CallRow) => {
   };
 };
 
-const ensureAdminUser = async (req: Request, env: RuntimeEnv) => {
+const ensureAdminUser = async (req: Request, env: RuntimeEnv, adminClient = createAdminClient(env)) => {
   const token = readBearerToken(req);
   if (!token) {
     throw new Response(JSON.stringify({ ok: false, reason: 'Missing Authorization bearer token.' }), {
@@ -144,10 +148,6 @@ const ensureAdminUser = async (req: Request, env: RuntimeEnv) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-
-  const adminClient = createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 
   const {
     data: { user },
@@ -174,6 +174,71 @@ const ensureAdminUser = async (req: Request, env: RuntimeEnv) => {
   }
 
   return adminClient;
+};
+
+const ensureRefereeCallDispatch = async (
+  adminClient: ReturnType<typeof createClient>,
+  call: CallRow,
+  body: Record<string, unknown>,
+  action: PushAction,
+) => {
+  const refereePassword = normalizeText(body.refereePassword);
+  const tournamentId = normalizeText(body.tournamentId);
+  if (!refereePassword || !tournamentId) return false;
+
+  if (action !== 'cancelled') {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Referee push dispatch can only cancel an active call.' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (call.tournament_id !== tournamentId) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Call tournament mismatch.' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+  if (call.status !== 'cancelled') {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Call must be cancelled before referee silent push dispatch.' }), {
+      status: 409,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { data, error } = await adminClient
+    .from('workspace_state')
+    .select('state')
+    .eq('workspace_id', call.workspace_id)
+    .maybeSingle<{ state: Record<string, unknown> | null }>();
+  if (error) throw new Error(error.message);
+
+  const state = (data?.state || {}) as Record<string, unknown>;
+  const liveTournament = state.tournament && typeof state.tournament === 'object'
+    ? state.tournament as Record<string, unknown>
+    : {};
+  const liveTournamentId = normalizeText(liveTournament.id);
+  const expectedPassword = normalizeText(liveTournament.refereesPassword);
+  if (!liveTournamentId || liveTournamentId !== tournamentId || !expectedPassword || expectedPassword !== refereePassword) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Referee access required for this live tournament.' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return true;
+};
+
+const ensurePushDispatchAccess = async (
+  req: Request,
+  env: RuntimeEnv,
+  adminClient: ReturnType<typeof createClient>,
+  call: CallRow,
+  body: Record<string, unknown>,
+  action: PushAction,
+) => {
+  if (await ensureRefereeCallDispatch(adminClient, call, body, action)) return;
+  await ensureAdminUser(req, env, adminClient);
 };
 
 const fetchCallRow = async (adminClient: ReturnType<typeof createClient>, workspaceId: string, callId: string) => {
@@ -354,16 +419,18 @@ serve(async (req) => {
   try {
     ensureBaseEnv(env);
     const body = await req.json().catch(() => ({}));
-    const workspaceId = normalizeText((body as Record<string, unknown>).workspaceId);
-    const callId = normalizeText((body as Record<string, unknown>).callId);
-    const action = normalizeText((body as Record<string, unknown>).action).toLowerCase() as PushAction;
+    const bodyRecord = body as Record<string, unknown>;
+    const workspaceId = normalizeText(bodyRecord.workspaceId);
+    const callId = normalizeText(bodyRecord.callId);
+    const action = normalizeText(bodyRecord.action).toLowerCase() as PushAction;
 
     if (!workspaceId || !callId || !['ringing', 'cancelled', 'acknowledged'].includes(action)) {
       return json(400, { ok: false, reason: 'Invalid push dispatch payload.' });
     }
 
-    const adminClient = await ensureAdminUser(req, env);
+    const adminClient = createAdminClient(env);
     const call = await fetchCallRow(adminClient, workspaceId, callId);
+    await ensurePushDispatchAccess(req, env, adminClient, call, bodyRecord, action);
     const devices = await fetchTargetDevices(adminClient, call);
     const readyDevices = devices.filter((device: DeviceRow) =>
       normalizeText(device.device_token) &&

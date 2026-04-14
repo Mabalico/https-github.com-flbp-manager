@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "История уже присутствует",
   "data_accounts_alias_merge_confirm_candidate_into_account": "Хотите объединить исторический профиль {candidate} с аккаунтом {account}? Существующая история будет перенесена в зарегистрированный профиль.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Хотите связать учетную запись {account} с историческим профилем {candidate}? Зарегистрированная учетная запись примет этот профиль в качестве основного идентификатора.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Хотите пометить {candidate} как псевдоним профиля {account}? История останется связанной, но будет привязана к зарегистрированной учетной записи."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Хотите пометить {candidate} как псевдоним профиля {account}? История останется связанной, но будет привязана к зарегистрированной учетной записи.",
+  "select_winner": "Выбрать победителя",
+  "structure_results_only_badge": "Только результаты",
+  "structure_results_only_label": "Только результаты",
+  "structure_results_only_desc": "Сохраняет только победителей и проигравших: без попаданий, soffi, зоны судей, рейтингов бомбардиров, лучшего бомбардира или защитника.",
+  "results_only_report_title": "Протокол только с результатом",
+  "results_only_report_desc": "Выберите победившую команду. Система сохранит только победу и поражение, без статистики игроков.",
+  "results_only_report_status_hint": "После выбора победителя матч будет сохранен как завершенный.",
+  "results_only_select_winner_alert": "Выберите победившую команду перед сохранением протокола.",
+  "results_only_referees_disabled": "Этот турнир работает в режиме только результатов: зона судей не нужна. Протоколы вводятся из Admin, выбирая только победителя."
 };

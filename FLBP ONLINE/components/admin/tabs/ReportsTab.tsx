@@ -23,6 +23,10 @@ export interface ReportsTabProps {
     reportScoreB: string;
     setReportScoreB: (v: string) => void;
 
+    resultsOnly: boolean;
+    reportWinnerTeamId: string;
+    setReportWinnerTeamId: (v: string) => void;
+
     reportStatsForm: Record<string, { canestri: string; soffi: string }>;
     setReportStatsForm: React.Dispatch<React.SetStateAction<Record<string, { canestri: string; soffi: string }>>>;
 
@@ -52,6 +56,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     setReportScoreA,
     reportScoreB,
     setReportScoreB,
+    resultsOnly,
+    reportWinnerTeamId,
+    setReportWinnerTeamId,
     reportStatsForm,
     setReportStatsForm,
     handleSaveReport,
@@ -143,6 +150,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     const isMulti = !!selected && selectedIds.length >= 3;
 
                     const selectedHasPlaceholder = !!selected && (selectedIds.length < 2 || selectedIds.some(isPlaceholderTeamId));
+                    const saveDisabled = selectedHasPlaceholder || (resultsOnly && !reportWinnerTeamId);
 
                     const computeTeamScoreFromForm = (teamId: string, p1?: string, p2?: string) => {
                         const getCan = (playerName?: string) => {
@@ -325,7 +333,49 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                             </div>
                                         </div>
 
-                                        {!isMulti ? (
+                                        {resultsOnly ? (
+                                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                                                <div className="text-[11px] font-black uppercase tracking-wide text-amber-800">
+                                                    {t('results_only_report_title')}
+                                                </div>
+                                                <div className="mt-1 text-sm font-bold text-amber-950">
+                                                    {t('results_only_report_desc')}
+                                                </div>
+                                                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                                    {selectedTeams.map((tt) => {
+                                                        const active = reportWinnerTeamId === tt.id;
+                                                        return (
+                                                            <button
+                                                                key={tt.id}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setReportWinnerTeamId(tt.id);
+                                                                    setReportStatus('finished');
+                                                                    if (!isMulti) {
+                                                                        setReportScoreA(tt.id === selected.teamAId ? '1' : '0');
+                                                                        setReportScoreB(tt.id === selected.teamBId ? '1' : '0');
+                                                                    } else {
+                                                                        setReportScoreA('1');
+                                                                        setReportScoreB('0');
+                                                                    }
+                                                                    setReportStatsForm({});
+                                                                }}
+                                                                className={`min-h-[64px] rounded-2xl border px-4 py-3 text-left font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
+                                                                    active
+                                                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-sm'
+                                                                        : 'border-white bg-white text-slate-800 hover:border-amber-300'
+                                                                }`}
+                                                            >
+                                                                <span className="block text-[10px] uppercase tracking-wide text-slate-500">
+                                                                    {active ? t('winner') : t('select_winner')}
+                                                                </span>
+                                                                <span className="block mt-1 whitespace-normal break-words">{tt.name || tt.id}</span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ) : !isMulti ? (
                                             <div className="grid grid-cols-3 gap-3 items-end">
                                                 <div>
                                                     <div className="text-[10px] font-black text-slate-500 uppercase mb-1">{t('team_a')}</div>
@@ -369,22 +419,29 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                             </div>
                                         )}
 
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <div className="text-xs font-black text-slate-500 uppercase">{t('status')}</div>
-                                            <select
-                                                value={reportStatus}
-                                                onChange={(e) => setReportStatus(e.target.value as any)}
-                                                className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-black bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
-                                            >
-                                                <option value="scheduled">{t('match_status_scheduled')}</option>
-                                                <option value="playing">{t('match_status_playing')}</option>
-                                                <option value="finished">{t('match_status_finished')}</option>
-                                            </select>
-                                            <div className="text-[10px] font-bold text-slate-400">
-                                                {t('reports_status_hint')}
+                                        {resultsOnly ? (
+                                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-900">
+                                                {t('results_only_report_status_hint')}
                                             </div>
-                                        </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <div className="text-xs font-black text-slate-500 uppercase">{t('status')}</div>
+                                                <select
+                                                    value={reportStatus}
+                                                    onChange={(e) => setReportStatus(e.target.value as any)}
+                                                    className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-black bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
+                                                >
+                                                    <option value="scheduled">{t('match_status_scheduled')}</option>
+                                                    <option value="playing">{t('match_status_playing')}</option>
+                                                    <option value="finished">{t('match_status_finished')}</option>
+                                                </select>
+                                                <div className="text-[10px] font-bold text-slate-400">
+                                                    {t('reports_status_hint')}
+                                                </div>
+                                            </div>
+                                        )}
 
+                                        {!resultsOnly && (
                                         <div className="border-t border-slate-100 pt-3 space-y-3">
                                             <div className="flex items-center justify-between">
                                                 <div className="font-black text-slate-800">{t('statistics')}</div>
@@ -446,16 +503,17 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                 </div>
                                             )}
                                         </div>
+                                        )}
 
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                if (selectedHasPlaceholder) return;
+                                                if (saveDisabled) return;
                                                 handleSaveReport();
                                             }}
-                                            disabled={selectedHasPlaceholder}
+                                            disabled={saveDisabled}
                                             className={`sticky bottom-3 z-10 w-full py-3 rounded-xl font-black uppercase transition flex items-center justify-center gap-2 sm:static ${
-                                                selectedHasPlaceholder
+                                                saveDisabled
                                                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                                     : 'bg-beer-500 text-white hover:bg-beer-600'
                                             }`}
@@ -470,6 +528,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         )}
                                     </div>
 
+                                    {!resultsOnly && (
                                     <div className="border border-slate-200 rounded-xl bg-white">
                                         <button
                                             type="button"
@@ -552,6 +611,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                             </div>
                                         )}
                                     </div>
+                                    )}
                                 </div>
                             )}
                         </div>

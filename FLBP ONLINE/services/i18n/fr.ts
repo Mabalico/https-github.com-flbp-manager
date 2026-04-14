@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "Une histoire déjà présente",
   "data_accounts_alias_merge_confirm_candidate_into_account": "Souhaitez-vous fusionner le profil historique {candidate} dans le compte {account} ? L'historique existant sera déplacé vers le profil enregistré.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Voulez-vous connecter le compte {account} au profil historique {candidate} ? Le compte enregistré adoptera ce profil comme identité principale.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Voulez-vous marquer {candidate} comme alias du profil {account} ? L'historique restera lié mais sera résolu au compte enregistré."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Voulez-vous marquer {candidate} comme alias du profil {account} ? L'historique restera lié mais sera résolu au compte enregistré.",
+  "select_winner": "Sélectionner le vainqueur",
+  "structure_results_only_badge": "Résultats seuls",
+  "structure_results_only_label": "Résultats seuls",
+  "structure_results_only_desc": "Enregistre uniquement gagnants et perdants : pas de paniers, soffi, zone arbitres, classements marqueurs, meilleur marqueur ni défenseur.",
+  "results_only_report_title": "Feuille de match résultat seul",
+  "results_only_report_desc": "Choisissez l'équipe gagnante. Le système enregistrera seulement victoire et défaite, sans statistiques joueur.",
+  "results_only_report_status_hint": "Après avoir choisi le vainqueur, le match sera enregistré comme terminé.",
+  "results_only_select_winner_alert": "Sélectionnez l'équipe gagnante avant d'enregistrer la feuille de match.",
+  "results_only_referees_disabled": "Ce tournoi est en mode résultats seuls : la zone arbitres n'est pas nécessaire. Les feuilles de match se saisissent depuis l'Admin en choisissant uniquement le vainqueur."
 };

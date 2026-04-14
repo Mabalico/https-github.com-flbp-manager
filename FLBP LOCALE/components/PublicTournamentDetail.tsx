@@ -10,6 +10,7 @@ import { getMatchParticipantIds, formatMatchScoreLabel, formatMatchTeamsLabel, i
 import { Trophy, LayoutList, Clock, Medal, X, GitBranch, Star, Wind, UserRound, Users, CalendarDays, Archive, ArrowLeft } from 'lucide-react';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
+import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 interface PublicTournamentDetailProps {
   initialData: TournamentData;
@@ -69,7 +70,10 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
     return teamNameById.get(id) || 'TBD';
   };
 
-  const tournamentAwards = hallOfFame.filter((h) => h.tournamentId === data.id);
+  const dataResultsOnly = isResultsOnlyTournament(data);
+  const tournamentAwards = hallOfFame
+    .filter((h) => h.tournamentId === data.id)
+    .filter((h) => !dataResultsOnly || h.type === 'winner' || h.type === 'mvp');
 
   const openTurns = () => {
     if (!isLive) return;
@@ -507,17 +511,19 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
       views.push({ key: 'groups', label: t('groups_label'), icon: LayoutList });
       if (!data.isManual) {
         views.push({ key: 'bracket', label: t('bracket_finale'), icon: GitBranch });
-        views.push({ key: 'leaderboard', label: t('scorers_label'), icon: Medal });
+        if (!dataResultsOnly) {
+          views.push({ key: 'leaderboard', label: t('scorers_label'), icon: Medal });
+        }
       }
       return views;
     }
 
     views.push(
       { key: 'bracket', label: t('bracket_finale'), icon: GitBranch },
-      { key: 'leaderboard', label: t('scorers_label'), icon: Medal }
+      ...(!dataResultsOnly ? [{ key: 'leaderboard' as const, label: t('scorers_label'), icon: Medal }] : [])
     );
     return views;
-  }, [data.isManual, hasGroups, isStructurelessManualArchive, t]);
+  }, [data.isManual, dataResultsOnly, hasGroups, isStructurelessManualArchive, t]);
 
   useEffect(() => {
     if (!availableViews.some((item) => item.key === view)) {
@@ -1073,7 +1079,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
               )}
 
-              {view === 'leaderboard' && (
+              {view === 'leaderboard' && !dataResultsOnly && (
                 <TournamentLeaderboard
                   variant="page"
                   teams={teams}
@@ -1145,10 +1151,14 @@ const visibleTeamsCount = React.useMemo(() => {
             <div className="p-6 space-y-3">
               <AwardRow label={t('tournament_winner')} type="winner" icon={<Trophy className="w-5 h-5" />} color="bg-yellow-500" />
               <AwardRow label={t('tournament_mvp')} type="mvp" icon={<Star className="w-5 h-5" />} color="bg-orange-500" />
-              <AwardRow label={t('tournament_top_scorer')} type="top_scorer" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-600" />
-              <AwardRow label={t('tournament_defender')} type="defender" icon={<Wind className="w-5 h-5" />} color="bg-blue-600" />
-              <AwardRow label={t('tournament_top_scorer_u25')} type="top_scorer_u25" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-500" />
-              <AwardRow label={t('tournament_defender_u25')} type="defender_u25" icon={<UserRound className="w-5 h-5" />} color="bg-blue-400" />
+              {!dataResultsOnly && (
+                <>
+                  <AwardRow label={t('tournament_top_scorer')} type="top_scorer" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-600" />
+                  <AwardRow label={t('tournament_defender')} type="defender" icon={<Wind className="w-5 h-5" />} color="bg-blue-600" />
+                  <AwardRow label={t('tournament_top_scorer_u25')} type="top_scorer_u25" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-500" />
+                  <AwardRow label={t('tournament_defender_u25')} type="defender_u25" icon={<UserRound className="w-5 h-5" />} color="bg-blue-400" />
+                </>
+              )}
             </div>
           </div>
         </div>

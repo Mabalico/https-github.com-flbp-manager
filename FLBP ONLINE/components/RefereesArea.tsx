@@ -8,13 +8,14 @@ import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
-import { ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
+import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
 import { buildPlayerAreaSnapshot, findRefereeBypassNameForProfile, toPlayerRuntimeProfile } from '../services/playerAppService';
 import { tryMergeRemoteStateConflict } from '../services/stateConflictMerge';
 import { withRefereeReportAudit } from '../services/refereeReportAudit';
+import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 interface RefereesAreaProps {
     state: AppState;
@@ -131,6 +132,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
     const [ocrModalData, setOcrModalData] = useState<RefertoStructuredOcrResult | null>(null);
 
     const liveTournament = state.tournament;
+    const liveResultsOnly = isResultsOnlyTournament(liveTournament);
     const requiresTransientRefereeSecret = !String((liveTournament as any)?.refereesPassword || '').trim()
         && !isLocalOnlyMode()
         && !!getSupabaseConfig()
@@ -1041,6 +1043,26 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
     }, [derivedScoresByTeam]);
 
     // ===== Save report =====
+    const closeLiveCallsForMatch = (match: Match, tournamentId?: string | null) => {
+        const safeTournamentId = String(tournamentId || state.tournament?.id || '').trim();
+        if (!safeTournamentId || !match?.id) return;
+        const teamIds = Array.from(new Set(
+            getMatchParticipantIds(match)
+                .map((id) => String(id || '').trim())
+                .filter((id) => id && !isByeTeamId(id) && !isTbdTeamId(id))
+        ));
+        if (!teamIds.length) return;
+        void cancelActivePlayerAppCallsForMatch({
+            tournamentId: safeTournamentId,
+            matchId: match.id,
+            teamIds,
+            dispatchPush: true,
+            refereePassword,
+        }).catch((error) => {
+            console.warn('FLBP referee report call cleanup failed', error);
+        });
+    };
+
     const saveReport = async () => {
         if (!state.tournament) {
             alert(t('alert_no_live_active'));
@@ -1179,6 +1201,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                         refereePassword,
                                         baseUpdatedAt: pulled.updated_at || null
                                     });
+                                    closeLiveCallsForMatch(updated, state.tournament.id);
                                     clearDbSyncCurrentIssue();
                                     markDbSyncOk('snapshot');
                                     setState(mergeResult.state);
@@ -1199,6 +1222,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 }
             }
 
+            closeLiveCallsForMatch(updated, state.tournament.id);
             setState(nextState);
             alert(t('alert_report_saved'));
         } finally {
@@ -1369,6 +1393,30 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         {t('referees_only_during_live') || "Nessun torneo live attivo. L'area arbitri è disponibile solo durante un torneo live."}
                     </div>
 
+                    <div className="mt-6">
+                        <button
+                            onClick={onBack}
+                            className="w-full rounded-2xl border border-slate-200 bg-white font-black px-4 py-3 hover:bg-slate-50 transition"
+                        >
+                            {t('back')}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (liveResultsOnly) {
+        return (
+            <div className="min-h-[70vh] flex items-center justify-center p-4">
+                <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                    <div className="flex items-center gap-2 text-2xl font-black tracking-tight">
+                        <Gavel className="w-6 h-6" />
+                        <span>{t('referees_area')}</span>
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950">
+                        {t('results_only_referees_disabled')}
+                    </div>
                     <div className="mt-6">
                         <button
                             onClick={onBack}

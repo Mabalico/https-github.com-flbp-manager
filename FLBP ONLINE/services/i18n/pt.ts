@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "História já presente",
   "data_accounts_alias_merge_confirm_candidate_into_account": "Deseja mesclar o perfil histórico {candidate} na conta {account}? O histórico existente será movido para o perfil cadastrado.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Deseja conectar a conta {account} ao perfil histórico {candidate}? A conta registrada adotará esse perfil como sua identidade principal.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Deseja marcar {candidate} como um alias do perfil {account}? O histórico permanecerá vinculado, mas será resolvido para a conta cadastrada."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Deseja marcar {candidate} como um alias do perfil {account}? O histórico permanecerá vinculado, mas será resolvido para a conta cadastrada.",
+  "select_winner": "Selecionar vencedor",
+  "structure_results_only_badge": "Só resultados",
+  "structure_results_only_label": "Só resultados",
+  "structure_results_only_desc": "Registra apenas vencedores e perdedores: sem cestos, soffi, área de árbitros, rankings de marcadores, artilheiro ou defensor.",
+  "results_only_report_title": "Relatório só resultado",
+  "results_only_report_desc": "Escolha a equipe vencedora. O sistema salvará apenas vitória e derrota, sem estatísticas dos jogadores.",
+  "results_only_report_status_hint": "Ao escolher o vencedor, a partida será salva como concluída.",
+  "results_only_select_winner_alert": "Selecione a equipe vencedora antes de salvar o relatório.",
+  "results_only_referees_disabled": "Este torneio está no modo só resultados: a área de árbitros não é necessária. Os relatórios são inseridos pelo Admin escolhendo apenas o vencedor."
 };

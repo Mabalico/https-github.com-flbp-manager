@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Team } from '../../types';
+import type { Match, Team } from '../../types';
 import type { AppState } from '../../services/storageService';
 import { getPlayerKey, pickPlayerIdentityValue, resolvePlayerKey } from '../../services/playerIdentity';
 import {
@@ -25,6 +25,12 @@ type LiveCallTarget = {
   userId: string;
   playerId: string;
   playerName: string;
+};
+
+const buildTeamCallKey = (teamId: string, matchId?: string | null) => {
+  const safeTeamId = String(teamId || '').trim();
+  const safeMatchId = String(matchId || '').trim();
+  return safeMatchId ? `${safeTeamId}::${safeMatchId}` : safeTeamId;
 };
 
 export type AdminTeamCallMode =
@@ -167,8 +173,9 @@ export const useAdminTeamCalls = (state: AppState) => {
         activeRows.forEach((row) => {
           const mapped = mapSupabaseCallRowToPlayerCallRequest(row);
           if (!mapped.teamId) return;
-          if (!nextCalls[mapped.teamId] || nextCalls[mapped.teamId].requestedAt < mapped.requestedAt) {
-            nextCalls[mapped.teamId] = mapped;
+          const key = buildTeamCallKey(mapped.teamId, mapped.matchId);
+          if (!nextCalls[key] || nextCalls[key].requestedAt < mapped.requestedAt) {
+            nextCalls[key] = mapped;
           }
         });
 
@@ -194,7 +201,7 @@ export const useAdminTeamCalls = (state: AppState) => {
     };
   }, [state, callRefreshNonce]);
 
-  const getTeamCallMeta = React.useCallback((team?: Team): AdminTeamCallMeta => {
+  const getTeamCallMeta = React.useCallback((team?: Team, match?: Match | null): AdminTeamCallMeta => {
     if (!team?.id) {
       return {
         disabled: true,
@@ -205,8 +212,11 @@ export const useAdminTeamCalls = (state: AppState) => {
     }
 
     const useLiveCalls = liveCallMode === 'live_ready';
-    const previewAvailability = getPreviewCallAvailabilityForTeam(state, team);
-    const activeCall = useLiveCalls ? (liveTeamCalls[team.id] || null) : previewAvailability.activeCall;
+    const matchId = String(match?.id || '').trim();
+    const previewAvailability = getPreviewCallAvailabilityForTeam(state, team, matchId);
+    const activeCall = useLiveCalls
+      ? (liveTeamCalls[buildTeamCallKey(team.id, matchId)] || liveTeamCalls[team.id] || null)
+      : previewAvailability.activeCall;
     const liveTarget = liveCallTargets[team.id];
     const status = (activeCall?.status || 'idle') as AdminTeamCallStatus;
 
@@ -218,9 +228,10 @@ export const useAdminTeamCalls = (state: AppState) => {
     };
   }, [liveCallMode, liveCallTargets, liveTeamCalls, state]);
 
-  const triggerTeamCall = React.useCallback(async (team: Team) => {
-    const meta = getTeamCallMeta(team);
+  const triggerTeamCall = React.useCallback(async (team: Team, match?: Match | null) => {
+    const meta = getTeamCallMeta(team, match);
     if (meta.disabled || !state.tournament) return;
+    const matchId = String(match?.id || '').trim();
 
     if (liveCallMode === 'live_ready') {
       if (meta.activeCall) {
@@ -236,6 +247,7 @@ export const useAdminTeamCalls = (state: AppState) => {
           tournamentId: state.tournament.id,
           teamId: team.id,
           teamName: team.name || team.id,
+          matchId: matchId || null,
           targetUserId: meta.liveTarget.userId,
           targetPlayerId: meta.liveTarget.playerId,
           targetPlayerName: meta.liveTarget.playerName,
@@ -264,9 +276,9 @@ export const useAdminTeamCalls = (state: AppState) => {
         }
       }
     } else if (meta.activeCall) {
-      cancelPreviewTeamCall(state.tournament.id, team.id);
+      cancelPreviewTeamCall(state.tournament.id, team.id, matchId);
     } else {
-      queuePreviewTeamCall(state, team);
+      queuePreviewTeamCall(state, team, matchId);
     }
 
     setCallRefreshNonce((value) => value + 1);

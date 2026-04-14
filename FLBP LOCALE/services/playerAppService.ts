@@ -99,6 +99,7 @@ export interface PlayerRuntimeSession {
 export interface PlayerCallRequest {
   id: string;
   tournamentId: string;
+  matchId?: string;
   teamId: string;
   teamName: string;
   targetAccountId: string;
@@ -252,9 +253,13 @@ export const buildPlayerRuntimeProfileSnapshot = (state: AppState, profile: Play
 };
 
 export const mapSupabaseCallRowToPlayerCallRequest = (row: PlayerSupabaseCallRow): PlayerCallRequest => {
+  const metadata = row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown>
+    : {};
   return {
     id: String(row.id || '').trim(),
     tournamentId: String(row.tournament_id || '').trim(),
+    matchId: String(metadata.match_id || metadata.matchId || '').trim() || undefined,
     teamId: String(row.team_id || '').trim(),
     teamName: String(row.team_name || row.team_id || '').trim(),
     targetAccountId: String(row.target_user_id || '').trim(),
@@ -709,14 +714,16 @@ const getPreviewCallTargetForTeam = (state: AppState, team: Team) => {
   return null;
 };
 
-export const getPreviewTeamCallState = (tournamentId: string, teamId: string): PlayerCallRequest | null => {
+export const getPreviewTeamCallState = (tournamentId: string, teamId: string, matchId?: string | null): PlayerCallRequest | null => {
+  const safeMatchId = String(matchId || '').trim();
   return readPreviewCalls()
     .filter((row) => row.tournamentId === tournamentId && row.teamId === teamId)
+    .filter((row) => !safeMatchId || row.matchId === safeMatchId)
     .filter((row) => row.status === 'ringing' || row.status === 'acknowledged')
     .sort((a, b) => b.requestedAt - a.requestedAt)[0] || null;
 };
 
-export const queuePreviewTeamCall = (state: AppState, team: Team): PlayerCallRequest => {
+export const queuePreviewTeamCall = (state: AppState, team: Team, matchId?: string | null): PlayerCallRequest => {
   const tournamentId = String(state.tournament?.id || '').trim();
   if (!tournamentId) throw new Error('Nessun torneo live attivo.');
   const target = getPreviewCallTargetForTeam(state, team);
@@ -724,10 +731,12 @@ export const queuePreviewTeamCall = (state: AppState, team: Team): PlayerCallReq
     throw new Error('Nessun giocatore registrato in questa anteprima browser per questa squadra.');
   }
 
-  const previous = getPreviewTeamCallState(tournamentId, team.id);
+  const safeMatchId = String(matchId || '').trim();
+  const previous = getPreviewTeamCallState(tournamentId, team.id, safeMatchId);
   const call: PlayerCallRequest = {
     id: previous?.id || `call_${Math.random().toString(36).slice(2, 10)}`,
     tournamentId,
+    matchId: safeMatchId || undefined,
     teamId: team.id,
     teamName: team.name || team.id,
     targetAccountId: target.accountId,
@@ -738,13 +747,17 @@ export const queuePreviewTeamCall = (state: AppState, team: Team): PlayerCallReq
     previewOnly: true,
   };
 
-  const rows = readPreviewCalls().filter((row) => !(row.tournamentId === tournamentId && row.teamId === team.id));
+  const rows = readPreviewCalls().filter((row) => !(
+    row.tournamentId === tournamentId
+    && row.teamId === team.id
+    && (safeMatchId ? row.matchId === safeMatchId : !row.matchId)
+  ));
   writePreviewCalls([...rows, call]);
   return call;
 };
 
-export const cancelPreviewTeamCall = (tournamentId: string, teamId: string): PlayerCallRequest | null => {
-  const previous = getPreviewTeamCallState(tournamentId, teamId);
+export const cancelPreviewTeamCall = (tournamentId: string, teamId: string, matchId?: string | null): PlayerCallRequest | null => {
+  const previous = getPreviewTeamCallState(tournamentId, teamId, matchId);
   if (!previous) return null;
   const next: PlayerCallRequest = {
     ...previous,
@@ -888,10 +901,10 @@ export const usePlayerAppChangeSubscription = (onChange: () => void) => {
   };
 };
 
-export const getPreviewCallAvailabilityForTeam = (state: AppState, team: Team) => {
+export const getPreviewCallAvailabilityForTeam = (state: AppState, team: Team, matchId?: string | null) => {
   const tournamentId = String(state.tournament?.id || '').trim();
   const target = getPreviewCallTargetForTeam(state, team);
-  const activeCall = tournamentId ? getPreviewTeamCallState(tournamentId, team.id) : null;
+  const activeCall = tournamentId ? getPreviewTeamCallState(tournamentId, team.id, matchId) : null;
   return {
     tournamentId,
     target,

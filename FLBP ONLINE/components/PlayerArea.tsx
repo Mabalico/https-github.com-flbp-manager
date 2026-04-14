@@ -148,6 +148,7 @@ const sameLiveCall = (left: LiveCallRequest, right: LiveCallRequest) => (
   left.id === right.id
   && left.tournamentId === right.tournamentId
   && left.teamId === right.teamId
+  && left.matchId === right.matchId
   && left.teamName === right.teamName
   && left.targetAccountId === right.targetAccountId
   && left.targetPlayerId === right.targetPlayerId
@@ -207,6 +208,25 @@ const getTournamentMatches = (tournament: AppState['tournamentHistory'][number] 
     return (tournament as any).rounds.flat().filter(Boolean);
   }
   return [];
+};
+
+const getCurrentLiveMatches = (state: AppState) => {
+  const liveMatches = Array.isArray(state.tournamentMatches) ? state.tournamentMatches : [];
+  if (liveMatches.length) return liveMatches;
+  return getTournamentMatches(state.tournament);
+};
+
+const isOpenPlayerCallInCurrentState = (state: AppState, call: LiveCallRequest) => {
+  const liveTournamentId = String(state.tournament?.id || '').trim();
+  if (!liveTournamentId || call.tournamentId !== liveTournamentId) return false;
+  const matches = getCurrentLiveMatches(state);
+  if (!matches.length) return true;
+  const relatedMatches = matches.filter((match) => {
+    if (call.matchId) return match.id === call.matchId;
+    return getMatchParticipantIds(match).includes(call.teamId);
+  });
+  if (!relatedMatches.length) return false;
+  return relatedMatches.some((match) => match.status !== 'finished');
 };
 
 const buildPlayerPerformanceSummary = (state: AppState, profile: NonNullable<ReturnType<typeof buildPlayerRuntimeProfileSnapshot>>) => {
@@ -899,9 +919,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const activeLiveCall = React.useMemo(
     () =>
       [...liveCalls]
-        .filter((row) => row.status === 'ringing' || row.status === 'acknowledged')
+        .filter((row) => (row.status === 'ringing' || row.status === 'acknowledged') && isOpenPlayerCallInCurrentState(state, row))
         .sort((a, b) => b.requestedAt - a.requestedAt)[0] || null,
-    [liveCalls]
+    [liveCalls, state]
   );
 
   React.useEffect(() => {
@@ -980,13 +1000,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     playerProfilesPrepared: liveBackendEnabled && liveRuntimeStatus === 'ready',
     playerCallsPrepared: liveBackendEnabled && liveRuntimeStatus === 'ready',
   }), [snapshot.featureStatus, liveBackendEnabled, liveRuntimeSession?.accountId, liveRuntimeStatus]);
-  const statusLabel = effectiveSession?.mode === 'live'
-    ? t('data_accounts_mode_live')
-    : liveBackendEnabled
-      ? t('prepared')
-      : effectiveSession
-        ? t('player_area_preview_active')
-        : t('player_area_preview_only');
   const activationAuthLabel = liveBackendEnabled ? `${t('prepared')} · email/password` : t('player_area_preview_only');
   const activationSocialLabel = liveBackendEnabled ? 'In attesa provider' : t('player_area_preview_only');
   const activationProfileLabel = !liveBackendEnabled
@@ -1660,10 +1673,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-600">
-              <div className="text-[11px] font-black uppercase tracking-[0.08em] text-slate-500">{t('status')}</div>
-              <div className="mt-1 text-sm font-black text-slate-900">{statusLabel}</div>
-            </div>
           </div>
         </div>
 

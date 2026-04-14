@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "Geschichte bereits vorhanden",
   "data_accounts_alias_merge_confirm_candidate_into_account": "Möchten Sie das historische Profil {candidate} mit dem Konto {account} zusammenführen? Der bestehende Verlauf wird in das registrierte Profil verschoben.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Möchten Sie das {account} Konto mit dem historischen Profil {candidate} verbinden? Das registrierte Konto übernimmt dieses Profil als seine primäre Identität.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Möchten Sie {candidate} als Alias des Profils {account} markieren? Der Verlauf bleibt verknüpft, wird aber mit dem registrierten Konto aufgelöst."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Möchten Sie {candidate} als Alias des Profils {account} markieren? Der Verlauf bleibt verknüpft, wird aber mit dem registrierten Konto aufgelöst.",
+  "select_winner": "Sieger auswählen",
+  "structure_results_only_badge": "Nur Ergebnisse",
+  "structure_results_only_label": "Nur Ergebnisse",
+  "structure_results_only_desc": "Erfasst nur Gewinner und Verlierer: keine Körbe, Soffi, Schiedsrichterbereich, Scorer-Ranglisten, Topscorer- oder Verteidiger-Auszeichnungen.",
+  "results_only_report_title": "Bericht nur Ergebnis",
+  "results_only_report_desc": "Wählen Sie das Siegerteam. Das System speichert nur Sieg und Niederlage, ohne Spielerstatistiken.",
+  "results_only_report_status_hint": "Nach Auswahl des Siegers wird das Spiel als beendet gespeichert.",
+  "results_only_select_winner_alert": "Wählen Sie das Siegerteam aus, bevor Sie den Bericht speichern.",
+  "results_only_referees_disabled": "Dieses Turnier läuft im Modus Nur Ergebnisse: Der Schiedsrichterbereich wird nicht benötigt. Berichte werden im Admin-Bereich eingegeben, indem nur der Sieger ausgewählt wird."
 };

@@ -1,14 +1,15 @@
 # FLBP LOCALE -> FLBP ONLINE Tracker
 
-Stato corrente:
-- Dal `2026-04-03`, `FLBP LOCALE` non e' piu' una copia sperimentale indipendente.
-- `FLBP LOCALE` deve restare uno specchio di `FLBP ONLINE`.
-- Le sole differenze consentite sono locali e non tracciate, per esempio:
+Stato corrente (Aggiornato rispetto alle regole operative):
+- Dal `2026-04-03`, `FLBP LOCALE` non è più una copia sperimentale indipendente.
+- `FLBP LOCALE` deve restare **simmetrico e speculare** a `FLBP ONLINE` per le medesime feature.
+- Durante lo sviluppo, si modifica sempre `FLBP ONLINE` per primo, per poi allineare `FLBP LOCALE` se richiesto dal context progettuale.
+- Le uniche differenze tollerate sono puramente locali/non tracciate:
   - `.env.local`
   - `node_modules/`
   - `dist/`
   - cache / tmp locali
-- Questo file resta come storico dei vecchi scostamenti, ma non e' piu' una licenza per lasciare divergenze persistenti tra le due cartelle.
+- Questo file serve puramente da **storico**, ma non permette e non giustifica più l'introduzione di divergenze durature tra le due istanze.
 
 Source locale:
 - [FLBP LOCALE](/C:/Users/marco/Desktop/sito%20react/FLBP%20MANAGER/FLBP%20LOCALE)

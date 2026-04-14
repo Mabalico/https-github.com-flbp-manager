@@ -295,9 +295,11 @@ const coerceTournamentConfig = (cfg: any): TournamentConfig => {
     const refTables = Number.isFinite(rt) && rt > 0 ? Math.floor(rt) : undefined;
 
     const finalRoundRobin = coerceFinalRoundRobin(cfg);
+    const resultsOnly = !!(cfg && typeof cfg === 'object' && (cfg as any).resultsOnly === true);
 
     return {
         advancingPerGroup: Number.isFinite(v) && v >= 0 ? v : 2,
+        ...(resultsOnly ? { resultsOnly: true } : {}),
         ...(finalRoundRobin ? { finalRoundRobin } : {}),
         ...(refTables ? { refTables } : {})
     };

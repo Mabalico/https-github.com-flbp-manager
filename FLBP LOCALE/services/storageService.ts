@@ -5,6 +5,7 @@ import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, isU25, resolve
 import { buildMetricAwardEntries } from './awardRules';
 import { normalizeNameLower } from './textUtils';
 import { stripRefereeReportAuditFromMatch } from './refereeReportAudit';
+import { isResultsOnlyTournament } from './tournamentModes';
 
 const STORAGE_KEY = 'beer_pong_app_state';
 
@@ -230,6 +231,7 @@ export const buildTournamentAwards = (tournament: TournamentData, matches: Match
     const year = extractYearFromDateLike(tournament.startDate) || new Date().getFullYear().toString();
     const tournamentName = normalizeLegacyTournamentName(tournament.name);
     const entries: HallOfFameEntry[] = [];
+    const resultsOnly = isResultsOnlyTournament(tournament);
 
     // Winner selection priority:
     // 1) Final round-robin (if activated)
@@ -276,6 +278,8 @@ export const buildTournamentAwards = (tournament: TournamentData, matches: Match
             manuallyEdited: false
         });
     }
+
+    if (resultsOnly) return entries;
 
     // Aggregate player stats from finished matches
     const agg: Record<string, { name: string; yob?: number; birthDate?: string; teamName?: string; points: number; soffi: number; games: number }> = {};
@@ -374,7 +378,9 @@ export const syncTournamentAwardsToHallOfFame = (
 ): HallOfFameEntry[] => {
     const generatedAwards = buildTournamentAwards(tournament, matches, teams);
     const existingForTournament = (hallOfFame || []).filter(entry => entry.tournamentId === tournament.id);
-    const manualOverrides = existingForTournament.filter(isManualTournamentAwardEntry);
+    const manualOverrides = existingForTournament
+        .filter(isManualTournamentAwardEntry)
+        .filter(entry => !isResultsOnlyTournament(tournament) || entry.type === 'mvp' || entry.type === 'winner');
     const manualMvps = manualOverrides.filter(entry => entry.type === 'mvp');
     const manualOverridesByType = new Map<HallOfFameEntry['type'], HallOfFameEntry>();
 

@@ -1,123 +1,43 @@
-# FLBP Monorepo + GitHub Plan
+# FLBP Manager - Regole Operative e Architettura
 
-chat non affidabile, seguo il repository.
+Questo documento definisce le **regole operative vincolanti** per lo sviluppo nel monorepo e lo stato attuale dell'architettura. Sostituisce i vecchi piani migratori.
 
-## Stato reale attuale
-- root workspace: `FLBP MANAGER/`
-- web stabile/pronta online: `FLBP ONLINE/`
-- web locale di lavoro: `FLBP LOCALE/`
-- app Android nativa: `FLBP ANDROID/`
-- app iOS nativa: `FLBP IOS/`
-- repository Git inizializzato al root
-- remote GitHub configurato: `origin -> https://github.com/Mabalico/https-github.com-flbp-manager.git`
-- branch pubblicati: `main`, `dev`
-- branch di lavoro corrente consigliato: `dev`
+## 1. Architettura del Monorepo
 
-## Obiettivo consigliato
-Passare dalla gestione manuale a un repository Git/GitHub unico che contenga:
-- una sola fonte di verità per il web
-- Android e iOS nello stesso storico
-- un flusso di lavoro con branch invece di copie manuali
+- **Root workspace**: `FLBP MANAGER`
+- **Frontend canonico (Source of Truth)**: `FLBP ONLINE`
+- **Lavoro locale/simmetrico**: `FLBP LOCALE` (da mantenere allineato a `FLBP ONLINE` solo ove logica condivisa debba restare speculare).
+- **App Native**: `FLBP ANDROID` e `FLBP IOS` risiedono nello stesso repository e mantengono versionamento git condiviso, seppur con iter di distribuzione separati.
 
-## Struttura target consigliata
-```text
-FLBP/
-  apps/
-    web/
-    android/
-    ios/
-  docs/
-  .gitignore
-  README.md
-```
+## 2. Flusso di Sviluppo Web e Deploy
 
-## Strategia pratica consigliata
-### Fase 1. Mettere sotto Git la struttura attuale, senza spostare nulla
-Questa fase è gia chiusa.
+Tutto lo sviluppo del progetto web ruota attorno alla directory `FLBP ONLINE`.
 
-Fatto:
-1. Git inizializzato al root
-2. primo commit locale creato
-3. repository GitHub remoto collegato
-4. push di `main` e `dev` completato
+- **Sito Live**: `https://flbp-pages.pages.dev`
+- **Piattaforma di Deploy**: Cloudflare Pages con Git integration 
+- **Branch di Produzione**: `main`
+- **Root Directory per Cloudflare**: `FLBP ONLINE`
 
-Vantaggi gia ottenuti:
-- nessun rischio di rompere path o build
-- storico immediato
-- da subito possiamo lavorare con branch
+### 2.1 Flusso Obbligatorio per le Modifiche (End-to-End)
+In conformità alle regole globali, **non fermarsi mai alla modifica in locale/sola analisi**. Per applicare una modifica:
 
-### Fase 2. Consolidare la web app
-Una volta che Git è operativo:
-1. scegliere `FLBP ONLINE/` come unica web source of truth
-2. smettere di mantenere due copie complete del web
-3. sostituire `FLBP LOCALE/` con branch o `git worktree`
+1. **Sviluppo**: Apporta le modifiche necessarie (`FLBP ONLINE`).
+2. **Allineamento Locale**: Se il progetto/task lo richiede, riversa o applica la stessa logica anche su `FLBP LOCALE` per preservare la simmetria.
+3. **Verifiche di Base**:
+   - `npm run build` in `FLBP ONLINE`
+   - `npm run build` in `FLBP LOCALE` (se è stato modificato)
+   - `npm run check:ssr-admin` in `FLBP ONLINE` (fondamentale quando si tocca: area admin, routing, o moduli di autenticazione).
+4. **Commit & Push**:
+   - Compila un commit chiaro.
+   - Assicurati di NON includere file estranei o temporanei nel commit.
+   - Push sul branch canonico `main` (o secondo istruzioni temporanee).
+5. **Verifica Live**:
+   - Assicurati che Cloudflare Pages abbia processato l'azione legata al push Git e l'abbia messa live.
+   - Visita/testa l'applicazione sull'URL live per attestare che la nuova versione sia ora servita.
 
-Vantaggi:
-- niente copia/incolla file da `LOCALE` a `ONLINE`
-- differenze tracciabili
-- merge controllati
+## 3. Qualità e Norme di Sicurezza
 
-### Fase 3. Monorepo pulito
-Solo dopo che il repo Git è stabile:
-1. spostare
-   - `FLBP ONLINE/` -> `apps/web/`
-   - `FLBP ANDROID/` -> `apps/android/`
-   - `FLBP IOS/` -> `apps/ios/`
-2. aggiornare eventuali path documentali e CI
-
-Questa fase va fatta in un commit dedicato.
-
-## Workflow operativo da ora
-- `main`: branch stabile, da tenere pronta per produzione e deploy
-- `dev`: branch di lavoro quotidiano
-- branch feature opzionali solo per lavorazioni grandi, con prefisso `codex/`
-
-### Regole pratiche
-1. si lavora sempre partendo da `dev`
-2. `main` non si usa per sviluppo quotidiano
-3. quando una modifica e verificata, si promuove da `dev` a `main`
-4. Cloudflare, quando lo collegheremo via Git, dovra leggere `main`
-5. finche esistono sia `FLBP ONLINE/` sia `FLBP LOCALE/`, la fonte di verita web resta `FLBP ONLINE/`
-
-### Cosa facciamo nel repository attuale
-- modifiche sperimentali o locali: in `FLBP LOCALE/`
-- modifiche approvate da portare online: in `FLBP ONLINE/`
-- Android e iOS restano nello stesso repo e seguono lo stesso flusso Git
-
-### Obiettivo del prossimo consolidamento
-Eliminare la duplicazione `FLBP ONLINE/` + `FLBP LOCALE/` e sostituirla con:
-- una sola cartella web
-- branch/worktree per separare sviluppo e produzione
-
-### Per il web
-- sviluppo locale su branch `dev`
-- promozione in produzione da `main`
-- produzione automatica da `main` tramite **Cloudflare Pages Git integration**
-- progetto Pages attuale: `flbp-pages`
-- configurazione Pages:
-  - repository: `Mabalico/https-github.com-flbp-manager`
-  - root directory: `FLBP ONLINE`
-  - build: `npm run build`
-  - output: `dist`
-
-### Per Android/iOS
-- stesso repo
-- build native da IDE/toolchain dedicate
-- in futuro CI separata per Android e iOS
-
-## Cosa NON conviene fare
-- mantenere a lungo `FLBP ONLINE/` e `FLBP LOCALE/` come copie manuali permanenti
-- versionare `node_modules`, `dist`, `DerivedData`, build Android
-- dividere ora in tre repo separati
-
-## Prossimo passo operativo consigliato
-1. lavorare sempre su `dev`
-2. usare `FLBP ONLINE/` come base da promuovere
-3. quando la struttura si stabilizza, fare un commit dedicato di consolidamento
-4. solo dopo valutare il refactor in:
-   - `apps/web/`
-   - `apps/android/`
-   - `apps/ios/`
-
-## Nota importante
-La riorganizzazione in `apps/web`, `apps/android`, `apps/ios` va fatta solo in un passaggio dedicato. Prima conviene mantenere stabile il repository appena pubblicato e usare il flusso `dev -> main`.
+- **Inclusione Git**: Mai includere backup in formato compresso (zip), binari di debug o file di diagnostica. 
+- **Stabilità e Cache**: Se l'app in produzione non riflette i cambiamenti dopo un deploy confermato, si esegue debug sulle cache del service worker/bundle e si lavora sulla build correntemente deployata.
+- **Design della Soluzione**: Nelle problematiche di loop, sync e data-handling preferire architetture idempotenti.
+- Segnalare l'esistenza/rilevanza o alterazione di configurazioni firebase di deployment (`.json`/chiavi SDK) tenendo d'occhio la divisione delle credenziali.

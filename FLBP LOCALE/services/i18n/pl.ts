@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "Historia już obecna",
   "data_accounts_alias_merge_confirm_candidate_into_account": "Czy chcesz połączyć profil historyczny {candidate} z kontem {account}? Istniejąca historia zostanie przeniesiona do zarejestrowanego profilu.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Czy chcesz połączyć konto {account} z profilem historycznym {candidate}? Zarejestrowane konto przyjmie ten profil jako swoją podstawową tożsamość.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Czy chcesz oznaczyć {candidate} jako alias profilu {account}? Historia pozostanie połączona, ale zostanie powiązana z zarejestrowanym kontem."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Czy chcesz oznaczyć {candidate} jako alias profilu {account}? Historia pozostanie połączona, ale zostanie powiązana z zarejestrowanym kontem.",
+  "select_winner": "Wybierz zwycięzcę",
+  "structure_results_only_badge": "Tylko wyniki",
+  "structure_results_only_label": "Tylko wyniki",
+  "structure_results_only_desc": "Zapisuje tylko zwycięzców i przegranych: bez koszy, soffi, strefy sędziów, rankingów strzelców, najlepszego strzelca ani obrońcy.",
+  "results_only_report_title": "Raport tylko z wynikiem",
+  "results_only_report_desc": "Wybierz zwycięską drużynę. System zapisze tylko zwycięstwo i porażkę, bez statystyk zawodników.",
+  "results_only_report_status_hint": "Po wyborze zwycięzcy mecz zostanie zapisany jako zakończony.",
+  "results_only_select_winner_alert": "Wybierz zwycięską drużynę przed zapisaniem raportu.",
+  "results_only_referees_disabled": "Ten turniej działa w trybie tylko wyniki: strefa sędziów nie jest potrzebna. Raporty wprowadza się z panelu Admin, wybierając tylko zwycięzcę."
 };

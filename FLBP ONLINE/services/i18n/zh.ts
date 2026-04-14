@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "历史已经存在",
   "data_accounts_alias_merge_confirm_candidate_into_account": "您想将{candidate}历史资料合并到{account}帐户吗？现有历史记录将移至注册的个人资料中。",
   "data_accounts_alias_merge_confirm_account_into_candidate": "您想要将{account}帐户连接到{candidate}历史配置文件吗？注册帐户将采用该配置文件作为其主要身份。",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "您想要将 {candidate} 标记为 {account} 配置文件的别名吗？历史记录将保持链接，但将解析到注册帐户。"
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "您想要将 {candidate} 标记为 {account} 配置文件的别名吗？历史记录将保持链接，但将解析到注册帐户。",
+  "select_winner": "选择胜者",
+  "structure_results_only_badge": "仅结果",
+  "structure_results_only_label": "仅结果",
+  "structure_results_only_desc": "只记录胜者和败者：不记录进球、soffi、裁判区、得分榜、最佳得分手或最佳防守者。",
+  "results_only_report_title": "仅结果赛报",
+  "results_only_report_desc": "选择获胜队伍。系统只保存胜负，不保存球员统计。",
+  "results_only_report_status_hint": "选择胜者后，比赛将保存为已结束。",
+  "results_only_select_winner_alert": "保存赛报前请选择获胜队伍。",
+  "results_only_referees_disabled": "本赛事为仅结果模式：不需要裁判区。赛报由管理员只选择胜者即可录入。"
 };

@@ -93,6 +93,11 @@ export interface FinalRoundRobinConfig {
 
 export interface TournamentConfig {
     advancingPerGroup: number;
+    /**
+     * Optional lightweight tournament mode: only winners/losers are tracked.
+     * Match reports do not collect player stats and scorer/defender awards are skipped.
+     */
+    resultsOnly?: boolean;
     /** Optional: enables an extra final round-robin stage (activated at runtime). */
     finalRoundRobin?: FinalRoundRobinConfig;
     /**

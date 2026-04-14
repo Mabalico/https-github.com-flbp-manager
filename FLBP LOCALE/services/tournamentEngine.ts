@@ -17,6 +17,8 @@ interface GenerateOptions {
     advancingPerGroup?: number;
     tournamentName?: string;
     startDate?: string;
+    /** Optional: winner/loss only tournament, without scorer/referee stat features. */
+    resultsOnly?: boolean;
     /** Optional: enable a final round-robin stage that can be activated at runtime. */
     finalRoundRobin?: FinalRoundRobinConfig;
 }
@@ -261,7 +263,7 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
             rounds: [],
             groups: groups,
             matches: allMatches,
-            config: { advancingPerGroup: 0, finalRoundRobin: config.finalRoundRobin },
+            config: { advancingPerGroup: 0, resultsOnly: !!config.resultsOnly, finalRoundRobin: config.finalRoundRobin },
         };
 
         return { tournament, matches: allMatches };
@@ -349,7 +351,7 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
             rounds: rounds,
             groups: groups,
             matches: allMatches,
-            config: { advancingPerGroup: config.advancingPerGroup || 2, finalRoundRobin: config.finalRoundRobin }
+            config: { advancingPerGroup: config.advancingPerGroup || 2, resultsOnly: !!config.resultsOnly, finalRoundRobin: config.finalRoundRobin }
         };
         return { tournament, matches: allMatches };
     }
@@ -580,6 +582,7 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
         matches: allMatches,
         config: {
             advancingPerGroup: config.advancingPerGroup || 2,
+            resultsOnly: !!config.resultsOnly,
             finalRoundRobin: config.finalRoundRobin,
         }
     };

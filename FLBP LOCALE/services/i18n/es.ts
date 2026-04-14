@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "La historia ya presente",
   "data_accounts_alias_merge_confirm_candidate_into_account": "¿Quiere fusionar el perfil histórico {candidate} en la cuenta {account}? El historial existente se moverá al perfil registrado.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "¿Quieres conectar la cuenta {account} al perfil histórico {candidate}? La cuenta registrada adoptará ese perfil como su identidad principal.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "¿Quieres marcar {candidate} como alias del perfil {account}? El historial permanecerá vinculado pero se resolverá en la cuenta registrada."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "¿Quieres marcar {candidate} como alias del perfil {account}? El historial permanecerá vinculado pero se resolverá en la cuenta registrada.",
+  "select_winner": "Seleccionar ganador",
+  "structure_results_only_badge": "Solo resultados",
+  "structure_results_only_label": "Solo resultados",
+  "structure_results_only_desc": "Registra solo ganadores y perdedores: sin canastas, soffi, área de árbitros, clasificaciones de anotadores, máximo anotador ni defensor.",
+  "results_only_report_title": "Acta solo resultado",
+  "results_only_report_desc": "Elige el equipo ganador. El sistema guardará solo victoria y derrota, sin estadísticas de jugadores.",
+  "results_only_report_status_hint": "Al elegir el ganador, el partido se guardará como finalizado.",
+  "results_only_select_winner_alert": "Selecciona el equipo ganador antes de guardar el acta.",
+  "results_only_referees_disabled": "Este torneo está en modo solo resultados: el área de árbitros no es necesaria. Las actas se introducen desde Admin eligiendo solo el ganador."
 };

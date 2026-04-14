@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "歴史はすでに存在する",
   "data_accounts_alias_merge_confirm_candidate_into_account": "{candidate} 履歴プロファイルを {account} アカウントにマージしますか?既存の履歴は登録したプロファイルに移動されます。",
   "data_accounts_alias_merge_confirm_account_into_candidate": "{account} アカウントを {candidate} 履歴プロファイルに接続しますか?登録されたアカウントは、そのプロファイルをプライマリ ID として採用します。",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "{candidate} を {account} プロファイルのエイリアスとしてマークしますか?履歴はリンクされたままになりますが、登録されたアカウントに解決されます。"
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "{candidate} を {account} プロファイルのエイリアスとしてマークしますか?履歴はリンクされたままになりますが、登録されたアカウントに解決されます。",
+  "select_winner": "勝者を選択",
+  "structure_results_only_badge": "結果のみ",
+  "structure_results_only_label": "結果のみ",
+  "structure_results_only_desc": "勝者と敗者のみを記録します。カップイン、soffi、審判エリア、得点ランキング、得点王、ディフェンダー賞は使いません。",
+  "results_only_report_title": "結果のみのレポート",
+  "results_only_report_desc": "勝利チームを選択します。システムは勝敗のみを保存し、選手統計は保存しません。",
+  "results_only_report_status_hint": "勝者を選択すると、試合は終了として保存されます。",
+  "results_only_select_winner_alert": "レポートを保存する前に勝利チームを選択してください。",
+  "results_only_referees_disabled": "このトーナメントは結果のみモードです。審判エリアは不要です。レポートはAdminから勝者だけを選択して入力します。"
 };

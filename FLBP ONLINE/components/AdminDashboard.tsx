@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -27,6 +27,7 @@ import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
+import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 
 const loadTeamsTabModule = () => import('./admin/tabs/TeamsTab');
@@ -283,6 +284,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             : nextTournamentBase;
         setState({ ...state, tournament: nextTournament, tournamentMatches: matches });
     };
+
+    const closeLiveCallsForMatch = React.useCallback((match: Match, tournamentId?: string | null) => {
+        const safeTournamentId = String(tournamentId || state.tournament?.id || '').trim();
+        if (!safeTournamentId || !match?.id) return;
+        const teamIds = Array.from(new Set(
+            getMatchParticipantIds(match)
+                .map((id) => String(id || '').trim())
+                .filter((id) => id && !isPlaceholderTeamId(id))
+        ));
+        if (!teamIds.length) return;
+        void cancelActivePlayerAppCallsForMatch({
+            tournamentId: safeTournamentId,
+            matchId: match.id,
+            teamIds,
+            dispatchPush: true,
+        }).catch((error) => {
+            console.warn('FLBP match call cleanup failed', error);
+        });
+    }, [state.tournament?.id]);
+
+    const closeLiveCallsForTournament = React.useCallback((tournamentId?: string | null) => {
+        const safeTournamentId = String(tournamentId || state.tournament?.id || '').trim();
+        if (!safeTournamentId) return;
+        void cancelActivePlayerAppCallsForMatch({
+            tournamentId: safeTournamentId,
+            dispatchPush: true,
+        }).catch((error) => {
+            console.warn('FLBP tournament call cleanup failed', error);
+        });
+    }, [state.tournament?.id]);
     const liveOpsSummary = useMemo(() => {
         const matches = Array.isArray(state.tournamentMatches) ? state.tournamentMatches : [];
         const visible = matches.filter((m: any) => !(m as any)?.hidden && !(m as any)?.isBye);
@@ -742,6 +773,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         const hasBracketMatches = (state.tournamentMatches || []).some(m => m.phase === 'bracket');
         return hasRounds || hasBracketMatches;
     }, [state.tournament, state.tournamentMatches]);
+    const liveResultsOnly = isResultsOnlyTournament(state.tournament);
 
     const fallbackLiveTab: LiveAdminTab = useMemo(() => {
         if (liveOpsSummary.playingCount > 0) return 'reports';
@@ -769,6 +801,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [advancing, setAdvancing] = useState(2);
     const [tournName, setTournName] = useState(`${t('admin_tournament_prefix')} ${new Date().toLocaleDateString('it-IT')}`);
     const [tournDate, setTournDate] = useState<string>(() => getTodayInputDate());
+    const [resultsOnly, setResultsOnly] = useState<boolean>(false);
 
     // Optional final round-robin stage (activated at runtime)
     const [finalRrEnabled, setFinalRrEnabled] = useState<boolean>(false);
@@ -879,7 +912,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         if (tab === 'monitor_bracket' && !showBracketMonitor) {
             openLiveTab(showGroupsMonitor ? 'monitor_groups' : fallbackLiveTab);
         }
-    }, [adminSection, fallbackLiveTab, showBracketMonitor, showGroupsMonitor, tab]);
+        if (tab === 'referees' && liveResultsOnly) {
+            openLiveTab('reports');
+        }
+    }, [adminSection, fallbackLiveTab, liveResultsOnly, showBracketMonitor, showGroupsMonitor, tab]);
 
     useEffect(() => {
         if (!showGroupsMonitor && !showBracketMonitor) {
@@ -1039,6 +1075,7 @@ const [pendingScorersImport, setPendingScorersImport] = useState<{ entries: Inte
     const [reportStatus, setReportStatus] = useState<'scheduled'|'playing'|'finished'>('finished');
     const [reportScoreA, setReportScoreA] = useState<string>('0');
     const [reportScoreB, setReportScoreB] = useState<string>('0');
+    const [reportWinnerTeamId, setReportWinnerTeamId] = useState<string>('');
     const [reportStatsForm, setReportStatsForm] = useState<Record<string, { canestri: string; soffi: string }>>({});
     const [reportImageUrl, setReportImageUrl] = useState<string>('');
     const [reportImageBusy, setReportImageBusy] = useState<boolean>(false);
@@ -1630,6 +1667,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
         }
 
         recoverToSafeAdmin();
+        closeLiveCallsForTournament(state.tournament.id);
         setState({
             ...state,
             tournament: null,
@@ -2499,6 +2537,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 advancingPerGroup: advancing,
                 tournamentName: tournName,
                 startDate: tournDate,
+                resultsOnly,
                 finalRoundRobin: (tournMode !== 'round_robin' && finalRrEnabled) ? { enabled: true, topTeams: finalRrTopTeams } : undefined,
             });
             setDraft({ t: tournament, m: matches });
@@ -2517,25 +2556,33 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
         }
 
-        // Each live must have its own referees password.
-        // If the admin cancels or leaves it empty, do not start the live.
-        const rawPw = window.prompt(t('enable_referees_password_prompt'), '') ?? '';
-        const refereesPassword = rawPw.trim();
-        if (!refereesPassword) {
-            alert(t('referees_password_required'));
-            return;
+        const draftResultsOnly = isResultsOnlyTournament(draft.t);
+        let refereesPassword = '';
+        let refereesAuthVersion = '';
+        if (!draftResultsOnly) {
+            // Each standard live must have its own referees password.
+            // If the admin cancels or leaves it empty, do not start the live.
+            const rawPw = window.prompt(t('enable_referees_password_prompt'), '') ?? '';
+            refereesPassword = rawPw.trim();
+            if (!refereesPassword) {
+                alert(t('referees_password_required'));
+                return;
+            }
+            refereesAuthVersion = new Date().toISOString();
         }
-        const refereesAuthVersion = new Date().toISOString();
         try { safeSessionRemove('flbp_ref_authed'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_for'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_ver'); } catch { /* ignore */ }
         
         let newState = { ...state };
         if (newState.tournament) {
+            closeLiveCallsForTournament(newState.tournament.id);
             newState = archiveTournamentV2(newState);
         }
         
-        newState.tournament = { ...draft.t, refereesPassword, refereesAuthVersion };
+        newState.tournament = draftResultsOnly
+            ? { ...draft.t, refereesPassword: undefined, refereesAuthVersion: undefined }
+            : { ...draft.t, refereesPassword, refereesAuthVersion };
         newState.tournamentMatches = draft.m;
         
         setState(newState);
@@ -3124,6 +3171,22 @@ while (guard < 5000) {
             setReportScoreB(String(m.scoreB ?? 0));
         }
 
+        const participantIdsForWinner = (m.teamIds && m.teamIds.length)
+            ? (m.teamIds || [])
+            : ([m.teamAId, m.teamBId].filter(Boolean) as string[]);
+        const scoreOf = (teamId: string) => {
+            if (m.scoresByTeam && typeof m.scoresByTeam[teamId] === 'number') return m.scoresByTeam[teamId] || 0;
+            if (m.teamAId === teamId) return m.scoreA || 0;
+            if (m.teamBId === teamId) return m.scoreB || 0;
+            return 0;
+        };
+        const realParticipantIds = participantIdsForWinner.filter(id => id && id !== 'BYE' && !isPlaceholderTeamId(id));
+        const maxScore = realParticipantIds.length ? Math.max(...realParticipantIds.map(id => scoreOf(id))) : 0;
+        const leaders = m.status === 'finished'
+            ? realParticipantIds.filter(id => scoreOf(id) === maxScore)
+            : [];
+        setReportWinnerTeamId(leaders.length === 1 ? leaders[0] : '');
+
         const nextForm: Record<string, { canestri: string; soffi: string }> = {};
         const participantIds = (m.teamIds && m.teamIds.length)
             ? (m.teamIds || [])
@@ -3262,8 +3325,19 @@ while (guard < 5000) {
             .map(id => getTeamFromCatalog(id))
             .filter(Boolean) as Team[];
 
+        const isResultsOnlyReport = isResultsOnlyTournament(state.tournament);
         const scoresByTeam: Record<string, number> = {};
-        participantTeams.forEach(tt => { scoresByTeam[tt.id] = computeTeamScore(tt); });
+        if (isResultsOnlyReport) {
+            const winnerId = String(reportWinnerTeamId || '').trim();
+            const validWinner = !!winnerId && participantTeams.some(tt => tt.id === winnerId);
+            if (!validWinner) {
+                alert(t('results_only_select_winner_alert'));
+                return;
+            }
+            participantTeams.forEach(tt => { scoresByTeam[tt.id] = tt.id === winnerId ? 1 : 0; });
+        } else {
+            participantTeams.forEach(tt => { scoresByTeam[tt.id] = computeTeamScore(tt); });
+        }
 
         // Prevent saving ties: there must be a unique winner.
         const isByeMatch = participantIds.includes('BYE');
@@ -3284,6 +3358,7 @@ while (guard < 5000) {
             // Legacy fields for 1v1 UI + some older components.
             scoreA: isMulti ? (orderedScores[0] ?? 0) : (scoresByTeam[base.teamAId || ''] ?? 0),
             scoreB: isMulti ? (orderedScores[1] ?? 0) : (scoresByTeam[base.teamBId || ''] ?? 0),
+            stats: isResultsOnlyReport ? undefined : base.stats,
             // Salvataggio referto = match concluso (ma sempre modificabile riaprendo il referto).
             status: 'finished',
             played: true
@@ -3308,7 +3383,7 @@ while (guard < 5000) {
             ? participantTeams
             : ([getTeamFromCatalog(updated.teamAId), getTeamFromCatalog(updated.teamBId)].filter(Boolean) as Team[]);
 
-        if (updated.status === 'finished') {
+        if (!isResultsOnlyReport && updated.status === 'finished') {
             teamsForStats.forEach(tt => {
                 pushStat(tt?.id, tt?.player1);
                 pushStat(tt?.id, tt?.player2);
@@ -3336,6 +3411,7 @@ while (guard < 5000) {
         }
 
         commitLiveMatches(finalMatches);
+        closeLiveCallsForMatch(updated, state.tournament.id);
         alert(t('alert_report_saved'));
     };
 
@@ -3760,9 +3836,11 @@ while (guard < 5000) {
                                         <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('bracket'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket')}
                                         </button>
-                                        <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('scorers'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
-                                            <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
-                                        </button>
+                                        {!liveResultsOnly && (
+                                            <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('scorers'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                                <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </details>
@@ -3959,16 +4037,18 @@ while (guard < 5000) {
                                         >
                                             <ClipboardList className="w-4 h-4" /> {t('reports')}
                                         </button>
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'referees' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('referees')}
-                                            onFocus={() => primeAdminContentChunk('referees')}
-                                            onClick={() => { void openLiveTab('referees'); }}
-                                            className={tabBtnClass(tab === 'referees')}
-                                        >
-                                            <ShieldCheck className="w-4 h-4" /> {t('referees')}
-                                        </button>
+                                        {!liveResultsOnly && (
+                                            <button
+                                                type="button"
+                                                aria-current={tab === 'referees' ? 'page' : undefined}
+                                                onMouseEnter={() => primeAdminContentChunk('referees')}
+                                                onFocus={() => primeAdminContentChunk('referees')}
+                                                onClick={() => { void openLiveTab('referees'); }}
+                                                className={tabBtnClass(tab === 'referees')}
+                                            >
+                                                <ShieldCheck className="w-4 h-4" /> {t('referees')}
+                                            </button>
+                                        )}
                                         <button
                                             type="button"
                                             aria-current={tab === 'codes' ? 'page' : undefined}
@@ -4121,6 +4201,8 @@ while (guard < 5000) {
                     setFinalRrEnabled={setFinalRrEnabled}
                     finalRrTopTeams={finalRrTopTeams}
                     setFinalRrTopTeams={setFinalRrTopTeams}
+                    resultsOnly={resultsOnly}
+                    setResultsOnly={setResultsOnly}
                     numGroups={numGroups}
                     setNumGroups={setNumGroups}
                     advancing={advancing}
@@ -4144,6 +4226,9 @@ while (guard < 5000) {
                     setReportScoreA={setReportScoreA}
                     reportScoreB={reportScoreB}
                     setReportScoreB={setReportScoreB}
+                    resultsOnly={liveResultsOnly}
+                    reportWinnerTeamId={reportWinnerTeamId}
+                    setReportWinnerTeamId={setReportWinnerTeamId}
                     reportStatsForm={reportStatsForm}
                     setReportStatsForm={setReportStatsForm}
                     handleSaveReport={handleSaveReport}
@@ -4160,7 +4245,7 @@ while (guard < 5000) {
 
 
 
-            {tab === 'referees' && (
+            {tab === 'referees' && !liveResultsOnly && (
                 <RefereesTabLazy
                     state={state}
                     refTables={refTables}
@@ -4224,6 +4309,7 @@ while (guard < 5000) {
         onArchiveWithoutMvp={() => {
             // Archivia anche senza MVP (premi automatici = campioni + classifica marcatori).
             prepareRefereeCounterEmailDraft(state);
+            closeLiveCallsForTournament(state.tournament?.id);
             const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
             setState(next);
             setMvpModalOpen(false);
@@ -4238,6 +4324,7 @@ while (guard < 5000) {
             if (mvpModalForArchive) {
                 let next = applyMvpsToState(state, mvpSelectedIds);
                 prepareRefereeCounterEmailDraft(next);
+                closeLiveCallsForTournament(next.tournament?.id || state.tournament?.id);
                 next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
                 setState(next);
                 setMvpModalOpen(false);

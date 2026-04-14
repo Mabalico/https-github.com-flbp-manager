@@ -1227,6 +1227,7 @@ export const callPlayerAppTeam = async (input: {
     tournamentId: string;
     teamId: string;
     teamName?: string | null;
+    matchId?: string | null;
     targetUserId: string;
     targetPlayerId?: string | null;
     targetPlayerName?: string | null;
@@ -1234,19 +1235,29 @@ export const callPlayerAppTeam = async (input: {
     const cfg = getSupabaseConfig();
     const session = await requireSupabaseWriteSession();
     if (!cfg) throw new Error('Supabase non configurato');
-    const res = await fetchWithTimeout(rpcUrl(cfg, 'flbp_player_call_team'), {
+    const payload = {
+        p_workspace_id: cfg.workspaceId,
+        p_tournament_id: String(input.tournamentId || '').trim(),
+        p_team_id: String(input.teamId || '').trim(),
+        p_team_name: input.teamName ? String(input.teamName) : null,
+        p_target_user_id: String(input.targetUserId || '').trim(),
+        p_target_player_id: input.targetPlayerId ? String(input.targetPlayerId) : null,
+        p_target_player_name: input.targetPlayerName ? String(input.targetPlayerName) : null,
+    };
+    const matchId = String(input.matchId || '').trim();
+    const postCall = (body: Json) => fetchWithTimeout(rpcUrl(cfg, 'flbp_player_call_team'), {
         method: 'POST',
         headers: buildHeaders(cfg, session.accessToken),
-        body: JSON.stringify({
-            p_workspace_id: cfg.workspaceId,
-            p_tournament_id: String(input.tournamentId || '').trim(),
-            p_team_id: String(input.teamId || '').trim(),
-            p_team_name: input.teamName ? String(input.teamName) : null,
-            p_target_user_id: String(input.targetUserId || '').trim(),
-            p_target_player_id: input.targetPlayerId ? String(input.targetPlayerId) : null,
-            p_target_player_name: input.targetPlayerName ? String(input.targetPlayerName) : null,
-        })
+        body: JSON.stringify(body)
     }, 4000, { source: 'callPlayerAppTeam', kind: 'sync' });
+
+    let res = await postCall(matchId ? { ...payload, p_match_id: matchId } : payload);
+    if (!res.ok && matchId) {
+        const body = await readErrorBody(res);
+        const canRetryLegacy = /PGRST202|p_match_id|flbp_player_call_team|function/i.test(body);
+        if (!canRetryLegacy) throw new Error(body);
+        res = await postCall(payload);
+    }
     if (!res.ok) throw new Error(await readErrorBody(res));
     return await res.json();
 };
@@ -1272,9 +1283,10 @@ export interface PlayerCallPushDispatchResult {
 export const dispatchPlayerCallPush = async (input: {
     callId: string;
     action: PlayerCallPushDispatchAction;
+    refereeTournamentId?: string | null;
+    refereePassword?: string | null;
 }): Promise<PlayerCallPushDispatchResult> => {
     const cfg = getSupabaseConfig();
-    let session = await requireSupabaseWriteSession();
     if (!cfg) throw new Error('Supabase non configurato');
     const callId = String(input.callId || '').trim();
     if (!callId) throw new Error('Convocazione non valida.');
@@ -1282,30 +1294,42 @@ export const dispatchPlayerCallPush = async (input: {
     if (action !== 'ringing' && action !== 'cancelled' && action !== 'acknowledged') {
         throw new Error('Azione push non valida.');
     }
+    const refereePassword = String(input.refereePassword || '').trim();
+    const refereeTournamentId = String(input.refereeTournamentId || '').trim();
+    const useRefereeAuth = Boolean(refereePassword && refereeTournamentId);
 
-    const postDispatch = (writeSession: SupabaseSession) => fetchWithTimeout(
+    const postDispatch = (headers: HeadersInit) => fetchWithTimeout(
         functionsUrl(cfg, 'player-call-push'),
         {
             method: 'POST',
-            headers: buildHeaders(cfg, writeSession.accessToken),
+            headers,
             body: JSON.stringify({
                 workspaceId: cfg.workspaceId,
                 callId,
                 action,
+                tournamentId: useRefereeAuth ? refereeTournamentId : undefined,
+                refereePassword: useRefereeAuth ? refereePassword : undefined,
             }),
         },
         8000,
         { source: 'dispatchPlayerCallPush', kind: 'sync' }
     );
 
-    let res = await postDispatch(session);
+    if (useRefereeAuth) {
+        const res = await postDispatch(buildAnonHeaders(cfg));
+        if (!res.ok) throw new Error(await readErrorBody(res));
+        return await res.json() as PlayerCallPushDispatchResult;
+    }
+
+    let session = await requireSupabaseWriteSession();
+    let res = await postDispatch(buildHeaders(cfg, session.accessToken));
     if (!res.ok) {
         const body = await readErrorBody(res);
         if (isRejectedAdminEdgeSession(res.status, body)) {
             const retrySession = await recoverRejectedAdminWriteSession();
             if (retrySession?.accessToken) {
                 session = retrySession;
-                res = await postDispatch(session);
+                res = await postDispatch(buildHeaders(cfg, session.accessToken));
             } else {
                 throw new Error(body);
             }
@@ -1629,6 +1653,100 @@ export const pullAdminPlayerCalls = async (input: {
     });
     if (!res.ok) throw new Error(await readErrorBody(res));
     return await res.json() as PlayerSupabaseCallRow[];
+};
+
+const getPlayerCallMetadataMatchId = (row: PlayerSupabaseCallRow): string => {
+    const metadata = row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+        ? row.metadata as Record<string, unknown>
+        : {};
+    return String(metadata.match_id || metadata.matchId || '').trim();
+};
+
+const cancelRefereePlayerAppCallsForMatch = async (input: {
+    tournamentId: string;
+    refereePassword: string;
+    teamIds?: string[];
+    matchId?: string | null;
+}): Promise<PlayerSupabaseCallRow[]> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const tournamentId = String(input.tournamentId || '').trim();
+    const refereePassword = String(input.refereePassword || '').trim();
+    if (!tournamentId || !refereePassword) return [];
+    const teamIds = (input.teamIds || []).map((value) => String(value || '').trim()).filter(Boolean);
+    const matchId = String(input.matchId || '').trim();
+    const res = await fetchWithTimeout(rpcUrl(cfg, 'flbp_referee_cancel_player_calls'), {
+        method: 'POST',
+        headers: buildAnonHeaders(cfg),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_tournament_id: tournamentId,
+            p_referees_password: refereePassword,
+            p_team_ids: teamIds.length ? teamIds : null,
+            p_match_id: matchId || null,
+        }),
+    }, 4000, { source: 'cancelRefereePlayerAppCallsForMatch', kind: 'referee' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows as PlayerSupabaseCallRow[] : [];
+};
+
+export const cancelActivePlayerAppCallsForMatch = async (input: {
+    tournamentId: string;
+    teamIds?: string[];
+    matchId?: string | null;
+    dispatchPush?: boolean;
+    refereePassword?: string | null;
+}): Promise<PlayerSupabaseCallRow[]> => {
+    const tournamentId = String(input.tournamentId || '').trim();
+    if (!tournamentId) return [];
+    const teamSet = new Set((input.teamIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    const matchId = String(input.matchId || '').trim();
+    const refereePassword = String(input.refereePassword || '').trim();
+    if (refereePassword) {
+        const cancelled = await cancelRefereePlayerAppCallsForMatch({
+            tournamentId,
+            refereePassword,
+            teamIds: Array.from(teamSet),
+            matchId,
+        });
+        if (input.dispatchPush !== false) {
+            cancelled.forEach((row) => {
+                void dispatchPlayerCallPush({
+                    callId: row.id,
+                    action: 'cancelled',
+                    refereeTournamentId: tournamentId,
+                    refereePassword,
+                }).catch((pushError) => {
+                    console.warn('FLBP referee silent call cancellation dispatch failed', pushError);
+                });
+            });
+        }
+        return cancelled;
+    }
+    const rows = await pullAdminPlayerCalls({ tournamentId, statuses: ['ringing', 'acknowledged'] });
+    const targets = rows.filter((row) => {
+        const teamId = String(row.team_id || '').trim();
+        if (teamSet.size && !teamSet.has(teamId)) return false;
+        if (!matchId) return true;
+        const rowMatchId = getPlayerCallMetadataMatchId(row);
+        return !rowMatchId || rowMatchId === matchId;
+    });
+    const cancelled: PlayerSupabaseCallRow[] = [];
+    for (const row of targets) {
+        try {
+            await cancelPlayerAppCall(row.id);
+            cancelled.push({ ...row, status: 'cancelled', cancelled_at: new Date().toISOString() });
+            if (input.dispatchPush !== false) {
+                void dispatchPlayerCallPush({ callId: row.id, action: 'cancelled' }).catch((pushError) => {
+                    console.warn('FLBP silent call cancellation dispatch failed', pushError);
+                });
+            }
+        } catch (error) {
+            console.warn('FLBP active player call cancellation failed', error);
+        }
+    }
+    return cancelled;
 };
 
 export interface SupabaseAdminAccessResult {
@@ -2000,10 +2118,12 @@ const coerceTournamentConfig = (cfg: any): TournamentConfig => {
     const refTables = Number.isFinite(rt) && rt > 0 ? Math.floor(rt) : undefined;
 
     const finalRoundRobin = coerceFinalRoundRobin(cfg);
+    const resultsOnly = !!(cfg && typeof cfg === 'object' && (cfg as any).resultsOnly === true);
 
     return {
         // NOTE: "round_robin" can legitimately store 0 (no qualifiers).
         advancingPerGroup: Number.isFinite(v) && v >= 0 ? v : 2,
+        ...(resultsOnly ? { resultsOnly: true } : {}),
         ...(finalRoundRobin ? { finalRoundRobin } : {}),
         ...(refTables ? { refTables } : {})
     };
@@ -2546,6 +2666,7 @@ const buildPublicCareerLeaderboardRows = async (cfg: SupabaseConfig, state: AppS
 
     // Archived tournaments
     (state.tournamentHistory || []).forEach((t: any) => {
+        if (t?.config?.resultsOnly) return;
         const teams = Array.isArray(t.teams) ? t.teams : [];
         const matches = (Array.isArray(t.matches) && t.matches.length)
             ? t.matches
@@ -2555,10 +2676,12 @@ const buildPublicCareerLeaderboardRows = async (cfg: SupabaseConfig, state: AppS
 
     // Live tournament
     if (state.tournament) {
-        const liveTeams = Array.isArray(state.tournament.teams) && state.tournament.teams.length
-            ? state.tournament.teams
-            : (state.teams || []);
-        (state.tournamentMatches || []).forEach((m: any) => processMatch(m, liveTeams));
+        if (!state.tournament.config?.resultsOnly) {
+            const liveTeams = Array.isArray(state.tournament.teams) && state.tournament.teams.length
+                ? state.tournament.teams
+                : (state.teams || []);
+            (state.tournamentMatches || []).forEach((m: any) => processMatch(m, liveTeams));
+        }
     }
 
     // External scorers (integrations)
@@ -2844,6 +2967,7 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
     for (const entry of tournaments) {
         const t = entry.t;
         const tid = t.id;
+        const tournamentResultsOnly = !!t?.config?.resultsOnly;
         tournamentRows.push({
             workspace_id: cfg.workspaceId,
             id: tid,
@@ -2990,6 +3114,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
                 is_bye: isBye,
                 updated_at: new Date().toISOString()
             });
+
+            if (tournamentResultsOnly) return;
 
             (m.stats || []).forEach((s: any) => {
                 const team = teamById.get(s.teamId);

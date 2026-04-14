@@ -40,6 +40,9 @@ const scoreForTeam = (m: Match, teamId: string, canestriByTeam: Record<string, n
   if (m.scoresByTeam && typeof m.scoresByTeam[teamId] === 'number') {
     return m.scoresByTeam[teamId] || 0;
   }
+  // Result-only and legacy 1v1 reports store only the match score.
+  if (m.teamAId === teamId) return m.scoreA || 0;
+  if (m.teamBId === teamId) return m.scoreB || 0;
   // Fallback: derive from player stats.
   return canestriByTeam[teamId] || 0;
 };

@@ -62,7 +62,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         return (
             <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center">
                 {teams.map((team, index) => {
-                    const meta = getTeamCallMeta(team);
+                    const meta = getTeamCallMeta(team, match);
                     const status = meta.status;
                     const icon = status === 'acknowledged'
                         ? <ThumbsUp className="h-3.5 w-3.5" />
@@ -93,7 +93,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                             aria-label={title}
                             onClick={(event) => {
                                 event.stopPropagation();
-                                void triggerTeamCall(team).catch((error: any) => {
+                                void triggerTeamCall(team, match).catch((error: any) => {
                                     alert(String(error?.message || error || t('reports_call_team_disabled')));
                                 });
                             }}

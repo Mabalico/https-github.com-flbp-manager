@@ -1955,6 +1955,15 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_merge_confirm_candidate_into_account": "Vuoi unire il profilo storico {candidate} dentro l'account {account}? Lo storico esistente verrà spostato sul profilo registrato.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Vuoi collegare l'account {account} al profilo storico {candidate}? L'account registrato adotterà quel profilo come identità principale.",
   "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Vuoi segnare {candidate} come alias del profilo {account}? Lo storico resterà collegato ma verrà risolto verso l'account registrato.",
+  "select_winner": "Seleziona vincitore",
+  "structure_results_only_badge": "Solo risultati",
+  "structure_results_only_label": "Solo risultati",
+  "structure_results_only_desc": "Registra solo vincitori e perdenti: niente canestri, soffi, area arbitri, classifiche marcatori, capocannoniere o difensore.",
+  "results_only_report_title": "Referto solo risultato",
+  "results_only_report_desc": "Scegli la squadra vincitrice. Il sistema salverà solo vittoria e sconfitta, senza statistiche giocatore.",
+  "results_only_report_status_hint": "Selezionando il vincitore, la partita verrà salvata come conclusa.",
+  "results_only_select_winner_alert": "Seleziona la squadra vincitrice prima di salvare il referto.",
+  "results_only_referees_disabled": "Questo torneo è in modalità solo risultati: l'area arbitri non è necessaria. I referti si inseriscono dall'area Admin scegliendo soltanto il vincitore.",
 };
 
 

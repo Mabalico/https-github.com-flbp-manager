@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "التاريخ موجود بالفعل",
   "data_accounts_alias_merge_confirm_candidate_into_account": "هل تريد دمج ملف التعريف التاريخي {candidate} في حساب {account}؟ سيتم نقل السجل الحالي إلى الملف الشخصي المسجل.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "هل تريد ربط حساب {account} بملف التعريف التاريخي {candidate}؟ سيعتمد الحساب المسجل هذا الملف الشخصي باعتباره هويته الأساسية.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "هل تريد وضع علامة على {candidate} كاسم مستعار لملف التعريف {account}؟ سيظل السجل مرتبطًا ولكن سيتم حله بالحساب المسجل."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "هل تريد وضع علامة على {candidate} كاسم مستعار لملف التعريف {account}؟ سيظل السجل مرتبطًا ولكن سيتم حله بالحساب المسجل.",
+  "select_winner": "اختر الفائز",
+  "structure_results_only_badge": "النتائج فقط",
+  "structure_results_only_label": "النتائج فقط",
+  "structure_results_only_desc": "يسجل الفائزين والخاسرين فقط: بدون نقاط، soffi، منطقة حكام، تصنيفات الهدافين، هداف البطولة أو المدافع.",
+  "results_only_report_title": "تقرير نتيجة فقط",
+  "results_only_report_desc": "اختر الفريق الفائز. سيحفظ النظام الفوز والخسارة فقط، بدون إحصاءات اللاعبين.",
+  "results_only_report_status_hint": "بعد اختيار الفائز، سيتم حفظ المباراة على أنها منتهية.",
+  "results_only_select_winner_alert": "اختر الفريق الفائز قبل حفظ التقرير.",
+  "results_only_referees_disabled": "هذه البطولة في وضع النتائج فقط: منطقة الحكام غير مطلوبة. يتم إدخال التقارير من Admin باختيار الفائز فقط."
 };

@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "History already present",
   "data_accounts_alias_merge_confirm_candidate_into_account": "Do you want to merge the {candidate} historical profile into the {account} account? The existing history will be moved to the registered profile.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "Do you want to connect the {account} account to the {candidate} historical profile? The registered account will adopt that profile as its primary identity.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Do you want to mark {candidate} as an alias of the {account} profile? The history will remain linked but will be resolved to the registered account."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "Do you want to mark {candidate} as an alias of the {account} profile? The history will remain linked but will be resolved to the registered account.",
+  "select_winner": "Select winner",
+  "structure_results_only_badge": "Results only",
+  "structure_results_only_label": "Results only",
+  "structure_results_only_desc": "Track only winners and losers: no baskets, blows, referee area, scorer tables, top scorer or defender awards.",
+  "results_only_report_title": "Result-only report",
+  "results_only_report_desc": "Choose the winning team. The system will save only win and loss, without player statistics.",
+  "results_only_report_status_hint": "After choosing the winner, the match will be saved as finished.",
+  "results_only_select_winner_alert": "Select the winning team before saving the report.",
+  "results_only_referees_disabled": "This tournament is in results-only mode: the referee area is not needed. Reports are entered from Admin by choosing only the winner."
 };

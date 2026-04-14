@@ -5,6 +5,7 @@ import { TvSimpleView } from './TvSimpleView';
 import { TvBracketView } from './TvBracketView';
 import { TvScorersView } from './TvScorersView';
 import { PublicTvShell } from './PublicTvShell';
+import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 interface TvViewProps {
     state: AppState;
@@ -38,7 +39,7 @@ export const TvView: React.FC<TvViewProps> = ({ state, mode, onExit }) => {
         if (mode === 'bracket' || mode === 'groups_bracket') {
             return <TvBracketView teams={liveTeams} matches={matches} data={data} logo={logo} onExit={onExit} mode={mode} />;
         }
-        if (mode === 'scorers') {
+        if (mode === 'scorers' && !isResultsOnlyTournament(data)) {
             return (
                 <TvScorersView
                     teams={liveTeams}

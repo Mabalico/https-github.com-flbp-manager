@@ -27,6 +27,9 @@ export interface StructureTabProps {
     finalRrTopTeams: 4 | 8;
     setFinalRrTopTeams: (v: 4 | 8) => void;
 
+    resultsOnly: boolean;
+    setResultsOnly: (v: boolean) => void;
+
     numGroups: number;
     setNumGroups: (v: number) => void;
 
@@ -51,6 +54,8 @@ export const StructureTab: React.FC<StructureTabProps> = ({
     setFinalRrEnabled,
     finalRrTopTeams,
     setFinalRrTopTeams,
+    resultsOnly,
+    setResultsOnly,
     numGroups,
     setNumGroups,
     advancing,
@@ -137,6 +142,11 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                         {t('structure_final_group_badge')}:  {finalRrEnabled ? `Top ${finalRrTopTeams}` : t('off')}
                                     </span>
                                 ) : null}
+                                {resultsOnly ? (
+                                    <span className="text-amber-900 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
+                                        {t('structure_results_only_badge')}
+                                    </span>
+                                ) : null}
                                 {draft ? (
                                     <span className="text-blue-800 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">
                                         {t('structure_draft_ready_badge')}
@@ -208,6 +218,23 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                 </>
                             )}
                         </div>
+
+                        <label className={`block cursor-pointer rounded-2xl border p-4 transition ${resultsOnly ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}>
+                            <div className="flex items-start gap-3">
+                                <input
+                                    type="checkbox"
+                                    checked={resultsOnly}
+                                    onChange={e => setResultsOnly(e.target.checked)}
+                                    className={`${checkbox} mt-1`}
+                                />
+                                <div>
+                                    <div className="font-black">{t('structure_results_only_label')}</div>
+                                    <div className="mt-1 text-xs font-bold leading-5 text-slate-600">
+                                        {t('structure_results_only_desc')}
+                                    </div>
+                                </div>
+                            </div>
+                        </label>
 
                         {tournMode !== 'round_robin' && (
                             <details className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -340,7 +367,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                         <b>{t('structure_bracket_matches_label')}:</b> {draftBracketMatchesCount}
                                     </div>
                                     <div className="bg-white px-3 py-1 rounded border border-blue-100">
-                                        <b>{t('referees')}:</b> {liveRefereesCount}
+                                        <b>{t('referees')}:</b> {resultsOnly ? t('off') : liveRefereesCount}
                                     </div>
                                 </div>
 

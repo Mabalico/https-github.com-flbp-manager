@@ -1953,5 +1953,14 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_alias_reason_existing_stats": "Tarih zaten mevcut",
   "data_accounts_alias_merge_confirm_candidate_into_account": "{candidate} geçmiş profilini {account} hesabıyla birleştirmek istiyor musunuz? Mevcut geçmiş kayıtlı profile taşınacaktır.",
   "data_accounts_alias_merge_confirm_account_into_candidate": "{account} hesabını {candidate} geçmiş profiline bağlamak istiyor musunuz? Kayıtlı hesap bu profili birincil kimliği olarak benimseyecektir.",
-  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "{candidate}'yi {account} profilinin takma adı olarak işaretlemek ister misiniz? Geçmiş bağlantılı kalacak ancak kayıtlı hesaba çözümlenecektir."
+  "data_accounts_alias_merge_confirm_alias_candidate_into_account": "{candidate}'yi {account} profilinin takma adı olarak işaretlemek ister misiniz? Geçmiş bağlantılı kalacak ancak kayıtlı hesaba çözümlenecektir.",
+  "select_winner": "Kazananı seç",
+  "structure_results_only_badge": "Yalnızca sonuçlar",
+  "structure_results_only_label": "Yalnızca sonuçlar",
+  "structure_results_only_desc": "Yalnızca kazananları ve kaybedenleri kaydeder: sayı, soffi, hakem alanı, skor sıralamaları, sayı kralı veya savunmacı ödülü yok.",
+  "results_only_report_title": "Yalnızca sonuç raporu",
+  "results_only_report_desc": "Kazanan takımı seçin. Sistem oyuncu istatistikleri olmadan yalnızca galibiyet ve mağlubiyeti kaydeder.",
+  "results_only_report_status_hint": "Kazanan seçildiğinde maç tamamlandı olarak kaydedilir.",
+  "results_only_select_winner_alert": "Raporu kaydetmeden önce kazanan takımı seçin.",
+  "results_only_referees_disabled": "Bu turnuva yalnızca sonuçlar modunda: hakem alanı gerekli değil. Raporlar Admin bölümünden yalnızca kazanan seçilerek girilir."
 };

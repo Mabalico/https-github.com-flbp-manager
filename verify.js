@@ -1,1 +1,0 @@
-fetch('https://flbp-pages.pages.dev/assets/index-DV4L9C_Y.js',{cache:'no-store'}).then(r=>r.text()).then(t=>{ const m = t.match(/AdminDashboard-[a-zA-Z0-9_-]+\.js/); console.log('Found chunk:', m ? m[0] : 'None'); if(m) fetch('https://flbp-pages.pages.dev/assets/'+m[0]).then(r=>r.text()).then(t2=>console.log('Includes scale-0.98?', t2.includes('scale-[0.98]'))); })
