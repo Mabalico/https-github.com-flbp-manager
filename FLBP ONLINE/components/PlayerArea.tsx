@@ -1517,42 +1517,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setRefreshNonce((value) => value + 1);
   };
 
-  const nativePushPromptModal =
-    nativePushPermissionPromptOpen && typeof document !== 'undefined'
-      ? createPortal(
-          <div className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/75 px-4 py-6">
-            <div className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
-              <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
-                  <BellRing className="h-6 w-6" />
-                </div>
-                <div className="mt-4 text-2xl font-black tracking-tight">{t('player_native_push_prompt_title')}</div>
-                <p className="mt-2 text-sm font-semibold leading-6 text-white/78">
-                  {t('player_native_push_prompt_body')}
-                </p>
-              </div>
-              <div className="space-y-3 px-5 py-5">
-                <button
-                  type="button"
-                  onClick={confirmNativePushPermission}
-                  className={`${btnPrimary} w-full justify-center`}
-                >
-                  <BellRing className="h-4 w-4" />
-                  {t('player_native_push_prompt_enable')}
-                </button>
-                <button
-                  type="button"
-                  onClick={dismissNativePushPermission}
-                  className={`${btnSecondary} w-full justify-center`}
-                >
-                  {t('player_native_push_prompt_later')}
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )
-      : null;
+  // Push permission prompt is now handled inline in the player area card (no full-screen modal)
+  const nativePushPromptModal = null;
 
   const registerAliasRequestModal =
     registerAliasModalOpen && authMode === 'register' && typeof document !== 'undefined'
@@ -2211,7 +2177,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                         <div className={sectionTitleClass}>{t('player_area_call_title')}</div>
                       </div>
 
-                      {effectiveLiveStatus.activeCall ? (
+                      {/* Show call only after push permission has been handled */}
+                      {(canManuallyOpenNativePushPrompt || nativePushPermissionPromptOpen) && embeddedNativeShell ? null : effectiveLiveStatus.activeCall ? (
                         <div className="space-y-3">
                           <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
                             <div className="text-sm font-black text-slate-900">{effectiveLiveStatus.activeCall.teamName}</div>
@@ -2244,19 +2211,41 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                         </div>
                       )}
                       {embeddedNativeShell && nativePushRegistration?.configReady ? (
-                        <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-sm font-semibold text-amber-900">
-                          <div className="text-[11px] font-black uppercase tracking-[0.08em] text-amber-700">Notifiche dispositivo</div>
-                          <div className="mt-1">{nativePushStatusMessage}</div>
-                          {canManuallyOpenNativePushPrompt ? (
-                            <button
-                              type="button"
-                              onClick={openNativePushPermissionPrompt}
-                              className="mt-3 inline-flex min-h-[38px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-                            >
-                              <BellRing className="h-4 w-4" /> {t('player_native_push_prompt_enable')}
-                            </button>
-                          ) : null}
-                        </div>
+                        canManuallyOpenNativePushPrompt || nativePushPermissionPromptOpen ? (
+                          // Prominent inline push-permission card — shown BEFORE the call notification
+                          <div className="rounded-[20px] border-2 border-amber-400 bg-amber-50 p-4 space-y-3 shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-400/20 text-amber-700">
+                                <BellRing className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <div className="text-[11px] font-black uppercase tracking-[0.08em] text-amber-700">{t('player_native_push_prompt_title')}</div>
+                                <div className="text-sm font-semibold text-amber-900">{t('player_native_push_prompt_body')}</div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={confirmNativePushPermission}
+                                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-slate-950 shadow-sm transition hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+                              >
+                                <BellRing className="h-4 w-4" /> {t('player_native_push_prompt_enable')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={dismissNativePushPermission}
+                                className={`${btnSecondary}`}
+                              >
+                                {t('player_native_push_prompt_later')}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-sm font-semibold text-amber-900">
+                            <div className="text-[11px] font-black uppercase tracking-[0.08em] text-amber-700">Notifiche dispositivo</div>
+                            <div className="mt-1">{nativePushStatusMessage}</div>
+                          </div>
+                        )
                       ) : null}
                     </div>
                   </div>
