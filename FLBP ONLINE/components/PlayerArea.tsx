@@ -609,9 +609,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
     const shouldAskForNativePush =
       registration.configReady &&
-      (registration.permission === 'prompt' || registration.permission === 'denied');
+      registration.permission !== 'granted' &&
+      (registration.permission === 'prompt' || registration.permission === 'denied' || registration.permission === 'unknown');
 
-    if (shouldAskForNativePush && !nativePushPermissionRequestedRef.current) {
+    if (shouldAskForNativePush && !nativePushPermissionPromptOpen && !nativePushPermissionRequestedRef.current) {
       nativePushPermissionRequestedRef.current = true;
       nativePushPermissionRegistrationRef.current = registration;
       setNativePushRegistration(registration);
@@ -646,6 +647,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const dismissNativePushPermission = React.useCallback(() => {
     nativePushPermissionRegistrationRef.current = null;
+    // Reset the flag so the prompt can re-appear next session if permission was never granted
+    nativePushPermissionRequestedRef.current = false;
     setNativePushPermissionPromptOpen(false);
   }, []);
 
