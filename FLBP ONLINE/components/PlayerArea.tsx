@@ -1517,7 +1517,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const nativePushPromptModal =
     nativePushPermissionPromptOpen && typeof document !== 'undefined'
       ? createPortal(
-          <div className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+          <div className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/75 px-4 py-6">
             <div className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
               <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
                 <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
@@ -1554,7 +1554,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const registerAliasRequestModal =
     registerAliasModalOpen && authMode === 'register' && typeof document !== 'undefined'
       ? createPortal(
-          <div className="flbp-mobile-sheet fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm">
+          <div className="flbp-mobile-sheet fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 px-4 py-6">
             <div className="flbp-mobile-sheet-panel w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/15 md:p-6">
               <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
                 <div>
