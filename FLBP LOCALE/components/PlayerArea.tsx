@@ -220,7 +220,7 @@ const isOpenPlayerCallInCurrentState = (state: AppState, call: LiveCallRequest) 
   const liveTournamentId = String(state.tournament?.id || '').trim();
   if (!liveTournamentId || call.tournamentId !== liveTournamentId) return false;
   const matches = getCurrentLiveMatches(state);
-  if (!matches.length) return true;
+  if (!matches.length) return false;
   const relatedMatches = matches.filter((match) => {
     if (call.matchId) return match.id === call.matchId;
     return getMatchParticipantIds(match).includes(call.teamId);

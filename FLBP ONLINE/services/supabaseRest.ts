@@ -137,6 +137,7 @@ export interface PlayerSupabaseCallRow {
     id: string;
     workspace_id: string;
     tournament_id: string;
+    match_id?: string | null;
     team_id: string;
     team_name?: string | null;
     target_user_id: string;
@@ -1182,9 +1183,11 @@ export const pullPlayerAppCalls = async (): Promise<PlayerSupabaseCallRow[]> => 
     const session = await requirePlayerSupabaseSession();
     const userId = String(session.userId || '').trim();
     if (!cfg || !userId) return [];
+    // Filter to calls within the last 48 hours to avoid ghost stale test calls
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     const url = restUrl(
         cfg,
-        `player_app_calls?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&target_user_id=eq.${encodeURIComponent(userId)}&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,requested_by_user_id,status,requested_at,acknowledged_at,cancelled_at,metadata&order=requested_at.desc`
+        `player_app_calls?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&target_user_id=eq.${encodeURIComponent(userId)}&requested_at=gte.${encodeURIComponent(cutoff)}&select=id,workspace_id,tournament_id,match_id,team_id,team_name,target_user_id,target_player_id,target_player_name,requested_by_user_id,status,requested_at,acknowledged_at,cancelled_at,metadata&order=requested_at.desc`
     );
     const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 4000, { source: 'pullPlayerAppCalls', kind: 'sync' });
     if (!res.ok) throw new Error(await readErrorBody(res));

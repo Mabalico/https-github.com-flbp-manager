@@ -259,7 +259,7 @@ export const mapSupabaseCallRowToPlayerCallRequest = (row: PlayerSupabaseCallRow
   return {
     id: String(row.id || '').trim(),
     tournamentId: String(row.tournament_id || '').trim(),
-    matchId: String(metadata.match_id || metadata.matchId || '').trim() || undefined,
+    matchId: String(row.match_id || metadata.match_id || metadata.matchId || '').trim() || undefined,
     teamId: String(row.team_id || '').trim(),
     teamName: String(row.team_name || row.team_id || '').trim(),
     targetAccountId: String(row.target_user_id || '').trim(),
