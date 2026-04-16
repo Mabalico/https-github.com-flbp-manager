@@ -16,7 +16,7 @@ import { readVitePublicDbRead } from './services/viteEnv';
 import {
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
-import { BadgeCheck, BellRing, Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut } from 'lucide-react';
+import { BadgeCheck, BellRing, Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut, Shield } from 'lucide-react';
 
 type UiErrorBoundaryProps = {
     title: string;
