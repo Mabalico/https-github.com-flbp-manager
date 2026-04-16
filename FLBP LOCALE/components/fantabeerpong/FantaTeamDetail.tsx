@@ -1,6 +1,8 @@
 import React from 'react';
 import { ArrowLeft, Shield, Target, Wind, Trophy, Zap, Loader2 } from 'lucide-react';
 import { fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
+import { getPlayerKeyLabel } from '../../services/playerIdentity';
+import { loadState } from '../../services/storageService';
 import { MetricCard, panelClass } from './_shared';
 
 interface Props { teamId: string; onBack: () => void; onOpenPlayerDetail?: (playerId: string) => void; }
@@ -19,6 +21,8 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
         const totalBlows = rows.reduce((acc: number, r: any) => acc + (r.raw_blows || 0), 0);
         const totalPoints = rows.reduce((acc: number, r: any) => acc + (r.weighted_goals || 0), 0);
         
+        const appState = loadState();
+        
         setData({
           teamName,
           note: `Analisi dettagliata per ${teamName} - Punteggio cumulativo basi reali.`,
@@ -29,18 +33,28 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
             { id: 'c4', label: 'Giocatori', value: rows.length.toString(), hint: 'In rosa' },
           ],
           pointsBreakdown: { goals: totalGoals, blows: totalBlows, wins: 0, bonusScia: 0 },
-          lineup: rows.map((r: any) => ({
-            id: r.player_id,
-            playerId: r.player_id,
-            playerName: r.player_id, // We'd need to search name or adjust view, for now ID or placeholder
-            realTeamName: 'In gara',
-            roleLabel: r.role.toUpperCase(),
-            goals: r.raw_goals || 0,
-            blows: r.raw_blows || 0,
-            wins: 0,
-            bonusScia: 0,
-            fantasyPoints: r.weighted_goals || 0
-          }))
+          lineup: rows.map((r: any) => {
+             const label = getPlayerKeyLabel(r.player_id);
+             let realTeamName = 'In gara';
+             for (const t of appState.teams || []) {
+                if (t.player1 === label.name || t.player2 === label.name) {
+                   realTeamName = t.name;
+                   break;
+                }
+             }
+             return {
+                id: r.player_id,
+                playerId: r.player_id,
+                playerName: label.name,
+                realTeamName,
+                roleLabel: r.role.toUpperCase(),
+                goals: r.raw_goals || 0,
+                blows: r.raw_blows || 0,
+                wins: 0,
+                bonusScia: 0,
+                fantasyPoints: r.weighted_goals || 0
+             };
+          })
         });
       }
       setLoading(false);

@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader
 import { fetchFantaConfig, fetchUserFantaTeam, saveFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { loadState } from '../../services/storageService';
+import { getPlayerKey, pickPlayerIdentityValue } from '../../services/playerIdentity';
 import type { FantaBuilderPlayerOption, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { panelClass } from './_shared';
@@ -34,24 +35,30 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
     const playersMap = new Map<string, FantaBuilderPlayerOption>();
     (appState.teams || []).forEach(t => {
       if (t.player1) {
-        playersMap.set(t.player1, { id: t.player1, playerName: t.player1, realTeamName: t.name, status: 'live' });
+        const id = getPlayerKey(t.player1, pickPlayerIdentityValue(t.player1BirthDate, t.player1YoB));
+        playersMap.set(id, { id, playerName: t.player1, realTeamName: t.name, status: 'live' });
       }
       if (t.player2) {
-        playersMap.set(t.player2, { id: t.player2, playerName: t.player2, realTeamName: t.name, status: 'live' });
+        const id = getPlayerKey(t.player2, pickPlayerIdentityValue(t.player2BirthDate, t.player2YoB));
+        playersMap.set(id, { id, playerName: t.player2, realTeamName: t.name, status: 'live' });
       }
     });
     return Array.from(playersMap.values());
   }, [appState]);
 
   const tournamentTeams = React.useMemo(() => {
-    return (appState.teams || []).map(t => ({
-      id: t.id,
-      teamName: t.name,
-      players: [
-        { id: t.player1, playerName: t.player1, realTeamName: t.name, status: 'live' },
-        ...(t.player2 ? [{ id: t.player2, playerName: t.player2, realTeamName: t.name, status: 'live' }] : [])
-      ] as FantaBuilderPlayerOption[]
-    }));
+    return (appState.teams || []).map(t => {
+      const p1Id = t.player1 ? getPlayerKey(t.player1, pickPlayerIdentityValue(t.player1BirthDate, t.player1YoB)) : '';
+      const p2Id = t.player2 ? getPlayerKey(t.player2, pickPlayerIdentityValue(t.player2BirthDate, t.player2YoB)) : '';
+      return {
+        id: t.id,
+        teamName: t.name,
+        players: [
+          ...(t.player1 ? [{ id: p1Id, playerName: t.player1, realTeamName: t.name, status: 'live' as const }] : []),
+          ...(t.player2 ? [{ id: p2Id, playerName: t.player2, realTeamName: t.name, status: 'live' as const }] : [])
+        ]
+      };
+    });
   }, [appState]);
 
   React.useEffect(() => {

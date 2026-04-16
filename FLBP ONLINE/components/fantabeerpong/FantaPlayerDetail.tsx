@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, UserRound, Loader2, Target, Wind, Trophy } from 'lucide-react';
 import { fetchFantaPlayerContributions } from '../../services/fantabeerpong/fantaSupabaseService';
+import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { MetricCard, panelClass } from './_shared';
 
 interface Props { playerId: string; onBack: () => void; onOpenMyTeam?: () => void; }
@@ -17,12 +18,14 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       const totalGoals = contributions.reduce((acc, c) => acc + (c.canestri || 0), 0);
       const totalBlows = contributions.reduce((acc, c) => acc + (c.soffi || 0), 0);
       
+      const label = getPlayerKeyLabel(playerId);
+      
       setData({
-        playerName: playerId, // ID for now, usually we'd pass name or fetch it
-        realTeamName: contributions[0]?.team_name || 'N/D',
+        playerName: contributions[0]?.player_name || label.name, // Real name from stats or derived from key
+        realTeamName: contributions[0]?.team_name || 'In gara',
         roleLabel: 'Giocatore',
         availabilityLabel: 'Disponibile',
-        note: `Analisi delle performance live per ${playerId}. Dati estratti dai referti ufficiali del torneo.`,
+        note: `Analisi delle performance live per ${label.name}. Dati estratti dai referti ufficiali del torneo.`,
         summaryCards: [
           { id: 's1', label: 'Canestri Totali', value: totalGoals.toString(), hint: 'In tutto il torneo' },
           { id: 's2', label: 'Soffi Totali', value: totalBlows.toString(), hint: 'In tutto il torneo' },

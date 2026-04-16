@@ -1,7 +1,9 @@
 import React from 'react';
 import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
-import { fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchUserFantaTeam, fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
+import { loadState } from '../../services/storageService';
+import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import type { FantaMyTeamPlayer, FantaRosterRole, FantaMyTeam } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { MetricCard, panelClass } from './_shared';
@@ -39,7 +41,45 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
       try {
         const result = await fetchUserFantaTeam(session.accountId);
         if (result) {
-          // Mapping Supabase result to FantaMyTeam shape
+          const liveStats = await fetchFantaTeamDetail(result.team.id);
+          const appState = loadState();
+          
+          let totalGoals = 0, totalBlows = 0, totalFantasyPoints = 0;
+          
+          const players = result.roster.map(r => {
+             const stat = liveStats.find((s: any) => s.player_id === r.player_id) || {};
+             const label = getPlayerKeyLabel(r.player_id);
+             
+             let realTeamName = 'In gara';
+             for (const t of appState.teams || []) {
+                if (t.player1 === label.name || t.player2 === label.name) {
+                   realTeamName = t.name;
+                   break;
+                }
+             }
+
+             const goals = stat.raw_goals || 0;
+             const blows = stat.raw_blows || 0;
+             const fp = stat.weighted_goals || 0;
+             
+             totalGoals += goals;
+             totalBlows += blows;
+             totalFantasyPoints += fp;
+
+             return {
+                id: r.player_id,
+                playerName: label.name,
+                realTeamName,
+                role: r.role as FantaRosterRole,
+                status: 'live' as const,
+                goals,
+                blows,
+                wins: 0,
+                bonusScia: 0,
+                fantasyPoints: fp
+             };
+          });
+
           const mapped: FantaMyTeam = {
             id: result.team.id,
             teamName: result.team.name,
@@ -47,19 +87,12 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
             lockHint: 'Squadra sincronizzata con Supabase.',
             summary: {
               currentRankLabel: '-',
-              captainName: result.roster.find(r => r.role === 'captain')?.player_id || 'N/A',
-              defendersCount: result.roster.filter(r => r.role === 'defender').length,
-              totalPoints: 0
+              captainName: players.find(p => p.role === 'captain')?.playerName || 'N/A',
+              defendersCount: players.filter(p => p.role === 'defender').length,
+              totalPoints: totalFantasyPoints
             },
-            pointsBreakdown: { goals: 0, blows: 0, wins: 0, bonusScia: 0 },
-            players: result.roster.map(r => ({
-              id: r.player_id,
-              playerName: 'Player ' + r.player_id.slice(0, 5),
-              realTeamName: 'Real Team',
-              role: r.role as FantaRosterRole,
-              status: 'live',
-              goals: 0, blows: 0, wins: 0, bonusScia: 0, fantasyPoints: 0
-            })),
+            pointsBreakdown: { goals: totalGoals, blows: totalBlows, wins: 0, bonusScia: 0 },
+            players,
             teamsToFollow: []
           };
           setData(mapped);
