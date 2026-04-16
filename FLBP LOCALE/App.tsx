@@ -1400,7 +1400,7 @@ const App: React.FC = () => {
         }
     };
 
-        const isPublicView = ['home','leaderboard','hof','tournament','tournament_detail'].includes(view);
+        const isPublicView = ['home','leaderboard','hof','tournament','tournament_detail','fantabeerpong'].includes(view);
     const isToolsView = view === 'admin' || view === 'referees_area' || view === 'player_area';
 
     const hasDbIssue = !!((dbDiag as any)?.lastConflictAt || hasVisibleDbError);
@@ -1549,6 +1549,18 @@ const App: React.FC = () => {
                         <hr className="border-slate-100 my-3" />
 
                         <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('tools_section')}</div>
+
+                        <button
+                            aria-current={view === 'fantabeerpong' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('fantabeerpong', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('fantabeerpong')}
+                            onFocus={() => primeViewChunk('fantabeerpong')}
+                            className={menuItemClass(view === 'fantabeerpong')}
+                        >
+                            <Shield className="w-5 h-5 text-slate-500" />
+                            <span>FantaBeerpong</span>
+                        </button>
+
                         <button
                             aria-current={view === 'referees_area' ? 'page' : undefined}
                             onClick={() => { void navigateToView('referees_area', { closeMenu: true }); }}
@@ -1669,6 +1681,16 @@ const App: React.FC = () => {
                                     >
                                         <Trophy className="w-4 h-4" />
                                         <span>{t('hof')}</span>
+                                    </button>
+                                    <button
+                                        aria-current={view === 'fantabeerpong' ? 'page' : undefined}
+                                        onClick={() => { void navigateToView('fantabeerpong'); }}
+                                        onMouseEnter={() => primeViewChunk('fantabeerpong')}
+                                        onFocus={() => primeViewChunk('fantabeerpong')}
+                                        className={publicNavItemClass(view === 'fantabeerpong')}
+                                    >
+                                        <Shield className="w-4 h-4" />
+                                        <span>FantaBeerpong</span>
                                     </button>
                                 </nav>
                             ) : null}
