@@ -106,6 +106,7 @@ const loadPublicTournamentDetailModule = () => import('./components/PublicTourna
 const loadRefereesAreaModule = () => import('./components/RefereesArea');
 const loadPlayerAreaModule = () => import('./components/PlayerArea');
 const loadHelpGuideModule = () => import('./components/HelpGuide');
+const loadFantaBeerpongModule = () => import('./components/FantaBeerpong');
 
 const loadSupabasePublicModule = () => import('./services/supabasePublic');
 const loadAutoDbSyncModule = () => import('./services/autoDbSync');
@@ -145,6 +146,10 @@ const PlayerAreaLazy = React.lazy(() =>
 
 const HelpGuideLazy = React.lazy(() =>
     loadHelpGuideModule().then((m) => ({ default: m.HelpGuide }))
+);
+
+const FantaBeerpongLazy = React.lazy(() =>
+    loadFantaBeerpongModule().then((m) => ({ default: m.FantaBeerpong }))
 );
 
 // Lazy-loaded: keeps initial bundle light (Admin pulls in heavy deps like xlsx)
@@ -426,7 +431,7 @@ const App: React.FC = () => {
 
     const safeView = (v: string | null | undefined) => {
         if (!v) return 'home';
-        if (['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'admin', 'referees_area'].includes(v)) return v;
+        if (['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'admin', 'referees_area', 'fantabeerpong'].includes(v)) return v;
         return 'home';
     };
 
@@ -491,6 +496,8 @@ const App: React.FC = () => {
                 return loadRefereesAreaModule();
             case 'player_area':
                 return loadPlayerAreaModule();
+            case 'fantabeerpong':
+                return loadFantaBeerpongModule();
             case 'admin':
                 return loadAdminDashboardModule();
             default:
@@ -1348,6 +1355,12 @@ const App: React.FC = () => {
                     </React.Suspense>
                 );
             }
+            case 'fantabeerpong':
+                return (
+                    <React.Suspense fallback={<RouteViewFallback /> }>
+                        <FantaBeerpongLazy onBack={() => { void navigateToView('player_area'); }} />
+                    </React.Suspense>
+                );
             case 'player_area':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
