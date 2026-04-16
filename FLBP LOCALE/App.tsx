@@ -1431,7 +1431,7 @@ const App: React.FC = () => {
     };
 
     const menuItemClass = (active: boolean) => {
-        return `w-full text-left px-4 py-3 rounded-xl font-black transition flex items-center gap-3 border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50 ${active
+        return `w-full text-left px-3 py-2.5 text-sm rounded-xl font-black transition flex items-center gap-3 border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50 ${active
             ? 'bg-beer-100/60 text-slate-900 border-beer-300'
             : 'text-slate-800 border-transparent hover:bg-slate-50'}`;
     };
@@ -1489,8 +1489,8 @@ const App: React.FC = () => {
                         </div>
                         <button aria-label={t('close_menu')} onClick={() => setMenuOpen(false)} className="hover:bg-slate-100 p-2 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"><X className="w-6 h-6"/></button>
                     </div>
-                    <nav className="p-4 space-y-2">
-                        <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('public_section')}</div>
+                    <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-100px)]">
+                        <div className="px-2 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('public_section')}</div>
                         <button
                             aria-current={view === 'home' ? 'page' : undefined}
                             onClick={() => { void navigateToView('home', { closeMenu: true }); }}
@@ -1498,7 +1498,7 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('home')}
                             className={menuItemClass(view === 'home')}
                         >
-                            <HomeIcon className="w-5 h-5 text-slate-500" />
+                            <HomeIcon className="w-4 h-4 text-slate-500" />
                             <span>{t('dashboard')}</span>
                         </button>
                         <button
@@ -1508,7 +1508,7 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('leaderboard')}
                             className={menuItemClass(view === 'leaderboard')}
                         >
-                            <BarChart3 className="w-5 h-5 text-slate-500" />
+                            <BarChart3 className="w-4 h-4 text-slate-500" />
                             <span>{t('historical')}</span>
                         </button>
                         <button
@@ -1518,7 +1518,7 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('hof')}
                             className={menuItemClass(view === 'hof')}
                         >
-                            <Trophy className="w-5 h-5 text-slate-500" />
+                            <Trophy className="w-4 h-4 text-slate-500" />
                             <span>{t('hof')}</span>
                         </button>
                         <button
@@ -1528,13 +1528,13 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('tournament')}
                             className={menuItemClass(view === 'tournament')}
                         >
-                            <Swords className="w-5 h-5 text-slate-500" />
+                            <Swords className="w-4 h-4 text-slate-500" />
                             <span>{t('tournaments')}</span>
                         </button>
 
-                        <hr className="border-slate-100 my-3" />
+                        <hr className="border-slate-100 my-2" />
 
-                        <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('account_section')}</div>
+                        <div className="px-2 pt-0 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('account_section')}</div>
                         <button
                             aria-current={view === 'player_area' ? 'page' : undefined}
                             onClick={() => { void navigateToView('player_area', { closeMenu: true }); }}
@@ -1542,7 +1542,7 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('player_area')}
                             className={menuItemClass(view === 'player_area')}
                         >
-                            <UserRound className="w-5 h-5 text-slate-500" />
+                            <UserRound className="w-4 h-4 text-slate-500" />
                             <span>{t('player_area')}</span>
                         </button>
                         <button
@@ -1552,13 +1552,13 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('fantabeerpong')}
                             className={menuItemClass(view === 'fantabeerpong')}
                         >
-                            <Shield className="w-5 h-5 text-slate-500" />
+                            <Shield className="w-4 h-4 text-slate-500" />
                             <span>FantaBeerpong</span>
                         </button>
 
-                        <hr className="border-slate-100 my-3" />
+                        <hr className="border-slate-100 my-2" />
 
-                        <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('tools_section')}</div>
+                        <div className="px-2 pt-0 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('tools_section')}</div>
 
                         <button
                             aria-current={view === 'referees_area' ? 'page' : undefined}
@@ -1567,7 +1567,7 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('referees_area')}
                             className={menuItemClass(view === 'referees_area')}
                         >
-                            <Gavel className="w-5 h-5 text-slate-500" />
+                            <Gavel className="w-4 h-4 text-slate-500" />
                             <span>{t('referees_area')}</span>
                         </button>
                         <button
@@ -1577,7 +1577,7 @@ const App: React.FC = () => {
                             onFocus={() => primeViewChunk('admin')}
                             className={menuItemClass(view === 'admin')}
                         >
-                            <Settings className="w-5 h-5 text-slate-500" />
+                            <Settings className="w-4 h-4 text-slate-500" />
                             <span>{t('admin')}</span>
                         </button>
                     </nav>
