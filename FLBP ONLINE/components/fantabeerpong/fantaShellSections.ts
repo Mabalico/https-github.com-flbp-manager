@@ -14,10 +14,10 @@ export interface FantaShellSection {
 }
 
 export const FANTA_SHELL_SECTIONS: FantaShellSection[] = [
-  { key: 'overview',           labelKey: 'fanta_section_overview_label',   shortLabelKey: 'fanta_section_overview_short',   helperKey: 'fanta_section_overview_helper',   icon: LayoutDashboard },
-  { key: 'my_team',            labelKey: 'fanta_section_my_team_label',    shortLabelKey: 'fanta_section_my_team_short',    helperKey: 'fanta_section_my_team_helper',    icon: Shield },
-  { key: 'general_standings',  labelKey: 'fanta_section_standings_label',  shortLabelKey: 'fanta_section_standings_short',  helperKey: 'fanta_section_standings_helper',  icon: BarChart3 },
-  { key: 'players_standings',  labelKey: 'fanta_section_players_label',    shortLabelKey: 'fanta_section_players_short',    helperKey: 'fanta_section_players_helper',    icon: Users },
-  { key: 'rules',              labelKey: 'fanta_section_rules_label',      shortLabelKey: 'fanta_section_rules_short',      helperKey: 'fanta_section_rules_helper',      icon: ScrollText },
-  { key: 'history',            labelKey: 'fanta_section_history_label',    shortLabelKey: 'fanta_section_history_short',    helperKey: 'fanta_section_history_helper',    icon: History },
+  { key: 'overview',           labelKey: 'fanta_shell_overview',   shortLabelKey: 'fanta_shell_overview_short',   helperKey: 'fanta_shell_overview_helper',   icon: LayoutDashboard },
+  { key: 'my_team',            labelKey: 'fanta_shell_my_team',    shortLabelKey: 'fanta_shell_my_team_short',    helperKey: 'fanta_shell_my_team_helper',    icon: Shield },
+  { key: 'general_standings',  labelKey: 'fanta_shell_standings',  shortLabelKey: 'fanta_shell_standings_short',  helperKey: 'fanta_shell_standings_helper',  icon: BarChart3 },
+  { key: 'players_standings',  labelKey: 'fanta_shell_players',    shortLabelKey: 'fanta_shell_players_short',    helperKey: 'fanta_shell_players_helper',    icon: Users },
+  { key: 'rules',              labelKey: 'fanta_shell_rules',      shortLabelKey: 'fanta_shell_rules_short',      helperKey: 'fanta_shell_rules_helper',      icon: ScrollText },
+  { key: 'history',            labelKey: 'fanta_shell_history',    shortLabelKey: 'fanta_shell_history_short',    helperKey: 'fanta_shell_history_helper',    icon: History },
 ];
