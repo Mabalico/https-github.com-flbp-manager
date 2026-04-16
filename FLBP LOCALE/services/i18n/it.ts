@@ -1964,6 +1964,25 @@ export const dictionary: TranslationDictionary = {
   "results_only_report_status_hint": "Selezionando il vincitore, la partita verrà salvata come conclusa.",
   "results_only_select_winner_alert": "Seleziona la squadra vincitrice prima di salvare il referto.",
   "results_only_referees_disabled": "Questo torneo è in modalità solo risultati: l'area arbitri non è necessaria. I referti si inseriscono dall'area Admin scegliendo soltanto il vincitore.",
+  "fanta_shell_title": "FantaBeerpong",
+  "fanta_shell_subtitle": "Costruisci il tuo Roster, sfida l'intera community e scala le classifiche del circuito torneistico reale.",
+  "fanta_shell_active_section": "Sezione attiva",
+  "fanta_shell_overview": "Hub",
+  "fanta_shell_overview_short": "Hub",
+  "fanta_shell_overview_helper": "Riepilogo della tua stagione Fanta",
+  "fanta_shell_my_team": "La Mia Squadra",
+  "fanta_shell_my_team_short": "Roster",
+  "fanta_shell_my_team_helper": "Gestisci i giocatori e i tuoi bonus",
+  "fanta_shell_standings": "Classifica Generale",
+  "fanta_shell_standings_short": "Classifica",
+  "fanta_shell_standings_helper": "Confronta il tuo team con tutti gli avversari",
+  "fanta_shell_players": "Classifica Giocatori",
+  "fanta_shell_players_short": "Giocatori",
+  "fanta_shell_players_helper": "Valori, medie e statistiche reali su cui fare mercato",
+  "fanta_shell_rules": "Regolamento",
+  "fanta_shell_rules_short": "Regole",
+  "fanta_shell_rules_helper": "Come funziona, punteggi e FAQ FantaBeerpong",
+  "fanta_shell_history": "Edizioni Precedenti",
+  "fanta_shell_history_short": "Archivio",
+  "fanta_shell_history_helper": "Vincitori e Hall of Fame storiche"
 };
-
-

@@ -86,6 +86,7 @@ interface PlayerAreaProps {
   state: AppState;
   onOpenReferees?: () => void;
   onOpenTournament?: (tournamentId: string) => void;
+  onOpenFantabeerpong?: () => void;
 }
 
 const cardClass = 'animate-pop-in rounded-[26px] border border-slate-200/50 bg-white/95 backdrop-blur-md shadow-sm shadow-slate-200/60 hover:shadow-md transition-all duration-300';
@@ -449,7 +450,7 @@ const buildSafePlayerAreaSnapshot = (
   },
 });
 
-export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, onOpenTournament }) => {
+export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, onOpenTournament, onOpenFantabeerpong }) => {
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
   const embeddedNativeShell = isEmbeddedNativeShell();
@@ -2212,6 +2213,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       )}
                       {embeddedNativeShell && nativePushRegistration?.configReady ? (
                         canManuallyOpenNativePushPrompt || nativePushPermissionPromptOpen ? (
+                          // Prominent inline push-permission card — shown BEFORE the call notification
                           <div className="rounded-[20px] border-2 border-amber-400 bg-amber-50 p-4 space-y-3 shadow-sm">
                             <div className="flex items-center gap-3">
                               <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-400/20 text-amber-700">
@@ -2247,6 +2249,26 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                         )
                       ) : null}
                     </div>
+
+                    {onOpenFantabeerpong && (
+                      <div className="rounded-[22px] border border-slate-200 bg-white p-4 md:p-5 space-y-4 transition-all hover:border-beer-300 hover:shadow-md">
+                        <div className="flex items-center gap-3">
+                          <Trophy className="h-5 w-5 text-beer-500" />
+                          <div className={sectionTitleClass}>{t('fanta_shell_title')}</div>
+                        </div>
+                        <div className="text-sm font-semibold text-slate-600">
+                          {t('fanta_shell_subtitle')}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onOpenFantabeerpong}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-beer-600 bg-beer-600 px-4 py-2 text-sm font-black text-white hover:bg-beer-700 active:scale-[0.98] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
+                        >
+                          <Trophy className="h-4 w-4" />
+                          {t('fanta_shell_active_section')}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
