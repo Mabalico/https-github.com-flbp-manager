@@ -1,0 +1,28 @@
+1) aggiungere lazy import:
+const loadFantaBeerpongModule = () => import('./components/FantaBeerpong');
+const FantaBeerpongLazy = React.lazy(() => loadFantaBeerpongModule().then((m) => ({ default: m.FantaBeerpong })));
+
+2) estendere safeView:
+if (['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'fantabeerpong', 'admin', 'referees_area'].includes(v)) return v;
+
+3) precaricare il chunk:
+case 'fantabeerpong':
+  return loadFantaBeerpongModule();
+
+4) render view:
+case 'fantabeerpong':
+  return (
+    <React.Suspense fallback={<RouteViewFallback />}>
+      <UiErrorBoundary
+        title="FantaBeerpong"
+        onReset={() => {
+          void navigateToView('player_area');
+        }}
+      >
+        <FantaBeerpongLazy onBack={() => { void navigateToView('player_area'); }} />
+      </UiErrorBoundary>
+    </React.Suspense>
+  );
+
+5) menu laterale:
+aggiungere una voce "FantaBeerpong" coerente con le altre.

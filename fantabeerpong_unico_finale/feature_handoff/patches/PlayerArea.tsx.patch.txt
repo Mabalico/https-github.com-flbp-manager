@@ -1,0 +1,18 @@
+1) estendere le props:
+interface PlayerAreaProps {
+  state: AppState;
+  onOpenReferees?: () => void;
+  onOpenFantaBeerpong?: () => void;
+  onOpenTournament?: (tournamentId: string) => void;
+}
+
+2) aggiornare la signature:
+export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, onOpenFantaBeerpong, onOpenTournament }) => {
+
+3) inserire una card entry:
+{onOpenFantaBeerpong ? (
+  <div className="rounded-[26px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm">
+    ...
+    <button type="button" onClick={onOpenFantaBeerpong}>Apri FantaBeerpong</button>
+  </div>
+) : null}

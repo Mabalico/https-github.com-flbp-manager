@@ -28,30 +28,23 @@ export interface FantaOverviewData {
   rulesHighlights: FantaOverviewRulesHighlight[]; historyHighlight: FantaOverviewHistoryHighlight; liveLabel: string; liveHint: string;
 }
 
-export interface FantaMyTeamPlayer {
-  id: string; playerName: string; realTeamName: string; fantasyPoints: number; role: FantaRosterRole; status: FantaPlayerAvailability; note: string;
-  goals: number; blows: number; wins: number; bonusScia: number;
-}
+export interface FantaMyTeamPlayer { id: string; playerName: string; realTeamName: string; fantasyPoints: number; role: FantaRosterRole; status: FantaPlayerAvailability; note: string; }
 export interface FantaMyTeamConstraint { id: string; label: string; satisfied: boolean; helper: string; }
 export interface FantaMyTeamData {
   editionLabel: string; teamName: string; buildStatus: FantaTeamBuildStatus; buildStatusLabel: string; lockLabel: string; lockHint: string;
   summary: { selectedPlayers: number; captainName: string; defendersCount: number; currentRankLabel: string; };
-  pointsBreakdown: { goals: number; blows: number; wins: number; bonusScia: number; };
-  teamsToFollow: Array<{ id: string; teamName: string; followingFor: string }>;
   players: FantaMyTeamPlayer[]; constraints: FantaMyTeamConstraint[]; notes: string[];
 }
 
 export interface FantaGeneralStandingsRow {
   id: string; rank: number; teamName: string; ownerLabel: string; totalPoints: number; livePoints: number; captainName: string;
   defendersCount: number; trend: FantaTrend; statusLabel: 'Live' | 'Stabile' | 'Recupero'; gapFromLeader: number; isMine?: boolean;
-  goals: number; blows: number; wins: number; bonusScia: number; playersInGame: number;
 }
 export interface FantaGeneralStandingsData { editionLabel: string; myTeamId: string; rows: FantaGeneralStandingsRow[]; }
 
 export interface FantaPlayersStandingsRow {
   id: string; rank: number; playerName: string; realTeamName: string; fantasyPoints: number; livePoints: number; roleLabel: string;
   selectedByTeams: number; status: FantaPlayerAvailability; isInMyTeam?: boolean; note: string;
-  goals: number; blows: number; wins: number; bonusScia: number;
 }
 export interface FantaPlayersStandingsData { editionLabel: string; featuredPlayerId: string; rows: FantaPlayersStandingsRow[]; }
 
@@ -66,11 +59,10 @@ export interface FantaHistoryEditionRow {
 }
 export interface FantaHistoryData { title: string; intro: string; featuredEditionId: string; totalEditionsLabel: string; bestScoreLabel: string; reigningChampionLabel: string; editions: FantaHistoryEditionRow[]; }
 
-export interface FantaTeamDetailLineupRow { id: string; playerId: string; playerName: string; roleLabel: string; realTeamName: string; fantasyPoints: number; status: FantaPlayerAvailability; note: string; goals: number; blows: number; wins: number; bonusScia: number; }
+export interface FantaTeamDetailLineupRow { id: string; playerId: string; playerName: string; roleLabel: string; realTeamName: string; fantasyPoints: number; status: FantaPlayerAvailability; note: string; }
 export interface FantaTeamDetailData {
   id: string; teamName: string; ownerLabel: string; editionLabel: string; currentRankLabel: string; totalPointsLabel: string; livePointsLabel: string; gapLabel: string; note: string;
   lineup: FantaTeamDetailLineupRow[]; summaryCards: Array<{ id: string; label: string; value: string; hint?: string }>;
-  pointsBreakdown: { goals: number; blows: number; wins: number; bonusScia: number; };
 }
 
 export interface FantaPlayerDetailContributionRow { id: string; label: string; valueLabel: string; helper: string; }
@@ -91,7 +83,6 @@ export interface FantaBuilderTeamGroup { id: string; teamName: string; players: 
 export interface FantaTeamBuilderData {
   editionLabel: string; buildWindowLabel: string; buildWindowHint: string; isReadOnly: boolean;
   initialSelectedIds: string[]; initialCaptainId: string; initialDefenderIds: string[]; teams: FantaBuilderTeamGroup[];
-  tournamentName: string; registrationStatus: string;
 }
 
 export interface FantaQuickHelpItem { id: FantaQuickHelpTopic; title: string; body: string; }
