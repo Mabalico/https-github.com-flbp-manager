@@ -5,6 +5,11 @@ import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { loadState } from '../../services/storageService';
 import { MetricCard, panelClass } from './_shared';
 
+const statusBadgeClass = (status: 'live' | 'eliminated' | 'waiting') =>
+  status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+const statusLabel = (status: 'live' | 'eliminated' | 'waiting') =>
+  status === 'live' ? 'In gioco' : status === 'eliminated' ? 'Eliminato' : 'In attesa';
+
 interface Props { teamId: string; onBack: () => void; onOpenPlayerDetail?: (playerId: string) => void; }
 
 export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerDetail }) => {
@@ -48,6 +53,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
                 playerName: label.name,
                 realTeamName,
                 roleLabel: r.role.toUpperCase(),
+                status: 'live',
                 goals: r.raw_goals || 0,
                 blows: r.raw_blows || 0,
                 wins: 0,
@@ -122,7 +128,10 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
             <button key={row.id} type="button" onClick={() => onOpenPlayerDetail?.(row.playerId)} className="group w-full rounded-[26px] border border-slate-200 bg-slate-50 p-1 text-left transition hover:border-slate-300 hover:bg-white hover:shadow-xl">
               <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center">
                 <div className="flex-1 min-w-0">
-                  <div className="text-lg font-black tracking-tight text-slate-950 group-hover:text-beer-700 transition-colors uppercase font-mono">{row.playerName}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-lg font-black tracking-tight text-slate-950 group-hover:text-beer-700 transition-colors uppercase font-mono">{row.playerName}</div>
+                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusBadgeClass(row.status || 'live')}`}>{statusLabel(row.status || 'live')}</span>
+                  </div>
                   <div className="mt-0.5 text-sm font-bold text-slate-500 uppercase tracking-tight">{row.realTeamName} · {row.roleLabel}</div>
                   <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
                     <div className="flex items-center gap-1.5"><Target className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{row.goals} <span className="text-slate-400 font-bold uppercase tracking-tighter">G</span></span></div>

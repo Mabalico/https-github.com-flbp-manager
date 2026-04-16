@@ -1,8 +1,14 @@
 import React from 'react';
 import { ArrowLeft, UserRound, Loader2, Target, Wind, Trophy } from 'lucide-react';
-import { fetchFantaPlayerContributions } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaPlayerContributions, fetchFantaPlayerStandings } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
+import { loadState } from '../../services/storageService';
 import { MetricCard, panelClass } from './_shared';
+
+const statusBadgeClass = (status: 'live' | 'eliminated' | 'waiting') =>
+  status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+const statusLabel = (status: 'live' | 'eliminated' | 'waiting') =>
+  status === 'live' ? 'In gioco' : status === 'eliminated' ? 'Eliminato' : 'In attesa';
 
 interface Props { playerId: string; onBack: () => void; onOpenMyTeam?: () => void; }
 
@@ -14,23 +20,48 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
     async function load() {
       setLoading(true);
       const contributions = await fetchFantaPlayerContributions(playerId);
-      
-      const totalGoals = contributions.reduce((acc, c) => acc + (c.canestri || 0), 0);
-      const totalBlows = contributions.reduce((acc, c) => acc + (c.soffi || 0), 0);
-      
+      const standings = await fetchFantaPlayerStandings();
+      const appState = loadState();
+
+      const sortedStandings = [...standings].sort((a,b) => (b.live_points || 0) - (a.live_points || 0));
+      const rankIndex = sortedStandings.findIndex(s => s.player_key === playerId);
+      const rank = rankIndex !== -1 ? rankIndex + 1 : '-';
+      const playerStanding = standings.find(s => s.player_key === playerId);
+
+      const totalGoals = playerStanding?.live_points || contributions.reduce((acc, c) => acc + (c.canestri || 0), 0);
+      const totalBlows = playerStanding?.blows || contributions.reduce((acc, c) => acc + (c.soffi || 0), 0);
+      const totalWins = 0; // Simplified for this prototype
+      const totalScia = 0; // Simplified
+      const totalPoints = playerStanding?.live_points || 0;
+
       const label = getPlayerKeyLabel(playerId);
       
+      let realTeamName = playerStanding?.real_team_name || 'In gara';
+      if (realTeamName === 'In gara') {
+         for (const t of appState.teams || []) {
+            if (t.player1 === label.name || t.player2 === label.name) {
+               realTeamName = t.name;
+               break;
+            }
+         }
+      }
+
+      const status = 'live'; // Placeholder for backend integration
+      
       setData({
-        playerName: contributions[0]?.player_name || label.name, // Real name from stats or derived from key
-        realTeamName: contributions[0]?.team_name || 'In gara',
+        playerName: playerStanding?.player_name || label.name, 
+        realTeamName,
         roleLabel: 'Giocatore',
-        availabilityLabel: 'Disponibile',
+        rank,
+        status,
         note: `Analisi delle performance live per ${label.name}. Dati estratti dai referti ufficiali del torneo.`,
         summaryCards: [
-          { id: 's1', label: 'Canestri Totali', value: totalGoals.toString(), hint: 'In tutto il torneo' },
-          { id: 's2', label: 'Soffi Totali', value: totalBlows.toString(), hint: 'In tutto il torneo' },
-          { id: 's3', label: 'Partite Giocate', value: contributions.length.toString(), hint: 'Match refertati' },
-          { id: 's4', label: 'Media Punti', value: contributions.length ? (totalGoals / contributions.length).toFixed(1) : '0', hint: 'Canestri / match' }
+          { id: 's1', label: 'Punti Totali Fanta', value: totalPoints.toString(), hint: `Rank #${rank}` },
+          { id: 's2', label: 'Canestri', value: totalGoals.toString(), hint: 'In tutto il torneo' },
+          { id: 's3', label: 'Soffi', value: totalBlows.toString(), hint: 'In tutto il torneo' },
+          { id: 's4', label: 'Vittorie', value: totalWins.toString(), hint: 'Vittorie squadra' },
+          { id: 's5', label: 'Bonus Scia', value: totalScia.toString(), hint: 'Post eliminazione' },
+          { id: 's6', label: 'Partite Refertate', value: contributions.length.toString(), hint: 'Match giocati' },
         ],
         contributionRows: contributions.map((c: any) => ({
           id: c.id,
@@ -62,7 +93,10 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-blue-700"><UserRound className="h-3.5 w-3.5" />Dettaglio giocatore fantasy</div>
             <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl uppercase font-mono">{data.playerName}</h1>
-            <div className="mt-1 text-sm font-bold text-slate-600">{data.realTeamName} · {data.roleLabel} · {data.availabilityLabel}</div>
+            <div className="mt-1 flex items-center gap-2">
+               <span className="text-sm font-bold text-slate-600">{data.realTeamName} · {data.roleLabel}</span>
+               <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${statusBadgeClass(data.status)}`}>{statusLabel(data.status)}</span>
+            </div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.note}</div>
           </div>
           <div className="flex gap-2">
@@ -92,6 +126,14 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
           {data.contributionRows.length === 0 && (
             <div className="py-10 text-center text-sm font-bold text-slate-400 italic">Nessun contributo refertato per questo giocatore.</div>
           )}
+        </div>
+      </div>
+      <div className={panelClass}>
+        <div className="text-xl font-black tracking-tight text-slate-950">Accessi profondi</div>
+        <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Esplora altre sezioni per questo giocatore.</div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={() => (window as any).flbpOpenPlayerArea?.()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-beer-500/50"><UserRound className="h-4 w-4" /> Profilo Storico Giocatore</button>
+          <button type="button" onClick={onBack} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-beer-500/50"><Trophy className="h-4 w-4" /> Statistiche Torneo Reale</button>
         </div>
       </div>
     </div>
