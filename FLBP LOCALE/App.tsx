@@ -1545,11 +1545,6 @@ const App: React.FC = () => {
                             <UserRound className="w-5 h-5 text-slate-500" />
                             <span>{t('player_area')}</span>
                         </button>
-
-                        <hr className="border-slate-100 my-3" />
-
-                        <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('tools_section')}</div>
-
                         <button
                             aria-current={view === 'fantabeerpong' ? 'page' : undefined}
                             onClick={() => { void navigateToView('fantabeerpong', { closeMenu: true }); }}
@@ -1560,6 +1555,10 @@ const App: React.FC = () => {
                             <Shield className="w-5 h-5 text-slate-500" />
                             <span>FantaBeerpong</span>
                         </button>
+
+                        <hr className="border-slate-100 my-3" />
+
+                        <div className="px-2 pt-1 pb-2 text-[11px] font-black uppercase tracking-wide text-slate-400">{t('tools_section')}</div>
 
                         <button
                             aria-current={view === 'referees_area' ? 'page' : undefined}
