@@ -25,7 +25,7 @@ export const FantaRulesSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandin
         <div className="space-y-5">
           <div className={panelClass}>
             <div className="flex items-center gap-3"><Sparkles className="h-5 w-5 text-beer-600" /><div className="text-xl font-black tracking-tight text-slate-950">Punteggi ufficiali</div></div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {data.scoringRows.map((row) => (
                 <div key={row.id} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
                   <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{row.label}</div>
@@ -36,12 +36,45 @@ export const FantaRulesSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandin
             </div>
           </div>
           <div className={panelClass}>
-            <div className="flex items-center gap-3"><Shield className="h-5 w-5 text-sky-600" /><div className="text-xl font-black tracking-tight text-slate-950">Vincoli di squadra</div></div>
-            <div className="mt-4 space-y-3">{data.constraints.map((c) => <div key={c.id} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4"><div className="text-sm font-black text-slate-950">{c.label}</div><div className="mt-1 text-sm font-semibold leading-6 text-slate-600">{c.helper}</div></div>)}</div>
+            <div className="flex items-center gap-3"><Shield className="h-5 w-5 text-sky-600" /><div className="text-xl font-black tracking-tight text-slate-950">Ruoli Speciali</div></div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="rounded-[22px] border border-amber-200 bg-amber-50/50 px-4 py-4">
+                <div className="text-sm font-black uppercase tracking-wide text-amber-900">Capitano</div>
+                <div className="mt-1 text-lg font-black text-slate-950">Punti raddoppiati (x2)</div>
+                <div className="mt-2 text-sm font-semibold leading-6 text-slate-700">Raddoppia TUTTI i punti ottenuti dal giocatore (Canestri, Soffi, Vittorie).</div>
+              </div>
+              <div className="rounded-[22px] border border-sky-200 bg-sky-50/50 px-4 py-4">
+                <div className="text-sm font-black uppercase tracking-wide text-sky-900">Difensore</div>
+                <div className="mt-1 text-lg font-black text-slate-950">Soffi raddoppiati (x2)</div>
+                <div className="mt-2 text-sm font-semibold leading-6 text-slate-700">Raddoppia solo il valore dei soffi registrati dal giocatore.</div>
+              </div>
+            </div>
           </div>
           <div className={panelClass}>
-            <div className="flex items-center gap-3"><Trophy className="h-5 w-5 text-amber-500" /><div className="text-xl font-black tracking-tight text-slate-950">Bonus e note importanti</div></div>
-            <div className="mt-4 space-y-3">{data.notes.map((n) => <div key={n} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-700">{n}</div>)}</div>
+            <div className="flex items-center gap-3"><Sparkles className="h-5 w-5 text-indigo-600" /><div className="text-xl font-black tracking-tight text-slate-950">Meccanica Bonus Scia</div></div>
+            <div className="mt-4 rounded-[22px] border border-indigo-100 bg-indigo-50/30 p-5">
+              <div className="text-sm font-semibold leading-7 text-slate-700">
+                Quando un tuo giocatore viene eliminato dal torneo, continua a farti guadagnare punti "in scia":
+                <ul className="mt-2 list-inside list-disc space-y-1">
+                  <li>Guadagni <span className="font-black text-indigo-700">5 punti</span> per ogni vittoria successiva della squadra che lo ha eliminato.</li>
+                  <li>La partita dell'eliminazione non assegna bonus.</li>
+                  <li>La scia si interrompe alla prima sconfitta della squadra eliminatrice.</li>
+                </ul>
+                <div className="mt-4 rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                  <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">Esempio pratico</div>
+                  <div className="mt-1 text-sm font-medium italic text-slate-600">
+                    Se il tuo giocatore viene eliminato dai Wolves ai quarti: non prendi bonus nei quarti. Se i Wolves vincono la semifinale, prendi 5 punti. Se poi perdono la finale, la scia si interrompe.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className={panelClass}>
+            <div className="flex items-center gap-3"><Trophy className="h-5 w-5 text-amber-500" /><div className="text-xl font-black tracking-tight text-slate-950">Vincoli e Bonus</div></div>
+            <div className="mt-4 space-y-3">
+              {data.constraints.map((c) => <div key={c.id} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4"><div className="text-sm font-black text-slate-950">{c.label}</div><div className="mt-1 text-sm font-semibold leading-6 text-slate-600">{c.helper}</div></div>)}
+              {data.notes.map((n) => <div key={n} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-700">{n}</div>)}
+            </div>
           </div>
         </div>
         <div className="space-y-5">

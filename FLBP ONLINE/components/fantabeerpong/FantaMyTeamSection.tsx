@@ -1,7 +1,8 @@
 import React from 'react';
-import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History } from 'lucide-react';
-import { FANTA_MY_TEAM_MOCK } from '../../services/fantabeerpong/mockData';
-import type { FantaMyTeamPlayer, FantaRosterRole } from '../../services/fantabeerpong/types';
+import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
+import { fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
+import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
+import type { FantaMyTeamPlayer, FantaRosterRole, FantaMyTeam } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { MetricCard, panelClass } from './_shared';
 
@@ -24,7 +25,87 @@ const statusBadgeClass = (status: FantaMyTeamPlayer['status']) =>
 const statusLabel = (status: FantaMyTeamPlayer['status']) => status === 'live' ? 'In gioco' : status === 'eliminated' ? 'Eliminato' : 'In attesa';
 
 export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPlayers, onOpenRules, onOpenPlayerDetail, onOpenTeamBuilder }) => {
-  const data = FANTA_MY_TEAM_MOCK;
+  const [data, setData] = React.useState<FantaMyTeam | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [session, setSession] = React.useState(readPlayerPresenceSnapshot());
+
+  React.useEffect(() => {
+    async function load() {
+      if (!session?.accountId) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const result = await fetchUserFantaTeam(session.accountId);
+        if (result) {
+          // Mapping Supabase result to FantaMyTeam shape
+          const mapped: FantaMyTeam = {
+            id: result.team.id,
+            teamName: result.team.name,
+            editionLabel: 'EDIZIONE LIVE',
+            lockHint: 'Squadra sincronizzata con Supabase.',
+            summary: {
+              currentRankLabel: '-',
+              captainName: result.roster.find(r => r.role === 'captain')?.player_id || 'N/A',
+              defendersCount: result.roster.filter(r => r.role === 'defender').length,
+              totalPoints: 0
+            },
+            pointsBreakdown: { goals: 0, blows: 0, wins: 0, bonusScia: 0 },
+            players: result.roster.map(r => ({
+              id: r.player_id,
+              playerName: 'Player ' + r.player_id.slice(0, 5),
+              realTeamName: 'Real Team',
+              role: r.role as FantaRosterRole,
+              status: 'live',
+              goals: 0, blows: 0, wins: 0, bonusScia: 0, fantasyPoints: 0
+            })),
+            teamsToFollow: []
+          };
+          setData(mapped);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [session]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <Loader2 className="h-10 w-10 animate-spin text-beer-500" />
+        <p className="mt-4 font-black uppercase tracking-widest text-slate-500">Recupero squadra fantasy...</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border border-slate-200 border-dashed text-center px-6">
+        <div className="h-16 w-16 bg-slate-100 rounded-full flex items-center justify-center mb-6">
+          <LogIn className="h-8 w-8 text-slate-400" />
+        </div>
+        <h3 className="text-2xl font-black text-slate-900">Accesso richiesto</h3>
+        <p className="mt-2 text-slate-600 max-w-sm font-semibold">Devi essere loggato con il tuo account giocatore per creare o visualizzare la tua squadra fantasy.</p>
+        <button type="button" onClick={() => (window as any).flbpOpenPlayerArea?.()} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-8 py-4 text-sm font-black uppercase tracking-widest text-white shadow-xl transition hover:bg-slate-800">Accedi ora</button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border border-slate-200 border-dashed text-center px-6">
+        <div className="h-16 w-16 bg-beer-50 rounded-full flex items-center justify-center mb-6">
+          <Shield className="h-8 w-8 text-beer-500" />
+        </div>
+        <h3 className="text-2xl font-black text-slate-900">Nessuna squadra trovata</h3>
+        <p className="mt-2 text-slate-600 max-w-sm font-semibold">Non hai ancora creato una squadra per questa edizione live. Partecipa ora!</p>
+        {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-beer-500 px-8 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl transition hover:bg-beer-600">Crea la tua squadra</button>}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-6 shadow-sm">
