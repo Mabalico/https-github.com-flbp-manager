@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
@@ -3491,9 +3491,7 @@ while (guard < 5000) {
                         setAdminAuthPasswordInput('');
                         return;
                     } catch (err: any) {
-                        if (!legacyBootstrapMatch) {
-                            throw err;
-                        }
+                        throw err;
                     }
                 }
 
