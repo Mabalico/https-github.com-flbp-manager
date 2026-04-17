@@ -32,7 +32,7 @@ export const PLAYER_SUPABASE_USER_EMAIL_LS_KEY = 'flbp_player_supabase_user_emai
 export const PLAYER_SUPABASE_USER_ID_LS_KEY = 'flbp_player_supabase_user_id';
 export const PLAYER_SUPABASE_FLOW_TYPE_LS_KEY = 'flbp_player_supabase_flow_type';
 export const SUPABASE_AUTH_STATE_CHANGE_EVENT = 'flbp-supabase-auth-state-change';
-const LEGACY_ADMIN_BOOTSTRAP_PASSWORD = 'Giobotta@flbp';
+// Removed LEGACY_ADMIN_BOOTSTRAP_PASSWORD
 
 // Tracks the remote snapshot version that the user is currently "based on".
 // Used to prevent accidental overwrites when multiple admins are editing.
@@ -670,21 +670,7 @@ const tryBootstrapAdminSessionFromPlayer = async (): Promise<SupabaseSession | n
     return getSupabaseSession() || mirroredSession;
 };
 
-const tryBootstrapLegacyAdminSupabaseSession = async (): Promise<SupabaseSession | null> => {
-    const configuredEmail = getConfiguredAdminEmail().trim();
-    if (!configuredEmail) return null;
-    try {
-        const session = await signInWithPassword(configuredEmail, LEGACY_ADMIN_BOOTSTRAP_PASSWORD);
-        const access = await ensureSupabaseAdminAccess();
-        if (!access.ok) {
-            await signOutSupabase();
-            return null;
-        }
-        return getSupabaseSession() || session;
-    } catch {
-        return null;
-    }
-};
+// Removed tryBootstrapLegacyAdminSupabaseSession
 
 let adminWriteSessionBootstrapPromise: Promise<SupabaseSession | null> | null = null;
 
@@ -695,9 +681,7 @@ const bootstrapSupabaseWriteSession = async (): Promise<SupabaseSession | null> 
         if (!session?.accessToken) {
             session = await tryBootstrapAdminSessionFromPlayer();
         }
-        if (!session?.accessToken) {
-            session = await tryBootstrapLegacyAdminSupabaseSession();
-        }
+        // Removed legacy auto-login session fallback
         return session;
     })();
     try {

@@ -90,7 +90,7 @@ const clearAdminSessionNavKeys = () => {
 };
 
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
-const ADMIN_LEGACY_BOOTSTRAP_PASSWORD = 'Giobotta@flbp';
+// Removed ADMIN_LEGACY_BOOTSTRAP_PASSWORD
 
 const getTodayInputDate = () => {
     const d = new Date();
@@ -518,31 +518,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         return !!adminEmail && !!playerEmail && adminEmail === playerEmail;
     }, []);
 
-    const tryBootstrapLegacySupabaseSession = React.useCallback(async (): Promise<boolean> => {
-        if (!supabaseConfig) return false;
-        const configuredEmail = getConfiguredAdminEmail().trim();
-        if (!configuredEmail) return false;
-        try {
-            const result = await signInWithPassword(configuredEmail, ADMIN_LEGACY_BOOTSTRAP_PASSWORD);
-            const access = await ensureSupabaseAdminAccess();
-            if (!access.ok) {
-                await signOutSupabase();
-                return false;
-            }
-            const resolvedEmail = access.email || result.email || configuredEmail;
-            mirrorAdminSessionToPlayer({
-                accessToken: result.accessToken,
-                refreshToken: result.refreshToken || null,
-                expiresAt: result.expiresAt || null,
-                email: resolvedEmail,
-                userId: result.userId || null,
-            });
-            applyAdminAuthState(resolvedEmail, true);
-            return true;
-        } catch {
-            return false;
-        }
-    }, [applyAdminAuthState, mirrorAdminSessionToPlayer, supabaseConfig]);
+    // Removed tryBootstrapLegacySupabaseSession
 
     const tryBootstrapPlayerSupabaseSession = React.useCallback(async (): Promise<boolean> => {
         if (!supabaseConfig) return false;
@@ -625,20 +601,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
             if (!session?.accessToken) {
                 if (currentAdminAuthMode === 'legacy') {
-                    setAdminSessionChecking(true);
-                    const bootstrapped = await tryBootstrapLegacySupabaseSession();
-                    if (!alive) return;
-                    if (bootstrapped) {
-                        return;
-                    }
-                    // Legacy Supabase bootstrap failed: require re-authentication.
-                    // Do NOT grant access without a verified session.
+                    // Legacy auto-login is disabled for security. Require re-authentication.
                     safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
                     setAdminAuthMode('none');
                     setAuthed(false);
                     setAdminAuthError('');
                     setSupabaseEmail(null);
-                    setAdminSessionChecking(false);
                     return;
                 }
                 setAuthed(false);
@@ -715,7 +683,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [adminAuthMode, adminSessionMatchesPlayer, applyAdminAuthState, isFatalAdminAccessFailure, mirrorAdminSessionToPlayer, tryBootstrapLegacySupabaseSession, tryBootstrapPlayerSupabaseSession]);
+    }, [adminAuthMode, adminSessionMatchesPlayer, applyAdminAuthState, isFatalAdminAccessFailure, mirrorAdminSessionToPlayer, tryBootstrapPlayerSupabaseSession]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');
@@ -3465,11 +3433,6 @@ while (guard < 5000) {
                     throw new Error(t('admin_enter_valid_password'));
                 }
 
-                const normalizedEmail = adminAuthEmailInput.trim().toLowerCase();
-                const configuredEmail = getConfiguredAdminEmail().trim().toLowerCase();
-                const legacyBootstrapMatch =
-                    normalizedEmail === configuredEmail && adminAuthPasswordInput === ADMIN_LEGACY_BOOTSTRAP_PASSWORD;
-
                 if (supabaseConfig) {
                     try {
                         const result = await signInWithPassword(adminAuthEmailInput, adminAuthPasswordInput);
@@ -3487,18 +3450,12 @@ while (guard < 5000) {
                             email: resolvedEmail,
                             userId: result.userId || null,
                         });
-                        applyAdminAuthState(resolvedEmail, legacyBootstrapMatch);
+                        applyAdminAuthState(resolvedEmail, false);
                         setAdminAuthPasswordInput('');
                         return;
                     } catch (err: any) {
                         throw err;
                     }
-                }
-
-                if (legacyBootstrapMatch) {
-                    applyAdminAuthState(getConfiguredAdminEmail(), true);
-                    setAdminAuthPasswordInput('');
-                    return;
                 }
 
                 throw new Error(!supabaseConfig ? t('db_supabase_not_configured') : t('admin_access_not_authorized'));
