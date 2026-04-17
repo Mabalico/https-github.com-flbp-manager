@@ -1,7 +1,7 @@
 import { coerceAppState, type AppState } from './storageService';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
 import type { TournamentData, Team, Match, Group, MatchStats, TournamentConfig, FinalRoundRobinConfig, FinalRoundRobinTopTeams } from '../types';
-import { SIM_TEAM_NAMES_200 } from './simTeamNames200';
+import { buildRealSimPoolFromState } from './simPool';
 import { readViteSupabaseAdminEmail, readViteSupabaseAnonKey, readViteSupabaseUrl, readViteWorkspaceId } from './viteEnv';
 import { fetchWithDevRequestPerf, type DevRequestPerfKind, type DevRequestPerfMeta } from './devRequestPerf';
 
@@ -3202,64 +3202,42 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
 // Sim Pool seed (teams + people)
 // -----------------------------
 
-const buildSimPoolPeople400 = () => {
-    // Keep the seeded DB pool visually mixed (roughly 50/50).
-    const BASE_FIRST_F = ['Giulia','Sofia','Aurora','Alice','Ginevra','Emma','Greta','Martina','Chiara','Francesca','Sara','Elena','Beatrice','Vittoria','Noemi','Marta','Gaia','Arianna','Rebecca','Matilde'];
-    const BASE_FIRST_M = ['Mario','Luca','Andrea','Marco','Paolo','Giuseppe','Matteo','Francesco','Davide','Simone','Alessio','Federico','Riccardo','Gabriele','Stefano','Antonio','Nicola','Pietro','Edoardo','Tommaso'];
-    const BASE_FIRST = (() => {
-        const out: string[] = [];
-        const max = Math.max(BASE_FIRST_F.length, BASE_FIRST_M.length);
-        for (let i = 0; i < max; i++) {
-            if (BASE_FIRST_F[i]) out.push(BASE_FIRST_F[i]);
-            if (BASE_FIRST_M[i]) out.push(BASE_FIRST_M[i]);
-        }
-        return out;
-    })();
-    const BASE_LAST = ['Rossi','Bianchi','Ferrari','Esposito','Romano','Colombo','Ricci','Marino','Greco','Bruno','Gallo','Conti','Costa','Giordano','Mancini','Rizzo','Lombardi','Moretti','Barbieri','Fontana'];
-
-    const PEOPLE: { name: string; yob: number }[] = [];
-    const HOMONYM = 'Rossi Mario';
-    [1996, 1999, 2002, 2005, 2008].forEach(y => PEOPLE.push({ name: HOMONYM, yob: y }));
-
-    let idx = 0;
-    while (PEOPLE.length < 400) {
-        const fn = BASE_FIRST[idx % BASE_FIRST.length];
-        const ln = BASE_LAST[Math.floor(idx / BASE_FIRST.length) % BASE_LAST.length];
-        const name = `${ln} ${fn}`;
-        const yob = 1990 + (idx % 21); // 1990..2010
-        idx++;
-        if (name === HOMONYM) continue;
-        PEOPLE.push({ name, yob });
-    }
-    return PEOPLE;
+const coerceSimPoolYoB = (birthDate?: string, yob?: number) => {
+    const fromBirthDate = birthDate ? deriveYoBFromBirthDate(birthDate) : undefined;
+    const n = Number(fromBirthDate ?? yob);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1900;
 };
 
 // NOTE: Explicit admin action. Overwrites sim pool tables for the workspace.
-export const seedSimPool = async (): Promise<SimPoolSeedSummary> => {
+export const seedSimPool = async (state: AppState): Promise<SimPoolSeedSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     await requireSupabaseWriteSession();
 
     await ensureWorkspace(cfg);
 
+    const realPool = buildRealSimPoolFromState(state);
+    const teamNames = realPool.teams.map((team) => team.name).filter(Boolean);
+    const people = realPool.people.filter((person) => person.name);
+    if (!teamNames.length || !people.length) {
+        throw new Error('Nel JSON non ci sono ancora abbastanza squadre o giocatori reali per popolare il pool simulazioni.');
+    }
+
     // Clear previous pool
     await restDeleteWhere(cfg, 'sim_pool_team_names', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'sim_pool_people', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
 
-    // Team names (200)
-    const teamRows = (SIM_TEAM_NAMES_200 || []).slice(0, 200).map((name, idx) => ({
+    const teamRows = teamNames.slice(0, 400).map((name, idx) => ({
         workspace_id: cfg.workspaceId,
         name,
         order_index: idx
     }));
     await restUpsertRows(cfg, 'sim_pool_team_names', teamRows, 'workspace_id,name');
 
-    // People (400)
-    const people = buildSimPoolPeople400();
-    const peopleRows = people.map(p => ({
+    const peopleRows = people.slice(0, 800).map(p => ({
         workspace_id: cfg.workspaceId,
         name: p.name,
-        yob: p.yob
+        yob: coerceSimPoolYoB(p.birthDate, p.yob)
     }));
     // No onConflict: ids are serial.
     await restUpsertRows(cfg, 'sim_pool_people', peopleRows, undefined, 800);

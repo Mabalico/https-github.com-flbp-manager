@@ -2468,7 +2468,11 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     };
 
     const genPool = (n: number) => {
-        const teams = generateSimPoolTeams(n, state.teams || [], uuid);
+        const teams = generateSimPoolTeams(n, state, uuid);
+        if (!teams.length) {
+            alert('Nel JSON non ci sono ancora abbastanza squadre o giocatori reali per generare il pool simulazioni.');
+            return;
+        }
         const merged = [...(state.teams || []), ...teams];
         const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
         setState({ ...state, teams: merged, tournament: nextTournament });

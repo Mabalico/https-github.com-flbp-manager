@@ -277,13 +277,14 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
 
     const onSeedSimPool = () => run('Seed pool simulazioni', async () => {
         const ok = window.confirm(
-            'Seed DB pool simulazioni (200 nomi team + 400 giocatori)?\n\n' +
+            'Seed DB pool simulazioni dai dati reali gia presenti nel JSON?\n\n' +
             '- Sovrascrive sim_pool_team_names e sim_pool_people per questo workspace.\n' +
+            '- Usa squadre e giocatori gia presenti in lista squadre, torneo live e archivio.\n' +
             '- Non cambia nulla localmente e non tocca la UI.\n\n' +
             'Puoi rifarlo quando vuoi.'
         );
         if (!ok) return;
-        const summary = await seedSimPool();
+        const summary = await seedSimPool(state);
         setDiagTick((x) => x + 1);
         setPanel({ kind: 'ok', message: `Seed pool completato. Team names: ${summary.teamNames}, Giocatori: ${summary.people}.` });
     });
@@ -723,9 +724,9 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 disabled={isBusy || !cfg || !hasAdminSession}
                                 onClick={onSeedSimPool}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg || !hasAdminSession ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-amber-600 text-white border-amber-600 hover:bg-amber-700'}`}
-                                title="Popola il DB pool simulazioni (200 team names + 400 giocatori)."
+                                title="Popola il DB pool simulazioni usando squadre e giocatori gia presenti nel JSON."
                             >
-                                Seed pool simulazioni → DB
+                                Seed pool JSON → DB
                             </button>
                         </div>
                         {downloadedStructured?.summary ? (
