@@ -1614,7 +1614,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 </div>
             )}
 
-            <div className="sticky top-0 z-30 -mx-3 px-3 pt-3 pb-3 bg-white/85 backdrop-blur border-b border-slate-200 sm:-mx-4 sm:px-4 sm:pt-4 sm:pb-4 md:-mx-6 md:px-6">
+            <div className="sticky top-0 z-20 -mx-3 px-3 pt-3 pb-3 bg-white/85 backdrop-blur border-b border-slate-200 sm:-mx-4 sm:px-4 sm:pt-4 sm:pb-4 md:-mx-6 md:px-6">
             <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                     <div className="flex items-center gap-2 text-2xl md:text-3xl font-black tracking-tight">

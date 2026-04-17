@@ -3741,7 +3741,7 @@ while (guard < 5000) {
             }}
         >
 	        <div className="animate-fade-in flex min-w-0 max-w-full flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
-            <header className="relative z-[50] flex flex-row items-center justify-between gap-1.5 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
+            <header className="relative z-20 flex flex-row items-center justify-between gap-1.5 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <h2 className="flex min-w-0 shrink-0 items-center gap-1 text-[12px] font-black leading-none text-slate-900 sm:gap-1.5 sm:text-base">
                         <ShieldCheck className="w-4 h-4 text-beer-500 drop-shadow-sm sm:w-5 sm:h-5" />
