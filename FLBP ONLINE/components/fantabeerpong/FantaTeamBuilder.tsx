@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader2 } from 'lucide-react';
 import { fetchFantaConfig, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
-import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
+import { readPlayerPresenceSnapshot, PLAYER_APP_CHANGE_EVENT } from '../../services/playerAppService';
 import type { FantaBuilderPlayerOption, FantaBuilderTeamGroup, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { panelClass } from './_shared';
@@ -26,7 +26,18 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const [saving, setSaving] = React.useState(false);
   const [config, setConfig] = React.useState<FantaConfig | null>(null);
   const [availableTeams, setAvailableTeams] = React.useState<FantaBuilderTeamGroup[]>([]);
-  const [session] = React.useState(readPlayerPresenceSnapshot());
+  const [session, setSession] = React.useState(readPlayerPresenceSnapshot);
+
+  // Keep session reactive: re-read whenever a player logs in/out.
+  React.useEffect(() => {
+    const refresh = () => setSession(readPlayerPresenceSnapshot());
+    window.addEventListener('storage', refresh);
+    window.addEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
+    };
+  }, []);
 
   const tournamentPlayers = React.useMemo(() => {
     const playersMap = new Map<string, FantaBuilderPlayerOption>();
@@ -108,7 +119,11 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const allRulesOk = selectedIds.length === 4 && captainId !== '' && defenderIds.length === 2;
 
   const handleSave = async () => {
-    if (!session?.accountId || !allRulesOk || isReadOnly) return;
+    if (!allRulesOk || isReadOnly) return;
+    if (!session?.accountId) {
+      setInfo('Devi essere loggato come giocatore per salvare la squadra.', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const lineup = selectedPlayers.map(p => {
@@ -258,6 +273,11 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                 <div className={`flex items-center gap-2 text-sm font-bold ${selectedIds.length === 4 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> 4 giocatori selezionati</div>
                 <div className={`flex items-center gap-2 text-sm font-bold ${captainId ? 'text-emerald-700' : 'text-rose-600'}`}><CheckCircle2 className="h-4 w-4" /> Capitano assegnato</div>
                 <div className={`flex items-center gap-2 text-sm font-bold ${defenderIds.length === 2 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> 2 Difensori assegnati</div>
+                {!session?.accountId && (
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-bold text-rose-800">
+                    ⚠️ Accedi all&apos;Area Giocatore per salvare la rosa.
+                  </div>
+                )}
               </div>
               <button 
                 type="button" 
