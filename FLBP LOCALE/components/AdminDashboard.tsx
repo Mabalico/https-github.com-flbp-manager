@@ -71,7 +71,7 @@ const TournamentEditorTabLazy = React.lazy(() =>
 // --- Admin-only render recovery ---
 // Goal: unblock Admin access if an edge-case in Admin render paths triggers
 // a crash (e.g., stale persisted tab/subtab). In healthy cases this never runs.
-// No new dependencies; only clears Admin session keys + returns to Liveâ†’Teams.
+// No new dependencies; only clears Admin session keys + returns to Live→Teams.
 const clearAdminSessionNavKeys = () => {
     const keys = [
         'flbp_admin_section',
@@ -1130,13 +1130,13 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
     const rawKey = getPlayerKey(name, pickPlayerIdentityValue(birthDate, yob));
     const resolved = resolvePlayerKey(state, rawKey);
 
-    // giÃ  integrato altrove
+    // già integrato altrove
     if (resolved !== rawKey) return null;
 
     const set = (index || buildProfilesIndex()).get(norm);
     if (!set || set.size === 0) return null;
 
-    // se esiste giÃ  lo stesso profilo (stesso PlayerKey), non Ã¨ un "anno diverso" â†’ nessun prompt
+    // se esiste già lo stesso profilo (stesso PlayerKey), non è un "anno diverso" → nessun prompt
     if (set.has(resolved)) return null;
 
     const candidates = Array.from(set)
@@ -1674,7 +1674,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
             return;
         }
 
-        // Evita duplicati accidentali: se non stai modificando una squadra esistente e il nome esiste giÃ ,
+        // Evita duplicati accidentali: se non stai modificando una squadra esistente e il nome esiste già,
         // chiedi conferma prima di inserirla.
         if (!editingId) {
             const k = teamName.trim().toLowerCase();
@@ -1699,7 +1699,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
         };
 
 
-// Conflitti Nome+data di nascita. Se il nome esiste giÃ  con data diversa o mancante,
+// Conflitti Nome+data di nascita. Se il nome esiste già con data diversa o mancante,
 // permetti di "integrare" (alias) o mantenere separato.
 const idxProfiles = buildProfilesIndex(editingId || undefined);
 const conflicts: AliasConflict[] = [];
@@ -2190,7 +2190,7 @@ ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
 
         const parseFlag = (value: unknown) => {
             const raw = String(value ?? '').trim().toLowerCase();
-            return raw === 'si' || raw === 'sÃ¬' || raw === 'true' || raw === '1' || raw === 'x';
+            return raw === 'si' || raw === 'sì' || raw === 'true' || raw === '1' || raw === 'x';
         };
 
         if (activeLayout === 'team_rows') {
@@ -2676,7 +2676,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!state.tournament) return;
         const match = (state.tournamentMatches || []).find((m) => m.id === matchId);
         if (!match) return;
-        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha giÃ  propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
+        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha già propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
         if (!ok) return;
         const nextMatches = (state.tournamentMatches || []).map((m) =>
             m.id === matchId ? clearRefereeReportFromMatch(m) : m
@@ -2785,7 +2785,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return m;
     };
 
-    // === RetroattivitÃ  su Archivio (editing risultati) ===
+    // === Retroattività su Archivio (editing risultati) ===
     const buildBracketRoundsFromMatches = (allMatches: Match[]): Match[][] => {
         const rounds: Match[][] = [];
         const bracketMatches = (allMatches || []).filter(m => m.phase === 'bracket');
@@ -3592,7 +3592,7 @@ while (guard < 5000) {
     }
 
 
-    // --- TAB COMPONENTS (estratti per manutenibilitÃ , logica invariata) ---
+    // --- TAB COMPONENTS (estratti per manutenibilità, logica invariata) ---
     // Tutti i tab Admin ora sono in file separati (./admin/tabs/*).
 
     const monitorBracketTabProps = {
@@ -3741,7 +3741,7 @@ while (guard < 5000) {
             }}
         >
 	        <div className="animate-fade-in flex min-w-0 max-w-full flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
-            <header className="relative z-20 flex flex-row items-center justify-between gap-1.5 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
+            <header className="relative z-10 flex flex-row items-center justify-between gap-1.5 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <h2 className="flex min-w-0 shrink-0 items-center gap-1 text-[12px] font-black leading-none text-slate-900 sm:gap-1.5 sm:text-base">
                         <ShieldCheck className="w-4 h-4 text-beer-500 drop-shadow-sm sm:w-5 sm:h-5" />
@@ -3847,7 +3847,7 @@ while (guard < 5000) {
                         </>
                     )}
 
-                    {/* Sync badge: visibile SOLO se c'Ã¨ un problema */}
+                    {/* Sync badge: visibile SOLO se c'è un problema */}
                     {(adminSyncState.phase !== 'synced' && adminSyncState.phase !== 'idle') && (
                         <>
                             <div className="w-px h-5 bg-slate-200 mx-0.5"></div>
@@ -3858,7 +3858,7 @@ while (guard < 5000) {
                                     adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200' :
                                     'bg-slate-100 text-slate-600 border-slate-200'
                                 }`}
-                                title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` Â· ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
+                                title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
                             >
                                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                     adminSyncState.phase === 'syncing' ? 'bg-sky-500 animate-pulse' :
@@ -3889,7 +3889,7 @@ while (guard < 5000) {
                                 </button>
                             </div>
 
-                            {/* Cache + ModalitÃ  in griglia 2 col */}
+                            {/* Cache + Modalità in griglia 2 col */}
                             <div className="grid grid-cols-2 gap-2">
                                 <div className="bg-slate-50 rounded-xl p-2 border border-slate-100 flex flex-col gap-1.5">
                                     <div className="flex items-center justify-between gap-1">
@@ -3934,7 +3934,7 @@ while (guard < 5000) {
                                             setAppModeOverride(next);
                                             reloadIntoAdmin();
                                         }} className={`text-[10px] font-black px-2 py-1 rounded-lg border w-full text-center ${APP_MODE === 'tester' ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'}`}>
-                                            {APP_MODE === 'tester' ? t('admin_tester_mode') : t('admin_official_mode')}
+                                    {APP_MODE === 'tester' ? t('admin_tester_mode') : t('admin_official_mode')}
                                         </button>
                                     )}
                                 </div>
@@ -3948,7 +3948,7 @@ while (guard < 5000) {
                 <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
                          <div className="flex items-center gap-2 font-black text-amber-900 text-sm">
-                              <span className="text-xl">ðŸ§ª</span> {t('admin_tester_tools')}
+                              <span className="text-xl">🧪</span> {t('admin_tester_tools')}
                          </div>
                          <div className="flex flex-wrap gap-2">
                             <button type="button" onClick={handleSimulateTurn} disabled={simBusy} className="bg-amber-500 text-white px-3 py-1.5 rounded-xl font-black text-xs inline-flex items-center gap-1.5 hover:bg-amber-600 disabled:opacity-50">
@@ -3976,16 +3976,16 @@ while (guard < 5000) {
                                         {t('admin_area_label')}: <span className="font-black">{liveTabMeta[tab as LiveAdminTab]?.title || '-'}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_guiding_match')}:Â  <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
+                                        {t('admin_guiding_match')}: <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_to_play')}:Â  <span className="font-black">{liveOpsSummary.scheduledCount}</span>
+                                        {t('admin_to_play')}: <span className="font-black">{liveOpsSummary.scheduledCount}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_playing_count_label')}:Â  <span className="font-black">{liveOpsSummary.playingCount}</span>
+                                        {t('admin_playing_count_label')}: <span className="font-black">{liveOpsSummary.playingCount}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-rose-800 bg-rose-50 border border-rose-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_finished_count_label')}:Â  <span className="font-black">{liveOpsSummary.finishedCount}</span>
+                                        {t('admin_finished_count_label')}: <span className="font-black">{liveOpsSummary.finishedCount}</span>
                                     </div>
                                 </div>
 

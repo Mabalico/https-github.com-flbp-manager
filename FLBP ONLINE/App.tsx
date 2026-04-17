@@ -1480,111 +1480,6 @@ const App: React.FC = () => {
                     playerPresence={playerPresence}
                     onOpenPlayerArea={() => { void navigateToView('player_area'); }}
                 />
-                {/* Sidebar Menu */}
-                <div className={`fixed inset-y-0 left-0 bg-white w-64 shadow-2xl z-40 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                    <div className="p-6 flex justify-between items-start border-b border-slate-100">
-                        <div className="min-w-0">
-                            <PublicBrandStack tone="onLight" className="mb-2" />
-                            <h2 className="font-black text-xl uppercase tracking-tighter text-slate-800">{t('menu')}</h2>
-                        </div>
-                        <button aria-label={t('close_menu')} onClick={() => setMenuOpen(false)} className="hover:bg-slate-100 p-2 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"><X className="w-6 h-6"/></button>
-                    </div>
-                    <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-100px)]">
-                        <div className="px-2 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('public_section')}</div>
-                        <button
-                            aria-current={view === 'home' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('home', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('home')}
-                            onFocus={() => primeViewChunk('home')}
-                            className={menuItemClass(view === 'home')}
-                        >
-                            <HomeIcon className="w-4 h-4 text-slate-500" />
-                            <span>{t('dashboard')}</span>
-                        </button>
-                        <button
-                            aria-current={view === 'leaderboard' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('leaderboard', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('leaderboard')}
-                            onFocus={() => primeViewChunk('leaderboard')}
-                            className={menuItemClass(view === 'leaderboard')}
-                        >
-                            <BarChart3 className="w-4 h-4 text-slate-500" />
-                            <span>{t('historical')}</span>
-                        </button>
-                        <button
-                            aria-current={view === 'hof' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('hof', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('hof')}
-                            onFocus={() => primeViewChunk('hof')}
-                            className={menuItemClass(view === 'hof')}
-                        >
-                            <Trophy className="w-4 h-4 text-slate-500" />
-                            <span>{t('hof')}</span>
-                        </button>
-                        <button
-                            aria-current={view === 'tournament' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('tournament', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('tournament')}
-                            onFocus={() => primeViewChunk('tournament')}
-                            className={menuItemClass(view === 'tournament')}
-                        >
-                            <Swords className="w-4 h-4 text-slate-500" />
-                            <span>{t('tournaments')}</span>
-                        </button>
-
-                        <hr className="border-slate-100 my-2" />
-
-                        <div className="px-2 pt-0 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('account_section')}</div>
-                        <button
-                            aria-current={view === 'player_area' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('player_area', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('player_area')}
-                            onFocus={() => primeViewChunk('player_area')}
-                            className={menuItemClass(view === 'player_area')}
-                        >
-                            <UserRound className="w-4 h-4 text-slate-500" />
-                            <span>{t('player_area')}</span>
-                        </button>
-                        <button
-                            aria-current={view === 'fantabeerpong' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('fantabeerpong', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('fantabeerpong')}
-                            onFocus={() => primeViewChunk('fantabeerpong')}
-                            className={menuItemClass(view === 'fantabeerpong')}
-                        >
-                            <Shield className="w-4 h-4 text-slate-500" />
-                            <span>FantaBeerpong</span>
-                        </button>
-
-                        <hr className="border-slate-100 my-2" />
-
-                        <div className="px-2 pt-0 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('tools_section')}</div>
-
-                        <button
-                            aria-current={view === 'referees_area' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('referees_area', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('referees_area')}
-                            onFocus={() => primeViewChunk('referees_area')}
-                            className={menuItemClass(view === 'referees_area')}
-                        >
-                            <Gavel className="w-4 h-4 text-slate-500" />
-                            <span>{t('referees_area')}</span>
-                        </button>
-                        <button
-                            aria-current={view === 'admin' ? 'page' : undefined}
-                            onClick={() => { void navigateToView('admin', { closeMenu: true }); }}
-                            onMouseEnter={() => primeViewChunk('admin')}
-                            onFocus={() => primeViewChunk('admin')}
-                            className={menuItemClass(view === 'admin')}
-                        >
-                            <Settings className="w-4 h-4 text-slate-500" />
-                            <span>{t('admin')}</span>
-                        </button>
-                    </nav>
-                </div>
-                {/* Overlay for menu */}
-                {menuOpen && <div className="fixed inset-0 bg-black/20 z-30 backdrop-blur-sm" onClick={() => setMenuOpen(false)}></div>}
-
                 {/* Main Layout */}
                 <div className="pb-24">
                     {/* Top Bar */}
@@ -1912,6 +1807,111 @@ const App: React.FC = () => {
                         </div>
                     </nav>
                 ) : null}
+
+                {/* Sidebar Menu - Rendered at the end to ensure it stays on top of sticky elements */}
+                <div className={`fixed inset-y-0 left-0 bg-white w-64 shadow-2xl z-40 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                    <div className="p-6 flex justify-between items-start border-b border-slate-100">
+                        <div className="min-w-0">
+                            <PublicBrandStack tone="onLight" className="mb-2" />
+                            <h2 className="font-black text-xl uppercase tracking-tighter text-slate-800">{t('menu')}</h2>
+                        </div>
+                        <button aria-label={t('close_menu')} onClick={() => setMenuOpen(false)} className="hover:bg-slate-100 p-2 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"><X className="w-6 h-6"/></button>
+                    </div>
+                    <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-100px)]">
+                        <div className="px-2 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('public_section')}</div>
+                        <button
+                            aria-current={view === 'home' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('home', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('home')}
+                            onFocus={() => primeViewChunk('home')}
+                            className={menuItemClass(view === 'home')}
+                        >
+                            <HomeIcon className="w-4 h-4 text-slate-500" />
+                            <span>{t('dashboard')}</span>
+                        </button>
+                        <button
+                            aria-current={view === 'leaderboard' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('leaderboard', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('leaderboard')}
+                            onFocus={() => primeViewChunk('leaderboard')}
+                            className={menuItemClass(view === 'leaderboard')}
+                        >
+                            <BarChart3 className="w-4 h-4 text-slate-500" />
+                            <span>{t('historical')}</span>
+                        </button>
+                        <button
+                            aria-current={view === 'hof' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('hof', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('hof')}
+                            onFocus={() => primeViewChunk('hof')}
+                            className={menuItemClass(view === 'hof')}
+                        >
+                            <Trophy className="w-4 h-4 text-slate-500" />
+                            <span>{t('hof')}</span>
+                        </button>
+                        <button
+                            aria-current={view === 'tournament' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('tournament', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('tournament')}
+                            onFocus={() => primeViewChunk('tournament')}
+                            className={menuItemClass(view === 'tournament')}
+                        >
+                            <Swords className="w-4 h-4 text-slate-500" />
+                            <span>{t('tournaments')}</span>
+                        </button>
+
+                        <hr className="border-slate-100 my-2" />
+
+                        <div className="px-2 pt-0 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('account_section')}</div>
+                        <button
+                            aria-current={view === 'player_area' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('player_area', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('player_area')}
+                            onFocus={() => primeViewChunk('player_area')}
+                            className={menuItemClass(view === 'player_area')}
+                        >
+                            <UserRound className="w-4 h-4 text-slate-500" />
+                            <span>{t('player_area')}</span>
+                        </button>
+                        <button
+                            aria-current={view === 'fantabeerpong' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('fantabeerpong', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('fantabeerpong')}
+                            onFocus={() => primeViewChunk('fantabeerpong')}
+                            className={menuItemClass(view === 'fantabeerpong')}
+                        >
+                            <Shield className="w-4 h-4 text-slate-500" />
+                            <span>FantaBeerpong</span>
+                        </button>
+
+                        <hr className="border-slate-100 my-2" />
+
+                        <div className="px-2 pt-0 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('tools_section')}</div>
+
+                        <button
+                            aria-current={view === 'referees_area' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('referees_area', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('referees_area')}
+                            onFocus={() => primeViewChunk('referees_area')}
+                            className={menuItemClass(view === 'referees_area')}
+                        >
+                            <Gavel className="w-4 h-4 text-slate-500" />
+                            <span>{t('referees_area')}</span>
+                        </button>
+                        <button
+                            aria-current={view === 'admin' ? 'page' : undefined}
+                            onClick={() => { void navigateToView('admin', { closeMenu: true }); }}
+                            onMouseEnter={() => primeViewChunk('admin')}
+                            onFocus={() => primeViewChunk('admin')}
+                            className={menuItemClass(view === 'admin')}
+                        >
+                            <Settings className="w-4 h-4 text-slate-500" />
+                            <span>{t('admin')}</span>
+                        </button>
+                    </nav>
+                </div>
+                {/* Overlay for menu - Rendered at the end for backdrop-blur to work on everything behind it */}
+                {menuOpen && <div className="fixed inset-0 bg-black/20 z-30 backdrop-blur-md transition-all duration-300" onClick={() => setMenuOpen(false)}></div>}
             </div>
             </TranslationDictionariesContext.Provider>
         </LanguageContext.Provider>

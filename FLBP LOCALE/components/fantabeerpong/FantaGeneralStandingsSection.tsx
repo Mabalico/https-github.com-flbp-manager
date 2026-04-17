@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowDown, ArrowUpDown, BarChart3, Search, Trophy, X, Loader2 } from 'lucide-react';
+import { useTranslation } from '../../App';
 import { fetchFantaStandings } from '../../services/fantabeerpong/fantaSupabaseService';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import type { FantaGeneralStandingsRow } from '../../services/fantabeerpong/types';
@@ -18,10 +19,11 @@ const tdPad = 'px-3 py-3 md:px-4';
 
 const trendBadgeClass = (trend: FantaGeneralStandingsRow['trend']) =>
   trend === 'up' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : trend === 'down' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
-const trendLabel = (trend: FantaGeneralStandingsRow['trend']) =>
-  trend === 'up' ? 'In salita' : trend === 'down' ? 'In calo' : 'Stabile';
+const trendLabel = (t: (k: string) => string, trend: FantaGeneralStandingsRow['trend']) =>
+  trend === 'up' ? t('fanta_standings_trend_up') : trend === 'down' ? t('fanta_standings_trend_down') : t('fanta_standings_trend_steady');
 
 export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, onOpenPlayers, onOpenTeamDetail }) => {
+  const { t } = useTranslation();
   const [rows, setRows] = React.useState<FantaGeneralStandingsRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -45,7 +47,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
           id: item.team_id,
           rank: index + 1,
           teamName: item.team_name,
-          ownerLabel: item.user_id?.slice(0, 8) || 'Utente',
+          ownerLabel: item.user_id === session?.accountId ? t('fanta_your_team') : (item.user_id?.slice(0, 8) || t('fanta_players_status_waiting')),
           totalPoints: item.total_points || 0,
           livePoints: item.live_points || item.total_points || 0,
           gapFromLeader: Math.max(0, leaderPoints - (item.total_points || 0)),
@@ -56,7 +58,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
           playersInGame: item.players_in_game || 0,
           captainName: item.captain_name || 'N/D',
           defendersCount: item.defenders_count || 0,
-          statusLabel: item.status_label || 'Live',
+          statusLabel: item.status_label || t('fanta_standings_live'),
           trend: 'steady',
           isMine: item.user_id === session?.accountId,
         }));
@@ -104,23 +106,23 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
       <div className="rounded-[26px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><BarChart3 className="h-3.5 w-3.5" />EDIZIONE LIVE</div>
-            <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Classifica Fanta squadre</div>
-            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Dati sincronizzati in tempo reale con il database Supabase.</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><BarChart3 className="h-3.5 w-3.5" />{t('fanta_standings_edition_live')}</div>
+            <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{t('fanta_standings_title')}</div>
+            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{t('fanta_standings_sync_hint')}</div>
           </div>
-          <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2"><Trophy className="h-4 w-4" />Vai alla mia squadra</button>
+          <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2"><Trophy className="h-4 w-4" />{t('fanta_standings_goto_myteam')}</button>
         </div>
       </div>
 
       <div role="toolbar" className="flex flex-col gap-4 rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
         <div className="relative w-full md:w-96">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Cerca una squadra Fanta" className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2" />
+          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder={t('fanta_standings_search_placeholder')} className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2" />
           {searchTerm && <button type="button" onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X className="h-4 w-4" /></button>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setOnlyMineWindow((v) => !v)} className={`inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-black uppercase tracking-wide transition ${onlyMineWindow ? 'bg-beer-500 text-slate-950' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Focus sulla mia zona</button>
-          <button type="button" onClick={onOpenPlayers} className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50">Apri classifica giocatori</button>
+          <button type="button" onClick={() => setOnlyMineWindow((v) => !v)} className={`inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-black uppercase tracking-wide transition ${onlyMineWindow ? 'bg-beer-500 text-slate-950' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>{t('fanta_standings_focus_mine')}</button>
+          <button type="button" onClick={onOpenPlayers} className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50">{t('fanta_standings_open_players')}</button>
         </div>
       </div>
 
@@ -128,23 +130,23 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-beer-500" />
-            <p className="mt-4 text-sm font-bold text-slate-500">Sincronizzazione dati Fanta...</p>
+            <p className="mt-4 text-sm font-bold text-slate-500">{t('fanta_standings_syncing')}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1200px] text-left text-sm">
               <thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className={`${thPad} ${stickyTh} w-20 text-center`}>Rank</th>
-                  <th className={`${thPad} ${stickyTh} min-w-[200px]`}>Squadra Fanta</th>
-                  <SortTh field="totalPoints" label="Punti" />
-                  <SortTh field="playersInGame" label="Vivi" />
-                  <SortTh field="goals" label="Canestri" />
-                  <SortTh field="blows" label="Soffi" />
-                  <SortTh field="wins" label="Vittorie" />
-                  <SortTh field="bonusScia" label="Scia" />
-                  <th className={`${thPad} ${stickyTh} text-center`}>Capitano</th>
-                  <th className={`${thPad} ${stickyTh} text-center`}>Trend</th>
+                  <th className={`${thPad} ${stickyTh} w-20 text-center`}>{t('fanta_standings_rank')}</th>
+                  <th className={`${thPad} ${stickyTh} min-w-[200px]`}>{t('fanta_standings_team')}</th>
+                  <SortTh field="totalPoints" label={t('fanta_standings_points')} />
+                  <SortTh field="playersInGame" label={t('fanta_standings_live')} />
+                  <SortTh field="goals" label={t('fanta_standings_goals')} />
+                  <SortTh field="blows" label={t('fanta_standings_blows')} />
+                  <SortTh field="wins" label={t('fanta_standings_wins')} />
+                  <SortTh field="bonusScia" label={t('fanta_standings_scia')} />
+                  <th className={`${thPad} ${stickyTh} text-center`}>{t('fanta_standings_captain')}</th>
+                  <th className={`${thPad} ${stickyTh} text-center`}>{t('fanta_standings_trend')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -155,7 +157,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                       <button type="button" onClick={() => onOpenTeamDetail?.(row.id)} className="w-full rounded-xl text-left transition hover:text-beer-700">
                         <div className="flex items-center gap-2">
                           <div className="min-w-0"><div className="truncate text-base font-black text-slate-950">{row.teamName}</div><div className="text-[11px] font-bold text-slate-500 uppercase tracking-tight">{row.ownerLabel}</div></div>
-                          {row.isMine && <span className="inline-flex rounded-md border border-beer-200 bg-beer-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">MIA</span>}
+                          {row.isMine && <span className="inline-flex rounded-md border border-beer-200 bg-beer-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</span>}
                         </div>
                       </button>
                     </td>
@@ -166,7 +168,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                     <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.wins}</td>
                     <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.bonusScia}</td>
                     <td className={`${tdPad} text-center text-xs font-black text-slate-900`}>{row.captainName}</td>
-                    <td className={`${tdPad} text-center`}><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${trendBadgeClass(row.trend)}`}>{trendLabel(row.trend)}</span></td>
+                    <td className={`${tdPad} text-center`}><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${trendBadgeClass(row.trend)}`}>{trendLabel(t, row.trend)}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -175,7 +177,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         )}
       </div>
 
-      <div className={panelClass}><div className="text-xl font-black tracking-tight text-slate-950">Nota live</div><div className="mt-2 text-sm font-semibold leading-6 text-slate-600">I dati mostrati sono derivati direttamente dai report arbitrali salvati in Supabase.</div></div>
+      <div className={panelClass}><div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_standings_note_title')}</div><div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{t('fanta_standings_note_desc')}</div></div>
     </div>
   );
 };

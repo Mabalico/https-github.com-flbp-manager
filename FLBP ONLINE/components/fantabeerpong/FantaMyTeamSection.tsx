@@ -1,4 +1,4 @@
-import React from 'react';
+import { useTranslation } from '../../App';
 import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
 import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
@@ -16,17 +16,18 @@ interface Props {
   onOpenTeamBuilder?: () => void;
 }
 
-const roleMeta: Record<FantaRosterRole, { label: string; className: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  captain:  { label: 'Capitano', className: 'border-amber-200 bg-amber-50 text-amber-800', Icon: Star },
-  defender: { label: 'Difensore', className: 'border-sky-200 bg-sky-50 text-sky-800', Icon: Wind },
-  starter:  { label: 'Titolare', className: 'border-slate-200 bg-slate-100 text-slate-700', Icon: Users },
-};
-
-const statusBadgeClass = (status: FantaMyTeamPlayer['status']) =>
-  status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
-const statusLabel = (status: FantaMyTeamPlayer['status']) => status === 'live' ? 'In gioco' : status === 'eliminated' ? 'Eliminato' : 'In attesa';
-
 export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPlayers, onOpenRules, onOpenPlayerDetail, onOpenTeamBuilder }) => {
+  const { t } = useTranslation();
+
+  const roleMeta: Record<FantaRosterRole, { label: string; className: string; Icon: React.ComponentType<{ className?: string }> }> = {
+    captain:  { label: t('fanta_role_captain'), className: 'border-amber-200 bg-amber-50 text-amber-800', Icon: Star },
+    defender: { label: t('fanta_role_defender'), className: 'border-sky-200 bg-sky-50 text-sky-800', Icon: Wind },
+    starter:  { label: t('fanta_role_starter'), className: 'border-slate-200 bg-slate-100 text-slate-700', Icon: Users },
+  };
+
+  const statusBadgeClass = (status: FantaMyTeamPlayer['status']) =>
+    status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+  const statusLabel = (status: FantaMyTeamPlayer['status']) => status === 'live' ? t('fanta_status_live') : status === 'eliminated' ? t('fanta_status_eliminated') : t('fanta_status_waiting');
   const [data, setData] = React.useState<FantaMyTeam | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [session, setSession] = React.useState(readPlayerPresenceSnapshot());
@@ -80,8 +81,8 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
                 role: r.role as FantaRosterRole,
                 status: stat.status || 'waiting',
                 note: stat.status === 'eliminated' && stat.eliminated_by_team_name
-                  ? `Eliminato da ${stat.eliminated_by_team_name}.`
-                  : 'Punteggio sincronizzato dal torneo live.',
+                  ? t('fanta_eliminated_by', { name: stat.eliminated_by_team_name })
+                  : t('fanta_sync_note'),
                 goals,
                 blows,
                 wins,
@@ -102,11 +103,11 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
           const mapped: FantaMyTeam = {
             id: result.team.id,
             teamName: result.team.name,
-            editionLabel: 'EDIZIONE LIVE',
+            editionLabel: t('fanta_live_edition'),
             buildStatus: 'ready',
-            buildStatusLabel: 'Confermata',
-            lockLabel: 'Rosa live',
-            lockHint: 'Squadra sincronizzata con Supabase.',
+            buildStatusLabel: t('fanta_confermed'),
+            lockLabel: t('fanta_roster_live'),
+            lockHint: t('fanta_sync_supabase'),
             summary: {
               selectedPlayers: players.length,
               currentRankLabel: rank > 0 ? `#${rank}` : '-',
@@ -118,11 +119,11 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
             players,
             teamsToFollow,
             constraints: [
-              { id: 'players', label: '4 giocatori selezionati', satisfied: players.length === 4, helper: `${players.length}/4 giocatori in rosa.` },
-              { id: 'captain', label: '1 capitano assegnato', satisfied: players.filter(p => p.role === 'captain').length === 1, helper: players.find(p => p.role === 'captain')?.playerName || 'Capitano mancante.' },
-              { id: 'defenders', label: '2 difensori obbligatori', satisfied: players.filter(p => p.role === 'defender').length === 2, helper: `${players.filter(p => p.role === 'defender').length}/2 difensori.` },
+              { id: 'players', label: t('fanta_players_count', { count: 4 }), satisfied: players.length === 4, helper: t('fanta_players_count', { count: players.length }) },
+              { id: 'captain', label: t('fanta_assign_roles'), satisfied: players.filter(p => p.role === 'captain').length === 1, helper: players.find(p => p.role === 'captain')?.playerName || t('fanta_role_captain') },
+              { id: 'defenders', label: t('fanta_defenders'), satisfied: players.filter(p => p.role === 'defender').length === 2, helper: t('fanta_players_count', { count: players.filter(p => p.role === 'defender').length }) },
             ],
-            notes: ['I punteggi arrivano dal torneo live e rispettano i ruoli FantaBeerpong.']
+            notes: [t('fanta_sync_note')]
           };
           setData(mapped);
         }
@@ -137,7 +138,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-10 w-10 animate-spin text-beer-500" />
-        <p className="mt-4 font-black uppercase tracking-widest text-slate-500">Recupero squadra Fanta...</p>
+        <p className="mt-4 font-black uppercase tracking-widest text-slate-500">{t('fanta_loading_overview')}</p>
       </div>
     );
   }
@@ -148,9 +149,9 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         <div className="h-16 w-16 bg-slate-100 rounded-full flex items-center justify-center mb-6">
           <LogIn className="h-8 w-8 text-slate-400" />
         </div>
-        <h3 className="text-2xl font-black text-slate-900">Accesso richiesto</h3>
-        <p className="mt-2 text-slate-600 max-w-sm font-semibold">Devi essere loggato con il tuo account giocatore per creare o visualizzare la tua squadra Fanta.</p>
-        <button type="button" onClick={() => (window as any).flbpOpenPlayerArea?.()} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-8 py-4 text-sm font-black uppercase tracking-widest text-white shadow-xl transition hover:bg-slate-800">Accedi ora</button>
+        <h3 className="text-2xl font-black text-slate-900">{t('fanta_login_required_title')}</h3>
+        <p className="mt-2 text-slate-600 max-w-sm font-semibold">{t('fanta_login_required_desc')}</p>
+        <button type="button" onClick={() => (window as any).flbpOpenPlayerArea?.()} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-8 py-4 text-sm font-black uppercase tracking-widest text-white shadow-xl transition hover:bg-slate-800">{t('fanta_access_now')}</button>
       </div>
     );
   }
@@ -161,9 +162,9 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         <div className="h-16 w-16 bg-beer-50 rounded-full flex items-center justify-center mb-6">
           <Shield className="h-8 w-8 text-beer-500" />
         </div>
-        <h3 className="text-2xl font-black text-slate-900">Nessuna squadra trovata</h3>
-        <p className="mt-2 text-slate-600 max-w-sm font-semibold">Non hai ancora creato una squadra per questa edizione live. Partecipa ora!</p>
-        {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-beer-500 px-8 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl transition hover:bg-beer-600">Crea la tua squadra</button>}
+        <h3 className="text-2xl font-black text-slate-900">{t('fanta_no_team_found')}</h3>
+        <p className="mt-2 text-slate-600 max-w-sm font-semibold">{t('fanta_no_team_found_desc')}</p>
+        {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-beer-500 px-8 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl transition hover:bg-beer-600">{t('fanta_create_team')}</button>}
       </div>
     );
   }
@@ -180,39 +181,39 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
             <div className="mt-4 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">{data.teamName}</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.lockHint}</div>
           </div>
-          {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="inline-flex min-h-[50px] items-center justify-center gap-2 rounded-2xl bg-beer-500 px-6 py-3 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 focus:outline-none focus:ring-2 focus:ring-beer-500/40">Crea / modifica squadra</button>}
+          {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="inline-flex min-h-[50px] items-center justify-center gap-2 rounded-2xl bg-beer-500 px-6 py-3 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 focus:outline-none focus:ring-2 focus:ring-beer-500/40">{t('fanta_edit_team')}</button>}
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Ranking attuale" value={data.summary.currentRankLabel} hint="Preview classifica generale" />
-        <MetricCard label="Capitano" value={data.summary.captainName} hint="Punti raddoppiati x2" />
-        <MetricCard label="Difensori" value={`${data.summary.defendersCount}/2`} hint="Soffi raddoppiati x2" />
-        <MetricCard label="Punti Totali" value={String(data.summary.totalPoints || 0)} hint="Snapshot live" />
+        <MetricCard label={t('fanta_ranking_metric')} value={data.summary.currentRankLabel} hint={t('fanta_ranking_hint')} />
+        <MetricCard label={t('fanta_captain')} value={data.summary.captainName} hint={t('fanta_captain_hint')} />
+        <MetricCard label={t('fanta_defenders')} value={`${data.summary.defendersCount}/2`} hint={t('fanta_defenders_hint')} />
+        <MetricCard label={t('fanta_total_points_metric')} value={String(data.summary.totalPoints || 0)} hint={t('fanta_total_points_hint')} />
       </div>
 
       <div className={panelClass}>
-        <div className="text-xl font-black tracking-tight text-slate-950">Breakdown Punteggi Squadra</div>
+        <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_points_breakdown')}</div>
         <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Target className="h-3 w-3" />Canestri</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Target className="h-3 w-3" />{t('fanta_goals')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.goals}</div>
-            <div className="text-[10px] font-bold text-slate-400">1 pt cad.</div>
+            <div className="text-[10px] font-bold text-slate-400">{t('fanta_points_cad')}</div>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Wind className="h-3 w-3" />Soffi</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Wind className="h-3 w-3" />{t('fanta_blows')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.blows}</div>
-            <div className="text-[10px] font-bold text-slate-400">2 pt cad.</div>
+            <div className="text-[10px] font-bold text-slate-400">{t('fanta_points_cad')}</div>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Trophy className="h-3 w-3" />Vittorie</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Trophy className="h-3 w-3" />{t('fanta_wins')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.wins}</div>
-            <div className="text-[10px] font-bold text-slate-400">7 pt cad.</div>
+            <div className="text-[10px] font-bold text-slate-400">{t('fanta_points_cad')}</div>
           </div>
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-indigo-600"><Zap className="h-3 w-3" />Bonus Scia</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-indigo-600"><Zap className="h-3 w-3" />{t('fanta_bonus_scia')}</div>
             <div className="mt-1 text-2xl font-black text-indigo-700">{data.pointsBreakdown.bonusScia}</div>
-            <div className="text-[10px] font-bold text-indigo-400">5 pt vitt. avv.</div>
+            <div className="text-[10px] font-bold text-indigo-400">{t('fanta_bonus_scia_desc')}</div>
           </div>
         </div>
       </div>
@@ -221,8 +222,8 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         <div className="space-y-6">
           <div className={panelClass}>
             <div className="flex items-center justify-between gap-3">
-              <div className="text-xl font-black tracking-tight text-slate-950">Rosa Fanta</div>
-              <div className="text-xs font-black uppercase tracking-widest text-slate-500">{data.players.length}/4 Giocatori</div>
+              <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_roster_fanta')}</div>
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">{t('fanta_players_count', { count: data.players.length })}</div>
             </div>
 
             <div className="mt-6 space-y-4">
@@ -247,7 +248,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
                         </div>
                       </div>
                       <div className="shrink-0 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-center shadow-sm group-hover:border-beer-200 group-hover:bg-beer-50/30 transition-colors">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Punti</div>
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_points_label')}</div>
                         <div className="mt-1 text-3xl font-black tracking-tighter text-slate-950">{player.fantasyPoints}</div>
                       </div>
                     </div>
@@ -260,28 +261,28 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
 
         <div className="space-y-6">
           <div className={panelClass}>
-            <div className="flex items-center gap-2 text-lg font-black text-indigo-950"><History className="h-5 w-5 text-indigo-600" />Bonus Scia Attivo</div>
-            <div className="mt-4 text-sm font-semibold text-slate-600 leading-relaxed italic">Segui queste squadre reali per ottenere 5 punti extra in caso di loro vittoria:</div>
+            <div className="flex items-center gap-2 text-lg font-black text-indigo-950"><History className="h-5 w-5 text-indigo-600" />{t('fanta_bonus_scia_active')}</div>
+            <div className="mt-4 text-sm font-semibold text-slate-600 leading-relaxed italic">{t('fanta_bonus_scia_help')}</div>
             <div className="mt-4 space-y-3">
               {data.teamsToFollow.map((t) => (
                 <div key={t.id} className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 shadow-sm">
                   <div className="text-sm font-black text-indigo-950">{t.teamName}</div>
-                  <div className="mt-1 text-xs font-bold text-indigo-700 uppercase tracking-tighter">Motivo: {t.followingFor}</div>
+                  <div className="mt-1 text-xs font-bold text-indigo-700 uppercase tracking-tighter">{t('fanta_bonus_reason', { name: t.followingFor })}</div>
                 </div>
               ))}
-              {data.teamsToFollow.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs font-bold text-slate-400 italic">Nessun bonus scia attivo al momento.</div>}
+              {data.teamsToFollow.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs font-bold text-slate-400 italic">{t('fanta_no_bonus_active')}</div>}
             </div>
           </div>
 
           <div className={panelClass}>
-            <div className="text-lg font-black text-slate-950">Prossime azioni</div>
+            <div className="text-lg font-black text-slate-950">{t('fanta_next_actions')}</div>
             <div className="mt-4 space-y-3">
               <button type="button" onClick={onOpenPlayers} className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left transition hover:bg-slate-50">
-                <div><div className="text-sm font-black text-slate-950">Statistiche live giocatori</div><div className="mt-0.5 text-xs font-semibold text-slate-500">Analizza le performance di tutti.</div></div>
+                <div><div className="text-sm font-black text-slate-950">{t('fanta_live_stats_link')}</div><div className="mt-0.5 text-xs font-semibold text-slate-500">{t('fanta_live_stats_desc')}</div></div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 group-hover:translate-x-1 transition-transform" />
               </button>
               <button type="button" onClick={onOpenStandings} className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left transition hover:bg-slate-50">
-                <div><div className="text-sm font-black text-slate-950">Classifica generale</div><div className="mt-0.5 text-xs font-semibold text-slate-500">Confronta il tuo punteggio.</div></div>
+                <div><div className="text-sm font-black text-slate-950">{t('fanta_standings_link')}</div><div className="mt-0.5 text-xs font-semibold text-slate-500">{t('fanta_standings_desc')}</div></div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
@@ -289,7 +290,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         </div>
       </div>
 
-      <FantaQuickHelp topics={['roles', 'scoring']} onOpenRules={onOpenRules} compact title="Ti serve aiuto?" />
+      <FantaQuickHelp topics={['roles', 'scoring']} onOpenRules={onOpenRules} compact title={t('fanta_need_help')} />
     </div>
   );
 };
