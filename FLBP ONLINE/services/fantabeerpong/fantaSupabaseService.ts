@@ -166,17 +166,15 @@ export const fetchFantaConfig = async (): Promise<FantaConfig | null> => {
   if (!activeTournamentId) return null;
 
   const tournamentStarted = await fetchTournamentStarted(cfg, activeTournamentId);
-  const configAppliesToActive = configured?.active_tournament_id === activeTournamentId;
-  const manualLockActive = configAppliesToActive ? Boolean(configured?.is_lock_active) : false;
-  const registrationOpenFlag = configAppliesToActive && configured ? Boolean(configured.registration_open) : true;
   return {
     activeTournamentId,
     activeTournamentName: activeTournament?.name,
-    isLockActive: manualLockActive || tournamentStarted,
-    registrationOpen: registrationOpenFlag && !manualLockActive && !tournamentStarted,
-    registrationOpenFlag,
-    manualLockActive,
+    isLockActive: tournamentStarted,
+    registrationOpen: !tournamentStarted,
+    registrationOpenFlag: true,
+    manualLockActive: false,
     tournamentStarted,
+    lockReason: tournamentStarted ? 'first_match_started' : null,
     updatedAt: configured?.updated_at,
   };
 };

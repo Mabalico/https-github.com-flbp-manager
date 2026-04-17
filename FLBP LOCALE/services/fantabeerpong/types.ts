@@ -20,6 +20,7 @@ export interface FantaConfig {
   registrationOpenFlag?: boolean;
   manualLockActive?: boolean;
   tournamentStarted?: boolean;
+  lockReason?: 'no_live_tournament' | 'first_match_started' | null;
   updatedAt?: string;
 }
 

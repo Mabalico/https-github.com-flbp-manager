@@ -58,15 +58,15 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const flatPlayers = tournamentPlayers;
   const selectedPlayers = React.useMemo(() => flatPlayers.filter((p) => selectedIds.includes(p.id)), [flatPlayers, selectedIds]);
   const canAddMore = selectedIds.length < 4;
-  const isReadOnly = config?.isLockActive || !config?.registrationOpen;
+  const hasActiveTournament = Boolean(config?.activeTournamentId);
+  const registrationOpen = hasActiveTournament && Boolean(config?.registrationOpen);
+  const isReadOnly = !hasActiveTournament || !registrationOpen;
   const activeTournamentName = config?.activeTournamentName || 'Nessun torneo live';
   const lockMessage = !config?.activeTournamentId
     ? 'Non c’è un torneo live collegato al FantaBeerpong. Le iscrizioni si aprono quando viene avviato un torneo.'
     : config.tournamentStarted
       ? 'La prima partita del torneo è già stata avviata: le iscrizioni Fanta sono chiuse.'
-      : config.manualLockActive || config.registrationOpenFlag === false
-        ? 'Le iscrizioni Fanta sono state chiuse manualmente dagli organizzatori.'
-        : 'Le iscrizioni Fanta non sono disponibili in questo momento.';
+      : 'Il torneo live è presente e nessuna partita è iniziata: il mercato Fanta è aperto.';
 
   const setInfo = (message: string, tone: 'success' | 'error' = 'success') => {
     setFeedback({ tone, message });
@@ -161,7 +161,9 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                 <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-5">
                   <div className="text-sm font-black uppercase tracking-wide text-beer-700">Torneo</div>
                   <div className="mt-1 text-lg font-black text-slate-950">{activeTournamentName}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-500">{config?.registrationOpen ? 'Iscrizioni Aperte' : 'Iscrizioni Chiuse'}</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-500">
+                    {!hasActiveTournament ? 'Nessun torneo live' : registrationOpen ? 'Iscrizioni Aperte' : 'Iscrizioni Chiuse'}
+                  </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-slate-100 bg-white p-4">
@@ -181,8 +183,8 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                 )}
               </div>
               <div className="mt-8">
-                <button type="button" onClick={() => setStep('selection')} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-beer-500 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 focus:outline-none focus:ring-2 focus:ring-beer-500/40">
-                  {selectedIds.length > 0 ? 'Modifica la selezione' : 'Inizia la selezione'} <ArrowRight className="h-4 w-4" />
+                <button type="button" disabled={isReadOnly} onClick={() => setStep('selection')} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-beer-500 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 focus:outline-none focus:ring-2 focus:ring-beer-500/40 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none">
+                  {isReadOnly ? 'Mercato non disponibile' : selectedIds.length > 0 ? 'Modifica la selezione' : 'Inizia la selezione'} <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -279,7 +281,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />EDIZIONE LIVE</div>
             <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Crea / modifica squadra Fanta</h1>
-            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Fase di {config?.registrationOpen ? 'Mercato' : 'Blocco'} - {activeTournamentName}</div>
+            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Fase di {registrationOpen ? 'Mercato' : 'Blocco'} - {activeTournamentName}</div>
           </div>
           <button type="button" onClick={() => setStep('info')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 transition"><ArrowLeft className="h-4 w-4" />Back</button>
         </div>
