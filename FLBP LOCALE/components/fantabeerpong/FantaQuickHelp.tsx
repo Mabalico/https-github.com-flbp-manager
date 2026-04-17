@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowRight, Lightbulb } from 'lucide-react';
+import { useTranslation } from '../../App';
 import type { FantaQuickHelpItem, FantaQuickHelpTopic } from '../../services/fantabeerpong/types';
 
 interface Props {
@@ -9,23 +10,29 @@ interface Props {
   title?: string;
 }
 
-const copyMap: Record<FantaQuickHelpTopic, FantaQuickHelpItem> = {
-  roles:      { id: 'roles',      title: 'Capitano e Difensori',  body: 'Hai sempre 1 Capitano e 2 Difensori obbligatori. Lo stesso giocatore non può occupare entrambi i ruoli.' },
-  scoring:    { id: 'scoring',    title: 'Come si fanno i punti', body: 'Canestro 1, soffio 2, vittoria 7, bonus finali 10. Il dettaglio completo resta nel regolamento.' },
-  bonus_scia: { id: 'bonus_scia', title: 'Cos\u2019è il Bonus Scia',  body: 'È il bonus distintivo della modalità: vale 5 punti e va mostrato sempre con ritorno facile al regolamento.' },
+const useCopyMap = () => {
+  const { t } = useTranslation();
+  return {
+    roles:      { id: 'roles',      title: t('fanta_help_roles_title'),  body: t('fanta_help_roles_body') },
+    scoring:    { id: 'scoring',    title: t('fanta_help_scoring_title'), body: t('fanta_help_scoring_body') },
+    bonus_scia: { id: 'bonus_scia', title: t('fanta_help_scia_title'),  body: t('fanta_help_scia_body') },
+  } as Record<FantaQuickHelpTopic, FantaQuickHelpItem>;
 };
 
-export const FantaQuickHelp: React.FC<Props> = ({ topics, onOpenRules, compact = false, title = 'Help rapido' }) => {
+export const FantaQuickHelp: React.FC<Props> = ({ topics, onOpenRules, compact = false, title }) => {
+  const { t } = useTranslation();
+  const copyMap = useCopyMap();
+  const displayTitle = title || t('fanta_help_rapid');
   const items = topics.map((topic) => copyMap[topic]);
   return (
     <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
       <div className="flex items-center justify-between gap-3">
         <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700">
           <Lightbulb className="h-3.5 w-3.5" />
-          {title}
+          {displayTitle}
         </div>
         <button type="button" onClick={onOpenRules} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2">
-          Apri regolamento
+          {t('admin_open_rules')}
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
       </div>
