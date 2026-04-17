@@ -1200,7 +1200,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
             const existingKeys = profilesIndex.get(norm);
             if (existingKeys && existingKeys.size > 0 && resolved === rawKey && !existingKeys.has(resolved)) {
                 const list = Array.from(existingKeys).map(k => labelFromPlayerKey(k)).join(' | ');
-                warnings.push(`${name} Â· esistenti: ${list} Â· import: ${yobStr} (riga ${idx + 2})`);
+                warnings.push(`${name} · esistenti: ${list} · import: ${yobStr} (riga ${idx + 2})`);
             }
 
             entries.push({
@@ -2160,7 +2160,7 @@ ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
-- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} Â· squadre ${alt.parsed.teams.length}`).join('\n- ')}`
+- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} · squadre ${alt.parsed.teams.length}`).join('\n- ')}`
             : '';
         return `${t('alert_import_error')}
 
@@ -2357,7 +2357,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
             const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
             setState({ ...state, teams: merged, tournament: nextTournament });
-            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_total_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_total_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
@@ -2435,7 +2435,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 if (!existing.has(k)) merged.push(t);
             }
             setCreateArchiveTeams(merged);
-            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_in_wizard_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_in_wizard_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));

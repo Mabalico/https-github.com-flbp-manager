@@ -60,7 +60,6 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         wins: r.points_from_wins || 0,
         bonusScia: r.bonus_scia || 0,
         status: r.status || 'waiting',
-        status: r.status || 'waiting',
         roleLabel: t('fanta_players_label_player'),
         note: r.status === 'eliminated' && r.eliminated_by_team_name
           ? t('fanta_eliminated_by').replace('{name}', r.eliminated_by_team_name)
@@ -106,7 +105,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
       <div className="rounded-[26px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Users className="h-3.5 w-3.5" />LIVE TOURNAMENT</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Users className="h-3.5 w-3.5" />{t('fanta_standings_edition_live')}</div>
             <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{t('fanta_players_title')}</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{t('fanta_players_subtitle')}</div>
           </div>
