@@ -458,7 +458,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const isFatalAdminAccessFailure = React.useCallback((reason: string | null | undefined) => {
         const normalized = String(reason || '').trim();
         return normalized === 'Sessione admin assente o scaduta.'
-            || normalized === 'Impossibile determinare lâ€™utente autenticato.'
+            || normalized === "Impossibile determinare l'utente autenticato."
             || normalized === 'Questo account autenticato non ha ruolo admin in Supabase.';
     }, []);
 
@@ -945,7 +945,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     // Integrazioni marcatori: warning per possibili omonimi / data diversa
     const [scorersImportWarnings, setScorersImportWarnings] = useState<string[]>([]);
 
-    // STEP 10 â€” Creazione manuale di un torneo archiviato (wizard minimale)
+    // STEP 10 — Creazione manuale di un torneo archiviato (wizard minimale)
     const [createArchiveOpen, setCreateArchiveOpen] = useState<boolean>(false);
     const [createArchiveStep, setCreateArchiveStep] = useState<'meta'|'teams'|'structure'>('meta');
     const [createArchiveName, setCreateArchiveName] = useState<string>('');
@@ -1200,7 +1200,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
             const existingKeys = profilesIndex.get(norm);
             if (existingKeys && existingKeys.size > 0 && resolved === rawKey && !existingKeys.has(resolved)) {
                 const list = Array.from(existingKeys).map(k => labelFromPlayerKey(k)).join(' | ');
-                warnings.push(`${name} Â· esistenti: ${list} Â· import: ${yobStr} (riga ${idx + 2})`);
+                warnings.push(`${name} · esistenti: ${list} · import: ${yobStr} (riga ${idx + 2})`);
             }
 
             entries.push({
@@ -1231,7 +1231,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
         setIsReferee(false);
     };
 
-    // STEP 10 â€” reset wizard "Nuovo torneo archiviato"
+    // STEP 10 — reset wizard "Nuovo torneo archiviato"
     const resetCreateArchiveWizard = () => {
         setCreateArchiveOpen(false);
         setCreateArchiveStep('meta');
@@ -1709,7 +1709,7 @@ const c2 = makeAliasConflict(next.player2, next.player2YoB, idxProfiles, (next a
 if (c2) conflicts.push(c2);
 
 if (conflicts.length > 0) {
-    setAliasModalTitle(`${t('possible_homonyms_birthdate')} â€” ${t('teams')}`);
+    setAliasModalTitle(`${t('possible_homonyms_birthdate')} — ${t('teams')}`);
     setAliasModalConflicts(conflicts);
     setPendingTeamSave(next);
     setPendingScorersImport(null);
@@ -2160,7 +2160,7 @@ ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
-- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} Â· squadre ${alt.parsed.teams.length}`).join('\n- ')}`
+- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} · squadre ${alt.parsed.teams.length}`).join('\n- ')}`
             : '';
         return `${t('alert_import_error')}
 
@@ -2357,14 +2357,14 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
             const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
             setState({ ...state, teams: merged, tournament: nextTournament });
-            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_total_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_total_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
         }
     };
 
-    // STEP 10 â€” import squadre dentro wizard "Nuovo torneo archiviato" (non tocca il live)
+    // STEP 10 — import squadre dentro wizard "Nuovo torneo archiviato" (non tocca il live)
     const importArchiveTeamsFile = async (file: File) => {
         const XLSX = await getXLSX();
         const ext = file.name.toLowerCase().split('.').pop();
@@ -2435,7 +2435,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 if (!existing.has(k)) merged.push(t);
             }
             setCreateArchiveTeams(merged);
-            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_in_wizard_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_in_wizard_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
@@ -3248,8 +3248,8 @@ while (guard < 5000) {
                     }
                 }
 
-                // Score pattern: 10-8, 10 : 8, 10â€“8
-                const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-â€“:]\s*(\d{1,2})\b/);
+                // Score pattern: 10-8, 10 : 8, 10–8
+                const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-–:]\s*(\d{1,2})\b/);
                 if (scoreMatch) {
                     setReportScoreA(scoreMatch[1]);
                     setReportScoreB(scoreMatch[2]);
