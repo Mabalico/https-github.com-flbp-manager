@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
@@ -71,7 +71,7 @@ const TournamentEditorTabLazy = React.lazy(() =>
 // --- Admin-only render recovery ---
 // Goal: unblock Admin access if an edge-case in Admin render paths triggers
 // a crash (e.g., stale persisted tab/subtab). In healthy cases this never runs.
-// No new dependencies; only clears Admin session keys + returns to Live→Teams.
+// No new dependencies; only clears Admin session keys + returns to Liveâ†’Teams.
 const clearAdminSessionNavKeys = () => {
     const keys = [
         'flbp_admin_section',
@@ -458,7 +458,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const isFatalAdminAccessFailure = React.useCallback((reason: string | null | undefined) => {
         const normalized = String(reason || '').trim();
         return normalized === 'Sessione admin assente o scaduta.'
-            || normalized === 'Impossibile determinare l’utente autenticato.'
+            || normalized === 'Impossibile determinare lâ€™utente autenticato.'
             || normalized === 'Questo account autenticato non ha ruolo admin in Supabase.';
     }, []);
 
@@ -631,10 +631,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                     if (bootstrapped) {
                         return;
                     }
-                    setAuthed(true);
+                    // Legacy Supabase bootstrap failed: require re-authentication.
+                    // Do NOT grant access without a verified session.
+                    safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+                    setAdminAuthMode('none');
+                    setAuthed(false);
                     setAdminAuthError('');
-                    setSupabaseEmail(getConfiguredAdminEmail());
-                    setAdminAuthEmailInput((prev) => prev.trim() || getConfiguredAdminEmail());
+                    setSupabaseEmail(null);
                     setAdminSessionChecking(false);
                     return;
                 }
@@ -669,9 +672,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                     }
                     if (!alive) return;
                     if (currentAdminAuthMode === 'legacy') {
-                        setAuthed(true);
-                        setSupabaseEmail(getConfiguredAdminEmail());
-                        setAdminAuthError('');
+                        // Fatal access failure even in legacy mode: account not admin, session expired, etc.
+                        // Require re-authentication - do NOT grant access without a verified session.
+                        safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+                        setAdminAuthMode('none');
+                        setAuthed(false);
+                        setSupabaseEmail(null);
+                        setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
                     } else if (currentAdminAuthMode === 'player') {
                         setAuthed(false);
                         setSupabaseEmail(null);
@@ -970,7 +977,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     // Integrazioni marcatori: warning per possibili omonimi / data diversa
     const [scorersImportWarnings, setScorersImportWarnings] = useState<string[]>([]);
 
-    // STEP 10 — Creazione manuale di un torneo archiviato (wizard minimale)
+    // STEP 10 â€” Creazione manuale di un torneo archiviato (wizard minimale)
     const [createArchiveOpen, setCreateArchiveOpen] = useState<boolean>(false);
     const [createArchiveStep, setCreateArchiveStep] = useState<'meta'|'teams'|'structure'>('meta');
     const [createArchiveName, setCreateArchiveName] = useState<string>('');
@@ -1155,13 +1162,13 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
     const rawKey = getPlayerKey(name, pickPlayerIdentityValue(birthDate, yob));
     const resolved = resolvePlayerKey(state, rawKey);
 
-    // già integrato altrove
+    // giÃ  integrato altrove
     if (resolved !== rawKey) return null;
 
     const set = (index || buildProfilesIndex()).get(norm);
     if (!set || set.size === 0) return null;
 
-    // se esiste già lo stesso profilo (stesso PlayerKey), non è un "anno diverso" → nessun prompt
+    // se esiste giÃ  lo stesso profilo (stesso PlayerKey), non Ã¨ un "anno diverso" â†’ nessun prompt
     if (set.has(resolved)) return null;
 
     const candidates = Array.from(set)
@@ -1225,7 +1232,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
             const existingKeys = profilesIndex.get(norm);
             if (existingKeys && existingKeys.size > 0 && resolved === rawKey && !existingKeys.has(resolved)) {
                 const list = Array.from(existingKeys).map(k => labelFromPlayerKey(k)).join(' | ');
-                warnings.push(`${name} · esistenti: ${list} · import: ${yobStr} (riga ${idx + 2})`);
+                warnings.push(`${name} Â· esistenti: ${list} Â· import: ${yobStr} (riga ${idx + 2})`);
             }
 
             entries.push({
@@ -1256,7 +1263,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
         setIsReferee(false);
     };
 
-    // STEP 10 — reset wizard "Nuovo torneo archiviato"
+    // STEP 10 â€” reset wizard "Nuovo torneo archiviato"
     const resetCreateArchiveWizard = () => {
         setCreateArchiveOpen(false);
         setCreateArchiveStep('meta');
@@ -1699,7 +1706,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
             return;
         }
 
-        // Evita duplicati accidentali: se non stai modificando una squadra esistente e il nome esiste già,
+        // Evita duplicati accidentali: se non stai modificando una squadra esistente e il nome esiste giÃ ,
         // chiedi conferma prima di inserirla.
         if (!editingId) {
             const k = teamName.trim().toLowerCase();
@@ -1724,7 +1731,7 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
         };
 
 
-// Conflitti Nome+data di nascita. Se il nome esiste già con data diversa o mancante,
+// Conflitti Nome+data di nascita. Se il nome esiste giÃ  con data diversa o mancante,
 // permetti di "integrare" (alias) o mantenere separato.
 const idxProfiles = buildProfilesIndex(editingId || undefined);
 const conflicts: AliasConflict[] = [];
@@ -1734,7 +1741,7 @@ const c2 = makeAliasConflict(next.player2, next.player2YoB, idxProfiles, (next a
 if (c2) conflicts.push(c2);
 
 if (conflicts.length > 0) {
-    setAliasModalTitle(`${t('possible_homonyms_birthdate')} — ${t('teams')}`);
+    setAliasModalTitle(`${t('possible_homonyms_birthdate')} â€” ${t('teams')}`);
     setAliasModalConflicts(conflicts);
     setPendingTeamSave(next);
     setPendingScorersImport(null);
@@ -2185,7 +2192,7 @@ ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
-- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} · squadre ${alt.parsed.teams.length}`).join('\n- ')}`
+- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} Â· squadre ${alt.parsed.teams.length}`).join('\n- ')}`
             : '';
         return `${t('alert_import_error')}
 
@@ -2215,7 +2222,7 @@ ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
 
         const parseFlag = (value: unknown) => {
             const raw = String(value ?? '').trim().toLowerCase();
-            return raw === 'si' || raw === 'sì' || raw === 'true' || raw === '1' || raw === 'x';
+            return raw === 'si' || raw === 'sÃ¬' || raw === 'true' || raw === '1' || raw === 'x';
         };
 
         if (activeLayout === 'team_rows') {
@@ -2382,14 +2389,14 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
             const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
             setState({ ...state, teams: merged, tournament: nextTournament });
-            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_total_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_total_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
         }
     };
 
-    // STEP 10 — import squadre dentro wizard "Nuovo torneo archiviato" (non tocca il live)
+    // STEP 10 â€” import squadre dentro wizard "Nuovo torneo archiviato" (non tocca il live)
     const importArchiveTeamsFile = async (file: File) => {
         const XLSX = await getXLSX();
         const ext = file.name.toLowerCase().split('.').pop();
@@ -2460,7 +2467,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 if (!existing.has(k)) merged.push(t);
             }
             setCreateArchiveTeams(merged);
-            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_in_wizard_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_in_wizard_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
@@ -2701,7 +2708,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!state.tournament) return;
         const match = (state.tournamentMatches || []).find((m) => m.id === matchId);
         if (!match) return;
-        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha già propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
+        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha giÃ  propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
         if (!ok) return;
         const nextMatches = (state.tournamentMatches || []).map((m) =>
             m.id === matchId ? clearRefereeReportFromMatch(m) : m
@@ -2810,7 +2817,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return m;
     };
 
-    // === Retroattività su Archivio (editing risultati) ===
+    // === RetroattivitÃ  su Archivio (editing risultati) ===
     const buildBracketRoundsFromMatches = (allMatches: Match[]): Match[][] => {
         const rounds: Match[][] = [];
         const bracketMatches = (allMatches || []).filter(m => m.phase === 'bracket');
@@ -3273,8 +3280,8 @@ while (guard < 5000) {
                     }
                 }
 
-                // Score pattern: 10-8, 10 : 8, 10–8
-                const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-–:]\s*(\d{1,2})\b/);
+                // Score pattern: 10-8, 10 : 8, 10â€“8
+                const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-â€“:]\s*(\d{1,2})\b/);
                 if (scoreMatch) {
                     setReportScoreA(scoreMatch[1]);
                     setReportScoreB(scoreMatch[2]);
@@ -3630,7 +3637,7 @@ while (guard < 5000) {
     }
 
 
-    // --- TAB COMPONENTS (estratti per manutenibilità, logica invariata) ---
+    // --- TAB COMPONENTS (estratti per manutenibilitÃ , logica invariata) ---
     // Tutti i tab Admin ora sono in file separati (./admin/tabs/*).
 
     const monitorBracketTabProps = {
@@ -3868,7 +3875,7 @@ while (guard < 5000) {
                             </details>
 
                             <button type="button" onClick={() => openMvpModal(false)} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors shadow-sm" title={t('mvp_plural')}>
-                                <span className="text-sm select-none">⭐</span>
+                                <span className="text-sm select-none">â­</span>
                                 <span>{t('mvp_plural')}</span>
                                 {state.tournament && (
                                     <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">
@@ -3885,7 +3892,7 @@ while (guard < 5000) {
                         </>
                     )}
 
-                    {/* Sync badge: visibile SOLO se c'è un problema */}
+                    {/* Sync badge: visibile SOLO se c'Ã¨ un problema */}
                     {(adminSyncState.phase !== 'synced' && adminSyncState.phase !== 'idle') && (
                         <>
                             <div className="w-px h-5 bg-slate-200 mx-0.5"></div>
@@ -3896,7 +3903,7 @@ while (guard < 5000) {
                                     adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200' :
                                     'bg-slate-100 text-slate-600 border-slate-200'
                                 }`}
-                                title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
+                                title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` Â· ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
                             >
                                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                     adminSyncState.phase === 'syncing' ? 'bg-sky-500 animate-pulse' :
@@ -3927,7 +3934,7 @@ while (guard < 5000) {
                                 </button>
                             </div>
 
-                            {/* Cache + Modalità in griglia 2 col */}
+                            {/* Cache + ModalitÃ  in griglia 2 col */}
                             <div className="grid grid-cols-2 gap-2">
                                 <div className="bg-slate-50 rounded-xl p-2 border border-slate-100 flex flex-col gap-1.5">
                                     <div className="flex items-center justify-between gap-1">
@@ -3986,7 +3993,7 @@ while (guard < 5000) {
                 <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
                          <div className="flex items-center gap-2 font-black text-amber-900 text-sm">
-                              <span className="text-xl">🧪</span> {t('admin_tester_tools')}
+                              <span className="text-xl">ðŸ§ª</span> {t('admin_tester_tools')}
                          </div>
                          <div className="flex flex-wrap gap-2">
                             <button type="button" onClick={handleSimulateTurn} disabled={simBusy} className="bg-amber-500 text-white px-3 py-1.5 rounded-xl font-black text-xs inline-flex items-center gap-1.5 hover:bg-amber-600 disabled:opacity-50">
@@ -4014,16 +4021,16 @@ while (guard < 5000) {
                                         {t('admin_area_label')}: <span className="font-black">{liveTabMeta[tab as LiveAdminTab]?.title || '-'}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_guiding_match')}:  <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
+                                        {t('admin_guiding_match')}:Â  <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_to_play')}:  <span className="font-black">{liveOpsSummary.scheduledCount}</span>
+                                        {t('admin_to_play')}:Â  <span className="font-black">{liveOpsSummary.scheduledCount}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_playing_count_label')}:  <span className="font-black">{liveOpsSummary.playingCount}</span>
+                                        {t('admin_playing_count_label')}:Â  <span className="font-black">{liveOpsSummary.playingCount}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-rose-800 bg-rose-50 border border-rose-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_finished_count_label')}:  <span className="font-black">{liveOpsSummary.finishedCount}</span>
+                                        {t('admin_finished_count_label')}:Â  <span className="font-black">{liveOpsSummary.finishedCount}</span>
                                     </div>
                                 </div>
 
