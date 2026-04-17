@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
-import { fetchUserFantaTeam, fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { loadState } from '../../services/storageService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
@@ -41,18 +41,21 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
       try {
         const result = await fetchUserFantaTeam(session.accountId);
         if (result) {
-          const liveStats = await fetchFantaTeamDetail(result.team.id);
+          const [liveStats, standings] = await Promise.all([
+            fetchFantaTeamDetail(result.team.id),
+            fetchFantaStandings(),
+          ]);
           const appState = loadState();
           
-          let totalGoals = 0, totalBlows = 0, totalFantasyPoints = 0;
+          let totalGoalPoints = 0, totalBlowPoints = 0, totalWinPoints = 0, totalBonusScia = 0, totalFantasyPoints = 0;
           
           const players = result.roster.map(r => {
              const stat = liveStats.find((s: any) => s.player_id === r.player_id) || {};
              const label = getPlayerKeyLabel(r.player_id);
              
-             let realTeamName = 'In gara';
+             let realTeamName = stat.real_team_name || r.real_team_name || 'In gara';
              for (const t of appState.teams || []) {
-                if (t.player1 === label.name || t.player2 === label.name) {
+                if (!stat.real_team_name && (t.player1 === label.name || t.player2 === label.name)) {
                    realTeamName = t.name;
                    break;
                 }
@@ -60,40 +63,66 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
 
              const goals = stat.raw_goals || 0;
              const blows = stat.raw_blows || 0;
-             const fp = stat.weighted_goals || 0;
+             const wins = stat.raw_wins || 0;
+             const bonusScia = stat.bonus_scia || 0;
+             const fp = stat.total_points || 0;
              
-             totalGoals += goals;
-             totalBlows += blows;
+             totalGoalPoints += stat.points_from_goals || goals;
+             totalBlowPoints += stat.points_from_blows || blows * 2;
+             totalWinPoints += stat.points_from_wins || wins * 7;
+             totalBonusScia += bonusScia;
              totalFantasyPoints += fp;
 
              return {
                 id: r.player_id,
-                playerName: label.name,
+                playerName: stat.player_name || r.player_name || label.name,
                 realTeamName,
                 role: r.role as FantaRosterRole,
-                status: 'live' as const,
+                status: stat.status || 'waiting',
+                note: stat.status === 'eliminated' && stat.eliminated_by_team_name
+                  ? `Eliminato da ${stat.eliminated_by_team_name}.`
+                  : 'Punteggio sincronizzato dal torneo live.',
                 goals,
                 blows,
-                wins: 0,
-                bonusScia: 0,
+                wins,
+                bonusScia,
                 fantasyPoints: fp
              };
           });
+
+          const rank = standings.findIndex((row) => row.team_id === result.team.id) + 1;
+          const teamsToFollow = liveStats
+            .filter((row: any) => row.status === 'eliminated' && row.eliminated_by_team_name)
+            .map((row: any) => ({
+              id: `${row.player_id}-${row.eliminated_by_team_id || row.eliminated_by_team_name}`,
+              teamName: row.eliminated_by_team_name,
+              followingFor: row.player_name || getPlayerKeyLabel(row.player_id).name,
+            }));
 
           const mapped: FantaMyTeam = {
             id: result.team.id,
             teamName: result.team.name,
             editionLabel: 'EDIZIONE LIVE',
+            buildStatus: 'ready',
+            buildStatusLabel: 'Confermata',
+            lockLabel: 'Rosa live',
             lockHint: 'Squadra sincronizzata con Supabase.',
             summary: {
-              currentRankLabel: '-',
+              selectedPlayers: players.length,
+              currentRankLabel: rank > 0 ? `#${rank}` : '-',
               captainName: players.find(p => p.role === 'captain')?.playerName || 'N/A',
               defendersCount: players.filter(p => p.role === 'defender').length,
               totalPoints: totalFantasyPoints
             },
-            pointsBreakdown: { goals: totalGoals, blows: totalBlows, wins: 0, bonusScia: 0 },
+            pointsBreakdown: { goals: totalGoalPoints, blows: totalBlowPoints, wins: totalWinPoints, bonusScia: totalBonusScia },
             players,
-            teamsToFollow: []
+            teamsToFollow,
+            constraints: [
+              { id: 'players', label: '4 giocatori selezionati', satisfied: players.length === 4, helper: `${players.length}/4 giocatori in rosa.` },
+              { id: 'captain', label: '1 capitano assegnato', satisfied: players.filter(p => p.role === 'captain').length === 1, helper: players.find(p => p.role === 'captain')?.playerName || 'Capitano mancante.' },
+              { id: 'defenders', label: '2 difensori obbligatori', satisfied: players.filter(p => p.role === 'defender').length === 2, helper: `${players.filter(p => p.role === 'defender').length}/2 difensori.` },
+            ],
+            notes: ['I punteggi arrivano dal torneo live e rispettano i ruoli FantaBeerpong.']
           };
           setData(mapped);
         }
@@ -108,7 +137,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-10 w-10 animate-spin text-beer-500" />
-        <p className="mt-4 font-black uppercase tracking-widest text-slate-500">Recupero squadra fantasy...</p>
+        <p className="mt-4 font-black uppercase tracking-widest text-slate-500">Recupero squadra Fanta...</p>
       </div>
     );
   }
@@ -120,7 +149,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
           <LogIn className="h-8 w-8 text-slate-400" />
         </div>
         <h3 className="text-2xl font-black text-slate-900">Accesso richiesto</h3>
-        <p className="mt-2 text-slate-600 max-w-sm font-semibold">Devi essere loggato con il tuo account giocatore per creare o visualizzare la tua squadra fantasy.</p>
+        <p className="mt-2 text-slate-600 max-w-sm font-semibold">Devi essere loggato con il tuo account giocatore per creare o visualizzare la tua squadra Fanta.</p>
         <button type="button" onClick={() => (window as any).flbpOpenPlayerArea?.()} className="mt-6 inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-8 py-4 text-sm font-black uppercase tracking-widest text-white shadow-xl transition hover:bg-slate-800">Accedi ora</button>
       </div>
     );
@@ -159,7 +188,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         <MetricCard label="Ranking attuale" value={data.summary.currentRankLabel} hint="Preview classifica generale" />
         <MetricCard label="Capitano" value={data.summary.captainName} hint="Punti raddoppiati x2" />
         <MetricCard label="Difensori" value={`${data.summary.defendersCount}/2`} hint="Soffi raddoppiati x2" />
-        <MetricCard label="Punti Totali" value={String(Object.values(data.pointsBreakdown).reduce((a, b) => a + b, 0))} hint="Snapshot live" />
+        <MetricCard label="Punti Totali" value={String(data.summary.totalPoints || 0)} hint="Snapshot live" />
       </div>
 
       <div className={panelClass}>
@@ -192,7 +221,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         <div className="space-y-6">
           <div className={panelClass}>
             <div className="flex items-center justify-between gap-3">
-              <div className="text-xl font-black tracking-tight text-slate-950">Rosa fantasy</div>
+              <div className="text-xl font-black tracking-tight text-slate-950">Rosa Fanta</div>
               <div className="text-xs font-black uppercase tracking-widest text-slate-500">{data.players.length}/4 Giocatori</div>
             </div>
 

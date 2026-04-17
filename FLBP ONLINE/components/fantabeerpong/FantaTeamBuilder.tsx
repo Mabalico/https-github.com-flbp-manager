@@ -1,10 +1,8 @@
 import React from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader2 } from 'lucide-react';
-import { fetchFantaConfig, fetchUserFantaTeam, saveFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaConfig, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
-import { loadState } from '../../services/storageService';
-import { getPlayerKey, pickPlayerIdentityValue } from '../../services/playerIdentity';
-import type { FantaBuilderPlayerOption, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
+import type { FantaBuilderPlayerOption, FantaBuilderTeamGroup, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { panelClass } from './_shared';
 
@@ -27,45 +25,21 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [config, setConfig] = React.useState<FantaConfig | null>(null);
+  const [availableTeams, setAvailableTeams] = React.useState<FantaBuilderTeamGroup[]>([]);
   const [session] = React.useState(readPlayerPresenceSnapshot());
 
-  // Real data from AppState
-  const appState = React.useMemo(() => loadState(), []);
   const tournamentPlayers = React.useMemo(() => {
     const playersMap = new Map<string, FantaBuilderPlayerOption>();
-    (appState.teams || []).forEach(t => {
-      if (t.player1) {
-        const id = getPlayerKey(t.player1, pickPlayerIdentityValue(t.player1BirthDate, t.player1YoB));
-        playersMap.set(id, { id, playerName: t.player1, realTeamName: t.name, status: 'live' });
-      }
-      if (t.player2) {
-        const id = getPlayerKey(t.player2, pickPlayerIdentityValue(t.player2BirthDate, t.player2YoB));
-        playersMap.set(id, { id, playerName: t.player2, realTeamName: t.name, status: 'live' });
-      }
-    });
+    availableTeams.forEach((team) => team.players.forEach((player) => playersMap.set(player.id, player)));
     return Array.from(playersMap.values());
-  }, [appState]);
-
-  const tournamentTeams = React.useMemo(() => {
-    return (appState.teams || []).map(t => {
-      const p1Id = t.player1 ? getPlayerKey(t.player1, pickPlayerIdentityValue(t.player1BirthDate, t.player1YoB)) : '';
-      const p2Id = t.player2 ? getPlayerKey(t.player2, pickPlayerIdentityValue(t.player2BirthDate, t.player2YoB)) : '';
-      return {
-        id: t.id,
-        teamName: t.name,
-        players: [
-          ...(t.player1 ? [{ id: p1Id, playerName: t.player1, realTeamName: t.name, status: 'live' as const }] : []),
-          ...(t.player2 ? [{ id: p2Id, playerName: t.player2, realTeamName: t.name, status: 'live' as const }] : [])
-        ]
-      };
-    });
-  }, [appState]);
+  }, [availableTeams]);
 
   React.useEffect(() => {
     async function init() {
       setLoading(true);
       const conf = await fetchFantaConfig();
       setConfig(conf);
+      setAvailableTeams(conf?.activeTournamentId ? await fetchFantaTournamentTeams(conf.activeTournamentId) : []);
 
       if (session?.accountId) {
         const existing = await fetchUserFantaTeam(session.accountId);
@@ -85,6 +59,14 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const selectedPlayers = React.useMemo(() => flatPlayers.filter((p) => selectedIds.includes(p.id)), [flatPlayers, selectedIds]);
   const canAddMore = selectedIds.length < 4;
   const isReadOnly = config?.isLockActive || !config?.registrationOpen;
+  const activeTournamentName = config?.activeTournamentName || 'Nessun torneo live';
+  const lockMessage = !config?.activeTournamentId
+    ? 'Non c’è un torneo live collegato al FantaBeerpong. Le iscrizioni si aprono quando viene avviato un torneo.'
+    : config.tournamentStarted
+      ? 'La prima partita del torneo è già stata avviata: le iscrizioni Fanta sono chiuse.'
+      : config.manualLockActive || config.registrationOpenFlag === false
+        ? 'Le iscrizioni Fanta sono state chiuse manualmente dagli organizzatori.'
+        : 'Le iscrizioni Fanta non sono disponibili in questo momento.';
 
   const setInfo = (message: string, tone: 'success' | 'error' = 'success') => {
     setFeedback({ tone, message });
@@ -114,16 +96,16 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const toggleDefender = (playerId: string) => {
     if (isReadOnly) return;
     if (captainId === playerId) return setInfo('Il capitano non può essere difensore.', 'error');
-    if (!defenderIds.includes(playerId) && defenderIds.length >= 2) return setInfo('Massimo 2 difensori.', 'error');
+    if (!defenderIds.includes(playerId) && defenderIds.length >= 2) return setInfo('I difensori devono essere esattamente 2.', 'error');
     setDefenderIds((current) => current.includes(playerId) ? current.filter((id) => id !== playerId) : [...current, playerId]);
   };
 
-  const filteredTeams = tournamentTeams
+  const filteredTeams = availableTeams
     .map((team) => ({ ...team, players: team.players.filter((player) => player.playerName.toLowerCase().includes(searchTerm.trim().toLowerCase())) }))
     .filter((team) => team.players.length > 0);
   const filteredPlayers = flatPlayers.filter((player) => player.playerName.toLowerCase().includes(searchTerm.trim().toLowerCase()));
 
-  const allRulesOk = selectedIds.length === 4 && captainId !== '' && defenderIds.length > 0;
+  const allRulesOk = selectedIds.length === 4 && captainId !== '' && defenderIds.length === 2;
 
   const handleSave = async () => {
     if (!session?.accountId || !allRulesOk || isReadOnly) return;
@@ -164,8 +146,8 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />EDIZIONE LIVE</div>
-              <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Inizia la tua scalata fantasy</h1>
-              <div className="mt-2 text-sm font-semibold text-slate-600">Costruisci il tuo roster per il torneo {appState.tournament?.name || 'Live'}</div>
+              <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Inizia la tua scalata Fanta</h1>
+              <div className="mt-2 text-sm font-semibold text-slate-600">Costruisci il tuo roster per il torneo {activeTournamentName}</div>
             </div>
             <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-beer-500/20"><ArrowLeft className="h-4 w-4" />Torna al FantaBeerpong</button>
           </div>
@@ -178,7 +160,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
               <div className="mt-6 space-y-4">
                 <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-5">
                   <div className="text-sm font-black uppercase tracking-wide text-beer-700">Torneo</div>
-                  <div className="mt-1 text-lg font-black text-slate-950">{appState.tournament?.name || 'Caricamento...'}</div>
+                  <div className="mt-1 text-lg font-black text-slate-950">{activeTournamentName}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-500">{config?.registrationOpen ? 'Iscrizioni Aperte' : 'Iscrizioni Chiuse'}</div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -194,7 +176,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                 {isReadOnly && (
                   <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4">
                     <div className="text-sm font-black text-rose-900">Mercato Bloccato</div>
-                    <div className="mt-1 text-sm font-semibold text-rose-800 italic">Il torneo è iniziato o le iscrizioni sono state chiuse dagli organizzatori.</div>
+                    <div className="mt-1 text-sm font-semibold text-rose-800 italic">{lockMessage}</div>
                   </div>
                 )}
               </div>
@@ -233,7 +215,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="space-y-6">
             <div className={panelClass}>
-              <div className="text-xl font-black tracking-tight text-slate-950">La tua rosa fantasy</div>
+              <div className="text-xl font-black tracking-tight text-slate-950">La tua rosa Fanta</div>
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {selectedPlayers.map((player) => {
                   const isCaptain = captainId === player.id;
@@ -261,7 +243,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                   <input type="text" id="teamName" value={teamName} onChange={(e) => setTeamName(e.target.value)} disabled={isReadOnly} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:ring-2 focus:ring-beer-500/40 disabled:opacity-60" />
                 </div>
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 text-sm font-semibold text-slate-600 leading-relaxed italic">
-                  "Salvando la squadra, accetti il regolamento. La rosa non potrà essere modificata dopo l'inizio del torneo."
+                  "Salvando la squadra, accetti il regolamento. La rosa non potrà essere modificata dopo l'inizio della prima partita."
                 </div>
               </div>
             </div>
@@ -273,7 +255,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
               <div className="mt-4 space-y-3">
                 <div className={`flex items-center gap-2 text-sm font-bold ${selectedIds.length === 4 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> 4 giocatori selezionati</div>
                 <div className={`flex items-center gap-2 text-sm font-bold ${captainId ? 'text-emerald-700' : 'text-rose-600'}`}><CheckCircle2 className="h-4 w-4" /> Capitano assegnato</div>
-                <div className={`flex items-center gap-2 text-sm font-bold ${defenderIds.length > 0 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> Almeno 1 Difensore</div>
+                <div className={`flex items-center gap-2 text-sm font-bold ${defenderIds.length === 2 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> 2 Difensori assegnati</div>
               </div>
               <button 
                 type="button" 
@@ -296,8 +278,8 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
         <div className="flex items-start justify-between gap-4 text-pretty">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />EDIZIONE LIVE</div>
-            <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Crea / modifica squadra fantasy</h1>
-            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Fase di {config?.isLockActive ? 'Blocco' : 'Mercato'} - Tournament {appState.tournament?.name}</div>
+            <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Crea / modifica squadra Fanta</h1>
+            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Fase di {config?.registrationOpen ? 'Mercato' : 'Blocco'} - {activeTournamentName}</div>
           </div>
           <button type="button" onClick={() => setStep('info')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 transition"><ArrowLeft className="h-4 w-4" />Back</button>
         </div>
@@ -336,6 +318,11 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                     </div>
                   </div>
                 ))}
+                {filteredTeams.length === 0 && (
+                  <div className="rounded-[22px] border border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center text-sm font-bold text-slate-500">
+                    Nessuna squadra disponibile per questo torneo. Controlla che il torneo live sia pubblicato online.
+                  </div>
+                )}
               </div>
             ) : (
               <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -349,6 +336,11 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                     </div>
                   </div>
                 ))}
+                {filteredPlayers.length === 0 && (
+                  <div className="rounded-[22px] border border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center text-sm font-bold text-slate-500 md:col-span-2">
+                    Nessun giocatore disponibile per questo torneo.
+                  </div>
+                )}
               </div>
             )}
           </div>

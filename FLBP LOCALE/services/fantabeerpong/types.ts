@@ -12,6 +12,41 @@ export type FantaTeamBuildStatus = 'draft' | 'ready' | 'locked';
 export type FantaRosterRole = 'captain' | 'defender' | 'starter';
 export type FantaQuickHelpTopic = 'roles' | 'scoring' | 'bonus_scia';
 
+export interface FantaConfig {
+  activeTournamentId: string;
+  activeTournamentName?: string;
+  isLockActive: boolean;
+  registrationOpen: boolean;
+  registrationOpenFlag?: boolean;
+  manualLockActive?: boolean;
+  tournamentStarted?: boolean;
+  updatedAt?: string;
+}
+
+export interface FantaPlayer {
+  id: string;
+  playerName: string;
+  realTeamName: string;
+  realTeamId?: string;
+  status?: FantaPlayerAvailability;
+  trend?: FantaTrend;
+  note?: string;
+}
+
+export interface FantaLineupSlot {
+  player: FantaPlayer;
+  role: FantaRosterRole;
+}
+
+export interface FantaTeam {
+  id: string;
+  workspaceId: string;
+  tournamentId: string;
+  userId: string;
+  name: string;
+  status?: FantaTeamBuildStatus | 'confirmed' | 'final';
+}
+
 export interface FantaOverviewMetric { id: string; label: string; value: string; hint?: string; }
 export interface FantaOverviewQuickAction {
   id: string; title: string; description: string;
@@ -34,12 +69,15 @@ export interface FantaMyTeamPlayer {
 }
 export interface FantaMyTeamConstraint { id: string; label: string; satisfied: boolean; helper: string; }
 export interface FantaMyTeamData {
+  id?: string;
   editionLabel: string; teamName: string; buildStatus: FantaTeamBuildStatus; buildStatusLabel: string; lockLabel: string; lockHint: string;
-  summary: { selectedPlayers: number; captainName: string; defendersCount: number; currentRankLabel: string; };
+  summary: { selectedPlayers: number; captainName: string; defendersCount: number; currentRankLabel: string; totalPoints?: number; };
   pointsBreakdown: { goals: number; blows: number; wins: number; bonusScia: number; };
   teamsToFollow: Array<{ id: string; teamName: string; followingFor: string }>;
   players: FantaMyTeamPlayer[]; constraints: FantaMyTeamConstraint[]; notes: string[];
 }
+
+export type FantaMyTeam = FantaMyTeamData;
 
 export interface FantaGeneralStandingsRow {
   id: string; rank: number; teamName: string; ownerLabel: string; totalPoints: number; livePoints: number; captainName: string;
@@ -86,7 +124,47 @@ export interface FantaHistoryEditionDetailData {
   podium: Array<{ id: string; rankLabel: string; teamName: string; ownerLabel: string; pointsLabel: string }>;
 }
 
-export interface FantaBuilderPlayerOption { id: string; playerName: string; realTeamName: string; status: FantaPlayerAvailability; trend: FantaTrend; note: string; }
+export interface FantaArchivedEdition {
+  tournamentId: string;
+  tournamentName: string;
+  dateLabel: string;
+  winnerTeamName: string;
+  winnerPoints: number;
+  teamsCount: number;
+  updatedAt?: string;
+}
+
+export interface FantaArchivedStandingRow {
+  teamId: string;
+  rank: number;
+  teamName: string;
+  totalPoints: number;
+  goals: number;
+  blows: number;
+  wins: number;
+  bonusScia: number;
+  playersInGame: number;
+}
+
+export interface FantaArchivedPlayerRow {
+  playerId: string;
+  rank: number;
+  playerName: string;
+  realTeamName: string;
+  totalPoints: number;
+  goals: number;
+  blows: number;
+  wins: number;
+  bonusScia: number;
+}
+
+export interface FantaArchivedEditionDetail {
+  edition: FantaArchivedEdition;
+  standings: FantaArchivedStandingRow[];
+  topPlayers: FantaArchivedPlayerRow[];
+}
+
+export interface FantaBuilderPlayerOption { id: string; playerName: string; realTeamName: string; realTeamId?: string; status: FantaPlayerAvailability; trend: FantaTrend; note: string; }
 export interface FantaBuilderTeamGroup { id: string; teamName: string; players: FantaBuilderPlayerOption[]; }
 export interface FantaTeamBuilderData {
   editionLabel: string; buildWindowLabel: string; buildWindowHint: string; isReadOnly: boolean;

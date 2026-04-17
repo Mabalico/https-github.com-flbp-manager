@@ -40,31 +40,31 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
 
       const myPlayerIds = userTeam?.roster.map(r => r.player_id) || [];
 
-      const mapped = rawRows.map((r, idx): FantaPlayersStandingsRow => ({
+      const ordered = [...rawRows].sort((left, right) => {
+        if ((right.total_points || 0) !== (left.total_points || 0)) return (right.total_points || 0) - (left.total_points || 0);
+        if ((right.points_from_wins || 0) !== (left.points_from_wins || 0)) return (right.points_from_wins || 0) - (left.points_from_wins || 0);
+        return (right.points_from_goals || 0) - (left.points_from_goals || 0);
+      });
+      const mapped = ordered.map((r, idx): FantaPlayersStandingsRow => ({
         id: r.player_key,
-        rank: idx + 1, // temporary
+        rank: idx + 1,
         playerName: r.player_name,
         realTeamName: r.real_team_name || 'N/D',
-        fantasyPoints: r.live_points || 0, // In simple mode, matches live points
-        livePoints: r.live_points || 0,
+        fantasyPoints: r.total_points || 0,
+        livePoints: r.live_points || r.total_points || 0,
         selectedByTeams: r.selected_by_teams || 0,
-        goals: r.live_points || 0,
-        blows: r.blows || 0,
-        wins: 0, // Placeholder
-        bonusScia: 0, // Placeholder
-        status: 'live',
+        goals: r.points_from_goals || 0,
+        blows: r.points_from_blows || 0,
+        wins: r.points_from_wins || 0,
+        bonusScia: r.bonus_scia || 0,
+        status: r.status || 'waiting',
         roleLabel: 'Giocatore',
+        note: r.status === 'eliminated' && r.eliminated_by_team_name
+          ? `Eliminato da ${r.eliminated_by_team_name}.`
+          : 'Punti Fanta live calcolati dal torneo.',
         isInMyTeam: myPlayerIds.includes(r.player_key)
       }));
-
-      // Final ranking after mapping
-      const sortedByPoints = [...mapped].sort((a,b) => b.fantasyPoints - a.fantasyPoints);
-      const ranked = mapped.map(item => ({
-        ...item,
-        rank: sortedByPoints.findIndex(s => s.id === item.id) + 1
-      }));
-
-      setRows(ranked);
+      setRows(mapped);
       setLoading(false);
     }
     load();
@@ -104,8 +104,8 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Users className="h-3.5 w-3.5" />LIVE TOURNAMENT</div>
-            <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Classifica giocatori fantasy</div>
-            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Breakdown completo dei punti fantasy per ogni singolo giocatore reale.</div>
+            <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Classifica giocatori Fanta</div>
+            <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Breakdown completo dei punti Fanta per ogni singolo giocatore reale.</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50"><Shield className="h-4 w-4" />Vai alla mia squadra</button>
@@ -189,4 +189,3 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
     </div>
   );
 };
-

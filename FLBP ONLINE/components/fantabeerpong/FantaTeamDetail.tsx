@@ -22,9 +22,11 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
       const rows = await fetchFantaTeamDetail(teamId);
       if (rows && rows.length > 0) {
         const teamName = rows[0].team_name;
-        const totalGoals = rows.reduce((acc: number, r: any) => acc + (r.raw_goals || 0), 0);
-        const totalBlows = rows.reduce((acc: number, r: any) => acc + (r.raw_blows || 0), 0);
-        const totalPoints = rows.reduce((acc: number, r: any) => acc + (r.weighted_goals || 0), 0);
+        const totalGoalPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_goals || 0), 0);
+        const totalBlowPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_blows || 0), 0);
+        const totalWinPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_wins || 0), 0);
+        const totalBonusScia = rows.reduce((acc: number, r: any) => acc + (r.bonus_scia || 0), 0);
+        const totalPoints = rows.reduce((acc: number, r: any) => acc + (r.total_points || 0), 0);
         
         const appState = loadState();
         
@@ -33,33 +35,34 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
           note: `Analisi dettagliata per ${teamName} - Punteggio cumulativo basi reali.`,
           summaryCards: [
             { id: 'c1', label: 'Punti Totali', value: totalPoints.toString(), hint: 'Basati sui ruoli' },
-            { id: 'c2', label: 'Canestri', value: totalGoals.toString(), hint: 'Totale squadra' },
-            { id: 'c3', label: 'Soffi', value: totalBlows.toString(), hint: 'Totale squadra' },
+            { id: 'c2', label: 'Canestri', value: totalGoalPoints.toString(), hint: 'Punti da canestri' },
+            { id: 'c3', label: 'Soffi', value: totalBlowPoints.toString(), hint: 'Punti da soffi' },
             { id: 'c4', label: 'Giocatori', value: rows.length.toString(), hint: 'In rosa' },
           ],
-          pointsBreakdown: { goals: totalGoals, blows: totalBlows, wins: 0, bonusScia: 0 },
+          pointsBreakdown: { goals: totalGoalPoints, blows: totalBlowPoints, wins: totalWinPoints, bonusScia: totalBonusScia },
           lineup: rows.map((r: any) => {
-             const label = getPlayerKeyLabel(r.player_id);
-             let realTeamName = 'In gara';
-             for (const t of appState.teams || []) {
-                if (t.player1 === label.name || t.player2 === label.name) {
-                   realTeamName = t.name;
-                   break;
-                }
+              const label = getPlayerKeyLabel(r.player_id);
+              let realTeamName = r.real_team_name || 'In gara';
+              for (const t of appState.teams || []) {
+                 if (!r.real_team_name && (t.player1 === label.name || t.player2 === label.name)) {
+                    realTeamName = t.name;
+                    break;
+                 }
              }
              return {
-                id: r.player_id,
-                playerId: r.player_id,
-                playerName: label.name,
-                realTeamName,
-                roleLabel: r.role.toUpperCase(),
-                status: 'live',
-                goals: r.raw_goals || 0,
-                blows: r.raw_blows || 0,
-                wins: 0,
-                bonusScia: 0,
-                fantasyPoints: r.weighted_goals || 0
-             };
+                 id: r.player_id,
+                 playerId: r.player_id,
+                 playerName: r.player_name || label.name,
+                 realTeamName,
+                 roleLabel: r.role.toUpperCase(),
+                 status: r.status || 'waiting',
+                 note: r.status === 'eliminated' && r.eliminated_by_team_name ? `Eliminato da ${r.eliminated_by_team_name}.` : 'Punteggio live.',
+                 goals: r.raw_goals || 0,
+                 blows: r.raw_blows || 0,
+                 wins: r.raw_wins || 0,
+                 bonusScia: r.bonus_scia || 0,
+                 fantasyPoints: r.total_points || 0
+              };
           })
         });
       }
@@ -89,7 +92,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
       <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />Dettaglio squadra fantasy</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />Dettaglio squadra Fanta</div>
             <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl truncate max-w-xl">{data.teamName}</h1>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.note}</div>
           </div>
@@ -122,7 +125,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
       </div>
 
       <div className={panelClass}>
-        <div className="text-xl font-black tracking-tight text-slate-950">Rosa fantasy</div>
+        <div className="text-xl font-black tracking-tight text-slate-950">Rosa Fanta</div>
         <div className="mt-6 space-y-4">
           {data.lineup.map((row: any) => (
             <button key={row.id} type="button" onClick={() => onOpenPlayerDetail?.(row.playerId)} className="group w-full rounded-[26px] border border-slate-200 bg-slate-50 p-1 text-left transition hover:border-slate-300 hover:bg-white hover:shadow-xl">

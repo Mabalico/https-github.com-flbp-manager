@@ -23,16 +23,16 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       const standings = await fetchFantaPlayerStandings();
       const appState = loadState();
 
-      const sortedStandings = [...standings].sort((a,b) => (b.live_points || 0) - (a.live_points || 0));
+      const sortedStandings = [...standings].sort((a,b) => (b.total_points || 0) - (a.total_points || 0));
       const rankIndex = sortedStandings.findIndex(s => s.player_key === playerId);
       const rank = rankIndex !== -1 ? rankIndex + 1 : '-';
       const playerStanding = standings.find(s => s.player_key === playerId);
 
-      const totalGoals = playerStanding?.live_points || contributions.reduce((acc, c) => acc + (c.canestri || 0), 0);
-      const totalBlows = playerStanding?.blows || contributions.reduce((acc, c) => acc + (c.soffi || 0), 0);
-      const totalWins = 0; // Simplified for this prototype
-      const totalScia = 0; // Simplified
-      const totalPoints = playerStanding?.live_points || 0;
+      const totalGoals = playerStanding?.points_from_goals || contributions.reduce((acc, c) => acc + (c.canestri || 0), 0);
+      const totalBlows = playerStanding?.points_from_blows || contributions.reduce((acc, c) => acc + ((c.soffi || 0) * 2), 0);
+      const totalWins = playerStanding?.points_from_wins || 0;
+      const totalScia = playerStanding?.bonus_scia || 0;
+      const totalPoints = playerStanding?.total_points || 0;
 
       const label = getPlayerKeyLabel(playerId);
       
@@ -46,7 +46,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
          }
       }
 
-      const status = 'live'; // Placeholder for backend integration
+      const status = playerStanding?.status || 'waiting';
       
       setData({
         playerName: playerStanding?.player_name || label.name, 
@@ -54,12 +54,14 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
         roleLabel: 'Giocatore',
         rank,
         status,
-        note: `Analisi delle performance live per ${label.name}. Dati estratti dai referti ufficiali del torneo.`,
+        note: playerStanding?.status === 'eliminated' && playerStanding?.eliminated_by_team_name
+          ? `Eliminato da ${playerStanding.eliminated_by_team_name}. Il Bonus Scia considera le vittorie successive di quella squadra.`
+          : `Analisi delle performance live per ${label.name}. Dati estratti dai referti ufficiali del torneo.`,
         summaryCards: [
           { id: 's1', label: 'Punti Totali Fanta', value: totalPoints.toString(), hint: `Rank #${rank}` },
-          { id: 's2', label: 'Canestri', value: totalGoals.toString(), hint: 'In tutto il torneo' },
-          { id: 's3', label: 'Soffi', value: totalBlows.toString(), hint: 'In tutto il torneo' },
-          { id: 's4', label: 'Vittorie', value: totalWins.toString(), hint: 'Vittorie squadra' },
+          { id: 's2', label: 'Canestri', value: totalGoals.toString(), hint: 'Punti da canestri' },
+          { id: 's3', label: 'Soffi', value: totalBlows.toString(), hint: 'Punti da soffi' },
+          { id: 's4', label: 'Vittorie', value: totalWins.toString(), hint: 'Punti vittorie squadra' },
           { id: 's5', label: 'Bonus Scia', value: totalScia.toString(), hint: 'Post eliminazione' },
           { id: 's6', label: 'Partite Refertate', value: contributions.length.toString(), hint: 'Match giocati' },
         ],
@@ -91,7 +93,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-7">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-blue-700"><UserRound className="h-3.5 w-3.5" />Dettaglio giocatore fantasy</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-blue-700"><UserRound className="h-3.5 w-3.5" />Dettaglio giocatore Fanta</div>
             <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl uppercase font-mono">{data.playerName}</h1>
             <div className="mt-1 flex items-center gap-2">
                <span className="text-sm font-bold text-slate-600">{data.realTeamName} · {data.roleLabel}</span>

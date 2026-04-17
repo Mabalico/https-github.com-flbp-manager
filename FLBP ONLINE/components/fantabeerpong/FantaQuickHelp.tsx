@@ -10,7 +10,7 @@ interface Props {
 }
 
 const copyMap: Record<FantaQuickHelpTopic, FantaQuickHelpItem> = {
-  roles:      { id: 'roles',      title: 'Capitano e Difensori',  body: 'Hai sempre 1 Capitano e fino a 2 Difensori. Lo stesso giocatore non può occupare entrambi i ruoli.' },
+  roles:      { id: 'roles',      title: 'Capitano e Difensori',  body: 'Hai sempre 1 Capitano e 2 Difensori obbligatori. Lo stesso giocatore non può occupare entrambi i ruoli.' },
   scoring:    { id: 'scoring',    title: 'Come si fanno i punti', body: 'Canestro 1, soffio 2, vittoria 7, bonus finali 10. Il dettaglio completo resta nel regolamento.' },
   bonus_scia: { id: 'bonus_scia', title: 'Cos\u2019è il Bonus Scia',  body: 'È il bonus distintivo della modalità: vale 5 punti e va mostrato sempre con ritorno facile al regolamento.' },
 };

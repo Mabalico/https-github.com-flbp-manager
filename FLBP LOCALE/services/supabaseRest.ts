@@ -2307,9 +2307,9 @@ export const sanitizeAppStateForPublic = (state: AppState): Json => {
         return rest;
     });
 
-    // Alias mapping can embed YoB in keys; omit it from public snapshot.
-    safe.playerAliases = {};
-    safe.playerAccountAliasIgnores = {};
+    // Alias mapping can embed YoB in keys; omit it entirely from public snapshots.
+    delete safe.playerAliases;
+    delete safe.playerAccountAliasIgnores;
 
     return safe;
 };

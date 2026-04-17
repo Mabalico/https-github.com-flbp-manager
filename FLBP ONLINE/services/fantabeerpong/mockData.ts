@@ -18,7 +18,7 @@ export const FANTA_OVERVIEW_MOCK: FantaOverviewData = {
   teamBuildStatusLabel: 'Squadra pronta',
   teamBuildStatusHint: 'Puoi ancora modificare la rosa fino alla prima partita del live.',
   metrics: [
-    { id: 'total_points', label: 'Punti fantasy', value: '86', hint: '3° posto generale provvisorio' },
+    { id: 'total_points', label: 'Punti Fanta', value: '86', hint: '3° posto generale provvisorio' },
     { id: 'rank', label: 'Posizione', value: '#3', hint: '-7 dalla vetta' },
     { id: 'live_players', label: 'Giocatori in gioco', value: '2/4', hint: 'Aggiornamento live attivo' },
     { id: 'bonus', label: 'Bonus Scia', value: 'Disponibile', hint: 'Nessun consumo nella giornata corrente' },
@@ -35,19 +35,19 @@ export const FANTA_OVERVIEW_MOCK: FantaOverviewData = {
     { id: 'fp_4', playerName: 'Gio Neri', teamName: 'Foam Brothers', fantasyPoints: 6, roleLabel: 'Titolare', availability: 'waiting' },
   ],
   quickActions: [
-    { id: 'qa_builder', title: 'Crea / modifica squadra', description: 'Apri il builder fantasy con ruoli e lock.', target: 'team_builder' },
+    { id: 'qa_builder', title: 'Crea / modifica squadra', description: 'Apri il builder Fanta con ruoli e lock.', target: 'team_builder' },
     { id: 'qa_team', title: 'Completa la mia squadra', description: 'Controlla ruoli, capitano e difensori prima del lock.', target: 'my_team' },
-    { id: 'qa_standings', title: 'Apri la classifica generale', description: 'Confronta il tuo punteggio con le altre squadre fantasy.', target: 'general_standings' },
-    { id: 'qa_players', title: 'Segui i giocatori live', description: 'Guarda chi sta spingendo di più in ottica fantasy.', target: 'players_standings' },
+    { id: 'qa_standings', title: 'Apri la classifica generale', description: 'Confronta il tuo punteggio con le altre squadre Fanta.', target: 'general_standings' },
+    { id: 'qa_players', title: 'Segui i giocatori live', description: 'Guarda chi sta spingendo di più in ottica Fanta.', target: 'players_standings' },
     { id: 'qa_rules', title: 'Rivedi il regolamento', description: 'Controlla ruoli, bonus e vincoli della modalità.', target: 'rules' },
   ],
   rulesHighlights: [
-    { id: 'rule_1', label: 'Rosa', value: '4 giocatori · 1 capitano · fino a 2 difensori' },
+    { id: 'rule_1', label: 'Rosa', value: '4 giocatori · 1 capitano · 2 difensori' },
     { id: 'rule_2', label: 'Punteggi base', value: 'Canestro 1 · Soffio 2 · Vittoria 7' },
     { id: 'rule_3', label: 'Lock squadra', value: 'Modifiche consentite solo fino alla prima partita' },
   ],
   historyHighlight: { editionLabel: 'Winter Cup 2025', winnerTeamName: 'Tappi Volanti', winnerPoints: 142, note: 'Edizione inaugurale vinta con sprint finale.' },
-  liveLabel: 'Live fantasy attivo',
+  liveLabel: 'Live Fanta attivo',
   liveHint: 'Dati mock strutturati come base di lavoro per integrazione reale.',
 };
 
@@ -73,7 +73,7 @@ export const FANTA_MY_TEAM_MOCK: FantaMyTeamData = {
   constraints: [
     { id: 'c_1', label: '4 giocatori selezionati', satisfied: true, helper: 'La rosa è completa.' },
     { id: 'c_2', label: '1 capitano assegnato', satisfied: true, helper: 'Il capitano attuale è Luca Bianchi.' },
-    { id: 'c_3', label: 'Massimo 2 difensori', satisfied: true, helper: 'Attualmente hai 2 difensori.' },
+    { id: 'c_3', label: '2 difensori obbligatori', satisfied: true, helper: 'Attualmente hai 2 difensori.' },
     { id: 'c_4', label: 'Capitano distinto dai difensori', satisfied: true, helper: 'Nessuna sovrapposizione di ruolo.' },
   ],
   notes: ['Il lock squadra scatterà alla prima partita live della giornata.', 'Il builder è predisposto per persistenza futura.'],
@@ -94,7 +94,7 @@ export const FANTA_PLAYERS_STANDINGS_MOCK: FantaPlayersStandingsData = {
   editionLabel: 'Classifica giocatori · Spring Cup 2026',
   featuredPlayerId: 'fp_1',
   rows: [
-    { id: 'fp_1', rank: 1, playerName: 'Luca Bianchi', realTeamName: 'Red Cups', fantasyPoints: 18, livePoints: 11, roleLabel: 'Capitano', selectedByTeams: 7, status: 'live', isInMyTeam: true, note: 'Player più caldo della giornata fantasy.', goals: 6, blows: 2, wins: 1, bonusScia: 0 },
+    { id: 'fp_1', rank: 1, playerName: 'Luca Bianchi', realTeamName: 'Red Cups', fantasyPoints: 18, livePoints: 11, roleLabel: 'Capitano', selectedByTeams: 7, status: 'live', isInMyTeam: true, note: 'Player più caldo della giornata Fanta.', goals: 6, blows: 2, wins: 1, bonusScia: 0 },
     { id: 'fp_2', rank: 2, playerName: 'Marco Rossi', realTeamName: 'Foam Brothers', fantasyPoints: 16, livePoints: 8, roleLabel: 'Difensore', selectedByTeams: 5, status: 'live', isInMyTeam: true, note: 'Ottimo impatto difensivo.', goals: 5, blows: 2, wins: 1, bonusScia: 0 },
     { id: 'fp_3', rank: 3, playerName: 'Matteo Gialli', realTeamName: 'Plastic Storm', fantasyPoints: 14, livePoints: 9, roleLabel: 'Capitano', selectedByTeams: 6, status: 'live', note: 'Molto scelto nelle squadre di testa.', goals: 4, blows: 1, wins: 1, bonusScia: 0 },
     { id: 'fp_4', rank: 4, playerName: 'Gio Neri', realTeamName: 'Foam Brothers', fantasyPoints: 12, livePoints: 4, roleLabel: 'Difensore', selectedByTeams: 4, status: 'waiting', isInMyTeam: true, note: 'In attesa del prossimo slot match.', goals: 3, blows: 1, wins: 0, bonusScia: 3 },
@@ -103,11 +103,11 @@ export const FANTA_PLAYERS_STANDINGS_MOCK: FantaPlayersStandingsData = {
 };
 
 export const FANTA_RULES_MOCK: FantaRulesData = {
-  title: 'Regole essenziali della modalità fantasy',
+  title: 'Regole essenziali della modalità Fanta',
   intro: "Punteggi, vincoli della rosa, bonus e chiarimenti più utili senza cambiare lo stile semplice e mobile-first dell'app.",
   scoringRows: [
-    { id: 'score_goal', label: 'Canestro', valueLabel: '+1 punto', helper: 'Ogni canestro segnato vale 1 punto fantasy.' },
-    { id: 'score_blow', label: 'Soffio', valueLabel: '+2 punti', helper: 'Ogni soffio registrato genera 2 punti fantasy.' },
+    { id: 'score_goal', label: 'Canestro', valueLabel: '+1 punto', helper: 'Ogni canestro segnato vale 1 punto Fanta.' },
+    { id: 'score_blow', label: 'Soffio', valueLabel: '+2 punti', helper: 'Ogni soffio registrato genera 2 punti Fanta.' },
     { id: 'score_win', label: 'Vittoria', valueLabel: '+7 punti', helper: 'Bonus vittoria del match.' },
     { id: 'score_final_bonus', label: 'Bonus finali', valueLabel: '+10 punti', helper: 'MVP, Capocannoniere o Miglior Difensore del torneo.' },
     { id: 'score_streak', label: 'Bonus Scia', valueLabel: '+5 punti', helper: 'Ogni vittoria successiva della squadra che ha eliminato il tuo giocatore.' },
@@ -115,7 +115,7 @@ export const FANTA_RULES_MOCK: FantaRulesData = {
   constraints: [
     { id: 'constraint_roster', label: 'La rosa è composta da 4 giocatori.', helper: 'Scegli saggiamente i tuoi 4 slot.' },
     { id: 'constraint_captain', label: '1 Capitano (Punti x2)', helper: 'Il Capitano raddoppia TUTTI i punti ottenuti dal giocatore.' },
-    { id: 'constraint_defenders', label: 'Fino a 2 Difensori (Soffi x2)', helper: 'Il Difensore raddoppia solo il valore dei soffi.' },
+    { id: 'constraint_defenders', label: '2 Difensori obbligatori (Soffi x2)', helper: 'Il Difensore raddoppia solo il valore dei soffi.' },
     { id: 'constraint_roles', label: 'Ruoli separati', helper: 'Lo stesso giocatore non può essere sia Capitano che Difensore.' },
     { id: 'constraint_lock', label: 'Lock squadra', helper: 'Squadra bloccata dall\'inizio della prima partita del torneo.' },
   ],
@@ -125,7 +125,7 @@ export const FANTA_RULES_MOCK: FantaRulesData = {
   ],
   faqs: [
     { id: 'faq_1', question: "Cosa succede se il mio giocatore viene eliminato?", answer: "Smetti di prendere i suoi punti live, ma attivi il Bonus Scia (5pt per ogni vittoria futura della squadra che lo ha battuto) finché quella squadra non perde." },
-    { id: 'faq_2', question: "Posso cambiare i ruoli durante il torneo?", answer: "No, i ruoli (Capitano e Difensori) sono bloccati insieme alla rosa all'inizio del torneo." },
+      { id: 'faq_2', question: "Posso cambiare i ruoli durante il torneo?", answer: "No, i ruoli (Capitano e Difensori) sono bloccati insieme alla rosa all'inizio della prima partita." },
     { id: 'faq_3', question: "Chi vince in caso di parità?", answer: "Conta prima chi ha più giocatori ancora in gioco, poi i punti da vittorie, infine i canestri." },
   ],
 };
@@ -138,9 +138,9 @@ export const FANTA_HISTORY_MOCK: FantaHistoryData = {
   bestScoreLabel: 'Best score storico: 142 pt',
   reigningChampionLabel: 'Campione in carica: Tappi Volanti',
   editions: [
-    { id: 'fh_2025_winter', editionLabel: 'Winter Cup 2025', seasonLabel: 'Inaugurale', winnerTeamName: 'Tappi Volanti', winnerOwnerLabel: 'Team di Marco', winnerPoints: 142, completedTeams: 18, completedMatchesLabel: '18 squadre fantasy · finali concluse', note: 'Edizione inaugurale chiusa con sprint finale.', statusLabel: 'Archiviato' },
-    { id: 'fh_2025_summer', editionLabel: 'Summer Cup 2025', seasonLabel: 'Seconda edizione', winnerTeamName: 'Beer Hunters', winnerOwnerLabel: 'Team di Andrea', winnerPoints: 136, completedTeams: 16, completedMatchesLabel: '16 squadre fantasy · tabellone completo', note: 'Classifica molto corta fino alla penultima partita.', statusLabel: 'Storico' },
-    { id: 'fh_2024_autumn', editionLabel: 'Autumn Test 2024', seasonLabel: 'Preview mode', winnerTeamName: 'Plastic Dynasty', winnerOwnerLabel: 'Team di Vale', winnerPoints: 118, completedTeams: 10, completedMatchesLabel: '10 squadre fantasy · formato pilota', note: 'Formato sperimentale che ha definito la base della modalità attuale.', statusLabel: 'Storico' },
+    { id: 'fh_2025_winter', editionLabel: 'Winter Cup 2025', seasonLabel: 'Inaugurale', winnerTeamName: 'Tappi Volanti', winnerOwnerLabel: 'Team di Marco', winnerPoints: 142, completedTeams: 18, completedMatchesLabel: '18 squadre Fanta · finali concluse', note: 'Edizione inaugurale chiusa con sprint finale.', statusLabel: 'Archiviato' },
+    { id: 'fh_2025_summer', editionLabel: 'Summer Cup 2025', seasonLabel: 'Seconda edizione', winnerTeamName: 'Beer Hunters', winnerOwnerLabel: 'Team di Andrea', winnerPoints: 136, completedTeams: 16, completedMatchesLabel: '16 squadre Fanta · tabellone completo', note: 'Classifica molto corta fino alla penultima partita.', statusLabel: 'Storico' },
+    { id: 'fh_2024_autumn', editionLabel: 'Autumn Test 2024', seasonLabel: 'Preview mode', winnerTeamName: 'Plastic Dynasty', winnerOwnerLabel: 'Team di Vale', winnerPoints: 118, completedTeams: 10, completedMatchesLabel: '10 squadre Fanta · formato pilota', note: 'Formato sperimentale che ha definito la base della modalità attuale.', statusLabel: 'Storico' },
   ],
 };
 
@@ -154,10 +154,10 @@ export const FANTA_TEAM_DETAILS_BY_ID: Record<string, FantaTeamDetailData> = {
     totalPointsLabel: '86',
     livePointsLabel: '21',
     gapLabel: '-7 dalla vetta',
-    note: 'Detail squadra fantasy con ritorno diretto al percorso FantaBeerpong.',
+    note: 'Detail squadra Fanta con ritorno diretto al percorso FantaBeerpong.',
     pointsBreakdown: { goals: 28, blows: 12, wins: 35, bonusScia: 11 },
     summaryCards: [
-      { id: 'rank', label: 'Posizione', value: '#3', hint: 'Classifica generale fantasy' },
+      { id: 'rank', label: 'Posizione', value: '#3', hint: 'Classifica generale Fanta' },
       { id: 'points', label: 'Punti totali', value: '86', hint: 'Snapshot attuale' },
       { id: 'live', label: 'Live points', value: '21', hint: 'Giornata in corso' },
       { id: 'captain', label: 'Capitano', value: 'Luca Bianchi', hint: 'Ruolo bonus attivo' },
@@ -174,12 +174,12 @@ export const FANTA_TEAM_DETAILS_BY_ID: Record<string, FantaTeamDetailData> = {
 export const FANTA_PLAYER_DETAILS_BY_ID: Record<string, FantaPlayerDetailData> = {
   fp_1: {
     id: 'fp_1', playerName: 'Luca Bianchi', realTeamName: 'Red Cups', roleLabel: 'Capitano', availabilityLabel: 'In gioco',
-    editionLabel: 'Spring Cup 2026', fantasyPointsLabel: '18', livePointsLabel: '11', selectedByTeamsLabel: '7 squadre fantasy',
-    note: 'Dettaglio live del giocatore fantasy con breakdown contributi.',
+    editionLabel: 'Spring Cup 2026', fantasyPointsLabel: '18', livePointsLabel: '11', selectedByTeamsLabel: '7 squadre Fanta',
+    note: 'Dettaglio live del giocatore Fanta con breakdown contributi.',
     summaryCards: [
-      { id: 'fp', label: 'Punti fantasy', value: '18', hint: 'Totale attuale' },
+      { id: 'fp', label: 'Punti Fanta', value: '18', hint: 'Totale attuale' },
       { id: 'lp', label: 'Live points', value: '11', hint: 'Giornata in corso' },
-      { id: 'sel', label: 'Selezionato da', value: '7', hint: 'Squadre fantasy' },
+      { id: 'sel', label: 'Selezionato da', value: '7', hint: 'Squadre Fanta' },
       { id: 'role', label: 'Ruolo', value: 'Capitano', hint: 'Ruolo nella tua rosa' },
     ],
     contributionRows: [
@@ -196,7 +196,7 @@ export const FANTA_HISTORY_EDITION_DETAILS_BY_ID: Record<string, FantaHistoryEdi
     id: 'fh_2025_winter', editionLabel: 'Winter Cup 2025', seasonLabel: 'Inaugurale', winnerTeamName: 'Tappi Volanti',
     winnerOwnerLabel: 'Team di Marco', winnerPointsLabel: '142 punti finali', intro: "Dettaglio storico dell\'edizione inaugurale del FantaBeerpong.",
     summaryCards: [
-      { id: 'teams', label: 'Squadre fantasy', value: '18', hint: 'Partecipazione totale' },
+      { id: 'teams', label: 'Squadre Fanta', value: '18', hint: 'Partecipazione totale' },
       { id: 'winner', label: 'Vincitore', value: 'Tappi Volanti', hint: 'Team di Marco' },
       { id: 'score', label: 'Best score', value: '142', hint: 'Miglior punteggio dell\'archivio' },
       { id: 'format', label: 'Formato', value: 'Inaugurale', hint: 'Prima edizione archiviata' },

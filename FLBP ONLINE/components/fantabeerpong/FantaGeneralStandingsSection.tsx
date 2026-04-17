@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowDown, ArrowUpDown, BarChart3, Search, Trophy, X, Loader2 } from 'lucide-react';
 import { fetchFantaStandings } from '../../services/fantabeerpong/fantaSupabaseService';
+import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import type { FantaGeneralStandingsRow } from '../../services/fantabeerpong/types';
 import { panelClass } from './_shared';
 
@@ -32,24 +33,32 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
       setLoading(true);
       try {
         const data = await fetchFantaStandings();
-        // MAPPING: Convert standard Supabase view rows to FantaGeneralStandingsRow
-        // Note: Real implementation would handle rank/gap calculation here or in SQL
-        const mapped: FantaGeneralStandingsRow[] = data.map((item, index) => ({
+        const session = readPlayerPresenceSnapshot();
+        const ordered = [...data].sort((left, right) => {
+          if ((right.total_points || 0) !== (left.total_points || 0)) return (right.total_points || 0) - (left.total_points || 0);
+          if ((right.players_in_game || 0) !== (left.players_in_game || 0)) return (right.players_in_game || 0) - (left.players_in_game || 0);
+          if ((right.points_from_wins || 0) !== (left.points_from_wins || 0)) return (right.points_from_wins || 0) - (left.points_from_wins || 0);
+          return (right.points_from_goals || 0) - (left.points_from_goals || 0);
+        });
+        const leaderPoints = ordered[0]?.total_points || 0;
+        const mapped: FantaGeneralStandingsRow[] = ordered.map((item, index) => ({
           id: item.team_id,
           rank: index + 1,
           teamName: item.team_name,
           ownerLabel: item.user_id?.slice(0, 8) || 'Utente',
-          totalPoints: item.weighted_goals || 0, // Simplified for now
-          livePoints: 0,
-          gapFromLeader: 0,
-          goals: item.raw_goals || 0,
-          blows: item.raw_blows || 0,
-          wins: 0,
-          bonusScia: 0,
-          playersInGame: 4,
-          captainName: 'ID: ' + item.player_id?.slice(0, 5),
-          trend: 'stable',
-          isMine: false // Would be calculated against current user session
+          totalPoints: item.total_points || 0,
+          livePoints: item.live_points || item.total_points || 0,
+          gapFromLeader: Math.max(0, leaderPoints - (item.total_points || 0)),
+          goals: item.points_from_goals || 0,
+          blows: item.points_from_blows || 0,
+          wins: item.points_from_wins || 0,
+          bonusScia: item.bonus_scia || 0,
+          playersInGame: item.players_in_game || 0,
+          captainName: item.captain_name || 'N/D',
+          defendersCount: item.defenders_count || 0,
+          statusLabel: item.status_label || 'Live',
+          trend: 'steady',
+          isMine: item.user_id === session?.accountId,
         }));
         setRows(mapped);
       } finally {
@@ -69,7 +78,6 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         let primary = 0;
         if (sortField === 'rank') primary = left.rank - right.rank;
         else if (sortField === 'gapFromLeader') primary = left.gapFromLeader - right.gapFromLeader;
-        // @ts-ignore
         else primary = (right[sortField] || 0) - (left[sortField] || 0);
 
         if (primary !== 0) return primary;
@@ -97,7 +105,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><BarChart3 className="h-3.5 w-3.5" />EDIZIONE LIVE</div>
-            <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Classifica fantasy squadre</div>
+            <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Classifica Fanta squadre</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">Dati sincronizzati in tempo reale con il database Supabase.</div>
           </div>
           <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2"><Trophy className="h-4 w-4" />Vai alla mia squadra</button>
@@ -107,7 +115,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
       <div role="toolbar" className="flex flex-col gap-4 rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
         <div className="relative w-full md:w-96">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Cerca una squadra fantasy" className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2" />
+          <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Cerca una squadra Fanta" className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2" />
           {searchTerm && <button type="button" onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X className="h-4 w-4" /></button>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -120,7 +128,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-beer-500" />
-            <p className="mt-4 text-sm font-bold text-slate-500">Sincronizzazione dati fantasy...</p>
+            <p className="mt-4 text-sm font-bold text-slate-500">Sincronizzazione dati Fanta...</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -128,7 +136,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
               <thead className="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className={`${thPad} ${stickyTh} w-20 text-center`}>Rank</th>
-                  <th className={`${thPad} ${stickyTh} min-w-[200px]`}>Squadra fantasy</th>
+                  <th className={`${thPad} ${stickyTh} min-w-[200px]`}>Squadra Fanta</th>
                   <SortTh field="totalPoints" label="Punti" />
                   <SortTh field="playersInGame" label="Vivi" />
                   <SortTh field="goals" label="Canestri" />
