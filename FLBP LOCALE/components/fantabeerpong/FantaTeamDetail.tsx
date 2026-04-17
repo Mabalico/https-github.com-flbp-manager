@@ -3,16 +3,18 @@ import { ArrowLeft, Shield, Target, Wind, Trophy, Zap, Loader2 } from 'lucide-re
 import { fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { loadState } from '../../services/storageService';
+import { useTranslation } from '../../App';
 import { MetricCard, panelClass } from './_shared';
 
 const statusBadgeClass = (status: 'live' | 'eliminated' | 'waiting') =>
   status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
-const statusLabel = (status: 'live' | 'eliminated' | 'waiting') =>
-  status === 'live' ? 'In gioco' : status === 'eliminated' ? 'Eliminato' : 'In attesa';
+const statusLabel = (t: (key: string) => string, status: 'live' | 'eliminated' | 'waiting') =>
+  status === 'live' ? t('fanta_players_status_live') : status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_waiting');
 
 interface Props { teamId: string; onBack: () => void; onOpenPlayerDetail?: (playerId: string) => void; }
 
 export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerDetail }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<any>(null);
 
@@ -32,17 +34,17 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
         
         setData({
           teamName,
-          note: `Analisi dettagliata per ${teamName} - Punteggio cumulativo basi reali.`,
+          note: t('fanta_team_detail_note').replace('{name}', teamName),
           summaryCards: [
-            { id: 'c1', label: 'Punti Totali', value: totalPoints.toString(), hint: 'Basati sui ruoli' },
-            { id: 'c2', label: 'Canestri', value: totalGoalPoints.toString(), hint: 'Punti da canestri' },
-            { id: 'c3', label: 'Soffi', value: totalBlowPoints.toString(), hint: 'Punti da soffi' },
-            { id: 'c4', label: 'Giocatori', value: rows.length.toString(), hint: 'In rosa' },
+            { id: 'c1', label: t('fanta_players_label_points'), value: totalPoints.toString(), hint: t('fanta_team_detail_roles_hint') },
+            { id: 'c2', label: t('fanta_standings_goals'), value: totalGoalPoints.toString(), hint: t('fanta_player_detail_goals_hint') },
+            { id: 'c3', label: t('fanta_standings_blows'), value: totalBlowPoints.toString(), hint: t('fanta_player_detail_blows_hint') },
+            { id: 'c4', label: t('fanta_players_label_player'), value: rows.length.toString(), hint: t('fanta_team_detail_roster_hint') },
           ],
           pointsBreakdown: { goals: totalGoalPoints, blows: totalBlowPoints, wins: totalWinPoints, bonusScia: totalBonusScia },
           lineup: rows.map((r: any) => {
               const label = getPlayerKeyLabel(r.player_id);
-              let realTeamName = r.real_team_name || 'In gara';
+              let realTeamName = r.real_team_name || t('fanta_status_live');
               for (const t of appState.teams || []) {
                  if (!r.real_team_name && (t.player1 === label.name || t.player2 === label.name)) {
                     realTeamName = t.name;
@@ -56,7 +58,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
                  realTeamName,
                  roleLabel: r.role.toUpperCase(),
                  status: r.status || 'waiting',
-                 note: r.status === 'eliminated' && r.eliminated_by_team_name ? `Eliminato da ${r.eliminated_by_team_name}.` : 'Punteggio live.',
+                 note: r.status === 'eliminated' && r.eliminated_by_team_name ? t('fanta_eliminated_by').replace('{name}', r.eliminated_by_team_name) : t('fanta_sync_note'),
                  goals: r.raw_goals || 0,
                  blows: r.raw_blows || 0,
                  wins: r.raw_wins || 0,
@@ -69,21 +71,21 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
       setLoading(false);
     }
     load();
-  }, [teamId]);
+  }, [teamId, t]);
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-40">
         <Loader2 className="h-10 w-10 animate-spin text-beer-500" />
-        <p className="mt-4 font-black uppercase tracking-widest text-slate-500 text-sm">Caricamento dettagli team...</p>
+        <p className="mt-4 font-black uppercase tracking-widest text-slate-500 text-sm">{t('fanta_team_detail_loading')}</p>
       </div>
     );
   }
 
   if (!data) return (
     <div className="py-20 text-center">
-      <p className="text-slate-500 font-bold italic">Squadra non trovata o nessun dato disponibile.</p>
-      <button onClick={onBack} className="mt-4 text-beer-600 font-black uppercase tracking-widest text-xs underline underline-offset-4">Torna indietro</button>
+      <p className="text-slate-500 font-bold italic">{t('fanta_team_detail_not_found')}</p>
+      <button onClick={onBack} className="mt-4 text-beer-600 font-black uppercase tracking-widest text-xs underline underline-offset-4">{t('back')}</button>
     </div>
   );
 
@@ -92,40 +94,40 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
       <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />Dettaglio squadra Fanta</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />{t('fanta_team_detail_badge')}</div>
             <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl truncate max-w-xl">{data.teamName}</h1>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.note}</div>
           </div>
-          <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 transition"><ArrowLeft className="h-4 w-4" />Back</button>
+          <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 transition"><ArrowLeft className="h-4 w-4" />{t('back')}</button>
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{data.summaryCards.map((card: any) => <MetricCard key={card.id} label={card.label} value={card.value} hint={card.hint} />)}</div>
 
       <div className={panelClass}>
-        <div className="text-xl font-black tracking-tight text-slate-950">Breakdown Punteggi</div>
+        <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_team_detail_breakdown')}</div>
         <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Target className="h-3 w-3" />Canestri</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Target className="h-3 w-3" />{t('fanta_standings_goals')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.goals}</div>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Wind className="h-3 w-3" />Soffi</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Wind className="h-3 w-3" />{t('fanta_standings_blows')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.blows}</div>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Trophy className="h-3 w-3" />Vittorie</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Trophy className="h-3 w-3" />{t('fanta_standings_wins')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.wins}</div>
           </div>
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-indigo-600"><Zap className="h-3 w-3" />Bonus Scia</div>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-indigo-600"><Zap className="h-3 w-3" />{t('fanta_bonus_scia')}</div>
             <div className="mt-1 text-2xl font-black text-indigo-700">{data.pointsBreakdown.bonusScia}</div>
           </div>
         </div>
       </div>
 
       <div className={panelClass}>
-        <div className="text-xl font-black tracking-tight text-slate-950">Rosa Fanta</div>
+        <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_roster_fanta')}</div>
         <div className="mt-6 space-y-4">
           {data.lineup.map((row: any) => (
             <button key={row.id} type="button" onClick={() => onOpenPlayerDetail?.(row.playerId)} className="group w-full rounded-[26px] border border-slate-200 bg-slate-50 p-1 text-left transition hover:border-slate-300 hover:bg-white hover:shadow-xl">
@@ -133,7 +135,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-lg font-black tracking-tight text-slate-950 group-hover:text-beer-700 transition-colors uppercase font-mono">{row.playerName}</div>
-                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusBadgeClass(row.status || 'live')}`}>{statusLabel(row.status || 'live')}</span>
+                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusBadgeClass(row.status || 'live')}`}>{statusLabel(t, row.status || 'live')}</span>
                   </div>
                   <div className="mt-0.5 text-sm font-bold text-slate-500 uppercase tracking-tight">{row.realTeamName} · {row.roleLabel}</div>
                   <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
@@ -144,7 +146,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
                   </div>
                 </div>
                 <div className="shrink-0 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-center shadow-sm group-hover:border-beer-200 group-hover:bg-beer-50/30 transition-colors">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Punti</div>
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_points_label')}</div>
                   <div className="mt-1 text-3xl font-black tracking-tighter text-slate-950">{row.fantasyPoints}</div>
                 </div>
               </div>

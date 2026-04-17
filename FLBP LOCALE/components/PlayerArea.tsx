@@ -347,16 +347,16 @@ const MetricCard: React.FC<{ label: string; value: React.ReactNode; hint?: React
   </div>
 );
 
-const registrationAliasReasonLabel = (reason: PlayerAccountAliasReason) => {
+const registrationAliasReasonLabel = (reason: PlayerAccountAliasReason, t: (key: string) => string) => {
   switch (reason) {
     case 'same_birthdate':
-      return 'Stessa data di nascita';
+      return t('data_accounts_alias_reason_same_birthdate');
     case 'exact_name':
-      return 'Nome identico';
+      return t('data_accounts_alias_reason_exact_name');
     case 'close_name':
-      return 'Nome molto simile';
+      return t('data_accounts_alias_reason_close_name');
     default:
-      return 'Storico già presente';
+      return t('data_accounts_alias_reason_existing_stats');
   }
 };
 
@@ -1528,9 +1528,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             <div className="flbp-mobile-sheet-panel w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/15 md:p-6">
               <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
                 <div>
-                  <div className="text-xl font-black tracking-tight text-slate-950">Possibile account alias rilevato</div>
+                  <div className="text-xl font-black tracking-tight text-slate-950">{t('player_register_alias_title')}</div>
                   <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                    Il nome che stai registrando assomiglia a un giocatore già presente nelle classifiche. Se sei tu, puoi inviare subito una richiesta di merge agli admin con un commento esplicativo.
+                    {t('player_register_alias_desc')}
                   </div>
                 </div>
                 <button
@@ -1539,7 +1539,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-600 transition hover:bg-slate-50"
                   disabled={registerAliasSubmitting}
                 >
-                  Chiudi
+                  {t('close')}
                 </button>
               </div>
 
@@ -1559,7 +1559,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       <div className="min-w-0">
                         <div className="text-base font-black text-slate-950">{suggestion.candidateDisplayName}</div>
                         <div className="mt-1 text-xs font-bold text-slate-500">
-                          {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : 'Data di nascita non disponibile'}
+                          {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : t('player_register_alias_birthdate_missing')}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
@@ -1567,19 +1567,19 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                               ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                               : 'border-slate-200 bg-white text-slate-700'
                           }`}>
-                            {suggestion.confidence === 'high' ? 'Alta compatibilità' : 'Compatibilità media'}
+                            {suggestion.confidence === 'high' ? t('data_accounts_alias_confidence_high') : t('data_accounts_alias_confidence_medium')}
                           </div>
                           {suggestion.reasons.map((reason) => (
                             <div key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
-                              {registrationAliasReasonLabel(reason)}
+                              {registrationAliasReasonLabel(reason, t)}
                             </div>
                           ))}
                         </div>
                       </div>
                       <div className="grid w-full grid-cols-3 gap-1 text-left text-[11px] font-black text-slate-600 sm:w-auto sm:grid-cols-1 sm:text-right">
-                        <div>Titoli: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
-                        <div>Canestri: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
-                        <div>Soffi: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                        <div>{t('titles')}: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                        <div>{t('canestri')}: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                        <div>{t('soffi')}: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
                       </div>
                     </div>
                   </button>
@@ -1587,13 +1587,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
 
               <div className="mt-5">
-                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">Commento per gli admin</div>
+                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_register_alias_comment_label')}</div>
                 <textarea
                   value={registerAliasComment}
                   onChange={(event) => setRegisterAliasComment(event.target.value)}
                   rows={4}
                   className={`${inputClass} min-h-[112px] resize-y`}
-                  placeholder="Spiega perché pensi che questo account vada unito: vecchia email, login social diverso, cambio cognome, chiarimenti utili..."
+                  placeholder={t('player_register_alias_comment_placeholder')}
                   disabled={registerAliasSubmitting}
                 />
               </div>
@@ -1605,7 +1605,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   disabled={registerAliasSubmitting || !selectedRegistrationAlias}
                   className={btnPrimary}
                 >
-                  <BadgeCheck className="h-4 w-4" /> Invia richiesta e continua
+                  <BadgeCheck className="h-4 w-4" /> {t('player_register_alias_submit')}
                 </button>
                 <button
                   type="button"
@@ -1613,7 +1613,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   disabled={registerAliasSubmitting}
                   className={btnSecondary}
                 >
-                  <ChevronRight className="h-4 w-4" /> Continua senza segnalare
+                  <ChevronRight className="h-4 w-4" /> {t('player_register_alias_skip')}
                 </button>
               </div>
             </div>
@@ -2243,7 +2243,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           </div>
                         ) : (
                           <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-sm font-semibold text-amber-900">
-                            <div className="text-[11px] font-black uppercase tracking-[0.08em] text-amber-700">Notifiche dispositivo</div>
+                            <div className="text-[11px] font-black uppercase tracking-[0.08em] text-amber-700">{t('player_native_push_status_title')}</div>
                             <div className="mt-1">{nativePushStatusMessage}</div>
                           </div>
                         )

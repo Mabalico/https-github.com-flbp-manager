@@ -4,6 +4,7 @@ import { Match, Team, TournamentData, HallOfFameEntry } from '../types';
 import { PublicTvShell } from './PublicTvShell';
 import { getPlayerKey, resolvePlayerKey } from '../services/storageService';
 import { isU25, normalizeBirthDateInput } from '../services/playerIdentity';
+import { Star } from 'lucide-react';
 
 type SortMode = 'points' | 'soffi';
 
@@ -225,7 +226,7 @@ export const TvScorersView: React.FC<TvScorersViewProps> = ({ teams, matches, da
                       >
                         {p.name}
                         {isU25(p.birthDate) && <span className="ml-2 align-middle text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-black">U25</span>}
-                        {hasTitle(p, 'mvp') && <span className="ml-2 align-middle">⭐</span>}
+                        {hasTitle(p, 'mvp') && <Star className="ml-2 inline h-4 w-4 align-middle text-amber-500" aria-hidden />}
                       </div>
                     </div>
                     <div

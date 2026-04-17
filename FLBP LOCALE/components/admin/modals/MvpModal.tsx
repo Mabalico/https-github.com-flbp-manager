@@ -1,4 +1,5 @@
 import React from 'react';
+import { Star } from 'lucide-react';
 
 export type MvpPlayerOption = { id: string; name: string; label: string };
 
@@ -42,7 +43,7 @@ export const MvpModal: React.FC<MvpModalProps> = ({
             <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
                 <div className="bg-slate-900 text-white px-4 py-3 font-black flex items-center justify-between">
                     <span className="flex items-center gap-2">
-                        <span className="text-base select-none">⭐</span>
+                        <Star className="h-4 w-4 text-amber-300" aria-hidden />
                         {forArchive ? tt('mvp_before_archive', 'MVP (before archiving)') : 'MVP'}
                     </span>
                     <button

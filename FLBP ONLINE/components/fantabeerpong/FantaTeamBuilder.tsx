@@ -166,7 +166,9 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                 {t('fanta_live_edition')}
               </div>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950">{t('fanta_builder_title')}</h1>
-              <div className="mt-2 text-sm font-semibold text-slate-600">{t('fanta_builder_subtitle', { name: activeTournamentName })}</div>
+              <div className="mt-2 text-sm font-semibold text-slate-600">
+                {t('fanta_builder_subtitle').replace('{{name}}', activeTournamentName).replace('{name}', activeTournamentName)}
+              </div>
             </div>
             <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-beer-500/20"><ArrowLeft className="h-4 w-4" />{t('fanta_builder_back_to_fanta')}</button>
           </div>
@@ -178,7 +180,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
               <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_quick_info_rules')}</div>
               <div className="mt-6 space-y-4">
                 <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-5">
-                  <div className="text-sm font-black uppercase tracking-wide text-beer-700">Torneo</div>
+                  <div className="text-sm font-black uppercase tracking-wide text-beer-700">{t('fanta_builder_tournament_label')}</div>
                   <div className="mt-1 text-lg font-black text-slate-950">{activeTournamentName}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-500">
                     {!hasActiveTournament ? t('fanta_no_live_tournament') : registrationOpen ? t('fanta_registration_open') : t('fanta_tournament_running')}
@@ -211,7 +213,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
           <div className="space-y-6">
             <div className={panelClass}>
               <div className="text-lg font-black text-slate-950">{t('fanta_need_help')}</div>
-              <div className="mt-4 text-sm font-semibold leading-relaxed text-slate-600">Consulta il regolamento completo per capire moltiplicatori e bonus.</div>
+              <div className="mt-4 text-sm font-semibold leading-relaxed text-slate-600">{t('fanta_builder_rules_desc')}</div>
               <button type="button" onClick={onOpenRules} className="mt-5 inline-flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50">{t('fanta_builder_open_rules')} <ArrowRight className="h-4 w-4 text-slate-400" /></button>
             </div>
           </div>

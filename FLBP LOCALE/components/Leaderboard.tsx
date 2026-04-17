@@ -568,7 +568,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                             type="button"
                             onClick={() => setSearchTerm('')}
                             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
-                            aria-label="Clear search"
+                            aria-label={t('clear_search')}
                         >
                             <X className="w-4 h-4" aria-hidden />
                         </button>
@@ -580,10 +580,10 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                         <select
                             value={yearFilter}
                             onChange={(e) => setYearFilter(e.target.value)}
-                            aria-label="Filtra per anno"
+                            aria-label={t('filter_by_year')}
                             className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg bg-white font-bold text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
                         >
-                            <option value="all">Tutti gli anni</option>
+                            <option value="all">{t('all_years')}</option>
                             {availableYears.map((y) => (
                                 <option key={y} value={y}>{y}</option>
                             ))}

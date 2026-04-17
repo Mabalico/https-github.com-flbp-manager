@@ -3,7 +3,7 @@ import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, 
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
-import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown } from 'lucide-react';
+import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult } from '../services/simulationService';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
@@ -3830,7 +3830,7 @@ while (guard < 5000) {
                             </details>
 
                             <button type="button" onClick={() => openMvpModal(false)} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors shadow-sm" title={t('mvp_plural')}>
-                                <span className="text-sm select-none">⭐</span>
+                                <Star className="h-4 w-4 text-amber-500" aria-hidden />
                                 <span>{t('mvp_plural')}</span>
                                 {state.tournament && (
                                     <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">
