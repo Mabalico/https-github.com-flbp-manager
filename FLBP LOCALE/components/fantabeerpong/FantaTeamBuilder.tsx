@@ -1,3 +1,4 @@
+import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader2 } from 'lucide-react';
 import { fetchFantaConfig, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';

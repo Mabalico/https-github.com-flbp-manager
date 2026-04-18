@@ -1,3 +1,4 @@
+import React from 'react';
 import { useTranslation } from '../../App';
 import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
 import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
@@ -264,10 +265,10 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
             <div className="flex items-center gap-2 text-lg font-black text-indigo-950"><History className="h-5 w-5 text-indigo-600" />{t('fanta_bonus_scia_active')}</div>
             <div className="mt-4 text-sm font-semibold text-slate-600 leading-relaxed italic">{t('fanta_bonus_scia_help')}</div>
             <div className="mt-4 space-y-3">
-              {data.teamsToFollow.map((t) => (
-                <div key={t.id} className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 shadow-sm">
-                  <div className="text-sm font-black text-indigo-950">{t.teamName}</div>
-                  <div className="mt-1 text-xs font-bold text-indigo-700 uppercase tracking-tighter">{t('fanta_bonus_reason', { name: t.followingFor })}</div>
+              {data.teamsToFollow.map((teamToFollow) => (
+                <div key={teamToFollow.id} className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 shadow-sm">
+                  <div className="text-sm font-black text-indigo-950">{teamToFollow.teamName}</div>
+                  <div className="mt-1 text-xs font-bold text-indigo-700 uppercase tracking-tighter">{t('fanta_bonus_reason', { name: teamToFollow.followingFor })}</div>
                 </div>
               ))}
               {data.teamsToFollow.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs font-bold text-slate-400 italic">{t('fanta_no_bonus_active')}</div>}

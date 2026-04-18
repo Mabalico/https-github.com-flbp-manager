@@ -1,3 +1,4 @@
+import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowRight, BarChart3, Clock3, History, Shield, Users, Loader2 } from 'lucide-react';
 import { fetchFantaConfig, fetchFantaStandings, fetchFantaPlayerStandings, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
