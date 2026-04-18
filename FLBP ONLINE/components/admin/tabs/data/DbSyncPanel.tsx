@@ -45,6 +45,13 @@ type PanelState =
 
 export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) => void; }> = ({ state, setState }) => {
     const { t } = useTranslation();
+    const tx = React.useCallback((key: string, values?: Record<string, string | number | null | undefined>) => {
+        let label = t(key);
+        Object.entries(values || {}).forEach(([name, value]) => {
+            label = label.replaceAll(`{${name}}`, String(value ?? ''));
+        });
+        return label;
+    }, [t]);
     const cfg = getSupabaseConfig();
     const [panel, setPanel] = React.useState<PanelState>({ kind: 'idle' });
     const [downloaded, setDownloaded] = React.useState<{ updatedAt?: string; state?: AppState } | null>(null);
@@ -106,13 +113,13 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
 
     const saveToken = () => {
         try {
-            const t = token.trim();
-            if (!t) {
+            const trimmedToken = token.trim();
+            if (!trimmedToken) {
                 localStorage.removeItem(SUPABASE_ACCESS_TOKEN_LS_KEY);
             } else {
-                localStorage.setItem(SUPABASE_ACCESS_TOKEN_LS_KEY, t);
+                localStorage.setItem(SUPABASE_ACCESS_TOKEN_LS_KEY, trimmedToken);
             }
-            setPanel({ kind: 'ok', message: t ? t('db_token_saved') : t('db_token_removed') });
+            setPanel({ kind: 'ok', message: trimmedToken ? t('db_token_saved') : t('db_token_removed') });
         } catch {
             setPanel({ kind: 'error', message: t('db_token_save_error') });
         }
@@ -215,13 +222,18 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         setDiagTick((x) => x + 1);
         setPanel({
             kind: 'ok',
-            message: `Dati strutturati scaricati. Tornei: ${r.summary.tournaments}, Team: ${r.summary.teams}, Match: ${r.summary.matches}, Stats: ${r.summary.matchStats}. Puoi applicarli (recovery).`
+            message: tx('db_structured_download_done', {
+                tournaments: r.summary.tournaments,
+                teams: r.summary.teams,
+                matches: r.summary.matches,
+                stats: r.summary.matchStats,
+            })
         });
     });
 
     const onApply = () => {
         if (!downloaded?.state) return;
-        const ok = window.confirm('Applicare il download dal DB a questo device? Questa azione sostituisce lo stato locale attuale del dispositivo.');
+        const ok = window.confirm(t('db_apply_download_confirm'));
         if (!ok) return;
         clearRemoteDraftCache();
         setState(downloaded.state);
@@ -229,17 +241,12 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         markRemoteVersions({ remoteUpdatedAt: downloaded.updatedAt || null, remoteBaseUpdatedAt: downloaded.updatedAt || null });
         clearDbSyncCurrentIssue();
         setDiagTick((x) => x + 1);
-        setPanel({ kind: 'ok', message: 'Stato del DB applicato a questo device. La bozza locale in coda è stata scartata.' });
+        setPanel({ kind: 'ok', message: t('db_apply_download_done') });
     };
 
     const onApplyStructured = () => {
         if (!downloadedStructured?.state) return;
-        const ok = window.confirm(
-            'Applicare i dati STRUTTURATI scaricati dal DB (recovery)?\n\n' +
-            '- Aggiorna: Torneo live, archivio tornei, HoF, marcatori integrazioni, aliases, logo.\n' +
-            '- NON include la lista "Squadre" pre-struttura (state.teams): quella verrà mantenuta come nel locale attuale.\n\n' +
-            'Procedere?'
-        );
+        const ok = window.confirm(t('db_apply_structured_confirm'));
         if (!ok) return;
 
         const merged: AppState = {
@@ -255,38 +262,36 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         markRemoteVersions({ remoteUpdatedAt: downloadedStructured.updatedAt || null, remoteBaseUpdatedAt: downloadedStructured.updatedAt || null });
         clearDbSyncCurrentIssue();
         setDiagTick((x) => x + 1);
-        setPanel({ kind: 'ok', message: 'Dati strutturati applicati localmente (recovery). La bozza locale in coda è stata scartata.' });
+        setPanel({ kind: 'ok', message: t('db_apply_structured_done') });
     };
 
-    const onExportNormalized = () => run('Export strutturato', async () => {
-        const ok = window.confirm(
-            'Esportare i dati STRUCTURATI su DB (tabelle tournaments/* ecc.)?\n\n' +
-            '- Sovrascrive i dati normalizzati del workspace (tournaments, matches, stats, hall_of_fame, aliases, scorers).\n' +
-            '- Non cambia nulla localmente e non tocca la UI.\n\n' +
-            'Consiglio: assicurati di aver già fatto un backup JSON e/o caricato lo snapshot.'
-        );
+    const onExportNormalized = () => run(t('db_export_structured_action'), async () => {
+        const ok = window.confirm(t('db_export_structured_confirm'));
         if (!ok) return;
         const summary = await pushNormalizedFromState(state, { force: forceOverwrite });
         markDbSyncOk('structured', summary);
         setDiagTick((x) => x + 1);
         setPanel({
             kind: 'ok',
-            message: `Export strutturato completato. Tornei: ${summary.tournaments}, Team: ${summary.teams}, Match: ${summary.matches}, Stats: ${summary.matchStats}. HoF: ${summary.hallOfFame}, Aliases: ${summary.aliases}, Marcatori: ${summary.integrationsScorers}. Leaderboard pubblica: ${summary.publicCareerPlayers}.`
+            message: tx('db_export_structured_done', {
+                tournaments: summary.tournaments,
+                teams: summary.teams,
+                matches: summary.matches,
+                stats: summary.matchStats,
+                hof: summary.hallOfFame,
+                aliases: summary.aliases,
+                scorers: summary.integrationsScorers,
+                leaderboard: summary.publicCareerPlayers,
+            })
         });
     });
 
-    const onSeedSimPool = () => run('Seed pool simulazioni', async () => {
-        const ok = window.confirm(
-            'Seed DB pool simulazioni dai dati reali gia presenti nel JSON?\n\n' +
-            '- Sovrascrive sim_pool_team_names e sim_pool_people per questo workspace.\n' +
-            '- Usa squadre e giocatori gia presenti in lista squadre, torneo live e archivio.\n' +
-            '- Non cambia nulla localmente e non tocca la UI.\n\n' +
-            'Puoi rifarlo quando vuoi.'
-        );
+    const onSeedSimPool = () => run(t('db_seed_pool_action'), async () => {
+        const ok = window.confirm(t('db_seed_pool_confirm'));
         if (!ok) return;
         const summary = await seedSimPool(state);
         setDiagTick((x) => x + 1);
-        setPanel({ kind: 'ok', message: `Seed pool completato. Team names: ${summary.teamNames}, Giocatori: ${summary.people}.` });
+        setPanel({ kind: 'ok', message: tx('db_seed_pool_done', { teamNames: summary.teamNames, people: summary.people }) });
     });
 
     const onToggleAutoStructured = () => {
@@ -296,15 +301,15 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         setPanel({
             kind: 'ok',
             message: next
-                ? 'Auto-sync strutturato attivato (best-effort, debounced). Ogni modifica allo stato tenterà di aggiornare DB normalizzato + tabelle public.'
-                : 'Auto-sync strutturato disattivato.'
+                ? t('db_auto_structured_enabled')
+                : t('db_auto_structured_disabled')
         });
     };
 
-    const onActivateDbPrimary = () => run('Attivazione DB online', async () => {
+    const onActivateDbPrimary = () => run(t('db_activate_online_action'), async () => {
         if (!cfg) throw new Error(t('db_supabase_not_configured'));
         const test = await testSupabaseConnection();
-        if (!test.ok) throw new Error(test.message || 'Connessione DB non disponibile.');
+        if (!test.ok) throw new Error(test.message || t('db_connection_unavailable'));
 
         setDataPersistenceMode('remote');
         clearLocalAppStateCaches();
@@ -317,22 +322,16 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
             // ignore
         }
         clearDbSyncCurrentIssue();
-        setPanel({ kind: 'ok', message: 'Modalità DB online attivata. Ricarico l’app dal database.' });
+        setPanel({ kind: 'ok', message: t('db_online_mode_enabled_reload') });
         window.setTimeout(() => window.location.reload(), 250);
     });
 
     const onActivateLocalOnly = () => {
         if (remotePersistenceLocked) {
-            setPanel({ kind: 'error', message: 'In questo assetto pubblico la modalità solo locale è bloccata: le modifiche admin devono restare persistite su Supabase.' });
+            setPanel({ kind: 'error', message: t('db_local_only_locked') });
             return;
         }
-        const ok = window.confirm(
-            'Attivare "Opera solo in locale"?\n\n' +
-            '- Lo stato corrente verrà salvato solo su questo dispositivo.\n' +
-            '- Le letture/scritture online verranno disattivate.\n' +
-            '- Gli altri device non vedranno più gli aggiornamenti di questo device finché non tornerai alla modalità DB online.\n\n' +
-            'Procedere?'
-        );
+        const ok = window.confirm(t('db_local_only_confirm'));
         if (!ok) return;
 
         saveState(state);
@@ -347,19 +346,19 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         setDataPersistenceMode('local_only');
         setDataMode('local_only');
         clearDbSyncCurrentIssue();
-        setPanel({ kind: 'ok', message: 'Modalità solo locale attivata. Ricarico l’app con il profilo locale.' });
+        setPanel({ kind: 'ok', message: t('db_local_only_enabled_reload') });
         window.setTimeout(() => window.location.reload(), 250);
     };
 
-    const onSyncNowStructured = () => run('Sync strutturato (auto)', async () => {
+    const onSyncNowStructured = () => run(t('db_sync_structured_action'), async () => {
         await flushAutoStructuredSync(state);
         setDiagTick((x) => x + 1);
-        setPanel({ kind: 'ok', message: 'Sync strutturato richiesto (best-effort). Controlla "Ultimo sync" qui sotto.' });
+        setPanel({ kind: 'ok', message: t('db_sync_structured_done') });
     });
 
     const statusBadge = () => {
-        if (!cfg) return <span className="px-2 py-1 rounded-lg text-xs font-black bg-amber-100 text-amber-900 border border-amber-200">Non configurato</span>;
-        return <span className="px-2 py-1 rounded-lg text-xs font-black bg-emerald-100 text-emerald-900 border border-emerald-200">Configurato</span>;
+        if (!cfg) return <span className="px-2 py-1 rounded-lg text-xs font-black bg-amber-100 text-amber-900 border border-amber-200">{t('db_status_not_configured')}</span>;
+        return <span className="px-2 py-1 rounded-lg text-xs font-black bg-emerald-100 text-emerald-900 border border-emerald-200">{t('db_status_configured')}</span>;
     };
 
     return (
@@ -368,27 +367,27 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                 <div>
                     <div className="text-sm font-black">{t('db_persistence_title')}</div>
                     <div className="text-xs text-slate-600 mt-1">
-                        Collega l&apos;app al database, salva lo stato online e mantieni sincronizzati snapshot e dati strutturati.
+                        {t('db_persistence_desc')}
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
                     {statusBadge()}
                     {cfg ? (
-                        <span className="text-xs text-slate-600">workspace: <span className="font-mono">{cfg.workspaceId}</span></span>
+                        <span className="text-xs text-slate-600">{t('db_workspace_label')}: <span className="font-mono">{cfg.workspaceId}</span></span>
                     ) : null}
                 </div>
             </div>
 
             <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3 text-xs text-sky-900">
-                <div className="font-black">Uso normale</div>
+                <div className="font-black">{t('db_normal_use_title')}</div>
                 <div className="mt-2 flex flex-wrap gap-2 font-black">
                     <span className="px-2 py-1 rounded-full border border-sky-200 bg-white text-sky-900">{t('db_mode_online')}</span>
                     <span className="px-2 py-1 rounded-full border border-sky-200 bg-white text-sky-900">{t('db_login_admin')}</span>
                     <span className="px-2 py-1 rounded-full border border-sky-200 bg-white text-sky-900">{t('db_auto_pull')}</span>
-                    <span className="px-2 py-1 rounded-full border border-sky-200 bg-white text-sky-900">4. Sync automatica online</span>
+                    <span className="px-2 py-1 rounded-full border border-sky-200 bg-white text-sky-900">{t('db_auto_sync_online_step')}</span>
                 </div>
                 <div className="mt-2 text-[11px] font-bold text-sky-800">
-                    Gli strumenti manuali sotto servono solo per setup iniziale, recovery o riallineamenti straordinari.
+                    {t('db_manual_tools_setup_only')}
                 </div>
             </div>
 
@@ -396,7 +395,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs text-emerald-900">
                     <div className="font-black">{t('db_public_deploy_locked')}</div>
                     <div className="mt-1 font-bold">
-                        Con <span className="font-mono">VITE_REMOTE_REPO=1</span> e Supabase configurato, questa build forza il profilo <span className="font-black">{t('db_online_title')}</span> e impedisce di tornare in locale per errore.
+                        {t('db_public_deploy_locked_desc_prefix')} <span className="font-mono">VITE_REMOTE_REPO=1</span> {t('db_public_deploy_locked_desc_mid')} <span className="font-black">{t('db_online_title')}</span> {t('db_public_deploy_locked_desc_suffix')}
                     </div>
                 </div>
             ) : null}
@@ -404,13 +403,13 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
             <div className="bg-white border border-slate-200 rounded-2xl p-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
-                        <div className="text-xs font-black">Modalità dati</div>
+                        <div className="text-xs font-black">{t('db_data_mode_title')}</div>
                         <div className="text-xs text-slate-600 mt-1">
-                            In modalità DB online il database è la fonte unica di verità. In modalità solo locale l’app usa soltanto questo dispositivo.
+                            {t('db_data_mode_desc')}
                         </div>
                     </div>
                     <span className={`px-2 py-1 rounded-lg text-xs font-black border ${isDbPrimaryMode ? 'bg-emerald-100 text-emerald-900 border-emerald-200' : 'bg-amber-100 text-amber-900 border-amber-200'}`}>
-                        {isDbPrimaryMode ? 'DB online attivo' : 'Opera solo in locale'}
+                        {isDbPrimaryMode ? t('db_online_active') : t('db_local_only_title')}
                     </span>
                 </div>
 
@@ -422,7 +421,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                         className={`px-3 py-3 rounded-2xl border text-left transition ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : isDbPrimaryMode ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'}`}
                     >
                         <div className="text-sm font-black">{t('db_online_title')}</div>
-                        <div className="text-xs mt-1 opacity-80">Nessuno snapshot completo salvato localmente. Gli altri device leggono lo stesso stato online.</div>
+                        <div className="text-xs mt-1 opacity-80">{t('db_online_desc')}</div>
                     </button>
                     <button
                         type="button"
@@ -430,39 +429,39 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                         onClick={onActivateLocalOnly}
                         className={`px-3 py-3 rounded-2xl border text-left transition ${isBusy || remotePersistenceLocked ? 'bg-slate-100 text-slate-400 border-slate-200' : !isDbPrimaryMode ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'}`}
                     >
-                        <div className="text-sm font-black">Opera solo in locale</div>
+                        <div className="text-sm font-black">{t('db_local_only_title')}</div>
                         <div className="text-xs mt-1 opacity-80">
                             {remotePersistenceLocked
-                                ? 'Disattivata in questa build pubblica: i dati admin devono restare persistiti sul database generale.'
-                                : 'Usa e salva i dati solo su questo device. Utile quando lavori fuori dal database generale.'}
+                                ? t('db_local_only_desc_locked')
+                                : t('db_local_only_desc')}
                         </div>
                     </button>
                 </div>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs text-amber-900">
-                <div className="font-black">Consiglio sicurezza</div>
+                <div className="font-black">{t('db_safety_advice_title')}</div>
                 <div className="mt-1 font-bold">
-                    Prima di usare “Forza sovrascrittura” o applicare manualmente un recovery su questo device, assicurati di avere un backup JSON recente.
+                    {t('db_safety_advice_desc')}
                 </div>
             </div>
 
             {diag.lastConflictAt || diag.lastConflictMessage ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
-                    <div className="font-black">Conflitto DB rilevato</div>
+                    <div className="font-black">{t('db_conflict_detected')}</div>
                     <div className="mt-2 space-y-1 font-semibold leading-6">
                         <div>
-                            Ultimo conflitto: <span className="font-mono">{diag.lastConflictAt || '—'}</span>
+                            {t('db_conflict_last')}: <span className="font-mono">{diag.lastConflictAt || '—'}</span>
                         </div>
                         {diag.lastConflictMessage ? (
                             <div className="font-mono text-xs break-words">{diag.lastConflictMessage}</div>
                         ) : null}
                         <div>
-                            Percorso consigliato: <span className="font-black">“Ricarica dal DB” → “Applica questo download”</span>.
-                            Usa <span className="font-black">“Forza sovrascrittura”</span> solo se vuoi davvero imporre lo snapshot di questo device.
+                            {t('db_conflict_recommended_path_prefix')}: <span className="font-black">{t('db_conflict_recommended_path')}</span>.
+                            {t('db_conflict_force_note_prefix')} <span className="font-black">{t('db_force_overwrite')}</span> {t('db_conflict_force_note_suffix')}
                         </div>
                         <div className="text-xs text-amber-800">
-                            Nota: account giocatore, login e profili Auth live non richiedono “Forza sovrascrittura” dello snapshot del torneo.
+                            {t('db_conflict_note_accounts')}
                         </div>
                     </div>
                 </div>
@@ -473,14 +472,14 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                     <div className="bg-white border border-slate-200 rounded-2xl p-3">
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
-                                <div className="text-xs font-black">Sessione admin Supabase</div>
+                                <div className="text-xs font-black">{t('db_admin_session_title')}</div>
                                 <div className="text-xs text-slate-600 mt-1">
-                                    Questa e&apos; la stessa sessione che ora apre l&apos;area Admin. Qui puoi rinnovarla, cambiarla o chiuderla prima delle operazioni remote.
+                                    {t('db_admin_session_desc')}
                                 </div>
                             </div>
                             <div className="text-xs">
                                 {hasToken ? (
-                                    <span className="px-2 py-1 rounded-lg font-black bg-emerald-100 text-emerald-900 border border-emerald-200">Sessione disponibile</span>
+                                    <span className="px-2 py-1 rounded-lg font-black bg-emerald-100 text-emerald-900 border border-emerald-200">{t('db_session_available')}</span>
                                 ) : (
                                     <span className="px-2 py-1 rounded-lg font-black bg-slate-100 text-slate-600 border border-slate-200">{t('db_no_session')}</span>
                                 )}
@@ -492,21 +491,21 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 <div>
                                     <div className="text-xs font-black">{t('db_login_admin_auth')}</div>
                                     <div className="text-xs text-slate-600 mt-1">
-                                        L&apos;ingresso in Admin richiede una sessione Supabase Auth valida per un account presente in <span className="font-mono">public.admin_users</span>.
-                                        <span className="font-black"> Senza sessione admin valida le scritture protette dal database verranno rifiutate.</span>
+                                        {t('db_admin_login_desc_1')} <span className="font-mono">public.admin_users</span>.
+                                        <span className="font-black"> {t('db_admin_login_desc_1_strong')}</span>
                                     </div>
                                     <div className="text-xs text-slate-600 mt-2">
-                                        Login/sessione e autorizzazione restano separati: il browser conserva la sessione, mentre il database decide tramite RLS e <span className="font-mono">flbp_is_admin()</span>.
+                                        {t('db_admin_login_desc_2')} <span className="font-mono">flbp_is_admin()</span>.
                                     </div>
                                 </div>
                                 {session?.email ? (
                                     <div className="text-xs text-slate-700">
-                                        <div className="font-black">Autenticato</div>
+                                        <div className="font-black">{t('db_authenticated')}</div>
                                         <div className="font-mono">{session.email}</div>
-                                        {session.expiresAt ? <div className="text-slate-600">exp: <span className="font-mono">{session.expiresAt}</span></div> : null}
+                                        {session.expiresAt ? <div className="text-slate-600">{t('db_exp_label')}: <span className="font-mono">{session.expiresAt}</span></div> : null}
                                     </div>
                                 ) : (
-                                    <div className="text-xs text-slate-600">Non autenticato</div>
+                                    <div className="text-xs text-slate-600">{t('db_not_authenticated')}</div>
                                 )}
                             </div>
 
@@ -529,8 +528,8 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                         type="button"
                                         onClick={() => setShowAuthPassword((v) => !v)}
                                         className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 rounded-lg p-1"
-                                        aria-label={showAuthPassword ? 'Nascondi password' : 'Mostra password'}
-                                        title={showAuthPassword ? 'Nascondi password' : 'Mostra password'}
+                                        aria-label={showAuthPassword ? t('hide_password') : t('show_password')}
+                                        title={showAuthPassword ? t('hide_password') : t('show_password')}
                                     >
                                         {showAuthPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                     </button>
@@ -556,7 +555,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
 
                         {remotePersistenceLocked ? (
                             <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[11px] font-bold text-emerald-900">
-                                In questa build pubblica i token JWT non si incollano manualmente: usa solo il login Supabase qui sopra. La sessione viene gestita dal browser e la service role key non deve mai comparire nel client.
+                                {t('db_public_no_manual_jwt')}
                             </div>
                         ) : (
                             <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -575,18 +574,18 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                         onClick={saveToken}
                                         className={`px-3 py-2 rounded-xl font-black border text-xs ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'}`}
                                     >
-                                        Salva token
+                                        {t('db_save_token')}
                                     </button>
                                     <button
                                         disabled={isBusy || !hasToken}
                                         onClick={clearToken}
                                         className={`px-3 py-2 rounded-xl font-black border text-xs ${isBusy || !hasToken ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
                                     >
-                                        Rimuovi
+                                        {t('remove')}
                                     </button>
                                 </div>
                                 <div className="mt-2 text-[11px] font-bold text-slate-500">
-                                    Usa questo campo solo se devi incollare manualmente un JWT in un ambiente tecnico controllato. Non usare mai la Service Role Key nel client.
+                                    {t('db_manual_token_hint')}
                                 </div>
                             </details>
                         )}
@@ -595,29 +594,29 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                     <details className="bg-white border border-slate-200 rounded-2xl p-3">
                         <summary className="cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap">
                             <div>
-                                <div className="text-xs font-black">Strumenti avanzati</div>
+                                <div className="text-xs font-black">{t('db_advanced_tools_title')}</div>
                                 <div className="text-xs text-slate-600 mt-1">
-                                    Migrazione guidata e forzatura scrittura. Da usare solo quando sai di dover riallineare il DB.
+                                    {t('db_advanced_tools_desc')}
                                 </div>
                             </div>
                             <div className="text-xs text-slate-600">
-                                Base remota locale: <span className="font-mono">{remoteBaseUpdatedAt || '—'}</span>
+                                {t('db_remote_base_local')}: <span className="font-mono">{remoteBaseUpdatedAt || '—'}</span>
                             </div>
                         </summary>
                         <div className="mt-3 space-y-3">
                             <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                                <div className="font-black">Forza sovrascrittura</div>
+                                <div className="font-black">{t('db_force_overwrite')}</div>
                                 <div className="mt-1">
-                                    Ora si gestisce direttamente nella scheda <span className="font-black">Snapshot</span> qui sotto, accanto ai pulsanti di pubblicazione e recovery.
+                                    {t('db_force_overwrite_desc_prefix')} <span className="font-black">{t('db_snapshot_short')}</span> {t('db_force_overwrite_desc_suffix')}
                                 </div>
                                 <div className="mt-1 text-slate-500">
-                                    Stato attuale: <span className="font-black">{forceOverwrite ? 'attiva' : 'disattiva'}</span>
+                                    {t('db_current_status')}: <span className="font-black">{forceOverwrite ? t('db_active') : t('db_inactive')}</span>
                                 </div>
                             </div>
                             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-                                <div className="text-xs font-black">Migrazione guidata (prima configurazione)</div>
+                                <div className="text-xs font-black">{t('db_migration_first_setup')}</div>
                                 <div className="text-xs text-slate-600 mt-1">
-                                    Percorso completo: test → health check → backup remoto → export strutturato + snapshot → post-check.
+                                    {t('db_migration_full_path')}
                                 </div>
                                 <div className="mt-3">
                                     <DbMigrationWizard state={state} forceOverwrite={forceOverwrite} />
@@ -629,9 +628,9 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
 
                 <div className="space-y-3">
                     <div className="bg-white border border-slate-200 rounded-2xl p-3">
-                        <div className="text-xs font-black">Snapshot (workspace_state)</div>
+                        <div className="text-xs font-black">{t('db_snapshot_title')}</div>
                         <div className="text-xs text-slate-600 mt-1">
-                            Strumenti manuali sullo snapshot completo del workspace. In uso normale il pull dal DB avviene da solo.
+                            {t('db_snapshot_desc')}
                         </div>
                         <label className="mt-3 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
                             <input
@@ -641,8 +640,8 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 className="mt-0.5 accent-slate-900"
                             />
                             <span className="leading-5">
-                                <span className="block font-black">Forza sovrascrittura del DB</span>
-                                Attivala solo per imporre lo snapshot di questo device sopra quello remoto corrente. Per il percorso normale usa prima “Ricarica dal DB” e poi “Applica questo download”.
+                                <span className="block font-black">{t('db_force_overwrite_db')}</span>
+                                {t('db_force_overwrite_db_desc')}
                             </span>
                         </label>
                         <div className="flex items-center gap-2 flex-wrap mt-3">
@@ -651,97 +650,101 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 onClick={onTest}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
                             >
-                                Test connessione
+                                {t('db_test_connection')}
                             </button>
                             <button
                                 disabled={isBusy || !cfg}
                                 onClick={onHealthCheck}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
-                                title="Verifica presenza tabelle public e RLS/admin (se JWT presente), e controlla invarianti BYE."
+                                title={t('db_verify_tooltip')}
                             >
-                                Verifica DB
+                                {t('db_verify')}
                             </button>
                             <button
                                 disabled={isBusy || !cfg || !hasAdminSession}
                                 onClick={onUpload}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg || !hasAdminSession ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-blue-700 text-white border-blue-700 hover:bg-blue-800'}`}
                             >
-                                Pubblica questo stato sul DB
+                                {t('db_publish_state')}
                             </button>
                             <button
                                 disabled={isBusy || !cfg}
                                 onClick={onDownload}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
                             >
-                                Ricarica dal DB
+                                {t('db_reload_from_db')}
                             </button>
                             <button
                                 disabled={isBusy || !downloaded?.state}
                                 onClick={onApply}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !downloaded?.state ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-emerald-700 text-white border-emerald-700 hover:bg-emerald-800'}`}
                             >
-                                Applica questo download
+                                {t('db_apply_this_download')}
                             </button>
                         </div>
                         {downloaded?.updatedAt ? (
                             <div className="text-xs text-slate-700 mt-3">
-                                Stato DB aggiornato: <span className="font-mono">{downloaded.updatedAt}</span>
+                                {t('db_db_updated_at')}: <span className="font-mono">{downloaded.updatedAt}</span>
                             </div>
                         ) : null}
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl p-3">
-                        <div className="text-xs font-black">Recovery / dati strutturati</div>
+                        <div className="text-xs font-black">{t('db_structured_recovery_title')}</div>
                         <div className="text-xs text-slate-600 mt-1">
-                            Recovery ricostruisce lo stato dalle tabelle normalizzate. Usalo solo se devi riparare o verificare il DB.
+                            {t('db_structured_recovery_desc')}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap mt-3">
                             <button
                                 disabled={isBusy || !cfg}
                                 onClick={onDownloadStructured}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
-                                title="Recovery: ricostruisce lo state dalle tabelle normalizzate. Richiede JWT admin se RLS è attiva."
+                                title={t('db_download_structured_tooltip')}
                             >
-                                Scarica strutturato (recovery)
+                                {t('db_download_structured_recovery')}
                             </button>
                             <button
                                 disabled={isBusy || !downloadedStructured?.state}
                                 onClick={onApplyStructured}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !downloadedStructured?.state ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-emerald-900 text-white border-emerald-900 hover:bg-emerald-800'}`}
-                                title="Applica i dati strutturati scaricati (recovery). Mantiene la lista Squadre pre-struttura del locale per evitare perdita dati."
+                                title={t('db_apply_recovery_tooltip')}
                             >
-                                Applica recovery a questo device
+                                {t('db_apply_recovery_device')}
                             </button>
                             <button
                                 disabled={isBusy || !cfg || !hasAdminSession}
                                 onClick={onExportNormalized}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg || !hasAdminSession ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-violet-700 text-white border-violet-700 hover:bg-violet-800'}`}
-                                title="Scrive anche nelle tabelle normalizzate (tournaments/*, hall_of_fame, aliases, scorers)."
+                                title={t('db_export_structured_tooltip')}
                             >
-                                Esporta dati strutturati → DB
+                                {t('db_export_structured')}
                             </button>
                             <button
                                 disabled={isBusy || !cfg || !hasAdminSession}
                                 onClick={onSeedSimPool}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg || !hasAdminSession ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-amber-600 text-white border-amber-600 hover:bg-amber-700'}`}
-                                title="Popola il DB pool simulazioni usando squadre e giocatori gia presenti nel JSON."
+                                title={t('db_seed_pool_tooltip')}
                             >
-                                Seed pool JSON → DB
+                                {t('db_seed_pool_json')}
                             </button>
                         </div>
                         {downloadedStructured?.summary ? (
                             <div className="text-xs text-slate-700 mt-3">
-                                Recovery strutturato: <span className="font-mono">{downloadedStructured.updatedAt || '—'}</span>
+                                {t('db_structured_recovery_status')}: <span className="font-mono">{downloadedStructured.updatedAt || '—'}</span>
                                 <span className="text-slate-500"> — </span>
-                                <span className="text-slate-600">{`Tornei ${downloadedStructured.summary.tournaments}, Match ${downloadedStructured.summary.matches}, Stats ${downloadedStructured.summary.matchStats}`}</span>
+                                <span className="text-slate-600">{tx('db_structured_recovery_summary', {
+                                    tournaments: downloadedStructured.summary.tournaments,
+                                    matches: downloadedStructured.summary.matches,
+                                    stats: downloadedStructured.summary.matchStats,
+                                })}</span>
                             </div>
                         ) : null}
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl p-3">
-                        <div className="text-xs font-black">Auto-sync strutturato</div>
+                        <div className="text-xs font-black">{t('db_auto_structured_title')}</div>
                         <div className="text-xs text-slate-600 mt-1">
-                            Se attivo e hai un JWT admin, l'app tenterà di aggiornare DB normalizzato + tabelle public dopo ogni modifica (debounced + throttle).
+                            {t('db_auto_structured_desc')}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap mt-3">
                             <button
@@ -749,15 +752,15 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 onClick={onToggleAutoStructured}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg ? 'bg-slate-100 text-slate-400 border-slate-200' : autoStructured ? 'bg-emerald-700 text-white border-emerald-700 hover:bg-emerald-800' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
                             >
-                                Auto-sync: {autoStructured ? 'ON' : 'OFF'}
+                                {t('db_auto_sync_label')}: {autoStructured ? 'ON' : 'OFF'}
                             </button>
                             <button
                                 disabled={isBusy || !cfg || !autoStructured || !hasAdminSession}
                                 onClick={onSyncNowStructured}
                                 className={`px-3 py-2 rounded-xl font-black border text-sm ${isBusy || !cfg || !autoStructured || !hasAdminSession ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-emerald-900 text-white border-emerald-900 hover:bg-emerald-800'}`}
-                                title="Forza un tentativo di sync strutturato immediato (best-effort)."
+                                title={t('db_sync_now_tooltip')}
                             >
-                                Sync adesso
+                                {t('db_sync_now')}
                             </button>
                         </div>
                     </div>
@@ -766,33 +769,33 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
 
             <details className="bg-white border border-slate-200 rounded-2xl p-3">
                 <summary className="cursor-pointer list-none text-xs font-black text-slate-700">
-                    Diagnostica e storico tecnico
+                    {t('db_diagnostics_title')}
                 </summary>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
                     <div className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-2xl p-3">
                         <div className="text-xs font-black">{t('db_sync_diagnostics')}</div>
                         <div className="mt-1 space-y-1">
-                            <div>Ultimo snapshot OK: <span className="font-mono">{diag.lastSnapshotOkAt || '—'}</span></div>
-                            <div>Ultimo strutturato OK: <span className="font-mono">{diag.lastStructuredOkAt || '—'}</span></div>
-                            <div>Ultimo remote updated_at visto: <span className="font-mono">{diag.lastRemoteUpdatedAt || downloaded?.updatedAt || '—'}</span></div>
-                            <div>Remote base (locale): <span className="font-mono">{remoteBaseUpdatedAt || diag.lastRemoteBaseUpdatedAt || '—'}</span></div>
+                            <div>{t('db_last_snapshot_ok')}: <span className="font-mono">{diag.lastSnapshotOkAt || '—'}</span></div>
+                            <div>{t('db_last_structured_ok')}: <span className="font-mono">{diag.lastStructuredOkAt || '—'}</span></div>
+                            <div>{t('db_last_remote_updated_seen')}: <span className="font-mono">{diag.lastRemoteUpdatedAt || downloaded?.updatedAt || '—'}</span></div>
+                            <div>{t('db_remote_base_local')}: <span className="font-mono">{remoteBaseUpdatedAt || diag.lastRemoteBaseUpdatedAt || '—'}</span></div>
                             {diag.lastStructuredSummary ? (
-                                <div className="text-slate-600">Ultimo summary: <span className="font-mono">{JSON.stringify(diag.lastStructuredSummary)}</span></div>
+                                <div className="text-slate-600">{t('db_last_summary')}: <span className="font-mono">{JSON.stringify(diag.lastStructuredSummary)}</span></div>
                             ) : null}
                             {diag.lastConflictAt || diag.lastConflictMessage ? (
                                 <div className="space-y-1">
-                                    <div className="text-amber-800">Ultimo conflitto: <span className="font-mono">{diag.lastConflictAt || ''}</span> {diag.lastConflictMessage ? `— ${diag.lastConflictMessage}` : ''}</div>
+                                    <div className="text-amber-800">{t('db_conflict_last')}: <span className="font-mono">{diag.lastConflictAt || ''}</span> {diag.lastConflictMessage ? `— ${diag.lastConflictMessage}` : ''}</div>
                                     <div className="text-amber-700">
-                                        Le modifiche di questo device non sono perse: restano in coda locale finche&apos; non risolvi il conflitto. Percorso consigliato: “Ricarica dal DB” → “Applica questo download” → ripeti solo le modifiche che vuoi mantenere. “Forza sovrascrittura” è visibile nella scheda Snapshot.
+                                        {t('db_pending_local_changes_note')}
                                     </div>
                                 </div>
                             ) : null}
                             {visibleLastErrorMessage ? (
-                                <div className="text-red-700">Ultimo errore: <span className="font-mono">{diag.lastErrorAt || ''}</span> {visibleLastErrorMessage ? `— ${visibleLastErrorMessage}` : ''}</div>
+                                <div className="text-red-700">{t('db_last_error')}: <span className="font-mono">{diag.lastErrorAt || ''}</span> {visibleLastErrorMessage ? `— ${visibleLastErrorMessage}` : ''}</div>
                             ) : null}
                             {!visibleLastErrorMessage && diag.lastErrorMessage && !session?.accessToken && isDbPrimaryMode && isAdminWriteOnlyDbIssue(diag.lastErrorMessage) ? (
                                 <div className="text-sky-700">
-                                    Nota: l’ultimo errore snapshot richiedeva un JWT admin. Su questo device in uso arbitro/pubblico non viene considerato un problema attivo.
+                                    {t('db_snapshot_jwt_note')}
                                 </div>
                             ) : null}
                         </div>
@@ -805,7 +808,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 onClick={() => { clearDbSyncHistory(); setDiagTick((x) => x + 1); }}
                                 className="px-3 py-1.5 rounded-xl font-black border text-xs bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                             >
-                                Pulisci
+                                {t('db_clear')}
                             </button>
                         </div>
                         <div className="mt-2 space-y-1 max-h-48 overflow-auto">
@@ -874,7 +877,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
             </details>
 
             {panel.kind === 'working' ? (
-                <div className="text-xs text-slate-700">⏳ {panel.action}…</div>
+                <div className="text-xs text-slate-700">{t('db_working_prefix')} {panel.action}…</div>
             ) : panel.kind === 'error' ? (
                 <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl p-2">{panel.message}</div>
             ) : panel.kind === 'ok' ? (
@@ -883,7 +886,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
 
             {!cfg ? (
                 <div className="text-xs text-slate-600">
-                    Configura <span className="font-mono">VITE_SUPABASE_URL</span> e <span className="font-mono">VITE_SUPABASE_ANON_KEY</span> in <span className="font-mono">.env.local</span> (vedi <span className="font-mono">.env.example</span>).
+                    {t('db_env_config_hint_prefix')} <span className="font-mono">VITE_SUPABASE_URL</span> {t('and')} <span className="font-mono">VITE_SUPABASE_ANON_KEY</span> {t('db_env_config_hint_suffix')} <span className="font-mono">.env.local</span> (<span className="font-mono">.env.example</span>).
                 </div>
             ) : null}
         </div>

@@ -90,7 +90,7 @@ const originLabel = (t: AccountsSubTabProps['t'], origin: AccountFilter) => {
     case 'apple':
       return t('data_accounts_origin_apple');
     case 'alias_candidates':
-      return 'Alias';
+      return t('data_accounts_filter_alias');
     default:
       return t('data_accounts_origin_other');
   }
@@ -109,29 +109,29 @@ const aliasReasonLabel = (t: AccountsSubTabProps['t'], reason: PlayerAccountAlia
   }
 };
 
-const accountMergeReasonLabel = (reason: PlayerAccountMergeReason) => {
+const accountMergeReasonLabel = (t: AccountsSubTabProps['t'], reason: PlayerAccountMergeReason) => {
   switch (reason) {
     case 'same_canonical':
-      return 'Stesso giocatore collegato';
+      return t('data_accounts_merge_reason_same_canonical');
     case 'same_birthdate':
-      return 'Stessa data di nascita';
+      return t('data_accounts_merge_reason_same_birthdate');
     case 'exact_name':
-      return 'Nome identico';
+      return t('data_accounts_merge_reason_exact_name');
     case 'close_name':
-      return 'Nome molto simile';
+      return t('data_accounts_merge_reason_close_name');
     default:
-      return 'Statistiche identiche';
+      return t('data_accounts_merge_reason_same_stats');
   }
 };
 
-const mergeRequestStatusLabel = (status: PlayerAccountMergeRequestRow['status']) => {
+const mergeRequestStatusLabel = (t: AccountsSubTabProps['t'], status: PlayerAccountMergeRequestRow['status']) => {
   switch (status) {
     case 'resolved':
-      return 'Gestita';
+      return t('data_accounts_merge_status_resolved');
     case 'ignored':
-      return 'Ignorata';
+      return t('data_accounts_merge_status_ignored');
     default:
-      return 'In attesa';
+      return t('data_accounts_merge_status_pending');
   }
 };
 
@@ -402,15 +402,15 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     }
     if (allSelectedLiveRowsAreAdmin) {
       return selectedLiveRows.length > 1
-        ? `${t('data_accounts_admin_role_yes')} (${selectedLiveAdminCount}/${selectedLiveRows.length} account live)`
+        ? `${t('data_accounts_admin_role_yes')} (${selectedLiveAdminCount}/${selectedLiveRows.length} ${t('data_accounts_live_accounts_suffix')})`
         : t('data_accounts_admin_role_yes');
     }
     if (!selectedLiveAdminCount) {
       return selectedLiveRows.length > 1
-        ? `${t('data_accounts_admin_role_no')} (0/${selectedLiveRows.length} account live)`
+        ? `${t('data_accounts_admin_role_no')} (0/${selectedLiveRows.length} ${t('data_accounts_live_accounts_suffix')})`
         : t('data_accounts_admin_role_no');
     }
-    return `Parziale (${selectedLiveAdminCount}/${selectedLiveRows.length} account live)`;
+    return `${t('data_accounts_admin_role_partial')} (${selectedLiveAdminCount}/${selectedLiveRows.length} ${t('data_accounts_live_accounts_suffix')})`;
   }, [
     allSelectedLiveRowsAreAdmin,
     canManageSelectedAdminRole,
@@ -608,7 +608,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     if (!liveRowsToUpdate.length) {
       setFeedback({
         tone: 'success',
-        message: 'I permessi admin sono gia allineati su tutti gli account live collegati.',
+        message: t('data_accounts_admin_already_aligned'),
       });
       return;
     }
@@ -623,8 +623,8 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         : selectedRow.email || selectedRow.id;
     const confirmed = window.confirm(selectedGroup.rows.length > 1
       ? allSelectedLiveRowsAreAdmin
-        ? `Vuoi rimuovere i permessi admin da tutti gli account live collegati a ${confirmTarget}?`
-        : `Vuoi rendere amministratori tutti gli account live collegati a ${confirmTarget}?`
+        ? t('data_accounts_admin_revoke_all_confirm').replace('{target}', confirmTarget)
+        : t('data_accounts_admin_grant_all_confirm').replace('{target}', confirmTarget)
       : (
           allSelectedLiveRowsAreAdmin
             ? t('data_accounts_admin_revoke_confirm')
@@ -641,7 +641,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         setFeedback({
           tone: 'success',
           message: selectedGroup.rows.length > 1
-            ? 'Permessi admin rimossi da tutti gli account live collegati.'
+            ? t('data_accounts_admin_revoke_all_done')
             : t('data_accounts_admin_revoke_done'),
         });
       } else {
@@ -651,7 +651,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         setFeedback({
           tone: 'success',
           message: selectedGroup.rows.length > 1
-            ? 'Permessi admin allineati su tutti gli account live collegati.'
+            ? t('data_accounts_admin_grant_all_done')
             : t('data_accounts_admin_grant_done'),
         });
       }
@@ -792,14 +792,14 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
       setFeedback({
         tone: 'success',
         message: selectedAligned && candidateAligned
-          ? 'I due account risultano già integrati sullo stesso profilo giocatore.'
+          ? t('data_accounts_merge_already_integrated')
           : relevantRequestIds.length
             ? shouldPropagateAdminRole
-              ? 'Account integrati correttamente sullo stesso profilo giocatore. Ho allineato anche i permessi admin e segnato come gestite le richieste di merge collegate.'
-              : 'Account integrati correttamente sullo stesso profilo giocatore. Ho segnato come gestite anche le richieste di merge collegate.'
+              ? t('data_accounts_merge_integrated_admin_requests_done')
+              : t('data_accounts_merge_integrated_requests_done')
             : shouldPropagateAdminRole
-              ? 'Account integrati correttamente sullo stesso profilo giocatore. Ho allineato anche i permessi admin.'
-              : 'Account integrati correttamente sullo stesso profilo giocatore.',
+              ? t('data_accounts_merge_integrated_admin_done')
+              : t('data_accounts_merge_integrated_done'),
       });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
@@ -816,8 +816,8 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
       setFeedback({
         tone: 'success',
         message: status === 'resolved'
-          ? 'Richiesta di merge segnata come gestita.'
-          : 'Richiesta di merge ignorata.',
+          ? t('data_accounts_merge_request_resolved_done')
+          : t('data_accounts_merge_request_ignored_done'),
       });
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
@@ -1033,7 +1033,9 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                       </div>
                       <div className="flex flex-wrap justify-end gap-2">
                         <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-black text-slate-700">
-                          {group.rows.length === 1 ? '1 account collegato' : `${group.rows.length} account collegati`}
+                    {group.rows.length === 1
+                      ? t('data_accounts_linked_accounts_count_one')
+                      : t('data_accounts_linked_accounts_count_many').replace('{count}', String(group.rows.length))}
                         </div>
                       </div>
                     </div>
@@ -1079,7 +1081,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                     <div>
                       <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('data_accounts_provider_label')}</div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                        {emailCard.providers || 'Account collegato'}
+                    {emailCard.providers || t('data_accounts_linked_account_label')}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
@@ -1141,9 +1143,9 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
               <div className="rounded-2xl border border-rose-200 bg-rose-50/70 px-4 py-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div>
-                    <div className="text-sm font-black text-rose-950">Richieste merge inviate</div>
+                    <div className="text-sm font-black text-rose-950">{t('data_accounts_merge_requests_title')}</div>
                     <div className="mt-1 text-xs font-bold leading-5 text-rose-900/80">
-                      Qui trovi le segnalazioni ricevute dal giocatore o dagli account collegati a questo profilo. Il commento dell’utente compare qui sotto.
+                      {t('data_accounts_merge_requests_desc')}
                     </div>
                   </div>
                   <div className="rounded-full border border-rose-200 bg-white px-3 py-1 text-[11px] font-black text-rose-800">
@@ -1159,14 +1161,14 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                           <div className="min-w-0">
                             <div className="text-sm font-black text-slate-950">
                               {request.requester_email}
-                              {selectedGroup?.rows.some((row) => row.id === request.requester_user_id) ? ' · Account collegato' : ''}
+                              {selectedGroup?.rows.some((row) => row.id === request.requester_user_id) ? ` · ${t('data_accounts_linked_account_label')}` : ''}
                             </div>
                             <div className="mt-1 text-xs font-bold text-slate-500">
                               {`${request.requester_last_name} ${request.requester_first_name}`.trim()}
                               {request.requester_birth_date ? ` · ${formatBirthDateDisplay(request.requester_birth_date)}` : ''}
                             </div>
                             <div className="mt-2 text-xs font-bold text-slate-600">
-                              Candidato merge: {request.candidate_player_name}
+                              {t('data_accounts_merge_candidate_label')}: {request.candidate_player_name}
                               {request.candidate_birth_date ? ` · ${formatBirthDateDisplay(request.candidate_birth_date)}` : ''}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
@@ -1177,7 +1179,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                                     ? 'border-slate-200 bg-slate-100 text-slate-700'
                                     : 'border-rose-200 bg-rose-50 text-rose-700'
                               }`}>
-                                {mergeRequestStatusLabel(request.status)}
+                                {mergeRequestStatusLabel(t, request.status)}
                               </div>
                               <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700">
                                 {formatDateTime(request.created_at ? Date.parse(request.created_at) : undefined)}
@@ -1192,7 +1194,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                           </div>
                         ) : (
                           <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
-                            Nessun commento lasciato dall’utente.
+                            {t('data_accounts_no_user_comment')}
                           </div>
                         )}
 
@@ -1202,14 +1204,14 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                             onClick={() => void updateMergeRequestStatus(request.id, 'resolved')}
                             className="inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
                           >
-                            Segna gestita
+                            {t('data_accounts_mark_resolved')}
                           </button>
                           <button
                             type="button"
                             onClick={() => void updateMergeRequestStatus(request.id, 'ignored')}
                             className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
                           >
-                            Ignora
+                            {t('data_accounts_ignore')}
                           </button>
                         </div>
                       </div>
@@ -1217,7 +1219,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed border-rose-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
-                    Nessuna richiesta di merge collegata a questo account in questo momento.
+                    {t('data_accounts_merge_requests_empty')}
                   </div>
                 )}
               </div>
@@ -1231,9 +1233,9 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
               <div className="rounded-2xl border border-rose-200 bg-rose-50/70 px-4 py-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div>
-                    <div className="text-sm font-black text-rose-950">{`Possibili account da integrare`}</div>
+                    <div className="text-sm font-black text-rose-950">{t('data_accounts_possible_integrations_title')}</div>
                     <div className="mt-1 text-xs font-bold leading-5 text-rose-900/80">
-                      {`Qui trovi altri account che sembrano appartenere alla stessa persona anche se usano email o provider diversi.`}
+                      {t('data_accounts_possible_integrations_desc')}
                     </div>
                   </div>
                   <div className="rounded-full border border-rose-200 bg-white px-3 py-1 text-[11px] font-black text-rose-800">
@@ -1249,7 +1251,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                           <div className="min-w-0">
                             <div className="text-sm font-black text-slate-950">{suggestion.candidateEmail}</div>
                             <div className="mt-1 text-xs font-bold text-slate-500">
-                              {suggestion.candidateProviders.join(' • ')} • {suggestion.candidateMode === 'live' ? 'Live' : 'Preview'}
+                              {suggestion.candidateProviders.join(' • ')} • {suggestion.candidateMode === 'live' ? t('data_accounts_mode_live') : t('data_accounts_mode_preview')}
                             </div>
                             <div className="mt-2 text-xs font-bold text-slate-600">
                               {suggestion.candidateDisplayName}
@@ -1265,7 +1267,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                               </div>
                               {suggestion.reasons.map((reason) => (
                                 <div key={reason} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700">
-                                  {accountMergeReasonLabel(reason)}
+                                  {accountMergeReasonLabel(t, reason)}
                                 </div>
                               ))}
                             </div>
@@ -1284,7 +1286,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                             onClick={() => void integrateSelectedWithAccount(suggestion.candidateAccountId)}
                             className="inline-flex items-center justify-center rounded-xl border border-rose-600 bg-rose-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2"
                           >
-                            {`Integra account`}
+                            {t('data_accounts_integrate_account')}
                           </button>
                         </div>
                       </div>
@@ -1292,7 +1294,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed border-rose-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
-                    {`Per questo account non risultano altri profili compatibili da integrare.`}
+                    {t('data_accounts_no_compatible_profiles')}
                   </div>
                 )}
               </div>

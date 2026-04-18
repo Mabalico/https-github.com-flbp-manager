@@ -236,23 +236,23 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                         <div className="text-[11px] font-black text-slate-500 uppercase">{t('quick_overview')}</div>
                                         <div className="font-black text-slate-900">
                                             {current?.status === 'playing'
-                                                ? 'Match in corso'
+                                                ? t('codes_current_match')
                                                 : current?.status === 'scheduled'
-                                                    ? 'Prossimo match'
-                                                    : 'Ultimo match'}
+                                                    ? t('codes_next_match')
+                                                    : t('codes_last_match')}
                                         </div>
                                         <div className="flex flex-wrap gap-2 text-[11px] font-bold">
                                             <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
-                                                Avanzamento: <span className="font-mono">{currentIdx}/{ms.length}</span>
+                                                {t('codes_progress_label')}: <span className="font-mono">{currentIdx}/{ms.length}</span>
                                             </span>
                                             <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
-                                                Da giocare: <span className="font-black">{scheduledCount}</span>
+                                                {t('codes_to_play_label')}: <span className="font-black">{scheduledCount}</span>
                                             </span>
                                             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">
-                                                In corso: <span className="font-black">{playingCount}</span>
+                                                {t('codes_playing_label')}: <span className="font-black">{playingCount}</span>
                                             </span>
                                             <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-800">
-                                                Giocate: <span className="font-black">{finishedCount}</span>
+                                                {t('codes_finished_label')}: <span className="font-black">{finishedCount}</span>
                                             </span>
                                         </div>
                                     </div>
@@ -260,7 +260,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                     <div className="w-full max-w-md space-y-3">
                                         {current && (
                                             <div className="text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1 inline-flex">
-                                                Match guida: <span className="ml-1 font-mono">{current.code || '-'}</span>
+                                                {t('codes_guide_match')}: <span className="ml-1 font-mono">{current.code || '-'}</span>
                                             </div>
                                         )}
                                             <div className="flbp-mobile-actions flex flex-wrap gap-2">
@@ -276,7 +276,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 }`}
                                                 title={t('open_priority_report')}
                                             >
-                                                Apri match guida
+                                                {t('codes_open_guide_match')}
                                             </button>
                                             <button
                                                 type="button"
@@ -289,7 +289,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 }`}
                                                 title={t('advance_priority_match')}
                                             >
-                                                {current?.status === 'playing' ? 'Chiudi match guida' : 'Avvia match guida'}
+                                                {current?.status === 'playing' ? t('codes_close_guide_match') : t('codes_start_guide_match')}
                                             </button>
                                         </div>
                                     </div>
@@ -297,7 +297,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 
                                 <details className="rounded-xl border border-slate-200 bg-white p-3">
                                     <summary className="cursor-pointer list-none text-[11px] font-black uppercase tracking-wide text-slate-500">
-                                        Note operative
+                                        {t('codes_operational_notes')}
                                     </summary>
                                     <div className="mt-2 text-[11px] font-bold text-slate-500">
                                         {t('codes_usage_prefix')} <span className="font-black">{t('codes_usage_cta')}</span> {t('codes_usage_suffix')} <span className="font-black">{t('match_status_finished_plural').toLowerCase()}</span> {t('codes_usage_suffix_2')}
@@ -342,7 +342,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                     <span className="font-mono font-black text-slate-900">{code}</span>
                                                     {m.isTieBreak && (
                                                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0 ${isMulti ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
-                                                            SPAREGGIO{isMulti ? ' MULTI' : ''}{typeof m.targetScore === 'number' ? ` a ${m.targetScore}` : ''}
+                                                            {t('codes_tiebreak')}{isMulti ? ` ${t('codes_multi')}` : ''}{typeof m.targetScore === 'number' ? ` ${t('codes_to_score')} ${m.targetScore}` : ''}
                                                         </span>
                                                     )}
 
@@ -359,8 +359,8 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 </div>
                                                 <div className="text-xs font-bold text-slate-500 mt-1">
                                                     {m.phase === 'groups'
-                                                        ? (m.groupName ? `Girone ${m.groupName}` : 'Gironi')
-                                                        : (m.roundName || 'Bracket')}
+                                                        ? (m.groupName ? `${t('codes_group_single')} ${m.groupName}` : t('codes_groups'))
+                                                        : (m.roundName || t('codes_bracket'))}
                                                 </div>
                                             </div>
                                             <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:gap-3 sm:shrink-0">
@@ -400,7 +400,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                         aria-label={m.status === 'scheduled' ? t('start_match') : t('close_match')}
                                                     >
                                                         {m.status === 'scheduled' ? <Play className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                                                        <span className="hidden sm:inline">{m.status === 'scheduled' ? 'Avvia' : 'Chiudi'}</span>
+                                                        <span className="hidden sm:inline">{m.status === 'scheduled' ? t('codes_start_short') : t('codes_close_short')}</span>
                                                     </button>
                                                 )}
                                             </div>
@@ -412,17 +412,17 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                         {query.trim()
                                             ? (
                                                 <div className="space-y-2">
-                                                    <div>Nessun match trovato per “{query.trim()}”.</div>
+                                                    <div>{t('codes_no_match_found_for').replace('{query}', query.trim())}</div>
                                                     <button
                                                         type="button"
                                                         onClick={() => setQuery('')}
                                                         className="inline-flex items-center gap-2 px-3 py-2 rounded-lg font-black border border-slate-200 bg-white hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
                                                     >
-                                                        <X className="w-4 h-4" /> Pulisci ricerca
+                                                        <X className="w-4 h-4" /> {t('codes_clear_search')}
                                                     </button>
                                                 </div>
                                             )
-                                            : 'Nessun match disponibile.'}
+                                            : t('codes_no_match_available')}
                                     </div>
                                 )}
                             </div>
