@@ -1550,7 +1550,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 <div className="grid gap-3">
                                     {!!ocrModalData?.issues?.length && (
                                         <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
-                                            <div className="text-xs font-black text-red-800">{t('referees_manual_check_required') || 'Controllo manuale richiesto'}</div>
+                                            <div className="text-xs font-black text-red-800">{t('referees_manual_check_required')}</div>
                                             <div className="mt-1 space-y-1">
                                                 {ocrModalData.issues.map((issue, index) => (
                                                     <div key={`${issue}-${index}`} className="text-[11px] font-semibold text-red-700">
@@ -1691,7 +1691,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{t('referees_step_1_label') || 'Passo 1'}</div>
                         <div className="mt-1 font-black text-slate-800">{t('referees_step_1_title') || 'Seleziona arbitro'}</div>
                         <div className="text-sm text-slate-600 font-semibold mt-2">
-                            {t('referees_step_1_desc') || 'Scegli il tuo nome tra gli arbitri configurati per il torneo live, oppure aggiungi un arbitro.'}
+                            {t('referees_step_1_desc')}
                         </div>
                         <div className="mt-4">
                             {liveRefereeBypass && activeRefereeName ? (
@@ -1799,7 +1799,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                     <div className="text-[11px] font-black text-slate-600">{filteredPendingMatches.length}{filteredPendingMatches.length !== pendingMatches.length ? ` / ${pendingMatches.length}` : ''}</div>
                                 </div>
                                 <div className="text-sm text-slate-600 font-semibold mt-2">
-                                    {t('referees_find_match_desc') || 'Inserisci il codice del referto, oppure filtra l’elenco partite e seleziona il match corretto.'}
+                                    {t('referees_find_match_desc')}
                                 </div>
 
                                 <div className="mt-4">
@@ -2176,7 +2176,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
 {/* Scoreboard */}
                                 <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                    <div className="text-xs font-black text-slate-700">Score derivato</div>
+                                    <div className="text-xs font-black text-slate-700">{t('referees_derived_score')}</div>
                                     <div className="mt-2 space-y-1">
                                         {participantsForForm.map(tt => (
                                             <div key={tt.id} className="flex items-center justify-between">
@@ -2261,7 +2261,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                         <div className="text-[11px] text-slate-600 font-semibold mt-1">{t('referees_ocr_support_desc') || "Usa l'immagine e il testo OCR come riferimento mentre compili manualmente."}</div>
                                         {!!supportOcrData?.issues?.length && (
                                             <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
-                                                <div className="text-[11px] font-black text-red-800">Controllo manuale richiesto</div>
+                                                <div className="text-[11px] font-black text-red-800">{t('referees_manual_check_required')}</div>
                                                 <div className="mt-1 space-y-1">
                                                     {supportOcrData.issues.map((issue, index) => (
                                                         <div key={`${issue}-${index}`} className="text-[11px] font-semibold text-red-700">

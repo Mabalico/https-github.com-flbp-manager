@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { HelpCircle, X, Info, Lightbulb, CheckCircle2 } from 'lucide-react';
+import { HelpCircle, X, Lightbulb, CheckCircle2 } from 'lucide-react';
+import { useTranslation } from '../App';
 
 interface HelpGuideProps {
   view: string;
@@ -8,60 +9,61 @@ interface HelpGuideProps {
 
 export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const { t } = useTranslation();
 
   const getInstructions = () => {
     switch (view) {
       case 'home':
         return {
-          title: "Benvenuto nella Home",
+          title: t('help_home_title'),
           steps: [
-            "Usa i pulsanti rapidi per navigare tra le sezioni principali.",
-            "Se un torneo è in corso, vedrai un pulsante 'LIVE ORA' pulsante.",
-            "La sidebar a sinistra ti permette di cambiare sezione in ogni momento."
+            t('help_home_step_1'),
+            t('help_home_step_2'),
+            t('help_home_step_3'),
           ]
         };
       case 'leaderboard':
         return {
-          title: "Guida alla Classifica",
+          title: t('help_leaderboard_title'),
           steps: [
-            "Usa la barra di ricerca per trovare un giocatore o una squadra.",
-            "Passa a 'Pro' per vedere solo chi ha giocato almeno 4 partite (medie più affidabili).",
-            "Clicca sulle colonne (PT, SF, Medie) per ordinare i giocatori dal migliore al peggiore."
+            t('help_leaderboard_step_1'),
+            t('help_leaderboard_step_2'),
+            t('help_leaderboard_step_3'),
           ]
         };
       case 'tournament':
       case 'tournament_leaderboard':
         return {
-          title: "Guida ai Tornei",
+          title: t('help_tournament_title'),
           steps: [
-            "Se il torneo ha i gironi, usa il selettore in alto per cambiare tra 'Gironi' e 'Tabellone'.",
-            "Nel tabellone, i vincitori sono evidenziati in giallo.",
-            "Usa 'Esporta' per scaricare l'immagine del tabellone da condividere sui social."
+            t('help_tournament_step_1'),
+            t('help_tournament_step_2'),
+            t('help_tournament_step_3'),
           ]
         };
       case 'hof':
         return {
-          title: "Guida all'Albo d'Oro",
+          title: t('help_hof_title'),
           steps: [
-            "Seleziona la categoria (Vincitori, Capocannonieri, ecc.) per vedere i record passati.",
-            "La sezione 'Giocatori Titolati' mostra la classifica di chi ha vinto più trofei in assoluto.",
-            "I record sono ordinati per anno, dal più recente al più vecchio."
+            t('help_hof_step_1'),
+            t('help_hof_step_2'),
+            t('help_hof_step_3'),
           ]
         };
       case 'admin':
         return {
-          title: "Guida Amministratore (Step-by-Step)",
+          title: t('help_admin_title'),
           steps: [
-            "1. SQUADRE: Inserisci i team manualmente o usa il generatore per testare l'app.",
-            "2. STRUTTURA: Scegli la modalità (Eliminazione o Gironi) e clicca 'Genera'.",
-            "3. REFERTI: Inserisci il codice match (es. 'A', 'G1') e registra i canestri fatti.",
-            "4. MONITOR: Controlla quali partite sono in corso e cambia il loro stato con un click."
+            t('help_admin_step_1'),
+            t('help_admin_step_2'),
+            t('help_admin_step_3'),
+            t('help_admin_step_4'),
           ]
         };
       default:
         return {
-          title: "Istruzioni",
-          steps: ["Naviga tra le sezioni usando il menu laterale.", "Contatta l'amministratore per modifiche ai dati."]
+          title: t('help_default_title'),
+          steps: [t('help_default_step_1'), t('help_default_step_2')]
         };
     }
   };
@@ -75,7 +77,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
         className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-50 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center gap-2 group border-2 border-beer-500 sm:bottom-6 sm:right-6"
       >
         <HelpCircle className="w-6 h-6 text-beer-500" />
-        <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 font-bold whitespace-nowrap">Aiuto Rapido</span>
+        <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 font-bold whitespace-nowrap">{t('help_quick_label')}</span>
       </button>
     );
   }
@@ -112,7 +114,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
             onClick={() => setIsOpen(false)}
             className="text-xs font-black uppercase text-slate-400 hover:text-slate-900 transition-colors"
           >
-            Ho capito, grazie!
+            {t('help_understood')}
           </button>
         </div>
       </div>

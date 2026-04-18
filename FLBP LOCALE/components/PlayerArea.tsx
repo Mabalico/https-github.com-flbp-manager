@@ -363,10 +363,7 @@ const registrationAliasReasonLabel = (reason: PlayerAccountAliasReason, t: (key:
 const isPlayerBackendPendingError = (message: string) =>
   /player_app_profiles|player_app_devices|player_app_calls|flbp_player_ack_call|flbp_player_call_team|relation .*player_app_|function .*flbp_player_/i.test(message);
 
-const PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE =
-  'La data di nascita non è valida. Controlla giorno, mese e anno e usa il formato gg/mm/aaaa.';
-
-const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string): string => {
+const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string, t?: (key: string) => string): string => {
   const raw = String((error as { message?: unknown } | null)?.message ?? error ?? '').trim();
   if (!raw) return fallback;
 
@@ -389,28 +386,28 @@ const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string): st
   const haystack = `${code} ${errorCode} ${message} ${hint}`.toLowerCase();
 
   if (/22008|date\/time field value out of range|datestyle/.test(haystack)) {
-    return PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE;
+    return t?.('player_area_invalid_birthdate_error') || fallback;
   }
   if (/invalid_credentials|invalid login credentials/.test(haystack)) {
-    return 'Email o password non corrette. Controlla i dati inseriti e riprova.';
+    return t?.('player_area_invalid_credentials_error') || fallback;
   }
   if (/user already registered|already been registered/.test(haystack)) {
-    return 'Esiste già un account con questa email. Prova ad accedere oppure usa il recupero password.';
+    return t?.('player_area_email_exists_error') || fallback;
   }
   if (/email address .* invalid|invalid email|unable to validate email address/.test(haystack)) {
-    return 'L’indirizzo email non è valido. Controllalo e riprova.';
+    return t?.('player_area_invalid_email_error') || fallback;
   }
   if (/password should be at least|password is too short|weak password/.test(haystack)) {
-    return 'La password è troppo corta o troppo debole. Scegline una più sicura.';
+    return t?.('player_area_weak_password_error') || fallback;
   }
   if (/failed to fetch|networkerror|network request failed|signal is aborted|aborterror/.test(haystack)) {
-    return 'La connessione sembra instabile. Controlla la rete e riprova.';
+    return t?.('player_area_network_error') || fallback;
   }
   if (/jwt expired|sessione.*scadut|session.*expired|invalid jwt|auth session missing|refresh token/.test(haystack)) {
-    return 'La sessione è scaduta. Esci e rientra per continuare.';
+    return t?.('player_area_session_expired_error') || fallback;
   }
   if (/row-level security|violates row-level security|permission denied/.test(haystack)) {
-    return 'Non abbiamo potuto completare l’operazione con questa sessione. Esci e rientra, poi riprova.';
+    return t?.('player_area_permission_session_error') || fallback;
   }
   if (structured) {
     return fallback;
@@ -523,10 +520,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   }, []);
 
   const loginEntryNote = liveBackendEnabled
-    ? 'Email e password sono gia attive sul backend live. Google, Facebook e Apple restano in attesa finche non attiviamo i provider social su Supabase.'
+    ? t('player_area_login_entry_note_live')
     : t('player_area_preview_note');
   const socialPendingNote = liveBackendEnabled
-    ? 'Accesso email live disponibile gia ora. I provider social verranno attivati in un secondo passaggio.'
+    ? t('player_area_social_pending_live')
     : t('player_area_social_pending');
 
   const registrationAliasSuggestions = React.useMemo(
@@ -720,7 +717,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       } catch (error: any) {
         const message = getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti a preparare l’area giocatore. Riprova tra un attimo.'
+          t('player_area_prepare_failed'),
+          t
         );
         console.error('[PlayerArea] Safe bootstrap fallback', error);
         if (cancelled) return;
@@ -832,7 +830,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
       const message = getPlayerAreaFriendlyErrorMessage(
         error,
-        'Non siamo riusciti ad aggiornare l’area giocatore. Riprova tra un attimo.'
+        t('player_area_update_failed'),
+        t
       );
       applyIfCurrent(() => {
         setLiveRuntimeStatus('error');
@@ -864,7 +863,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti a completare l’accesso. Riprova tra un attimo.'
+          t('player_area_access_complete_failed'),
+          t
         ),
       });
     }
@@ -1005,39 +1005,39 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     playerCallsPrepared: liveBackendEnabled && liveRuntimeStatus === 'ready',
   }), [snapshot.featureStatus, liveBackendEnabled, liveRuntimeSession?.accountId, liveRuntimeStatus]);
   const activationAuthLabel = liveBackendEnabled ? `${t('prepared')} · email/password` : t('player_area_preview_only');
-  const activationSocialLabel = liveBackendEnabled ? 'In attesa provider' : t('player_area_preview_only');
+  const activationSocialLabel = liveBackendEnabled ? t('player_area_social_waiting_provider') : t('player_area_preview_only');
   const activationProfileLabel = !liveBackendEnabled
     ? t('player_area_preview_only')
     : effectiveProfile
       ? t('prepared')
-      : 'Da collegare';
+      : t('player_area_profile_to_link');
   const activationCallsLabel = !liveBackendEnabled
     ? t('player_area_preview_only')
     : effectiveLiveStatus.linkedTeam || effectiveLiveStatus.activeCall
       ? t('prepared')
-      : 'In attesa live';
+      : t('player_area_waiting_live');
   const activationPushLabel = !embeddedNativeShell
-    ? 'Browser web'
+    ? t('player_area_browser_web')
     : !nativePushRegistration
-      ? 'In attesa device'
+      ? t('player_area_waiting_device')
       : !nativePushRegistration.configReady
-        ? 'Config mancante'
+        ? t('player_area_missing_config')
         : nativePushRegistration.pushEnabled
           ? t('prepared')
           : nativePushRegistration.permission === 'denied'
-            ? 'Permesso negato'
+            ? t('player_area_permission_denied')
             : nativePushRegistration.permission === 'prompt'
-              ? 'Permesso da dare'
+              ? t('player_area_permission_needed')
               : nativePushRegistration.permission === 'granted'
-                ? 'Token mancante'
-                : 'In attesa device';
+                ? t('player_area_missing_token')
+                : t('player_area_waiting_device');
   const canManuallyOpenNativePushPrompt =
     embeddedNativeShell &&
     !!nativePushRegistration?.configReady &&
     (nativePushRegistration.permission === 'prompt' || nativePushRegistration.permission === 'denied');
   const nativePushStatusMessage =
     nativePushRegistration?.permission === 'granted' && !nativePushRegistration.deviceToken
-      ? 'Inizializzazione notifiche in corso. Non serve nessuna azione da parte tua.'
+      ? t('player_area_push_initializing')
       : activationPushLabel;
 
   React.useEffect(() => {
@@ -1101,7 +1101,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const submitSocialAuth = (provider: 'google' | 'facebook' | 'apple') => {
     if (!liveBackendEnabled) {
-      setFeedback({ tone: 'error', message: 'Attiva prima Supabase Auth per usare i provider social.' });
+      setFeedback({ tone: 'error', message: t('player_area_enable_supabase_social') });
       return;
     }
     try {
@@ -1109,7 +1109,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       const authorizeUrl = getPlayerOAuthAuthorizeUrl(provider, redirectTo);
       window.location.assign(authorizeUrl);
     } catch (error: any) {
-      setFeedback({ tone: 'error', message: String(error?.message || error || 'Impossibile avviare il login social.') });
+      setFeedback({ tone: 'error', message: String(error?.message || error || t('player_area_social_login_start_failed')) });
     }
   };
 
@@ -1134,7 +1134,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     const safePassword = password.trim();
     if (!safeEmail || !safePassword) {
       stopAliasSubmitting();
-      setFeedback({ tone: 'error', message: 'Inserisci email e password prima di continuare.' });
+      setFeedback({ tone: 'error', message: t('player_area_missing_email_password') });
       return;
     }
     const registerIdentity = authMode === 'register'
@@ -1146,13 +1146,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       : null;
     if (registerIdentity && (!registerIdentity.firstName || !registerIdentity.lastName || !registerIdentity.birthDate)) {
       stopAliasSubmitting();
-      setFeedback({ tone: 'error', message: 'Per registrarti servono nome, cognome e data di nascita.' });
+      setFeedback({ tone: 'error', message: t('player_area_missing_profile_fields') });
       return;
     }
     const normalizedRegisterBirthDate = registerIdentity ? normalizeBirthDateInput(registerIdentity.birthDate) : undefined;
     if (registerIdentity && !normalizedRegisterBirthDate) {
       stopAliasSubmitting();
-      setFeedback({ tone: 'error', message: PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE });
+      setFeedback({ tone: 'error', message: t('player_area_invalid_birthdate_error') });
       return;
     }
 
@@ -1206,15 +1206,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   candidateBirthDate: options.aliasSuggestion.candidateBirthDate || null,
                   comment: options.aliasComment || null,
                 });
-                mergeRequestMessage = ' La tua richiesta di merge è stata inviata agli admin.';
+                mergeRequestMessage = ` ${t('player_area_merge_request_sent_after_signup')}`;
               } catch {
-                mergeRequestMessage = ' L’account è stato creato, ma non siamo riusciti a inviare subito la richiesta di merge.';
+                mergeRequestMessage = ` ${t('player_area_merge_request_deferred_after_signup')}`;
               }
             }
             setPassword('');
             setFeedback({
               tone: 'success',
-              message: `Account creato. Controlla la mail ${signUpResult.email}: se Supabase richiede conferma, dovrai aprire il link prima del primo accesso.${mergeRequestMessage}`,
+              message: t('player_area_signup_created_check_email').replace('{email}', signUpResult.email) + mergeRequestMessage,
             });
             setLiveRuntimeStatus('disabled');
             setLiveRuntimeError(null);
@@ -1269,12 +1269,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             });
             finalFeedback = {
               tone: 'success',
-              message: 'Registrazione completata. La richiesta di merge è stata inviata agli admin.',
+              message: t('player_area_merge_request_sent'),
             };
           } catch {
             finalFeedback = {
               tone: 'success',
-              message: 'Registrazione completata, ma la richiesta di merge non è partita subito. Potrai segnalarla nuovamente agli admin dall’area account.',
+              message: t('player_area_merge_request_deferred'),
             };
           }
         }
@@ -1306,7 +1306,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti a completare la registrazione o l’accesso. Controlla i dati e riprova.'
+          t('player_area_auth_submit_failed'),
+          t
         ),
       });
     } finally {
@@ -1327,7 +1328,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const continueRegisterWithAliasRequest = () => {
     if (!selectedRegistrationAlias) {
-      setFeedback({ tone: 'error', message: 'Seleziona prima il profilo da segnalare agli admin.' });
+      setFeedback({ tone: 'error', message: t('player_area_select_alias_first') });
       return;
     }
     setRegisterAliasSubmitting(true);
@@ -1341,7 +1342,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const requestPasswordReset = async () => {
     const safeEmail = email.trim();
     if (!safeEmail) {
-      setFeedback({ tone: 'error', message: 'Inserisci una mail valida prima di chiedere il reset password.' });
+      setFeedback({ tone: 'error', message: t('player_area_reset_email_required') });
       return;
     }
     if (!liveBackendEnabled) {
@@ -1357,7 +1358,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti a inviare il link di recupero. Riprova tra un attimo.'
+          t('player_area_recovery_send_failed'),
+          t
         ),
       });
     }
@@ -1388,7 +1390,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti ad aggiornare la password. Riprova tra un attimo.'
+          t('player_area_password_update_failed'),
+          t
         ),
       });
     }
@@ -1400,12 +1403,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     const safeLastName = lastName.trim();
     const safeBirthDate = birthDate.trim();
     if (!safeFirstName || !safeLastName || !safeBirthDate) {
-      setFeedback({ tone: 'error', message: 'Completa nome, cognome e data di nascita prima di salvare il profilo.' });
+      setFeedback({ tone: 'error', message: t('player_area_profile_fields_required') });
       return;
     }
     const normalizedBirthDate = normalizeBirthDateInput(safeBirthDate);
     if (!normalizedBirthDate) {
-      setFeedback({ tone: 'error', message: PLAYER_AREA_INVALID_BIRTH_DATE_MESSAGE });
+      setFeedback({ tone: 'error', message: t('player_area_invalid_birthdate_error') });
       return;
     }
     try {
@@ -1435,7 +1438,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti a salvare il profilo. Controlla i dati e riprova.'
+          t('player_area_profile_save_failed'),
+          t
         ),
       });
     }
@@ -1457,7 +1461,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti a confermare la convocazione. Riprova tra un attimo.'
+          t('player_area_ack_call_failed'),
+          t
         ),
       });
     }
@@ -1474,7 +1479,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         tone: 'error',
         message: getPlayerAreaFriendlyErrorMessage(
           error,
-          'Non siamo riusciti ad annullare la convocazione. Riprova tra un attimo.'
+          t('player_area_cancel_call_failed'),
+          t
         ),
       });
     }
@@ -1656,13 +1662,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
             {bootstrapError ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                Area giocatore ripristinata in modalita sicura. {bootstrapError}
+                {t('player_area_safe_mode_restored')} {bootstrapError}
               </div>
             ) : null}
 
             {showBootstrapNotice ? (
               <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
-                Sto preparando l'area giocatore senza bloccare l'interfaccia.
+                {t('player_area_bootstrap_notice')}
               </div>
             ) : null}
 
@@ -1674,7 +1680,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
             {liveDerivedError && effectiveSession?.mode === 'live' ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                Area giocatore ripristinata in modalita sicura. {liveDerivedError}
+                {t('player_area_safe_mode_restored')} {liveDerivedError}
               </div>
             ) : null}
 
@@ -1694,7 +1700,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       onClick={() => submitSocialAuth('facebook')}
                       className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-[#1877F2] bg-[#1877F2] px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(24,119,242,0.6)] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1877F2] focus-visible:ring-offset-2"
                     >
-                      <Facebook className="h-4 w-4" /> Accedi con Facebook
+                      <Facebook className="h-4 w-4" /> {t('player_sign_in_facebook')}
                     </button>
                     <button
                       type="button"
@@ -1702,7 +1708,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-black text-slate-700 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.18)] hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
                     >
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700">G</span>
-                      Accedi con Google
+                      {t('player_sign_in_google')}
                     </button>
                     <button
                       type="button"
@@ -1710,12 +1716,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-900 bg-slate-900 px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(15,23,42,0.45)] hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
                     >
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[11px] font-black text-white">A</span>
-                      Accedi con Apple
+                      {t('player_sign_in_apple')}
                     </button>
 
                     <div className="flex items-center gap-3 py-1">
                       <div className="h-px flex-1 bg-slate-200" />
-                      <span className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">oppure</span>
+                      <span className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t('or_label')}</span>
                       <div className="h-px flex-1 bg-slate-200" />
                     </div>
 
@@ -1725,7 +1731,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-teal-500 bg-teal-500 px-4 py-3.5 text-sm font-black text-white shadow-[0_14px_30px_-22px_rgba(20,184,166,0.55)] hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 md:hidden"
                     >
                       <Mail className="h-4 w-4" />
-                      Accedi con la tua email
+                      {t('player_sign_in_email')}
                     </button>
                   </div>
 
@@ -1849,7 +1855,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                             </div>
                             {registrationAliasSuggestions.length ? (
                               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-                                Abbiamo trovato {registrationAliasSuggestions.length} profilo{registrationAliasSuggestions.length === 1 ? '' : 'i'} già presente{registrationAliasSuggestions.length === 1 ? '' : 'i'} nelle classifiche con dati molto simili. Continuando ti chiederemo se vuoi segnalarlo agli admin per un possibile merge.
+                                {(registrationAliasSuggestions.length === 1
+                                  ? t('player_area_alias_suggestion_found_one')
+                                  : t('player_area_alias_suggestions_found_many').replace('{count}', String(registrationAliasSuggestions.length)))}
                               </div>
                             ) : null}
                           </>

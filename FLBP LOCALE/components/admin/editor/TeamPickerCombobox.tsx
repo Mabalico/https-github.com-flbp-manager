@@ -1,5 +1,6 @@
 import React from 'react';
 import { Search, X } from 'lucide-react';
+import { useTranslation } from '../../../App';
 
 export interface TeamPickerOption {
   id: string;
@@ -27,8 +28,9 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
   items,
   selectedId,
   onSelect,
-  placeholder = 'Cerca squadra…',
+  placeholder,
 }) => {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const listId = React.useId();
@@ -110,7 +112,7 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
           onBlur={() => {
             window.setTimeout(() => setOpen(false), 120);
           }}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('team_picker_default_placeholder')}
           className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] pl-10 pr-10 text-sm font-medium text-[var(--editor-text-primary)] shadow-[0_8px_18px_-20px_rgba(15,23,42,0.24),inset_0_1px_0_rgba(255,255,255,0.6)] transition-all duration-150 placeholder:text-[var(--editor-text-muted)] hover:border-[color:var(--editor-border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
         />
         {query ? (
@@ -122,7 +124,7 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
               setOpen(true);
             }}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-1 text-[var(--editor-text-muted)] transition-colors hover:bg-[var(--editor-bg-surface-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
-            aria-label="Pulisci ricerca"
+            aria-label={t('team_picker_clear_search')}
           >
             <X className="w-4 h-4" />
           </button>
@@ -189,8 +191,8 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
             </div>
           ) : (
             <div className="px-3 py-5 text-center">
-              <div className="text-sm font-semibold text-[var(--editor-text-primary)]">Nessun risultato</div>
-              <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">Prova con un nome squadra o una posizione diversa.</div>
+              <div className="text-sm font-semibold text-[var(--editor-text-primary)]">{t('team_picker_no_results')}</div>
+              <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">{t('team_picker_no_results_hint')}</div>
             </div>
           )}
         </div>

@@ -597,7 +597,7 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                     const counterRows = buildRefereeReportCounterRows(state.tournamentMatches || []);
                     const printCounter = () => {
                         if (!counterRows.length) {
-                            alert('Nessun arbitraggio da stampare.');
+                            alert(t('referees_no_counter_to_print'));
                             return;
                         }
                         const rowsHtml = counterRows.map((row) => `
@@ -606,15 +606,15 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                                 <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:900;">${row.count}</td>
                             </tr>
                         `).join('');
-                        openPrintWindow('Contatore arbitraggi', `
+                        openPrintWindow(t('referees_counter_title'), `
                             <div style="font-family:Arial,Helvetica,sans-serif;padding:28px;color:#0f172a;">
-                                <h1 style="margin:0 0 8px;font-size:24px;">Contatore arbitraggi</h1>
+                                <h1 style="margin:0 0 8px;font-size:24px;">${escapeHtml(t('referees_counter_title'))}</h1>
                                 <div style="margin-bottom:18px;font-weight:700;color:#475569;">${escapeHtml(state.tournament?.name || 'Torneo FLBP')}</div>
                                 <table style="border-collapse:collapse;width:100%;font-size:14px;">
                                     <thead>
                                         <tr>
-                                            <th style="padding:10px 12px;border-bottom:2px solid #0f172a;text-align:left;">Arbitro</th>
-                                            <th style="padding:10px 12px;border-bottom:2px solid #0f172a;text-align:right;">Partite arbitrate</th>
+                                            <th style="padding:10px 12px;border-bottom:2px solid #0f172a;text-align:left;">${escapeHtml(t('referees_audits_referee_label'))}</th>
+                                            <th style="padding:10px 12px;border-bottom:2px solid #0f172a;text-align:right;">${escapeHtml(t('referees_counter_matches_refereed'))}</th>
                                         </tr>
                                     </thead>
                                     <tbody>${rowsHtml}</tbody>
@@ -627,15 +627,15 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                         <div className="border border-slate-200 rounded-xl bg-white p-4 space-y-4">
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                 <div>
-                                    <div className="text-lg font-black text-slate-900">Arbitraggi</div>
-                                    <div className="text-xs font-bold text-slate-500">Referti finali e sovrascritti del torneo live.</div>
+                                    <div className="text-lg font-black text-slate-900">{t('referees_audits_title')}</div>
+                                    <div className="text-xs font-bold text-slate-500">{t('referees_audits_desc')}</div>
                                 </div>
                                 <div className="relative w-full lg:w-80">
                                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                                     <input
                                         value={reportQuery}
                                         onChange={(e) => setReportQuery(e.target.value)}
-                                        placeholder="Cerca arbitro, partita o codice..."
+                                        placeholder={t('referees_audits_search_placeholder')}
                                         className={`w-full pl-9 pr-9 ${inputBase}`}
                                     />
                                     {reportQuery.trim() && (
@@ -647,7 +647,7 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                             </div>
 
                             {!filteredReportRows.length ? (
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">Nessun referto trovato.</div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">{t('referees_audits_empty')}</div>
                             ) : (
                                 <div className="space-y-3">
                                     {filteredReportRows.map((row) => {
@@ -660,13 +660,13 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                                                         <div className="text-xs font-black text-slate-500">{row.match.code || row.match.id}</div>
                                                         <div className="font-black text-slate-900 leading-tight break-words">{row.label}</div>
                                                         <div className="text-sm font-bold text-slate-600 mt-1">
-                                                            Arbitro: <b>{row.author || 'Nessun referto finale'}</b> · Score: <b>{row.finalEntry ? fmtAuditScore(row.finalEntry, row.match) : 'cancellato'}</b> · {fmtDateTime(row.finalEntry?.savedAt || row.match.refereeReportSavedAt)}
+                                                            {t('referees_audits_referee_label')}: <b>{row.author || t('referees_audits_no_final_report')}</b> · {t('score_label')}: <b>{row.finalEntry ? fmtAuditScore(row.finalEntry, row.match) : t('referees_audits_deleted')}</b> · {fmtDateTime(row.finalEntry?.savedAt || row.match.refereeReportSavedAt)}
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         {row.entries.length > 1 ? (
                                                             <button type="button" onClick={() => setExpandedReportId(expanded ? null : row.match.id)} className={btnBase}>
-                                                                <ClipboardList className="w-4 h-4" /> {expanded ? 'Nascondi confronto' : 'Confronta referti'}
+                                                                <ClipboardList className="w-4 h-4" /> {expanded ? t('referees_audits_hide_compare') : t('referees_audits_compare')}
                                                             </button>
                                                         ) : null}
                                                         <button
@@ -675,7 +675,7 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                                                             disabled={!canDelete}
                                                             className={`${btnBase} text-red-700 disabled:bg-slate-100 disabled:text-slate-400`}
                                                         >
-                                                            <Trash2 className="w-4 h-4" /> Cancella referto
+                                                            <Trash2 className="w-4 h-4" /> {t('referees_audits_delete_report')}
                                                         </button>
                                                     </div>
                                                 </div>
@@ -686,13 +686,13 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                                                             return (
                                                                 <div key={entry.id} className={`rounded-xl border p-3 ${isFinal ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
                                                                     <div className="flex items-center justify-between gap-2">
-                                                                        <div className="text-xs font-black uppercase tracking-wide">{isFinal ? 'Finale attuale' : 'Sovrascritto'}</div>
+                                                                        <div className="text-xs font-black uppercase tracking-wide">{isFinal ? t('referees_audits_current_final') : t('referees_audits_overwritten')}</div>
                                                                         <div className="text-xs font-bold text-slate-500">{fmtDateTime(entry.savedAt)}</div>
                                                                     </div>
-                                                                    <div className="mt-2 font-black text-slate-900">{entry.refereeName || (entry.source === 'admin' ? 'Admin' : 'Arbitro')}</div>
-                                                                    <div className="text-sm font-bold text-slate-700">Score: {fmtAuditScore(entry, row.match)}</div>
+                                                                    <div className="mt-2 font-black text-slate-900">{entry.refereeName || (entry.source === 'admin' ? t('referees_audits_admin_author') : t('referees_audits_referee_author'))}</div>
+                                                                    <div className="text-sm font-bold text-slate-700">{t('score_label')}: {fmtAuditScore(entry, row.match)}</div>
                                                                     <div className="text-xs font-bold text-slate-500 mt-1">
-                                                                        Canestri: {(entry.stats || []).reduce((sum, stat) => sum + Number(stat.canestri || 0), 0)} · Soffi: {(entry.stats || []).reduce((sum, stat) => sum + Number(stat.soffi || 0), 0)}
+                                                                        {t('cups_for_label')}: {(entry.stats || []).reduce((sum, stat) => sum + Number(stat.canestri || 0), 0)} · {t('blows_for_label')}: {(entry.stats || []).reduce((sum, stat) => sum + Number(stat.soffi || 0), 0)}
                                                                     </div>
                                                                 </div>
                                                             );
@@ -711,15 +711,15 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                         <div className="border border-slate-200 rounded-xl bg-white p-4 space-y-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <div className="text-lg font-black text-slate-900">Contatore</div>
-                                    <div className="text-xs font-bold text-slate-500">Conteggio dei referti finali salvati per arbitro.</div>
+                                    <div className="text-lg font-black text-slate-900">{t('referees_counter_title')}</div>
+                                    <div className="text-xs font-bold text-slate-500">{t('referees_counter_desc')}</div>
                                 </div>
                                 <button type="button" onClick={printCounter} className={btnBase}>
-                                    <Printer className="w-4 h-4" /> Stampa contatore
+                                    <Printer className="w-4 h-4" /> {t('referees_counter_print')}
                                 </button>
                             </div>
                             {!counterRows.length ? (
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">Nessun referto finale salvato.</div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-600">{t('referees_counter_empty')}</div>
                             ) : (
                                 <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 overflow-hidden">
                                     {counterRows.map((row) => (
@@ -737,13 +737,13 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                         <div className="space-y-4">
                             <div className="flex flex-wrap items-center gap-2">
                                 <button type="button" onClick={() => setViewMode('availability')} className={viewMode === 'availability' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
-                                    <ShieldCheck className="w-4 h-4" /> Disponibilità
+                                    <ShieldCheck className="w-4 h-4" /> {t('referees_availability_tab')}
                                 </button>
                                 <button type="button" onClick={() => setViewMode('reports')} className={viewMode === 'reports' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
-                                    <ClipboardList className="w-4 h-4" /> Arbitraggi
+                                    <ClipboardList className="w-4 h-4" /> {t('referees_audits_title')}
                                 </button>
                                 <button type="button" onClick={() => setViewMode('counter')} className={viewMode === 'counter' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
-                                    <ListChecks className="w-4 h-4" /> Contatore
+                                    <ListChecks className="w-4 h-4" /> {t('referees_counter_title')}
                                 </button>
                             </div>
 
