@@ -1162,13 +1162,39 @@ export const registerPlayerAppDevice = async (input: {
     return rows[0] as PlayerSupabaseDeviceRow;
 };
 
+const PLAYER_APP_CALL_STALE_MS = 10 * 60 * 1000;
+const EXPIRE_STALE_PLAYER_CALLS_RPC = 'flbp_player_expire_stale_calls';
+
+const expireStalePlayerAppCallsForCurrentUser = async (cutoff: string): Promise<void> => {
+    const cfg = getSupabaseConfig();
+    const session = await requirePlayerSupabaseSession();
+    if (!cfg) return;
+    const res = await fetchWithTimeout(rpcUrl(cfg, EXPIRE_STALE_PLAYER_CALLS_RPC), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({
+            p_workspace_id: cfg.workspaceId,
+            p_cutoff: cutoff
+        })
+    }, 3000, { source: 'expireStalePlayerAppCallsForCurrentUser', kind: 'sync' });
+    if (!res.ok) {
+        const body = await readErrorBody(res);
+        if (isMissingRpcFunctionError(body, EXPIRE_STALE_PLAYER_CALLS_RPC)) return;
+        // Keep the existing cutoff read as fallback if lazy normalization fails.
+        console.warn('FLBP stale player call normalization skipped', body);
+    }
+};
+
 export const pullPlayerAppCalls = async (): Promise<PlayerSupabaseCallRow[]> => {
     const cfg = getSupabaseConfig();
     const session = await requirePlayerSupabaseSession();
     const userId = String(session.userId || '').trim();
     if (!cfg || !userId) return [];
-    // Filter to calls within the last 10 minutes to avoid ghost stale calls
-    const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    // Keep the read cutoff, but first let the backend mark old ringing calls as terminal when available.
+    const cutoff = new Date(Date.now() - PLAYER_APP_CALL_STALE_MS).toISOString();
+    await expireStalePlayerAppCallsForCurrentUser(cutoff).catch((error) => {
+        console.warn('FLBP stale player call normalization failed', error);
+    });
     const url = restUrl(
         cfg,
         `player_app_calls?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&target_user_id=eq.${encodeURIComponent(userId)}&requested_at=gte.${encodeURIComponent(cutoff)}&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,requested_by_user_id,status,requested_at,acknowledged_at,cancelled_at,metadata&order=requested_at.desc`
@@ -1256,6 +1282,8 @@ export interface PlayerCallPushDispatchResult {
     callId: string;
     action: PlayerCallPushDispatchAction;
     skipped?: boolean;
+    code?: string | null;
+    reasonCode?: string | null;
     reason?: string | null;
     deliveries?: Array<{
         deviceId: string;
@@ -1263,6 +1291,7 @@ export interface PlayerCallPushDispatchResult {
         provider: string;
         ok: boolean;
         status?: number | null;
+        code?: string | null;
         reason?: string | null;
     }>;
 }
@@ -1850,6 +1879,429 @@ export interface DbHealthCheckResult {
     checks: DbHealthCheckItem[];
 }
 
+type DbHealthWorkspaceProbe = {
+    ok: boolean;
+    state?: any | null;
+    updatedAt?: string | null;
+    message: string;
+};
+
+type DbHealthCountProbe = {
+    ok: boolean;
+    count?: number | null;
+    message: string;
+};
+
+type DbHealthStateSummary = {
+    tournaments: number;
+    hallOfFame: number;
+    integrationsScorers: number;
+    liveTournamentId: string | null;
+};
+
+const compactHealthMessage = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+const parsePostgrestExactCount = (contentRange: string | null): number | null => {
+    const raw = String(contentRange || '').trim();
+    const slash = raw.lastIndexOf('/');
+    if (slash < 0) return null;
+    const tail = raw.slice(slash + 1).trim();
+    if (!tail || tail === '*') return null;
+    const n = Number(tail);
+    return Number.isFinite(n) ? n : null;
+};
+
+const summarizeHealthState = (state: any): DbHealthStateSummary => {
+    const tournamentHistory = Array.isArray(state?.tournamentHistory) ? state.tournamentHistory : [];
+    const liveTournament = state?.tournament && typeof state.tournament === 'object' ? state.tournament : null;
+    return {
+        tournaments: tournamentHistory.length + (liveTournament ? 1 : 0),
+        hallOfFame: Array.isArray(state?.hallOfFame) ? state.hallOfFame.length : 0,
+        integrationsScorers: Array.isArray(state?.integrationsScorers) ? state.integrationsScorers.length : 0,
+        liveTournamentId: liveTournament?.id ? String(liveTournament.id) : null,
+    };
+};
+
+const readDbHealthWorkspaceProbe = async (
+    cfg: SupabaseConfig,
+    table: 'workspace_state' | 'public_workspace_state',
+    headers: Record<string, string>,
+    source: string
+): Promise<DbHealthWorkspaceProbe> => {
+    try {
+        const res = await fetchWithDevRequestPerf(
+            restUrl(cfg, `${table}?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=state,updated_at&limit=1`),
+            { headers },
+            { source, kind: 'admin' }
+        );
+        if (!res.ok) return { ok: false, message: compactHealthMessage(await readErrorBody(res)) };
+        const rows = (await res.json()) as Array<{ state?: any; updated_at?: string | null }>;
+        const row = rows?.[0] || null;
+        if (!row) return { ok: true, state: null, updatedAt: null, message: 'Tabella leggibile, nessuno snapshot per questo workspace.' };
+        return { ok: true, state: row.state || null, updatedAt: row.updated_at || null, message: `Snapshot leggibile, updated_at=${row.updated_at || 'N/D'}.` };
+    } catch (e: any) {
+        return { ok: false, message: compactHealthMessage(e?.message || String(e)) };
+    }
+};
+
+const readDbHealthTableCount = async (
+    cfg: SupabaseConfig,
+    table: string,
+    headers: Record<string, string>,
+    source: string
+): Promise<DbHealthCountProbe> => {
+    try {
+        const res = await fetchWithDevRequestPerf(
+            restUrl(cfg, `${table}?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id&limit=1`),
+            {
+                headers: {
+                    ...headers,
+                    Prefer: 'count=exact',
+                    Range: '0-0',
+                },
+            },
+            { source, kind: 'admin' }
+        );
+        if (!res.ok) return { ok: false, count: null, message: compactHealthMessage(await readErrorBody(res)) };
+        const count = parsePostgrestExactCount(res.headers.get('content-range'));
+        return {
+            ok: true,
+            count,
+            message: count === null ? 'Tabella leggibile; conteggio exact non disponibile.' : `${count} righe.`,
+        };
+    } catch (e: any) {
+        return { ok: false, count: null, message: compactHealthMessage(e?.message || String(e)) };
+    }
+};
+
+const addDbHealthComparison = (
+    checks: DbHealthCheckItem[],
+    name: string,
+    leftLabel: string,
+    leftValue: number | string | null | undefined,
+    rightLabel: string,
+    rightValue: number | string | null | undefined
+) => {
+    if (leftValue === undefined || rightValue === undefined) {
+        checks.push({
+            name,
+            ok: true,
+            severity: 'info',
+            message: `Confronto non disponibile: ${leftLabel}=${leftValue ?? 'N/D'}, ${rightLabel}=${rightValue ?? 'N/D'}.`,
+        });
+        return;
+    }
+    const ok = String(leftValue ?? '') === String(rightValue ?? '');
+    checks.push({
+        name,
+        ok,
+        severity: ok ? 'info' : 'warn',
+        message: ok
+            ? `Allineato: ${leftLabel}=${leftValue ?? 'N/D'} e ${rightLabel}=${rightValue ?? 'N/D'}.`
+            : `Possibile disallineamento: ${leftLabel}=${leftValue ?? 'N/D'}, ${rightLabel}=${rightValue ?? 'N/D'}.`,
+    });
+};
+
+const addDbHealthCountComparison = (
+    checks: DbHealthCheckItem[],
+    name: string,
+    leftLabel: string,
+    leftCount: number | null | undefined,
+    rightLabel: string,
+    rightCount: number | null | undefined
+) => {
+    if (leftCount === null || rightCount === null || leftCount === undefined || rightCount === undefined) {
+        checks.push({
+            name,
+            ok: true,
+            severity: 'info',
+            message: `Conteggio non confrontabile: ${leftLabel}=${leftCount ?? 'N/D'}, ${rightLabel}=${rightCount ?? 'N/D'}.`,
+        });
+        return;
+    }
+    addDbHealthComparison(checks, name, leftLabel, leftCount, rightLabel, rightCount);
+};
+
+const probeAdminSnapshotRpc = async (cfg: SupabaseConfig): Promise<DbHealthCheckItem> => {
+    const rpcName = 'flbp_admin_push_workspace_state';
+    try {
+        const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
+            method: 'POST',
+            headers: buildHeaders(cfg),
+            // No-op probe: the RPC validates workspace_id before any write.
+            body: JSON.stringify({
+                p_workspace_id: '',
+                p_state: {},
+                p_public_state: {},
+                p_base_updated_at: null,
+                p_force: false,
+            }),
+        }, { source: 'runDbHealthChecks.adminSnapshotRpc', kind: 'admin' });
+        if (res.ok) {
+            return { name: `RPC: ${rpcName}`, ok: true, severity: 'info', message: 'RPC raggiungibile; probe no-op completato senza scritture attese.' };
+        }
+        const body = await readErrorBody(res);
+        if (isMissingRpcFunctionError(body, rpcName)) {
+            return { name: `RPC: ${rpcName}`, ok: false, severity: 'warn', message: compactHealthMessage(body) };
+        }
+        return {
+            name: `RPC: ${rpcName}`,
+            ok: true,
+            severity: 'info',
+            message: `RPC presente; probe no-op fermato dalla validazione: ${compactHealthMessage(body).slice(0, 220)}`,
+        };
+    } catch (e: any) {
+        return { name: `RPC: ${rpcName}`, ok: false, severity: 'warn', message: compactHealthMessage(e?.message || String(e)) };
+    }
+};
+
+type DbHealthAccessMode = 'anon' | 'admin';
+
+type DbHealthTableRequirement = {
+    flow: string;
+    table: string;
+    columns: string[];
+    access: DbHealthAccessMode;
+    severity?: DbHealthSeverity;
+};
+
+type DbHealthRpcRequirement = {
+    flow: string;
+    name: string;
+    access: DbHealthAccessMode;
+    body: Record<string, Json>;
+    severity?: DbHealthSeverity;
+};
+
+const DB_SCHEMA_TABLE_REQUIREMENTS: DbHealthTableRequirement[] = [
+    { flow: 'Admin snapshot', table: 'workspace_state', access: 'admin', columns: ['workspace_id', 'state', 'updated_at'] },
+    { flow: 'Admin snapshot', table: 'public_workspace_state', access: 'anon', columns: ['workspace_id', 'state', 'updated_at'] },
+    { flow: 'Admin snapshot', table: 'admin_users', access: 'admin', columns: ['user_id', 'email'] },
+
+    { flow: 'Public read', table: 'public_tournaments', access: 'anon', columns: ['workspace_id', 'id', 'name', 'start_date', 'type', 'config', 'is_manual', 'status', 'updated_at'] },
+    { flow: 'Public read', table: 'public_tournament_teams', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'name', 'player1', 'player2', 'player1_is_referee', 'player2_is_referee', 'is_referee', 'created_at'] },
+    { flow: 'Public read', table: 'public_tournament_groups', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'name', 'order_index'] },
+    { flow: 'Public read', table: 'public_tournament_group_teams', access: 'anon', columns: ['workspace_id', 'tournament_id', 'group_id', 'team_id', 'seed'] },
+    { flow: 'Public read', table: 'public_tournament_matches', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'code', 'phase', 'group_name', 'round', 'round_name', 'order_index', 'team_a_id', 'team_b_id', 'score_a', 'score_b', 'played', 'status', 'is_bye', 'hidden'] },
+    { flow: 'Public read', table: 'public_tournament_match_stats', access: 'anon', columns: ['workspace_id', 'tournament_id', 'match_id', 'team_id', 'player_name', 'canestri', 'soffi'] },
+    { flow: 'Public read', table: 'public_hall_of_fame_entries', access: 'anon', columns: ['workspace_id', 'id', 'year', 'tournament_id', 'tournament_name', 'type', 'team_name', 'player_names', 'value', 'created_at'] },
+    { flow: 'Public read', table: 'public_career_leaderboard', access: 'anon', columns: ['workspace_id', 'id', 'name', 'team_name', 'games_played', 'points', 'soffi', 'avg_points', 'avg_soffi', 'u25', 'yob_label'] },
+
+    { flow: 'Referee pull/push', table: 'referee_auth_audit', access: 'admin', columns: ['id', 'workspace_id', 'tournament_id', 'action', 'ok', 'reason', 'auth_version', 'created_at'] },
+
+    { flow: 'Player accounts/calls', table: 'player_app_profiles', access: 'admin', columns: ['workspace_id', 'user_id', 'first_name', 'last_name', 'birth_date', 'canonical_player_id', 'canonical_player_name', 'created_at', 'updated_at'] },
+    { flow: 'Player accounts/calls', table: 'player_app_devices', access: 'admin', columns: ['id', 'workspace_id', 'user_id', 'platform', 'device_token', 'push_enabled', 'created_at', 'updated_at'] },
+    { flow: 'Player accounts/calls', table: 'player_app_calls', access: 'admin', columns: ['id', 'workspace_id', 'tournament_id', 'team_id', 'team_name', 'target_user_id', 'target_player_id', 'target_player_name', 'requested_by_user_id', 'status', 'requested_at', 'acknowledged_at', 'cancelled_at', 'metadata'] },
+    { flow: 'Player accounts/calls', table: 'player_account_merge_requests', access: 'admin', columns: ['id', 'workspace_id', 'requester_user_id', 'requester_email', 'requester_first_name', 'requester_last_name', 'requester_birth_date', 'candidate_player_id', 'candidate_player_name', 'status', 'created_at', 'updated_at'] },
+];
+
+const DB_SCHEMA_RPC_REQUIREMENTS: DbHealthRpcRequirement[] = [
+    {
+        flow: 'Referee pull/push',
+        name: 'flbp_referee_auth_check',
+        access: 'anon',
+        body: { p_workspace_id: '', p_tournament_id: '', p_referees_password: '' },
+    },
+    {
+        flow: 'Referee pull/push',
+        name: 'flbp_referee_pull_live_state',
+        access: 'anon',
+        body: { p_workspace_id: '', p_tournament_id: '', p_referees_password: '' },
+    },
+    {
+        flow: 'Referee pull/push',
+        name: 'flbp_referee_push_live_state',
+        access: 'anon',
+        body: { p_workspace_id: '', p_tournament_id: '', p_referees_password: '', p_state: {}, p_public_state: {}, p_base_updated_at: null },
+    },
+    {
+        flow: 'Referee pull/push',
+        name: 'flbp_referee_cancel_player_calls',
+        access: 'anon',
+        body: { p_workspace_id: '', p_tournament_id: '', p_referees_password: '', p_team_ids: [], p_match_id: null },
+    },
+    {
+        flow: 'Player accounts/calls',
+        name: 'flbp_player_call_team',
+        access: 'admin',
+        body: { p_workspace_id: '', p_tournament_id: '', p_team_id: '', p_team_name: null, p_target_user_id: null, p_target_player_id: null, p_target_player_name: null, p_match_id: null },
+    },
+    {
+        flow: 'Player accounts/calls',
+        name: 'flbp_player_ack_call',
+        access: 'admin',
+        body: { p_workspace_id: '', p_call_id: '' },
+    },
+    {
+        flow: 'Player accounts/calls',
+        name: 'flbp_player_cancel_call',
+        access: 'admin',
+        body: { p_workspace_id: '', p_call_id: '' },
+    },
+    {
+        flow: 'Player accounts/calls',
+        name: 'flbp_player_expire_stale_calls',
+        access: 'admin',
+        body: { p_workspace_id: '', p_cutoff: null },
+    },
+    {
+        flow: 'Player accounts/calls',
+        name: 'flbp_admin_list_player_accounts',
+        access: 'admin',
+        body: { p_workspace_id: '', p_origin: null },
+    },
+];
+
+const DB_EXPECTED_EDGE_FUNCTIONS = [
+    { flow: 'Player accounts/calls', name: 'player-call-push', purpose: 'dispatch push FCM/APNs per convocazioni squadra' },
+    { flow: 'Player accounts/calls', name: 'player-account-admin', purpose: 'eliminazione protetta account giocatore da Admin' },
+];
+
+const dbHealthHeadersForAccess = (
+    cfg: SupabaseConfig,
+    access: DbHealthAccessMode,
+    hasJwt: boolean
+): Record<string, string> | null => {
+    if (access === 'anon') return buildAnonHeaders(cfg);
+    return hasJwt ? buildHeaders(cfg) : null;
+};
+
+const probeDbHealthTableRequirement = async (
+    cfg: SupabaseConfig,
+    requirement: DbHealthTableRequirement,
+    hasJwt: boolean
+): Promise<DbHealthCheckItem> => {
+    const name = `Schema ${requirement.flow}: ${requirement.table}`;
+    const headers = dbHealthHeadersForAccess(cfg, requirement.access, hasJwt);
+    if (!headers) {
+        return {
+            name,
+            ok: true,
+            severity: 'info',
+            message: 'Non verificabile dal frontend senza sessione admin: tabella protetta da RLS.',
+        };
+    }
+
+    try {
+        const select = requirement.columns.join(',');
+        const res = await fetchWithDevRequestPerf(
+            restUrl(cfg, `${requirement.table}?select=${select}&limit=1`),
+            { headers },
+            { source: `runDbHealthChecks.schema.${requirement.table}`, kind: 'admin' }
+        );
+        if (!res.ok) {
+            const body = compactHealthMessage(await readErrorBody(res));
+            return {
+                name,
+                ok: false,
+                severity: requirement.severity || 'warn',
+                message: `Tabella o colonna minima mancante/non leggibile: ${body}`,
+            };
+        }
+        return {
+            name,
+            ok: true,
+            severity: 'info',
+            message: `OK: tabella leggibile e colonne minime presenti (${requirement.columns.join(', ')}).`,
+        };
+    } catch (e: any) {
+        return {
+            name,
+            ok: false,
+            severity: requirement.severity || 'warn',
+            message: compactHealthMessage(e?.message || String(e)),
+        };
+    }
+};
+
+const probeDbHealthRpcRequirement = async (
+    cfg: SupabaseConfig,
+    requirement: DbHealthRpcRequirement,
+    hasJwt: boolean
+): Promise<DbHealthCheckItem> => {
+    const name = `RPC ${requirement.flow}: ${requirement.name}`;
+    const headers = dbHealthHeadersForAccess(cfg, requirement.access, hasJwt);
+    if (!headers) {
+        return {
+            name,
+            ok: true,
+            severity: 'info',
+            message: 'Non verificabile dal frontend senza sessione admin: RPC protetta o riservata ad utenti autenticati.',
+        };
+    }
+
+    try {
+        const res = await fetchWithDevRequestPerf(rpcUrl(cfg, requirement.name), {
+            method: 'POST',
+            headers,
+            // Safe probe: invalid/empty identifiers should stop inside validation before writes.
+            body: JSON.stringify(requirement.body),
+        }, { source: `runDbHealthChecks.rpc.${requirement.name}`, kind: 'admin' });
+
+        if (res.ok) {
+            return { name, ok: true, severity: 'info', message: 'RPC raggiungibile; probe no-op completato.' };
+        }
+
+        const body = compactHealthMessage(await readErrorBody(res));
+        if (isMissingRpcFunctionError(body, requirement.name)) {
+            return {
+                name,
+                ok: false,
+                severity: requirement.severity || 'warn',
+                message: `RPC mancante o firma non allineata al repo: ${body}`,
+            };
+        }
+
+        return {
+            name,
+            ok: true,
+            severity: 'info',
+            message: `RPC presente; probe no-op fermato da validazione/autorizzazione: ${body.slice(0, 240)}`,
+        };
+    } catch (e: any) {
+        return {
+            name,
+            ok: false,
+            severity: requirement.severity || 'warn',
+            message: compactHealthMessage(e?.message || String(e)),
+        };
+    }
+};
+
+const appendDbHealthEdgeFunctionNotes = (checks: DbHealthCheckItem[]) => {
+    for (const fn of DB_EXPECTED_EDGE_FUNCTIONS) {
+        checks.push({
+            name: `Edge Function ${fn.flow}: ${fn.name}`,
+            ok: true,
+            severity: 'info',
+            message: `Attesa dal repo per ${fn.purpose}; non verificabile in modo affidabile dal frontend senza invocare la funzione e senza conoscere secret/runtime Supabase.`,
+        });
+    }
+};
+
+const appendDbHealthSchemaRequirementChecks = async (
+    checks: DbHealthCheckItem[],
+    cfg: SupabaseConfig,
+    hasJwt: boolean
+) => {
+    checks.push({
+        name: 'Prerequisiti repo/Supabase',
+        ok: true,
+        severity: 'info',
+        message: 'Controllo additivo: verifica best-effort di tabelle, colonne e RPC richieste dai flussi admin snapshot, public read, referee e player accounts/calls. Non blocca alcuna operazione.',
+    });
+
+    for (const requirement of DB_SCHEMA_TABLE_REQUIREMENTS) {
+        checks.push(await probeDbHealthTableRequirement(cfg, requirement, hasJwt));
+    }
+
+    for (const requirement of DB_SCHEMA_RPC_REQUIREMENTS) {
+        checks.push(await probeDbHealthRpcRequirement(cfg, requirement, hasJwt));
+    }
+
+    appendDbHealthEdgeFunctionNotes(checks);
+};
+
 export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) {
@@ -1865,6 +2317,9 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
     const hasJwt = !!getSupabaseAccessToken();
     if (hasJwt) await ensureFreshAuthForSupabaseOps();
 
+    const publicWorkspaceProbe = await readDbHealthWorkspaceProbe(cfg, 'public_workspace_state', buildAnonHeaders(cfg), 'runDbHealthChecks.publicWorkspaceSnapshot');
+    let adminWorkspaceProbe: DbHealthWorkspaceProbe | null = null;
+
     // 1) REST reachable (anon)
     try {
         const res = await fetchWithDevRequestPerf(restUrl(cfg, `public_workspace_state?workspace_id=eq.${workspaceEnc}&select=workspace_id&limit=1`), {
@@ -1879,6 +2334,11 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
     // 2) Public tables existence (anon)
     const publicTables = [
         'public_tournaments',
+        'public_tournament_teams',
+        'public_tournament_groups',
+        'public_tournament_group_teams',
+        'public_tournament_matches',
+        'public_tournament_match_stats',
         'public_hall_of_fame_entries',
         'public_career_leaderboard'
     ];
@@ -1894,6 +2354,13 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
         }
     }
 
+    checks.push({
+        name: 'Snapshot pubblico',
+        ok: publicWorkspaceProbe.ok,
+        severity: publicWorkspaceProbe.ok ? 'info' : 'warn',
+        message: publicWorkspaceProbe.message,
+    });
+
     // 3) Admin/RLS check
     if (!hasJwt) {
         checks.push({
@@ -1903,6 +2370,8 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
             message: 'Nessun JWT admin presente: non posso verificare tabelle protette da RLS (workspace_state, tournaments, ...).'
         });
     } else {
+        checks.push(await probeAdminSnapshotRpc(cfg));
+
         try {
             const res = await fetchWithDevRequestPerf(restUrl(cfg, `workspace_state?workspace_id=eq.${workspaceEnc}&select=updated_at&limit=1`), {
                 headers: buildHeaders(cfg)
@@ -1934,7 +2403,66 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
         } catch (e: any) {
             checks.push({ name: 'BYE invisibili', ok: false, severity: 'warn', message: e?.message || String(e) });
         }
+
+        adminWorkspaceProbe = await readDbHealthWorkspaceProbe(cfg, 'workspace_state', buildHeaders(cfg), 'runDbHealthChecks.adminWorkspaceSnapshot');
+        checks.push({
+            name: 'Snapshot admin',
+            ok: adminWorkspaceProbe.ok,
+            severity: adminWorkspaceProbe.ok ? 'info' : 'warn',
+            message: adminWorkspaceProbe.message,
+        });
+
+        if (adminWorkspaceProbe.ok && publicWorkspaceProbe.ok) {
+            addDbHealthComparison(
+                checks,
+                'Snapshot admin/public: updated_at',
+                'workspace_state',
+                adminWorkspaceProbe.updatedAt || null,
+                'public_workspace_state',
+                publicWorkspaceProbe.updatedAt || null
+            );
+
+            if (adminWorkspaceProbe.state && publicWorkspaceProbe.state) {
+                const adminSummary = summarizeHealthState(adminWorkspaceProbe.state);
+                const publicSummary = summarizeHealthState(publicWorkspaceProbe.state);
+                addDbHealthCountComparison(checks, 'Snapshot admin/public: tornei', 'admin', adminSummary.tournaments, 'public', publicSummary.tournaments);
+                addDbHealthCountComparison(checks, 'Snapshot admin/public: albo d\'oro', 'admin', adminSummary.hallOfFame, 'public', publicSummary.hallOfFame);
+                addDbHealthCountComparison(checks, 'Snapshot admin/public: marcatori integrati', 'admin', adminSummary.integrationsScorers, 'public', publicSummary.integrationsScorers);
+                addDbHealthComparison(checks, 'Snapshot admin/public: torneo live', 'admin', adminSummary.liveTournamentId, 'public', publicSummary.liveTournamentId);
+            }
+        }
+
+        const mirrorPairs: Array<[string, string, string]> = [
+            ['tournaments', 'public_tournaments', 'tornei structured/public'],
+            ['tournament_teams', 'public_tournament_teams', 'squadre structured/public'],
+            ['tournament_groups', 'public_tournament_groups', 'gironi structured/public'],
+            ['tournament_group_teams', 'public_tournament_group_teams', 'squadre nei gironi structured/public'],
+            ['tournament_matches', 'public_tournament_matches', 'partite structured/public'],
+            ['tournament_match_stats', 'public_tournament_match_stats', 'statistiche match structured/public'],
+            ['hall_of_fame_entries', 'public_hall_of_fame_entries', 'albo d\'oro structured/public'],
+        ];
+        for (const [adminTable, publicTable, label] of mirrorPairs) {
+            const adminCount = await readDbHealthTableCount(cfg, adminTable, buildHeaders(cfg), `runDbHealthChecks.count.${adminTable}`);
+            const publicCount = await readDbHealthTableCount(cfg, publicTable, buildAnonHeaders(cfg), `runDbHealthChecks.count.${publicTable}`);
+            checks.push({
+                name: `Tabella admin: ${adminTable}`,
+                ok: adminCount.ok,
+                severity: adminCount.ok ? 'info' : 'warn',
+                message: adminCount.message,
+            });
+            checks.push({
+                name: `Tabella public: ${publicTable}`,
+                ok: publicCount.ok,
+                severity: publicCount.ok ? 'info' : 'warn',
+                message: publicCount.message,
+            });
+            addDbHealthCountComparison(checks, `Mirror ${label}`, adminTable, adminCount.count, publicTable, publicCount.count);
+        }
     }
+
+    // Keep schema/rollout probes observational and isolated from the historical
+    // health checks above. They must never change sync, auth or public read flow.
+    await appendDbHealthSchemaRequirementChecks(checks, cfg, hasJwt);
 
     const ok = !checks.some(c => c.severity === 'error' && !c.ok);
     return { ok, checks };
@@ -2348,6 +2876,7 @@ export type RefereePullLiveStateResult = {
 type RefereePushStateResult = {
     ok: boolean;
     updated_at?: string | null;
+    auth_version?: string | null;
 };
 
 type AdminPushWorkspaceStateResult = {

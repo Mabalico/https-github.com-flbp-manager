@@ -90,6 +90,30 @@ Questo file raccoglie tutte le modifiche SQL e backend da inizio chat fino ad or
   - dopo il check password reale possono ora usare anche loro il `pull live state` additivo
   - restano compatibili se il runtime native non usa ancora il percorso completo
 
+## Controllo allineamento repo / Supabase live
+
+- stato: implementato come diagnostica additiva in `Gestione dati -> Persistenza e backup -> Diagnostica`
+- file: `services/supabaseRest.ts`
+- scopo:
+  - evitare mismatch silenziosi tra codice del repo e progetto Supabase reale
+  - mostrare warning leggibili senza bloccare salvataggi, download, sync o letture pubbliche
+- flussi censiti:
+  - admin snapshot:
+    - tabelle/colonne minime `workspace_state`, `public_workspace_state`, `admin_users`
+    - RPC `flbp_admin_push_workspace_state`
+  - public read:
+    - tabelle/colonne minime del mirror pubblico tornei, squadre, gironi, match, statistiche, albo d'oro e classifica storica
+  - referee pull/push:
+    - RPC `flbp_referee_auth_check`, `flbp_referee_pull_live_state`, `flbp_referee_push_live_state`, `flbp_referee_cancel_player_calls`
+    - audit additivo `referee_auth_audit` se la migration relativa e' stata applicata
+  - player accounts/calls:
+    - tabelle/colonne minime `player_app_profiles`, `player_app_devices`, `player_app_calls`, `player_account_merge_requests`
+    - RPC `flbp_player_call_team`, `flbp_player_ack_call`, `flbp_player_cancel_call`, `flbp_player_expire_stale_calls`, `flbp_admin_list_player_accounts`
+- limiti dichiarati dal report:
+  - le tabelle protette da RLS sono marcate `non verificabile` se non c'e' una sessione admin
+  - le Edge Function attese (`player-call-push`, `player-account-admin`) sono segnalate come attese ma non verificabili in modo affidabile dal frontend senza invocarle e senza conoscere secret/runtime Supabase
+  - il controllo e' osservativo: non cambia source of truth e non applica rollout/deploy
+
 ## Update batch `2026-04-07` gia' chiuso nel repo
 
 - area giocatore web/pages

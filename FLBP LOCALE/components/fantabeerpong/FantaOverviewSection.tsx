@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowRight, BarChart3, Clock3, History, Shield, Users, Loader2 } from 'lucide-react';
 import { fetchFantaConfig, fetchFantaStandings, fetchFantaPlayerStandings, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
-import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
+import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import type { FantaOverviewQuickAction, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { MetricCard, panelClass } from './_shared';
@@ -34,7 +34,23 @@ export const FantaOverviewSection: React.FC<Props> = ({
   const [players, setPlayers] = React.useState<any[]>([]);
   const [userTeam, setUserTeam] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
-  const [session] = React.useState(readPlayerPresenceSnapshot());
+  const [session, setSession] = React.useState(readPlayerPresenceSnapshot);
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  React.useEffect(() => {
+    const refresh = () => {
+      setSession(readPlayerPresenceSnapshot());
+      setRefreshKey((current) => current + 1);
+    };
+    window.addEventListener('storage', refresh);
+    window.addEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
+    window.addEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
+      window.removeEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+    };
+  }, []);
 
   const resolveAction = (target: string) => {
     if (target === 'my_team') return onOpenMyTeam;
@@ -46,6 +62,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
   };
 
   React.useEffect(() => {
+    let cancelled = false;
     async function load() {
       setLoading(true);
       try {
@@ -55,18 +72,20 @@ export const FantaOverviewSection: React.FC<Props> = ({
           fetchFantaPlayerStandings(),
           session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null)
         ]);
+        if (cancelled) return;
         setConfig(cfg);
         setStandings(stds || []);
         setPlayers(plyrs || []);
         setUserTeam(team);
       } catch (err) {
-        console.error('Error loading fanta overview:', err);
+        if (!cancelled) console.error('Error loading fanta overview:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, [session]);
+    return () => { cancelled = true; };
+  }, [session?.accountId, refreshKey]);
 
   if (loading) {
     return (

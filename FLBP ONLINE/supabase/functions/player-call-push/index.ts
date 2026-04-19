@@ -29,7 +29,23 @@ type DispatchResult = {
   provider: string;
   ok: boolean;
   status?: number | null;
+  code?: PushDispatchReasonCode | null;
   reason?: string | null;
+};
+
+type PushDispatchReasonCode =
+  | 'no_device'
+  | 'web_only'
+  | 'permission_denied'
+  | 'token_missing'
+  | 'provider_config_missing'
+  | 'provider_rejected'
+  | 'provider_error'
+  | 'unsupported_platform';
+
+type PushDispatchStatus = {
+  code: PushDispatchReasonCode;
+  reason: string;
 };
 
 type RuntimeEnv = {
@@ -268,25 +284,48 @@ const fetchTargetDevices = async (adminClient: ReturnType<typeof createClient>, 
   return (data || []) as DeviceRow[];
 };
 
-const getNoReadyDeviceReason = (devices: DeviceRow[]) => {
+const getNoReadyDeviceStatus = (devices: DeviceRow[]): PushDispatchStatus => {
   if (!devices.length) {
-    return 'Nessun dispositivo nativo registrato per questo giocatore. Apri l’app FLBP sul telefono con questo account e attiva le notifiche.';
+    return {
+      code: 'no_device',
+      reason: 'Nessun dispositivo nativo registrato per questo giocatore. Apri l’app FLBP sul telefono con questo account e attiva le notifiche.',
+    };
   }
   if (!devices.some((device) => device.platform === 'android' || device.platform === 'ios')) {
-    return 'Per questo giocatore risultano solo sessioni web: serve aprire l’app Android/iOS e accedere con lo stesso account.';
+    return {
+      code: 'web_only',
+      reason: 'Per questo giocatore risultano solo sessioni web: serve aprire l’app Android/iOS e accedere con lo stesso account.',
+    };
   }
   if (devices.some((device) => (device.platform === 'android' || device.platform === 'ios') && !device.push_enabled)) {
-    return 'Il dispositivo del giocatore è registrato, ma le notifiche non risultano abilitate. Apri l’app FLBP e consenti le notifiche.';
+    return {
+      code: 'permission_denied',
+      reason: 'Il dispositivo del giocatore è registrato, ma le notifiche non risultano abilitate. Apri l’app FLBP e consenti le notifiche.',
+    };
   }
   if (devices.some((device) => (device.platform === 'android' || device.platform === 'ios') && !normalizeText(device.device_token))) {
-    return 'Il dispositivo è registrato, ma non ha ancora un token push valido. Riapri l’app FLBP sul telefono e rientra nell’area giocatore.';
+    return {
+      code: 'token_missing',
+      reason: 'Il dispositivo è registrato, ma non ha ancora un token push valido. Riapri l’app FLBP sul telefono e rientra nell’area giocatore.',
+    };
   }
-  return 'Nessun dispositivo Android/iOS pronto per ricevere notifiche push.';
+  return {
+    code: 'unsupported_platform',
+    reason: 'Nessun dispositivo Android/iOS pronto per ricevere notifiche push.',
+  };
+};
+
+const getDeliveryErrorStatus = (error: unknown): PushDispatchStatus => {
+  const reason = error instanceof Error ? error.message : String(error);
+  if (/FCM|APNs|configured|Configurazione|Missing|APNS_|FCM_/i.test(reason)) {
+    return { code: 'provider_config_missing', reason };
+  }
+  return { code: 'provider_error', reason };
 };
 
 const fetchGoogleAccessToken = async (env: RuntimeEnv) => {
   if (!env.fcmProjectId || !env.fcmClientEmail || !env.fcmPrivateKey) {
-    throw new Error('FCM is not configured yet. Missing FCM_PROJECT_ID, FCM_CLIENT_EMAIL or FCM_PRIVATE_KEY.');
+    throw new Error('Configurazione FCM mancante: imposta FCM_PROJECT_ID, FCM_CLIENT_EMAIL e FCM_PRIVATE_KEY sulla funzione player-call-push.');
   }
 
   const privateKey = await importPKCS8(env.fcmPrivateKey, 'RS256');
@@ -324,7 +363,7 @@ const fetchGoogleAccessToken = async (env: RuntimeEnv) => {
 
 const buildApnsJwt = async (env: RuntimeEnv) => {
   if (!env.apnsTeamId || !env.apnsKeyId || !env.apnsPrivateKey || !env.apnsBundleId) {
-    throw new Error('APNs is not configured yet. Missing APNS_TEAM_ID, APNS_KEY_ID, APNS_PRIVATE_KEY or APNS_BUNDLE_ID.');
+    throw new Error('Configurazione APNs mancante: imposta APNS_TEAM_ID, APNS_KEY_ID, APNS_PRIVATE_KEY e APNS_BUNDLE_ID sulla funzione player-call-push.');
   }
 
   const privateKey = await importPKCS8(env.apnsPrivateKey, 'ES256');
@@ -364,6 +403,7 @@ const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushA
     provider: 'fcm',
     ok: response.ok,
     status: response.status,
+    code: response.ok ? null : 'provider_rejected',
     reason: response.ok ? null : payload,
   };
 };
@@ -402,6 +442,7 @@ const sendIosPush = async (env: RuntimeEnv, device: DeviceRow, action: PushActio
     provider: 'apns',
     ok: response.ok,
     status: response.status,
+    code: response.ok ? null : 'provider_rejected',
     reason: response.ok ? null : payload,
   };
 };
@@ -439,12 +480,15 @@ serve(async (req) => {
     );
 
     if (!readyDevices.length) {
+      const noReadyDeviceStatus = getNoReadyDeviceStatus(devices);
       return json(200, {
         ok: true,
         callId: call.id,
         action,
         skipped: true,
-        reason: getNoReadyDeviceReason(devices),
+        code: noReadyDeviceStatus.code,
+        reasonCode: noReadyDeviceStatus.code,
+        reason: noReadyDeviceStatus.reason,
         deliveries: [],
       });
     }
@@ -458,12 +502,14 @@ serve(async (req) => {
           deliveries.push(await sendIosPush(env, device, action, call));
         }
       } catch (error) {
+        const deliveryErrorStatus = getDeliveryErrorStatus(error);
         deliveries.push({
           deviceId: device.id,
           platform: device.platform,
           provider: device.platform === 'ios' ? 'apns' : 'fcm',
           ok: false,
-          reason: error instanceof Error ? error.message : String(error),
+          code: deliveryErrorStatus.code,
+          reason: deliveryErrorStatus.reason,
         });
       }
     }
@@ -474,7 +520,9 @@ serve(async (req) => {
       action,
       deliveries,
       skipped: deliveries.length === 0,
-      reason: deliveries.length === 0 ? 'No supported native devices found for push delivery.' : null,
+      code: deliveries.length === 0 ? 'unsupported_platform' : null,
+      reasonCode: deliveries.length === 0 ? 'unsupported_platform' : null,
+      reason: deliveries.length === 0 ? 'Nessun dispositivo nativo supportato trovato per il dispatch push.' : null,
     });
   } catch (error) {
     if (error instanceof Response) return error;

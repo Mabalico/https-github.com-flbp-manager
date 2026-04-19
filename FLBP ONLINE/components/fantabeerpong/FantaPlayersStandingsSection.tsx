@@ -21,6 +21,8 @@ const statusBadgeClass = (status: FantaPlayersStandingsRow['status']) =>
   status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
 const statusLabel = (t: (k: string) => string, status: FantaPlayersStandingsRow['status']) =>
   status === 'live' ? t('fanta_players_status_live') : status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_waiting');
+const sortCopy = <T,>(items: readonly T[], compareFn: (left: T, right: T) => number): T[] =>
+  [...items].sort(compareFn);
 
 export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandings, onOpenPlayerDetail }) => {
   const { t } = useTranslation();
@@ -42,7 +44,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
 
       const myPlayerIds = userTeam?.roster.map(r => r.player_id) || [];
 
-      const ordered = [...rawRows].sort((left, right) => {
+      const ordered = sortCopy(rawRows, (left, right) => {
         if ((right.total_points || 0) !== (left.total_points || 0)) return (right.total_points || 0) - (left.total_points || 0);
         if ((right.points_from_wins || 0) !== (left.points_from_wins || 0)) return (right.points_from_wins || 0) - (left.points_from_wins || 0);
         return (right.points_from_goals || 0) - (left.points_from_goals || 0);
@@ -72,13 +74,13 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
     load();
   }, [session]);
 
-  const featuredPlayer = rows.length > 0 ? rows.sort((a,b) => b.fantasyPoints - a.fantasyPoints)[0] : null;
+  const featuredPlayer = rows.length > 0 ? sortCopy(rows, (a,b) => b.fantasyPoints - a.fantasyPoints)[0] : null;
 
-  const filteredRows = rows
+  const filteredRows = sortCopy(rows
     .filter((row) => row.playerName.toLowerCase().includes(searchTerm.trim().toLowerCase()) || row.realTeamName.toLowerCase().includes(searchTerm.trim().toLowerCase()))
     .filter((row) => !onlyLive || row.status === 'live')
-    .filter((row) => !onlyMyPlayers || row.isInMyTeam)
-    .sort((left, right) => {
+    .filter((row) => !onlyMyPlayers || row.isInMyTeam),
+    (left, right) => {
       const primary = sortField === 'rank' ? left.rank - right.rank : (right[sortField as keyof FantaPlayersStandingsRow] as number) - (left[sortField as keyof FantaPlayersStandingsRow] as number);
       return primary !== 0 ? primary : left.playerName.localeCompare(right.playerName, 'it', { sensitivity: 'base' });
     });

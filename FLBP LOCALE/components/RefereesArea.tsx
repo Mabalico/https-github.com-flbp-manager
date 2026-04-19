@@ -389,6 +389,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
         setLoginBusy(true);
         try {
+            let verifiedAuthVersion = String((live as any).refereesAuthVersion || '').trim();
             const expected = (live as any).refereesPassword;
             if (expected) {
                 if (entered !== String(expected)) {
@@ -403,9 +404,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         : (t('referees_password_wrong') || 'Password errata.'));
                     return;
                 }
+                verifiedAuthVersion = String(check.auth_version || verifiedAuthVersion || '').trim();
                 try {
                     const pulled = await pullRefereeLiveState(live.id, entered);
                     if (pulled?.ok && pulled.state) {
+                        verifiedAuthVersion = String(pulled.auth_version || verifiedAuthVersion || '').trim();
                         setState(pulled.state);
                     }
                 } catch (syncError: any) {
@@ -422,7 +425,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             try {
                 sessionStorage.setItem('flbp_ref_authed', '1');
                 sessionStorage.setItem('flbp_ref_authed_for', live.id);
-                const authVersion = String((live as any).refereesAuthVersion || '').trim();
+                const authVersion = verifiedAuthVersion;
                 if (authVersion) sessionStorage.setItem('flbp_ref_authed_ver', authVersion);
                 else sessionStorage.removeItem('flbp_ref_authed_ver');
             } catch { /* ignore */ }

@@ -2,6 +2,11 @@
 
 chat non affidabile, seguo il repository.
 
+## 2026-04-19
+- riallineata la strategia mobile: il wrapper Capacitor di `FLBP ONLINE` e' il target primario per la distribuzione mobile
+- questa app iOS dedicata resta legacy/transitoria per confronto push/APNs, fallback tecnico e rollback
+- nessun file iOS e' stato rimosso in questa fase; cleanup rimandato a una finestra dedicata dopo release wrapper verificata
+
 ## 2026-03-27
 - verificato `FLBP ONLINE/App.tsx` come sorgente delle route pubbliche e del child flow `tournament_detail`
 - verificato `FLBP ONLINE/services/supabasePublic.ts` come contratto dati pubblico reale

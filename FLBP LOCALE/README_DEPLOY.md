@@ -81,6 +81,11 @@ Questa patch prepara l'app per deploy pubblico **frontend statico su Cloudflare 
 - La semantica corretta e' **convocazione push/live**, non telefonata OS reale.
 - Nel repository sono pronti anche wrapper e migration additive per il rollout live di profili player, device e chiamate squadra, ma non sono attivi finche' non esegui l'SQL sul progetto Supabase reale.
 
+### Strategia mobile
+- Il percorso mobile primario e' il wrapper Capacitor documentato in `docs/MOBILE_WRAPPER.md`.
+- La strategia complessiva, inclusi cleanup e rollback delle app native dedicate, e' in `docs/MOBILE_STRATEGY.md`.
+- `FLBP ANDROID` e `FLBP IOS` restano legacy/transitori: utili per confronto e fallback, ma non sono il percorso consigliato per nuove feature mobile.
+
 ---
 
 ## File modificati

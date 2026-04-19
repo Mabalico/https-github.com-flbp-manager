@@ -49,18 +49,48 @@ export interface AdminTeamCallMeta {
   liveTarget: LiveCallTarget | undefined;
 }
 
+const withPushReasonDetail = (message: string, reason?: string | null) => {
+  const detail = String(reason || '').trim();
+  return detail && detail !== message ? `${message} Dettaglio: ${detail}` : message;
+};
+
+const getFriendlyPushDispatchMessage = (code?: string | null, reason?: string | null) => {
+  switch (code) {
+    case 'no_device':
+      return reason || 'Nessun dispositivo nativo registrato per questo giocatore.';
+    case 'web_only':
+      return reason || 'Il giocatore risulta collegato solo da browser: serve aprire l’app Android/iOS con lo stesso account.';
+    case 'permission_denied':
+      return reason || 'Il dispositivo del giocatore è registrato, ma le notifiche non sono abilitate.';
+    case 'token_missing':
+      return reason || 'Il dispositivo del giocatore è registrato, ma il token push non è ancora pronto.';
+    case 'provider_config_missing':
+      return withPushReasonDetail('Provider push non configurato sulla funzione Supabase. Controlla i secret FCM/APNs di player-call-push.', reason);
+    case 'provider_rejected':
+      return withPushReasonDetail('Il provider push ha rifiutato la notifica. Controlla token device e configurazione FCM/APNs.', reason);
+    case 'provider_error':
+      return withPushReasonDetail('Errore durante l’invio al provider push.', reason);
+    case 'unsupported_platform':
+      return reason || 'Il backend ha trovato device, ma nessuno con piattaforma Android/iOS supportata.';
+    default:
+      return reason || 'nessun dispositivo con notifiche attive trovato per questo giocatore';
+  }
+};
+
 const getPushDispatchWarning = (result: PlayerCallPushDispatchResult | null | undefined) => {
   if (!result) return null;
+  const resultCode = result.reasonCode || result.code;
   if (result.skipped) {
-    return result.reason || 'nessun dispositivo con notifiche attive trovato per questo giocatore';
+    return getFriendlyPushDispatchMessage(resultCode, result.reason);
   }
   const deliveries = Array.isArray(result.deliveries) ? result.deliveries : [];
   const failed = deliveries.filter((delivery) => !delivery.ok);
   if (!deliveries.length && result.ok === false) {
-    return result.reason || 'la funzione push non ha restituito consegne valide';
+    return getFriendlyPushDispatchMessage(resultCode, result.reason || 'la funzione push non ha restituito consegne valide');
   }
   if (failed.length && failed.length === deliveries.length) {
-    return failed[0]?.reason || 'tutti i dispositivi hanno rifiutato la notifica';
+    const mostUsefulFailure = failed.find((delivery) => delivery.code === 'provider_config_missing') || failed[0];
+    return getFriendlyPushDispatchMessage(mostUsefulFailure?.code, mostUsefulFailure?.reason || 'tutti i dispositivi hanno rifiutato la notifica');
   }
   return null;
 };

@@ -10,7 +10,7 @@ import type {
 } from './types';
 import { getPlayerSupabaseAccessToken, getSupabaseConfig } from '../supabaseRest';
 import { fetchWithDevRequestPerf } from '../devRequestPerf';
-import { getPlayerKey } from '../playerIdentity';
+import { getPlayerKey, getPlayerKeyLabel } from '../playerIdentity';
 
 interface SupabaseFantaConfig {
   workspace_id: string;
@@ -43,6 +43,29 @@ interface SupabasePublicTournamentTeam {
   name: string;
   player1?: string | null;
   player2?: string | null;
+}
+
+interface SupabasePublicTournamentMatch {
+  id: string;
+  code?: string | null;
+  round?: number | null;
+  round_name?: string | null;
+  team_a_id?: string | null;
+  team_b_id?: string | null;
+  score_a?: number | null;
+  score_b?: number | null;
+  played?: boolean | null;
+  status?: string | null;
+  is_bye?: boolean | null;
+  hidden?: boolean | null;
+}
+
+interface SupabasePublicMatchStat {
+  match_id: string;
+  team_id: string;
+  player_name: string;
+  canestri?: number | null;
+  soffi?: number | null;
 }
 
 interface SupabaseFantaRoster {
@@ -78,6 +101,17 @@ interface SupabaseFantaPlayerStanding {
   points_from_wins?: number | null;
   bonus_scia?: number | null;
 }
+
+export type FantaSaveTeamErrorCode =
+  | 'not_authenticated'
+  | 'no_live_tournament'
+  | 'tournament_locked'
+  | 'invalid_roster'
+  | 'backend_error';
+
+export type FantaSaveTeamResult =
+  | { ok: true }
+  | { ok: false; code: FantaSaveTeamErrorCode; message: string };
 
 const restUrl = (cfg: { url: string }, path: string) => {
   const base = cfg.url.replace(/\/$/, '');
@@ -139,7 +173,7 @@ const fetchTournamentStarted = async (
 ) => {
   if (!tournamentId) return false;
   const rows = await fetchJson<Array<{ id: string }>>(
-    `${restUrl(cfg, 'public_tournament_matches')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&hidden=eq.false&is_bye=eq.false&or=(played.eq.true,status.in.(playing,finished))&select=id&limit=1`,
+    `${restUrl(cfg, 'public_tournament_matches')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&hidden=eq.false&is_bye=eq.false&or=(played.eq.true,status.eq.playing)&select=id&limit=1`,
     buildHeaders(cfg),
     'fetchFantaTournamentStarted',
   );
@@ -296,6 +330,44 @@ const fetchFantaPlayersForTournament = async (
   ) || [];
 };
 
+const fantaSaveFailure = (code: FantaSaveTeamErrorCode): FantaSaveTeamResult => {
+  switch (code) {
+    case 'not_authenticated':
+      return { ok: false, code, message: 'Accedi al tuo account giocatore e riprova.' };
+    case 'no_live_tournament':
+      return { ok: false, code, message: 'Non c’è un torneo live disponibile per creare la squadra Fanta.' };
+    case 'tournament_locked':
+      return { ok: false, code, message: 'Il mercato Fanta è chiuso: la squadra non può più essere modificata.' };
+    case 'invalid_roster':
+      return { ok: false, code, message: 'Completa la squadra con 4 giocatori, 1 capitano e 2 difensori.' };
+    case 'backend_error':
+    default:
+      return { ok: false, code: 'backend_error', message: 'Non sono riuscito a salvare la squadra. Riprova tra poco.' };
+  }
+};
+
+const fantaSaveFailureFromResponse = async (res: Response): Promise<FantaSaveTeamResult> => {
+  if (res.status === 401 || res.status === 403) return fantaSaveFailure('not_authenticated');
+
+  let body = '';
+  try {
+    body = await res.text();
+  } catch {
+    body = '';
+  }
+  const lowerBody = body.toLowerCase();
+  if (lowerBody.includes('no live tournament') || lowerBody.includes('while the tournament is live')) {
+    return fantaSaveFailure('no_live_tournament');
+  }
+  if (lowerBody.includes('locked') || lowerBody.includes('first match')) {
+    return fantaSaveFailure('tournament_locked');
+  }
+  if (lowerBody.includes('invalid fanta roster') || lowerBody.includes('roster must') || lowerBody.includes('invalid players')) {
+    return fantaSaveFailure('invalid_roster');
+  }
+  return fantaSaveFailure('backend_error');
+};
+
 export const fetchFantaArchivedEditionDetail = async (
   tournamentId: string,
 ): Promise<FantaArchivedEditionDetail | null> => {
@@ -382,28 +454,41 @@ export const saveFantaTeam = async (
   teamName: string,
   lineup: { player: FantaPlayer; role: FantaLineupSlot['role'] }[],
 ): Promise<boolean> => {
+  const result = await saveFantaTeamWithResult(_userId, teamName, lineup);
+  return result.ok;
+};
+
+export const saveFantaTeamWithResult = async (
+  _userId: string,
+  teamName: string,
+  lineup: { player: FantaPlayer; role: FantaLineupSlot['role'] }[],
+): Promise<FantaSaveTeamResult> => {
   const cfg = getSupabaseConfig();
   const token = getPlayerSupabaseAccessToken();
-  if (!cfg || !token) return false;
-
-  const config = await fetchFantaConfig();
-  const name = teamName.trim();
-  const captainCount = lineup.filter((item) => item.role === 'captain').length;
-  const defenderCount = lineup.filter((item) => item.role === 'defender').length;
-  const distinctPlayers = new Set(lineup.map((item) => item.player.id)).size;
-
-  if (!config?.activeTournamentId || config.isLockActive || !config.registrationOpen) return false;
-  if (!name || lineup.length !== 4 || distinctPlayers !== 4 || captainCount !== 1 || defenderCount !== 2) return false;
-
-  const rosterPayload = lineup.map((item) => ({
-    player_id: item.player.id,
-    player_name: item.player.playerName,
-    real_team_id: item.player.realTeamId || null,
-    real_team_name: item.player.realTeamName,
-    role: item.role,
-  }));
+  if (!cfg) return fantaSaveFailure('backend_error');
+  if (!token) return fantaSaveFailure('not_authenticated');
 
   try {
+    const config = await fetchFantaConfig();
+    const name = teamName.trim();
+    const captainCount = lineup.filter((item) => item.role === 'captain').length;
+    const defenderCount = lineup.filter((item) => item.role === 'defender').length;
+    const distinctPlayers = new Set(lineup.map((item) => item.player.id)).size;
+
+    if (!config?.activeTournamentId) return fantaSaveFailure('no_live_tournament');
+    if (config.isLockActive || !config.registrationOpen) return fantaSaveFailure('tournament_locked');
+    if (!name || lineup.length !== 4 || distinctPlayers !== 4 || captainCount !== 1 || defenderCount !== 2) {
+      return fantaSaveFailure('invalid_roster');
+    }
+
+    const rosterPayload = lineup.map((item) => ({
+      player_id: item.player.id,
+      player_name: item.player.playerName,
+      real_team_id: item.player.realTeamId || null,
+      real_team_name: item.player.realTeamName,
+      role: item.role,
+    }));
+
     const res = await fetchWithDevRequestPerf(`${restUrl(cfg, 'rpc/fanta_save_team')}`, {
       method: 'POST',
       headers: buildHeaders(cfg, token),
@@ -414,9 +499,10 @@ export const saveFantaTeam = async (
         p_roster: rosterPayload,
       }),
     }, { source: 'saveFantaTeam' });
-    return res.ok;
+    if (res.ok) return { ok: true };
+    return await fantaSaveFailureFromResponse(res);
   } catch {
-    return false;
+    return fantaSaveFailure('backend_error');
   }
 };
 
@@ -466,9 +552,52 @@ export const fetchFantaPlayerContributions = async (playerId: string): Promise<a
   const config = await fetchFantaConfig();
   if (!config?.activeTournamentId) return [];
 
-  return await fetchJson<any[]>(
-    `${restUrl(cfg, 'tournament_match_stats')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&player_key=eq.${encode(playerId)}&select=*,tournament_matches(*)&order=match_id.asc`,
-    buildHeaders(cfg),
-    'fetchFantaPlayerContributions',
-  ) || [];
+  const [stats, matches, teams] = await Promise.all([
+    fetchJson<SupabasePublicMatchStat[]>(
+      `${restUrl(cfg, 'public_tournament_match_stats')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=match_id,team_id,player_name,canestri,soffi&order=match_id.asc`,
+      buildHeaders(cfg),
+      'fetchFantaPlayerContributionsStats',
+    ),
+    fetchJson<SupabasePublicTournamentMatch[]>(
+      `${restUrl(cfg, 'public_tournament_matches')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=id,code,round,round_name,team_a_id,team_b_id,score_a,score_b,played,status,is_bye,hidden&order=order_index.asc`,
+      buildHeaders(cfg),
+      'fetchFantaPlayerContributionsMatches',
+    ),
+    fetchJson<SupabasePublicTournamentTeam[]>(
+      `${restUrl(cfg, 'public_tournament_teams')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=id,name`,
+      buildHeaders(cfg),
+      'fetchFantaPlayerContributionsTeams',
+    ),
+  ]);
+
+  const playerLabel = getPlayerKeyLabel(playerId);
+  const matchesById = new Map((matches || []).map((match) => [match.id, match]));
+  const teamNameById = new Map((teams || []).map((team) => [team.id, team.name]));
+
+  return (stats || [])
+    .filter((row) => getPlayerKey(row.player_name || '', 'ND') === playerId || String(row.player_name || '').trim() === playerLabel.name)
+    .map((row) => {
+      const match = matchesById.get(row.match_id) || null;
+      const teamAName = match?.team_a_id ? teamNameById.get(match.team_a_id) || match.team_a_id : null;
+      const teamBName = match?.team_b_id ? teamNameById.get(match.team_b_id) || match.team_b_id : null;
+      const opponentId = match?.team_a_id === row.team_id ? match?.team_b_id : match?.team_a_id;
+      const opponentName = opponentId ? teamNameById.get(opponentId) || opponentId : 'BYE';
+
+      return {
+        id: `${row.match_id}-${row.team_id}-${row.player_name}`,
+        match_id: row.match_id,
+        team_id: row.team_id,
+        team_name: teamNameById.get(row.team_id) || row.team_id,
+        player_name: row.player_name,
+        opponent_team_id: opponentId || null,
+        opponent_team_name: opponentName,
+        canestri: row.canestri || 0,
+        soffi: row.soffi || 0,
+        tournament_matches: match ? {
+          ...match,
+          team_a_name: teamAName,
+          team_b_name: teamBName,
+        } : null,
+      };
+    });
 };

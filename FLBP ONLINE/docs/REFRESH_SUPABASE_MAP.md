@@ -64,6 +64,12 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 - È una sincronizzazione best-effort che parte su modifiche, `online` e `visibilitychange=visible`, con debounce 1500ms e throttle 20s.
 - Consuma Supabase solo se attivata da flag e se c'è una sessione admin valida.
 
+### Diagnostica DB admin
+- Il pulsante **Diagnostica** in Gestione Dati esegue `runDbHealthChecks()` solo su richiesta esplicita dell'admin.
+- Il report è osservativo: verifica presenza/leggibilità di tabelle pubbliche, accesso admin alle tabelle protette, RPC snapshot atomica, timestamp `workspace_state`/`public_workspace_state` e conteggi best-effort tra normalized tables e public mirror.
+- I mismatch aggiunti dalla diagnostica sono warning informativi, non bloccano salvataggi, download, sync strutturato o letture pubbliche.
+- Limite noto: i conteggi non dimostrano l'equivalenza completa del contenuto riga-per-riga; servono a individuare rapidamente disallineamenti grossolani dopo export interrotti o rollout SQL incompleti.
+
 ## Operazioni collegate che consumano Supabase ma non sono “refresh” periodici
 
 Queste non sono refresh continui, ma è utile tenerle tracciate perché generano comunque traffico:

@@ -13,6 +13,7 @@ const PREVIEW_PROFILES_KEY = 'flbp_player_preview_profiles_v1';
 const PREVIEW_CALLS_KEY = 'flbp_player_preview_calls_v1';
 const PLAYER_PRESENCE_KEY = 'flbp_player_presence_v1';
 export const PLAYER_APP_CHANGE_EVENT = 'flbp-player-preview-change';
+export const FANTA_APP_CHANGE_EVENT = 'flbp-fanta-change';
 
 export type PlayerAuthProvider =
   | 'preview_password'
@@ -349,6 +350,14 @@ export const buildPlayerAccountAdminRowFromLive = (
 const emitPlayerAppChange = () => {
   try {
     window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+  } catch {
+    // ignore
+  }
+};
+
+export const emitFantaAppChange = () => {
+  try {
+    window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
   } catch {
     // ignore
   }

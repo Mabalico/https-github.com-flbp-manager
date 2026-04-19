@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FLBP</string>
+    <string name="title_activity_main">FLBP</string>
+    <string name="package_name">com.flbp.manager.suite</string>
+    <string name="custom_url_scheme">com.flbp.manager.suite</string>
+</resources>

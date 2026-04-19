@@ -1666,6 +1666,54 @@ grant execute on function public.flbp_player_call_team(text, text, text, text, u
 grant execute on function public.flbp_player_ack_call(text, text) to authenticated;
 grant execute on function public.flbp_player_cancel_call(text, text) to authenticated;
 
+create or replace function public.flbp_player_expire_stale_calls(
+  p_workspace_id text,
+  p_cutoff timestamptz default now() - interval '10 minutes'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_workspace_id text := nullif(trim(coalesce(p_workspace_id, '')), '');
+  v_cutoff timestamptz := coalesce(p_cutoff, now() - interval '10 minutes');
+  v_user_id uuid := auth.uid();
+  v_expired_count integer := 0;
+begin
+  if v_workspace_id is null then
+    raise exception 'Workspace non valido';
+  end if;
+
+  if v_user_id is null then
+    raise exception 'Sessione player richiesta';
+  end if;
+
+  -- Lazy read-path normalization: there is no scheduler, so the player read retires only
+  -- this user's old ringing calls without touching ack/cancel/admin/referee flows.
+  update public.player_app_calls
+  set status = 'expired',
+      metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+        'expired_at', now(),
+        'expired_reason', 'stale_player_read'
+      )
+  where workspace_id = v_workspace_id
+    and target_user_id = v_user_id
+    and status = 'ringing'
+    and requested_at < v_cutoff;
+
+  get diagnostics v_expired_count = row_count;
+
+  return jsonb_build_object(
+    'ok', true,
+    'expired_count', v_expired_count,
+    'cutoff', v_cutoff
+  );
+end;
+$$;
+
+grant execute on function public.flbp_player_expire_stale_calls(text, timestamptz) to authenticated;
+
 create or replace function public.flbp_admin_list_player_accounts(
   p_workspace_id text,
   p_origin text default null
@@ -2440,6 +2488,7 @@ with match_winners as (
     m.phase,
     coalesce(m.round, 0) as round_index,
     coalesce(m.order_index, 0) as order_index,
+    ((coalesce(m.round, 0) * 10000) + coalesce(m.order_index, 0)) as match_sort,
     case when m.score_a > m.score_b then m.team_a_id when m.score_b > m.score_a then m.team_b_id end as winner_team_id,
     case when m.score_a > m.score_b then m.team_b_id when m.score_b > m.score_a then m.team_a_id end as loser_team_id
   from tournament_matches m
@@ -2476,7 +2525,8 @@ team_losses as (
     loser_team_id as real_team_id,
     winner_team_id as eliminated_by_team_id,
     round_index as elimination_round,
-    order_index as elimination_order
+    order_index as elimination_order,
+    match_sort as elimination_sort
   from match_winners
   where phase = 'bracket'
     and loser_team_id is not null
@@ -2495,7 +2545,16 @@ scia_points as (
     on w.workspace_id = l.workspace_id
    and w.tournament_id = l.tournament_id
    and w.winner_team_id = l.eliminated_by_team_id
-   and ((w.round_index * 10000) + w.order_index) > ((l.elimination_round * 10000) + l.elimination_order)
+   and w.match_sort > l.elimination_sort
+   and not exists (
+     select 1
+     from match_winners first_loss
+     where first_loss.workspace_id = l.workspace_id
+       and first_loss.tournament_id = l.tournament_id
+       and first_loss.loser_team_id = l.eliminated_by_team_id
+       and first_loss.match_sort > l.elimination_sort
+       and first_loss.match_sort <= w.match_sort
+   )
   group by l.workspace_id, l.tournament_id, l.real_team_id, l.eliminated_by_team_id
 ),
 roster_base as (
@@ -3094,3 +3153,272 @@ $$;
 
 grant execute on function public.fanta_save_team(text, text, text, jsonb) to authenticated;
 -- ===== END supabase\migrations\20260417000400_fanta_lock_only_after_first_match.sql =====
+
+-- ===== BEGIN supabase\migrations\20260418000200_referee_auth_audit.sql =====
+-- FLBP Manager Suite - additive referee auth audit
+--
+-- Scope:
+-- - keep the current tournament password + RPC referee flow
+-- - add best-effort audit rows for auth/pull/push attempts
+-- - keep audit logging non-blocking: logging failures must never break referee work
+
+create table if not exists public.referee_auth_audit (
+  id bigserial primary key,
+  workspace_id text null,
+  tournament_id text null,
+  action text not null,
+  ok boolean not null default false,
+  reason text null,
+  auth_version text null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_referee_auth_audit_workspace_created
+  on public.referee_auth_audit(workspace_id, created_at desc);
+
+create index if not exists idx_referee_auth_audit_tournament_created
+  on public.referee_auth_audit(workspace_id, tournament_id, created_at desc);
+
+alter table public.referee_auth_audit enable row level security;
+
+drop policy if exists referee_auth_audit_admin_select on public.referee_auth_audit;
+create policy referee_auth_audit_admin_select
+  on public.referee_auth_audit
+  for select
+  to authenticated
+  using (public.flbp_is_admin());
+
+grant select on public.referee_auth_audit to authenticated;
+
+create or replace function public.flbp_log_referee_auth_audit(
+  p_workspace_id text,
+  p_tournament_id text,
+  p_action text,
+  p_ok boolean,
+  p_reason text default null,
+  p_auth_version text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.referee_auth_audit (
+    workspace_id,
+    tournament_id,
+    action,
+    ok,
+    reason,
+    auth_version,
+    created_at
+  )
+  values (
+    nullif(trim(coalesce(p_workspace_id, '')), ''),
+    nullif(trim(coalesce(p_tournament_id, '')), ''),
+    left(nullif(trim(coalesce(p_action, '')), ''), 80),
+    coalesce(p_ok, false),
+    left(nullif(trim(coalesce(p_reason, '')), ''), 120),
+    left(nullif(trim(coalesce(p_auth_version, '')), ''), 120),
+    now()
+  );
+exception when others then
+  -- Audit is diagnostic only: never block referee login or report saving.
+  null;
+end;
+$$;
+
+revoke all on function public.flbp_log_referee_auth_audit(text, text, text, boolean, text, text) from public;
+
+create or replace function public.flbp_referee_auth_check(
+  p_workspace_id text,
+  p_tournament_id text,
+  p_referees_password text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_state jsonb;
+  v_tournament_id text;
+  v_expected_password text;
+  v_auth_version text;
+  v_updated_at timestamptz;
+begin
+  select ws.state, ws.updated_at
+  into v_state, v_updated_at
+  from public.workspace_state ws
+  where ws.workspace_id = p_workspace_id
+  limit 1;
+
+  if v_state is null then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'auth_check', false, 'workspace_missing', null);
+    return jsonb_build_object('ok', false, 'reason', 'workspace_missing');
+  end if;
+
+  v_tournament_id := coalesce(v_state -> 'tournament' ->> 'id', '');
+  if v_tournament_id = '' or v_tournament_id <> coalesce(p_tournament_id, '') then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'auth_check', false, 'tournament_mismatch', null);
+    return jsonb_build_object('ok', false, 'reason', 'tournament_mismatch');
+  end if;
+
+  v_expected_password := coalesce(v_state -> 'tournament' ->> 'refereesPassword', '');
+  if v_expected_password = '' then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'auth_check', false, 'no_config', null);
+    return jsonb_build_object('ok', false, 'reason', 'no_config');
+  end if;
+
+  if v_expected_password <> coalesce(p_referees_password, '') then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'auth_check', false, 'bad_password', null);
+    return jsonb_build_object('ok', false, 'reason', 'bad_password');
+  end if;
+
+  v_auth_version := nullif(v_state -> 'tournament' ->> 'refereesAuthVersion', '');
+  perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'auth_check', true, 'ok', v_auth_version);
+
+  return jsonb_build_object(
+    'ok', true,
+    'auth_version', v_auth_version,
+    'updated_at', v_updated_at
+  );
+end;
+$$;
+
+grant execute on function public.flbp_referee_auth_check(text, text, text) to anon, authenticated;
+
+create or replace function public.flbp_referee_pull_live_state(
+  p_workspace_id text,
+  p_tournament_id text,
+  p_referees_password text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_state jsonb;
+  v_tournament_id text;
+  v_expected_password text;
+  v_auth_version text;
+  v_updated_at timestamptz;
+begin
+  select ws.state, ws.updated_at
+  into v_state, v_updated_at
+  from public.workspace_state ws
+  where ws.workspace_id = p_workspace_id
+  limit 1;
+
+  if v_state is null then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'pull_live_state', false, 'workspace_missing', null);
+    return jsonb_build_object('ok', false, 'reason', 'workspace_missing');
+  end if;
+
+  v_tournament_id := coalesce(v_state -> 'tournament' ->> 'id', '');
+  if v_tournament_id = '' or v_tournament_id <> coalesce(p_tournament_id, '') then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'pull_live_state', false, 'tournament_mismatch', null);
+    return jsonb_build_object('ok', false, 'reason', 'tournament_mismatch');
+  end if;
+
+  v_expected_password := coalesce(v_state -> 'tournament' ->> 'refereesPassword', '');
+  if v_expected_password = '' then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'pull_live_state', false, 'no_config', null);
+    return jsonb_build_object('ok', false, 'reason', 'no_config');
+  end if;
+
+  if v_expected_password <> coalesce(p_referees_password, '') then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'pull_live_state', false, 'bad_password', null);
+    return jsonb_build_object('ok', false, 'reason', 'bad_password');
+  end if;
+
+  v_auth_version := nullif(v_state -> 'tournament' ->> 'refereesAuthVersion', '');
+  perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'pull_live_state', true, 'ok', v_auth_version);
+
+  return jsonb_build_object(
+    'ok', true,
+    'auth_version', v_auth_version,
+    'updated_at', v_updated_at,
+    'state', v_state
+  );
+end;
+$$;
+
+grant execute on function public.flbp_referee_pull_live_state(text, text, text) to anon, authenticated;
+
+create or replace function public.flbp_referee_push_live_state(
+  p_workspace_id text,
+  p_tournament_id text,
+  p_referees_password text,
+  p_state jsonb,
+  p_public_state jsonb,
+  p_base_updated_at timestamptz default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_current_state jsonb;
+  v_current_updated_at timestamptz;
+  v_tournament_id text;
+  v_expected_password text;
+  v_auth_version text;
+  v_next_updated_at timestamptz := now();
+begin
+  select ws.state, ws.updated_at
+  into v_current_state, v_current_updated_at
+  from public.workspace_state ws
+  where ws.workspace_id = p_workspace_id
+  for update;
+
+  if v_current_state is null then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'push_live_state', false, 'workspace_missing', null);
+    raise exception 'Workspace snapshot non trovato';
+  end if;
+
+  v_tournament_id := coalesce(v_current_state -> 'tournament' ->> 'id', '');
+  if v_tournament_id = '' or v_tournament_id <> coalesce(p_tournament_id, '') then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'push_live_state', false, 'tournament_mismatch', null);
+    raise exception 'Torneo live non corrispondente';
+  end if;
+
+  v_auth_version := nullif(v_current_state -> 'tournament' ->> 'refereesAuthVersion', '');
+  v_expected_password := coalesce(v_current_state -> 'tournament' ->> 'refereesPassword', '');
+  if v_expected_password = '' then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'push_live_state', false, 'no_config', v_auth_version);
+    raise exception 'Accesso arbitri non configurato per questo torneo';
+  end if;
+
+  if v_expected_password <> coalesce(p_referees_password, '') then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'push_live_state', false, 'bad_password', v_auth_version);
+    raise exception 'Password arbitri non valida';
+  end if;
+
+  if p_base_updated_at is not null and v_current_updated_at is distinct from p_base_updated_at then
+    perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'push_live_state', false, 'conflict', v_auth_version);
+    raise exception 'FLBP_DB_CONFLICT: il torneo live e'' stato aggiornato da un altro dispositivo';
+  end if;
+
+  update public.workspace_state
+  set state = coalesce(p_state, '{}'::jsonb),
+      updated_at = v_next_updated_at
+  where workspace_id = p_workspace_id;
+
+  insert into public.public_workspace_state (workspace_id, state, updated_at)
+  values (p_workspace_id, coalesce(p_public_state, '{}'::jsonb), v_next_updated_at)
+  on conflict (workspace_id) do update
+  set state = excluded.state,
+      updated_at = excluded.updated_at;
+
+  perform public.flbp_log_referee_auth_audit(p_workspace_id, p_tournament_id, 'push_live_state', true, 'ok', v_auth_version);
+
+  return jsonb_build_object('ok', true, 'updated_at', v_next_updated_at, 'auth_version', v_auth_version);
+end;
+$$;
+
+grant execute on function public.flbp_referee_push_live_state(text, text, text, jsonb, jsonb, timestamptz) to anon, authenticated;
+
+-- ===== END supabase\migrations\20260418000200_referee_auth_audit.sql =====

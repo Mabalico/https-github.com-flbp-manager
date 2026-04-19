@@ -16,6 +16,7 @@ declare
   v_team_id uuid;
   v_tournament_id text;
   v_config_tournament_id text;
+  v_requested_tournament_id text;
   v_registration_open boolean := true;
   v_lock_active boolean := false;
   v_started boolean := false;
@@ -41,7 +42,17 @@ begin
   from fanta_config c
   where c.workspace_id = p_workspace_id;
 
-  v_tournament_id := nullif(p_tournament_id, '');
+  v_requested_tournament_id := nullif(p_tournament_id, '');
+  v_tournament_id := null;
+
+  if v_requested_tournament_id is not null then
+    select id into v_tournament_id
+    from tournaments
+    where workspace_id = p_workspace_id
+      and id = v_requested_tournament_id
+      and status = 'live'
+    limit 1;
+  end if;
 
   if v_tournament_id is null and v_config_tournament_id is not null then
     select id into v_tournament_id
@@ -82,7 +93,7 @@ begin
       and tournament_id = v_tournament_id
       and hidden = false
       and is_bye = false
-      and (played = true or status in ('playing','finished'))
+      and (played = true or status = 'playing')
     limit 1
   ) into v_started;
 

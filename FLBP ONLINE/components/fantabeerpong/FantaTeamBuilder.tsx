@@ -1,8 +1,8 @@
 import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader2 } from 'lucide-react';
-import { fetchFantaConfig, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
-import { readPlayerPresenceSnapshot, PLAYER_APP_CHANGE_EVENT } from '../../services/playerAppService';
+import { fetchFantaConfig, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeamWithResult } from '../../services/fantabeerpong/fantaSupabaseService';
+import { emitFantaAppChange, readPlayerPresenceSnapshot, PLAYER_APP_CHANGE_EVENT } from '../../services/playerAppService';
 import type { FantaBuilderPlayerOption, FantaBuilderTeamGroup, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { panelClass } from './_shared';
@@ -48,24 +48,40 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   }, [availableTeams]);
 
   React.useEffect(() => {
+    let cancelled = false;
     async function init() {
       setLoading(true);
       const conf = await fetchFantaConfig();
+      if (cancelled) return;
       setConfig(conf);
-      setAvailableTeams(conf?.activeTournamentId ? await fetchFantaTournamentTeams(conf.activeTournamentId) : []);
+      const teams = conf?.activeTournamentId ? await fetchFantaTournamentTeams(conf.activeTournamentId) : [];
+      if (cancelled) return;
+      setAvailableTeams(teams);
 
       if (session?.accountId) {
         const existing = await fetchUserFantaTeam(session.accountId);
+        if (cancelled) return;
         if (existing) {
           setTeamName(existing.team.name);
           setSelectedIds(existing.roster.map(r => r.player_id));
           setCaptainId(existing.roster.find(r => r.role === 'captain')?.player_id || '');
           setDefenderIds(existing.roster.filter(r => r.role === 'defender').map(r => r.player_id));
+        } else {
+          setTeamName(t('fanta_my_team_default_name'));
+          setSelectedIds([]);
+          setCaptainId('');
+          setDefenderIds([]);
         }
+      } else {
+        setTeamName(t('fanta_my_team_default_name'));
+        setSelectedIds([]);
+        setCaptainId('');
+        setDefenderIds([]);
       }
       setLoading(false);
     }
     init();
+    return () => { cancelled = true; };
   }, [session]);
 
   const flatPlayers = tournamentPlayers;
@@ -135,12 +151,13 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
         return { player: p as FantaPlayer, role };
       });
 
-      const ok = await saveFantaTeam(session.accountId, teamName, lineup);
-      if (ok) {
+      const result = await saveFantaTeamWithResult(session.accountId, teamName, lineup);
+      if (result.ok) {
+        emitFantaAppChange();
         setInfo(t('fanta_save_success'));
         setTimeout(onBack, 1500);
       } else {
-        setInfo(t('fanta_save_error'), 'error');
+        setInfo(result.message || t('fanta_save_error'), 'error');
       }
     } finally {
       setSaving(false);

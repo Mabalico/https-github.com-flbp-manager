@@ -66,6 +66,9 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
     const remotePersistenceLocked = React.useMemo(() => isRemotePersistenceLocked(), []);
     const [diagTick, setDiagTick] = React.useState<number>(0);
     const [health, setHealth] = React.useState<null | { ok: boolean; checks: Array<{ name: string; ok: boolean; severity: string; message: string }> }>(null);
+    const healthHasWarnings = React.useMemo(() => {
+        return !!health?.checks?.some((c) => !c.ok || String(c.severity || 'info') !== 'info');
+    }, [health]);
 
     const session = React.useMemo(() => getSupabaseSession(), [token, diagTick]);
     const remoteBaseUpdatedAt = React.useMemo(() => getRemoteBaseUpdatedAt(), [diagTick, token]);
@@ -845,7 +848,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div className="text-xs font-black">{t('db_verify')}</div>
                             <div className="text-xs">
-                                {health.ok ? (
+                                {!healthHasWarnings ? (
                                     <span className="px-2 py-1 rounded-lg font-black bg-emerald-100 text-emerald-900 border border-emerald-200">OK</span>
                                 ) : (
                                     <span className="px-2 py-1 rounded-lg font-black bg-amber-100 text-amber-900 border border-amber-200">{t('warning')}</span>
@@ -866,7 +869,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                         <span className={`px-2 py-0.5 rounded-lg border text-[10px] font-black ${badge}`}>{sev.toUpperCase()}</span>
                                         <div className="flex-1">
                                             <div className="font-black">{c.name}</div>
-                                            <div className="text-slate-600 break-words">{c.ok ? 'OK' : c.message}</div>
+                                            <div className="text-slate-600 break-words">{c.message || (c.ok ? 'OK' : '')}</div>
                                         </div>
                                     </div>
                                 );

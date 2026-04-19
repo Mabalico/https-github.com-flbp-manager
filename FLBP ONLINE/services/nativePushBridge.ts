@@ -1,4 +1,5 @@
-import { getNativeShellPlatform } from './nativeShell';
+import { getNativeShellRuntime } from './nativeShell';
+import { readCapacitorNativePushBridge } from './capacitorPushBridge';
 
 export type NativePushPermissionState = 'prompt' | 'granted' | 'denied' | 'unsupported' | 'unknown';
 export type NativePushPermissionDetail = 'not_determined' | 'denied' | 'authorized' | 'provisional' | 'ephemeral' | 'unknown';
@@ -55,8 +56,9 @@ const normalizePermissionDetail = (value: unknown): NativePushPermissionDetail =
 const normalizeSnapshot = (value: unknown): NativePushRegistrationSnapshot | null => {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  const platform = getNativeShellPlatform();
-  if (!platform) return null;
+  const runtime = getNativeShellRuntime();
+  if (!runtime.isNative || !runtime.platform) return null;
+  const platform = runtime.platform;
   const deviceId = String(raw.deviceId || '').trim();
   if (!deviceId) return null;
   const providerRaw = String(raw.provider || '').trim().toLowerCase();
@@ -95,11 +97,13 @@ const tryParseRegistrationJson = (raw: unknown): NativePushRegistrationSnapshot 
 
 const readBridge = (): NativePushBridge | null => {
   if (typeof window === 'undefined') return null;
-  return window.FLBPNativePushBridge || window.__flbpNativePushBridge || null;
+  if (!getNativeShellRuntime().isNative) return null;
+  return window.FLBPNativePushBridge || window.__flbpNativePushBridge || readCapacitorNativePushBridge();
 };
 
 export const readNativePushRegistration = (): NativePushRegistrationSnapshot | null => {
   if (typeof window === 'undefined') return null;
+  if (!getNativeShellRuntime().isNative) return null;
   const bridge = readBridge();
   if (bridge?.getRegistrationJson) {
     try {

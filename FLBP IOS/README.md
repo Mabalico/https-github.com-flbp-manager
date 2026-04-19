@@ -2,6 +2,12 @@
 
 chat non affidabile, seguo il repository.
 
+## Stato strategico mobile
+
+Questa app iOS dedicata e' ora un **runtime nativo dedicato transitorio/di riferimento** rispetto al target mobile principale: wrapper Capacitor da `FLBP ONLINE`.
+
+Non cancellarla ancora e non considerarla obsoleta: resta utile come riferimento per push, bridge nativo, configurazione iOS/APNs, fallback tecnico e rollback. Per nuove feature mobile, partire da `FLBP ONLINE/docs/MOBILE_STRATEGY.md` e `FLBP ONLINE/docs/MOBILE_WRAPPER.md`, salvo bugfix espliciti su questo runtime dedicato.
+
 Questa cartella contiene un'app iOS nativa reale in Swift + SwiftUI.
 
 Percorso primario attuale:

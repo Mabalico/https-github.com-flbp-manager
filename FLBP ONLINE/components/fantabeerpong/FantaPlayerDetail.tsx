@@ -1,8 +1,7 @@
 import React from 'react';
-import { ArrowLeft, UserRound, Loader2, Target, Wind, Trophy } from 'lucide-react';
+import { ArrowLeft, UserRound, Loader2, Trophy } from 'lucide-react';
 import { fetchFantaPlayerContributions, fetchFantaPlayerStandings } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
-import { loadState } from '../../services/storageService';
 import { useTranslation } from '../../App';
 import { MetricCard, panelClass } from './_shared';
 
@@ -23,7 +22,6 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       setLoading(true);
       const contributions = await fetchFantaPlayerContributions(playerId);
       const standings = await fetchFantaPlayerStandings();
-      const appState = loadState();
 
       const sortedStandings = [...standings].sort((a,b) => (b.total_points || 0) - (a.total_points || 0));
       const rankIndex = sortedStandings.findIndex(s => s.player_key === playerId);
@@ -39,15 +37,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       const label = getPlayerKeyLabel(playerId);
       
       const inGameLabel = t('fanta_status_live');
-      let realTeamName = playerStanding?.real_team_name || inGameLabel;
-      if (realTeamName === inGameLabel) {
-         for (const t of appState.teams || []) {
-            if (t.player1 === label.name || t.player2 === label.name) {
-               realTeamName = t.name;
-               break;
-            }
-         }
-      }
+      const realTeamName = playerStanding?.real_team_name || contributions.find((c: any) => c.team_name)?.team_name || inGameLabel;
 
       const status = playerStanding?.status || 'waiting';
       
@@ -70,10 +60,10 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
         ],
         contributionRows: contributions.map((c: any) => ({
           id: c.id,
-          label: t('fanta_player_detail_match_vs').replace('{team}', c.tournament_matches?.team_a_id === c.team_id ? (c.tournament_matches?.team_b_id || 'BYE') : (c.tournament_matches?.team_a_id || 'BYE')),
+          label: t('fanta_player_detail_match_vs').replace('{team}', c.opponent_team_name || 'BYE'),
           helper: t('fanta_player_detail_match_helper')
-            .replace('{round}', c.tournament_matches?.round || 'N/D')
-            .replace('{score}', `${c.tournament_matches?.score_a || 0}-${c.tournament_matches?.score_b || 0}`),
+            .replace('{round}', c.tournament_matches?.round_name || c.tournament_matches?.round || 'N/D')
+            .replace('{score}', `${c.tournament_matches?.score_a ?? 0}-${c.tournament_matches?.score_b ?? 0}`),
           valueLabel: `+${c.canestri || 0} G / +${c.soffi || 0} S`
         }))
       });
@@ -137,10 +127,9 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       </div>
       <div className={panelClass}>
         <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_player_detail_deep_links')}</div>
-        <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{t('fanta_player_detail_deep_desc')}</div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => (window as any).flbpOpenPlayerArea?.()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-beer-500/50"><UserRound className="h-4 w-4" /> {t('fanta_player_detail_historical_profile')}</button>
-          <button type="button" onClick={onBack} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-beer-500/50"><Trophy className="h-4 w-4" /> {t('fanta_player_detail_real_tournament_stats')}</button>
+          {onOpenMyTeam && <button type="button" onClick={onOpenMyTeam} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-beer-500/50"><UserRound className="h-4 w-4" /> {t('fanta_shell_my_team')}</button>}
+          <button type="button" onClick={onBack} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-beer-500/50"><ArrowLeft className="h-4 w-4" /> {t('back')}</button>
         </div>
       </div>
     </div>

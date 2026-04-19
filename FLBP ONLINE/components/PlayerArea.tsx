@@ -26,6 +26,7 @@ import { formatBirthDateDisplay, normalizeBirthDateInput } from '../services/pla
 import type { PlayerSupabaseProfileRow, PlayerSupabaseSession, PlayerSupabaseSignUpResult } from '../services/supabaseRest';
 import {
   acknowledgePlayerAppCall,
+  clearPlayerSupabaseSession,
   clearSupabaseSession,
   consumePlayerSupabaseSessionFromUrl,
   ensureFreshPlayerSupabaseSession,
@@ -66,7 +67,7 @@ import {
 } from '../services/playerAppService';
 import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
-import { isEmbeddedNativeShell } from '../services/nativeShell';
+import { getNativeShellRuntime } from '../services/nativeShell';
 import {
   openNativePushSettings,
   readNativePushRegistration,
@@ -450,7 +451,8 @@ const buildSafePlayerAreaSnapshot = (
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, onOpenTournament, onOpenFantabeerpong }) => {
   const { t } = useTranslation();
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
-  const embeddedNativeShell = isEmbeddedNativeShell();
+  const nativeShellRuntime = getNativeShellRuntime();
+  const embeddedNativeShell = nativeShellRuntime.isNative;
   const initialStoredSession = liveBackendEnabled ? getPlayerSupabaseSession() : null;
   const initialLiveSessionPresent = !!initialStoredSession?.accessToken;
   const initialRecoveryFlow = initialStoredSession?.flowType === 'recovery';
@@ -560,10 +562,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
     window.addEventListener('storage', handler);
+    window.addEventListener('focus', handler);
     window.addEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') handler();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.removeEventListener('storage', handler);
+      window.removeEventListener('focus', handler);
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
@@ -608,7 +617,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     const shouldAskForNativePush =
       registration.configReady &&
       registration.permission !== 'granted' &&
-      (registration.permission === 'prompt' || registration.permission === 'denied' || registration.permission === 'unknown');
+      (registration.permission === 'prompt' || registration.permission === 'denied');
 
     if (shouldAskForNativePush && !nativePushPermissionPromptOpen && !nativePushPermissionRequestedRef.current) {
       nativePushPermissionRequestedRef.current = true;
@@ -629,7 +638,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setNativePushPermissionPromptOpen(false);
     const pendingRegistration =
       readNativePushRegistration() || nativePushPermissionRegistrationRef.current || nativePushRegistration;
-    const shouldOpenSettings = pendingRegistration?.platform === 'ios' && pendingRegistration.permission === 'denied';
+    const shouldOpenSettings =
+      pendingRegistration?.permission === 'denied' &&
+      (pendingRegistration.platform === 'ios' || nativeShellRuntime.isCapacitorWrapper);
     let registration = await (shouldOpenSettings ? openNativePushSettings() : requestNativePushPermission());
     registration = registration || readNativePushRegistration() || pendingRegistration;
     nativePushPermissionRegistrationRef.current = null;
@@ -641,12 +652,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     } catch (error) {
       console.warn('FLBP native push permission sync failed', error);
     }
-  }, [nativePushRegistration, persistNativePushRegistration]);
+  }, [nativePushRegistration, nativeShellRuntime.isCapacitorWrapper, persistNativePushRegistration]);
 
   const dismissNativePushPermission = React.useCallback(() => {
     nativePushPermissionRegistrationRef.current = null;
-    // Reset the flag so the prompt can re-appear next session if permission was never granted
-    nativePushPermissionRequestedRef.current = false;
+    // Keep the automatic prompt one-shot for this login session; the inline CTA remains available.
+    nativePushPermissionRequestedRef.current = true;
     setNativePushPermissionPromptOpen(false);
   }, []);
 
@@ -1487,9 +1498,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   };
 
   const signOut = async () => {
-    clearPlayerPresenceSnapshot();
     if (effectiveSession?.mode === 'live') {
-      await disableNativePushRegistration(readNativePushRegistration() || nativePushRegistration).catch(() => {
+      const disablePushTask = disableNativePushRegistration(readNativePushRegistration() || nativePushRegistration).catch(() => {
         // Best effort: the local logout must still complete even if the network is unavailable.
       });
       const playerSignOutTask = playerSignOutSupabase().catch(() => {
@@ -1498,6 +1508,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       const adminSignOutTask = signOutSupabase().catch(() => {
         // best effort only
       });
+      clearPlayerSupabaseSession();
+      clearSupabaseSession();
+      clearPlayerPresenceSnapshot();
       liveRuntimeRequestRef.current += 1;
       setLiveRuntimeArmed(false);
       syncUnifiedAuthFromPlayerSession(null);
@@ -1509,10 +1522,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       setLiveAuthFlow('session');
       nativePushSyncKeyRef.current = '';
       nativePushPermissionRequestedRef.current = false;
-      await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
+      window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+      await Promise.allSettled([disablePushTask, playerSignOutTask, adminSignOutTask]);
       window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
       return;
     }
+    clearPlayerPresenceSnapshot();
     signOutPlayerPreviewSession();
     try {
       sessionStorage.removeItem(ADMIN_LEGACY_AUTH_LS_KEY);
@@ -1525,7 +1540,43 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   };
 
   // Push permission prompt is now handled inline in the player area card (no full-screen modal)
-  const nativePushPromptModal = null;
+  const nativePushPromptModal =
+    embeddedNativeShell && nativePushPermissionPromptOpen && nativePushRegistration?.configReady && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
+              <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
+                  <BellRing className="h-6 w-6" />
+                </div>
+                <div className="mt-4 text-2xl font-black tracking-tight">{t('player_native_push_prompt_title')}</div>
+                <p className="mt-2 text-sm font-semibold leading-6 text-white/80">{t('player_native_push_prompt_body')}</p>
+              </div>
+              <div className="space-y-3 px-5 py-5">
+                <div className="rounded-2xl border border-amber-100 bg-amber-50/80 px-4 py-3 text-sm font-semibold text-amber-900">
+                  {nativePushStatusMessage}
+                </div>
+                <button
+                  type="button"
+                  onClick={confirmNativePushPermission}
+                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 shadow-sm transition hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+                >
+                  <BellRing className="h-4 w-4" />
+                  {t('player_native_push_prompt_enable')}
+                </button>
+                <button type="button" onClick={dismissNativePushPermission} className={`${btnSecondary} w-full justify-center`}>
+                  {t('player_native_push_prompt_later')}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
 
   const registerAliasRequestModal =
     registerAliasModalOpen && authMode === 'register' && typeof document !== 'undefined'

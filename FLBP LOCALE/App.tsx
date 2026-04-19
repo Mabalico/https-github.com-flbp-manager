@@ -5,7 +5,7 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { acknowledgePlayerAppCall, clearPlayerSupabaseSession, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullPlayerAppCalls, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession } from './services/supabaseRest';
+import { acknowledgePlayerAppCall, clearPlayerSupabaseSession, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullPlayerAppCalls, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession, SUPABASE_AUTH_STATE_CHANGE_EVENT } from './services/supabaseRest';
 import { PLAYER_APP_CHANGE_EVENT, mapSupabaseCallRowToPlayerCallRequest, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerCallRequest, type PlayerPresenceSnapshot, clearPlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
@@ -474,10 +474,20 @@ const App: React.FC = () => {
     useEffect(() => {
         const handler = () => setPlayerPresence(readPlayerPresenceState());
         window.addEventListener('storage', handler);
+        window.addEventListener('focus', handler);
         window.addEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
+        window.addEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, handler as EventListener);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') handler();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        handler();
         return () => {
             window.removeEventListener('storage', handler);
+            window.removeEventListener('focus', handler);
             window.removeEventListener(PLAYER_APP_CHANGE_EVENT, handler as EventListener);
+            window.removeEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, handler as EventListener);
+            document.removeEventListener('visibilitychange', onVisible);
         };
     }, [readPlayerPresenceState]);
 
@@ -887,6 +897,7 @@ const App: React.FC = () => {
             void pullOnce();
         };
         document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', onVisible);
 
         const shouldKeepPolling = tvMode != null
             || view === 'tournament'
@@ -896,6 +907,7 @@ const App: React.FC = () => {
             return () => {
                 cancelled = true;
                 document.removeEventListener('visibilitychange', onVisible);
+                window.removeEventListener('focus', onVisible);
             };
         }
 
@@ -904,6 +916,7 @@ const App: React.FC = () => {
         return () => {
             cancelled = true;
             document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', onVisible);
             window.clearInterval(id);
         };
     }, [tvMode, view, selectedTournament?.isLive]);
@@ -1377,7 +1390,7 @@ const App: React.FC = () => {
                             }}
                         >
                             <PlayerAreaLazy
-                                state={state}
+                                state={stateForPublicViews}
                                 onOpenReferees={() => { void navigateToView('referees_area'); }}
                                 onOpenTournament={(tournamentId) => {
                                     const liveTournament = stateForPublicViews.tournament;
@@ -1454,14 +1467,20 @@ const App: React.FC = () => {
         if (!playerPresence) return;
         if (!window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) return;
 
-        clearPlayerPresenceSnapshot();
         if (playerPresence.mode === 'live') {
             const playerSignOutTask = playerSignOutSupabase().catch(() => {});
             const adminSignOutTask = signOutSupabase().catch(() => {});
+            clearPlayerSupabaseSession();
+            clearSupabaseSession();
+            clearPlayerPresenceSnapshot();
+            setPlayerPresence(null);
+            window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
             await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
             window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
             return;
         }
+        clearPlayerPresenceSnapshot();
+        setPlayerPresence(null);
         signOutPlayerPreviewSession();
         try { sessionStorage.removeItem('flbp_admin_legacy_auth'); } catch {}
         clearSupabaseSession();

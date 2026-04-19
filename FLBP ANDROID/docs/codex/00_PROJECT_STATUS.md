@@ -2,6 +2,14 @@
 
 chat non affidabile, seguo il repository.
 
+## Stato strategico
+
+Runtime nativo dedicato transitorio/di riferimento. Il target mobile primario e' il wrapper Capacitor documentato in `FLBP ONLINE/docs/MOBILE_STRATEGY.md` e `FLBP ONLINE/docs/MOBILE_WRAPPER.md`.
+
+Questo runtime non e' dichiarato obsoleto: resta utile per confronto push, fallback tecnico e rollback finche' la parita' wrapper non e' verificata su device reali.
+
+Questo progetto resta nel repo per confronto, fallback e rollback finche' la release wrapper non e' verificata e distribuibile.
+
 ## Stato attuale Android
 - base nativa reale in Kotlin + Jetpack Compose: SI
 - shell nativa primaria con FLBP ONLINE mobile in WebView full-screen: SI

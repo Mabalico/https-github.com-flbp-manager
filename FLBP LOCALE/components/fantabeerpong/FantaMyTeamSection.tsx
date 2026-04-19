@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from '../../App';
 import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
 import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
-import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
+import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { loadState } from '../../services/storageService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import type { FantaMyTeamPlayer, FantaRosterRole, FantaMyTeam } from '../../services/fantabeerpong/types';
@@ -32,22 +32,46 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
   const [data, setData] = React.useState<FantaMyTeam | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [session, setSession] = React.useState(readPlayerPresenceSnapshot());
+  const [refreshKey, setRefreshKey] = React.useState(0);
 
   React.useEffect(() => {
+    const refresh = () => {
+      setSession(readPlayerPresenceSnapshot());
+      setRefreshKey((current) => current + 1);
+    };
+    window.addEventListener('storage', refresh);
+    window.addEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
+    window.addEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
+      window.removeEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
     async function load() {
       if (!session?.accountId) {
+        setData(null);
         setLoading(false);
         return;
       }
       setLoading(true);
       try {
         const result = await fetchUserFantaTeam(session.accountId);
-        if (result) {
-          const [liveStats, standings] = await Promise.all([
-            fetchFantaTeamDetail(result.team.id),
-            fetchFantaStandings(),
-          ]);
-          const appState = loadState();
+        if (cancelled) return;
+        if (!result) {
+          setData(null);
+          return;
+        }
+
+        const [liveStats, standings] = await Promise.all([
+          fetchFantaTeamDetail(result.team.id),
+          fetchFantaStandings(),
+        ]);
+        if (cancelled) return;
+        const appState = loadState();
           
           let totalGoalPoints = 0, totalBlowPoints = 0, totalWinPoints = 0, totalBonusScia = 0, totalFantasyPoints = 0;
           
@@ -126,14 +150,14 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
             ],
             notes: [t('fanta_sync_note')]
           };
-          setData(mapped);
-        }
+        setData(mapped);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, [session]);
+    return () => { cancelled = true; };
+  }, [session?.accountId, refreshKey]);
 
   if (loading) {
     return (

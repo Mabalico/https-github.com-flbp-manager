@@ -82,6 +82,8 @@ Note:
 ## Mobile (wrapper-ready)
 - Build per wrapper (asset relativi): `npm run build:mobile`
 - Guida: `docs/MOBILE_WRAPPER.md`
+- Strategia mobile: `docs/MOBILE_STRATEGY.md`
+- Target attuale: wrapper Capacitor come app mobile primaria; `FLBP ANDROID` e `FLBP IOS` restano legacy/transitori, non percorso primario per nuove feature.
 
 
 ## Tooling opzionale — SSR Admin Check

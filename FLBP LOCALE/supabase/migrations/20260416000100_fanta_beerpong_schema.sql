@@ -258,6 +258,7 @@ with match_winners as (
     m.phase,
     coalesce(m.round, 0) as round_index,
     coalesce(m.order_index, 0) as order_index,
+    ((coalesce(m.round, 0) * 10000) + coalesce(m.order_index, 0)) as match_sort,
     case when m.score_a > m.score_b then m.team_a_id when m.score_b > m.score_a then m.team_b_id end as winner_team_id,
     case when m.score_a > m.score_b then m.team_b_id when m.score_b > m.score_a then m.team_a_id end as loser_team_id
   from tournament_matches m
@@ -294,7 +295,8 @@ team_losses as (
     loser_team_id as real_team_id,
     winner_team_id as eliminated_by_team_id,
     round_index as elimination_round,
-    order_index as elimination_order
+    order_index as elimination_order,
+    match_sort as elimination_sort
   from match_winners
   where phase = 'bracket'
     and loser_team_id is not null
@@ -313,7 +315,16 @@ scia_points as (
     on w.workspace_id = l.workspace_id
    and w.tournament_id = l.tournament_id
    and w.winner_team_id = l.eliminated_by_team_id
-   and ((w.round_index * 10000) + w.order_index) > ((l.elimination_round * 10000) + l.elimination_order)
+   and w.match_sort > l.elimination_sort
+   and not exists (
+     select 1
+     from match_winners first_loss
+     where first_loss.workspace_id = l.workspace_id
+       and first_loss.tournament_id = l.tournament_id
+       and first_loss.loser_team_id = l.eliminated_by_team_id
+       and first_loss.match_sort > l.elimination_sort
+       and first_loss.match_sort <= w.match_sort
+   )
   group by l.workspace_id, l.tournament_id, l.real_team_id, l.eliminated_by_team_id
 ),
 roster_base as (
