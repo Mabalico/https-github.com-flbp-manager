@@ -119,6 +119,43 @@ private fun openAppNotificationSettings(context: android.content.Context) {
     }
 }
 
+/**
+ * Decides whether to request the system permission dialog (first time, API 33+)
+ * or to open the app notification settings directly (already denied / older API).
+ * Safe to call from the JS bridge because it uses FLAG_ACTIVITY_NEW_TASK.
+ */
+private fun requestOrOpenNotificationSettings(
+    context: android.content.Context,
+    permissionLauncher: androidx.activity.result.ActivityResultLauncher<String>?,
+) {
+    NativePushRegistry.createNotificationChannel(context)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        when {
+            granted && NotificationManagerCompat.from(context).areNotificationsEnabled() -> {
+                NativePushRegistry.refreshRegistration(context)
+            }
+            !granted && !NativePushRegistry.hasRequestedNotificationPermission(context) && permissionLauncher != null -> {
+                // First-time request: show system dialog via the Compose launcher.
+                NativePushRegistry.markNotificationPermissionRequested(context)
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            else -> {
+                // Already denied or system launcher not available: open settings.
+                NativePushRegistry.refreshRegistration(context)
+                openAppNotificationSettings(context)
+            }
+        }
+    } else if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        NativePushRegistry.refreshRegistration(context)
+    } else {
+        openAppNotificationSettings(context)
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun NativeWebMirrorHost(
@@ -138,29 +175,8 @@ fun NativeWebMirrorHost(
         NativePushRegistry.refreshRegistration(context)
     }
 
-    val requestNotificationPermission = remember(context) {
-        {
-            NativePushRegistry.createNotificationChannel(context)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val permissionGranted = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS,
-                ) == PackageManager.PERMISSION_GRANTED
-                if (permissionGranted && areAppNotificationsEnabled(context)) {
-                    NativePushRegistry.refreshRegistration(context)
-                } else if (!permissionGranted && !NativePushRegistry.hasRequestedNotificationPermission(context)) {
-                    NativePushRegistry.markNotificationPermissionRequested(context)
-                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    NativePushRegistry.refreshRegistration(context)
-                    openAppNotificationSettings(context)
-                }
-            } else if (areAppNotificationsEnabled(context)) {
-                NativePushRegistry.refreshRegistration(context)
-            } else {
-                openAppNotificationSettings(context)
-            }
-        }
+    val requestNotificationPermission = remember(context, permissionLauncher) {
+        { requestOrOpenNotificationSettings(context, permissionLauncher) }
     }
 
     DisposableEffect(context, webViewRef) {
@@ -206,7 +222,8 @@ fun NativeWebMirrorHost(
                                 context = factoryContext,
                                 onRequestPermission = requestNotificationPermission,
                                 onRefreshRegistration = { NativePushRegistry.refreshRegistration(factoryContext) },
-                                onOpenSettings = { openAppNotificationSettings(factoryContext) },
+                                // openSettings is now smart: first call = system dialog, subsequent = settings screen.
+                                onOpenSettings = { requestOrOpenNotificationSettings(factoryContext, permissionLauncher) },
                             ),
                             "FLBPNativePushBridge",
                         )

@@ -643,14 +643,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setNativePushPermissionPromptOpen(false);
     const pendingRegistration =
       readNativePushRegistration() || nativePushPermissionRegistrationRef.current || nativePushRegistration;
-    // Su Android (permission denied) non è più possibile mostrare il dialog di sistema:
-    // aprire direttamente le impostazioni notifiche dell'app (ACTION_APP_NOTIFICATION_SETTINGS),
-    // con fallback automatico a ACTION_APPLICATION_DETAILS_SETTINGS lato nativo.
+    // Sul dedicated shell Android il dialog di sistema è gestito dal Kotlin launcher:
+    // la web delega sempre a openSettings() e il bridge Kotlin decide internamente
+    // se mostrare il dialog (prima richiesta, API 33+) o aprire le impostazioni (già negato).
+    // Su iOS / Capacitor si usa openSettings() solo quando il permesso è già denied.
     const shouldOpenSettings =
-      pendingRegistration?.permission === 'denied' &&
-      (pendingRegistration.platform === 'ios' ||
-        pendingRegistration.platform === 'android' ||
-        nativeShellRuntime.isCapacitorWrapper);
+      nativeShellRuntime.isDedicatedShell ||
+      (pendingRegistration?.permission === 'denied' &&
+        (pendingRegistration?.platform === 'ios' || nativeShellRuntime.isCapacitorWrapper));
     let registration = await (shouldOpenSettings ? openNativePushSettings() : requestNativePushPermission());
     registration = registration || readNativePushRegistration() || pendingRegistration;
     nativePushPermissionRegistrationRef.current = null;
