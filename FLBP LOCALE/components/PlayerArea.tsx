@@ -166,6 +166,13 @@ const sameLiveCalls = (left: LiveCallRequest[], right: LiveCallRequest[]) => (
   left.length === right.length && left.every((call, index) => sameLiveCall(call, right[index]))
 );
 
+const nativePushRegistrationNeedsAction = (registration: NativePushRegistrationSnapshot | null) => (
+  !!registration?.deviceId &&
+  registration.configReady &&
+  !registration.pushEnabled &&
+  (registration.permission === 'prompt' || registration.permission === 'denied' || registration.permission === 'unknown')
+);
+
 const oneDecimalFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
@@ -614,10 +621,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       return null;
     }
 
-    const shouldAskForNativePush =
-      registration.configReady &&
-      registration.permission !== 'granted' &&
-      (registration.permission === 'prompt' || registration.permission === 'denied');
+    const shouldAskForNativePush = nativePushRegistrationNeedsAction(registration);
 
     if (shouldAskForNativePush && !nativePushPermissionPromptOpen && !nativePushPermissionRequestedRef.current) {
       nativePushPermissionRequestedRef.current = true;
@@ -669,6 +673,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     }
     setNativePushPermissionPromptOpen(true);
   }, [nativePushRegistration]);
+
+  React.useEffect(() => {
+    if (!liveBackendEnabled || !embeddedNativeShell || liveAuthFlow === 'recovery' || !liveSession?.accessToken) return;
+    const registration = nativePushRegistration || readNativePushRegistration();
+    if (!nativePushRegistrationNeedsAction(registration)) return;
+    if (nativePushPermissionPromptOpen || nativePushPermissionRequestedRef.current) return;
+    nativePushPermissionRequestedRef.current = true;
+    nativePushPermissionRegistrationRef.current = registration;
+    setNativePushRegistration(registration);
+    setNativePushPermissionPromptOpen(true);
+  }, [
+    embeddedNativeShell,
+    liveAuthFlow,
+    liveBackendEnabled,
+    liveSession?.accessToken,
+    nativePushPermissionPromptOpen,
+    nativePushRegistration?.configReady,
+    nativePushRegistration?.deviceId,
+    nativePushRegistration?.permission,
+    nativePushRegistration?.pushEnabled,
+  ]);
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !embeddedNativeShell || liveAuthFlow === 'recovery' || !liveSession?.accessToken || !nativePushRegistration?.deviceId) return;
@@ -1044,8 +1069,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 : t('player_area_waiting_device');
   const canManuallyOpenNativePushPrompt =
     embeddedNativeShell &&
-    !!nativePushRegistration?.configReady &&
-    (nativePushRegistration.permission === 'prompt' || nativePushRegistration.permission === 'denied');
+    !!nativePushRegistration?.deviceId &&
+    !nativePushRegistration.pushEnabled &&
+    (!nativePushRegistration.configReady ||
+      nativePushRegistration.permission === 'prompt' ||
+      nativePushRegistration.permission === 'denied' ||
+      nativePushRegistration.permission === 'unknown');
   const nativePushStatusMessage =
     nativePushRegistration?.permission === 'granted' && !nativePushRegistration.deviceToken
       ? t('player_area_push_initializing')
@@ -1541,7 +1570,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   // Push permission prompt is now handled inline in the player area card (no full-screen modal)
   const nativePushPromptModal =
-    embeddedNativeShell && nativePushPermissionPromptOpen && nativePushRegistration?.configReady && typeof document !== 'undefined'
+    embeddedNativeShell && nativePushPermissionPromptOpen && typeof document !== 'undefined'
       ? createPortal(
           <div
             className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
@@ -2270,7 +2299,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           {t('player_area_call_none')}
                         </div>
                       )}
-                      {embeddedNativeShell && nativePushRegistration?.configReady ? (
+                      {embeddedNativeShell && (nativePushRegistration || nativePushPermissionPromptOpen) ? (
                         canManuallyOpenNativePushPrompt || nativePushPermissionPromptOpen ? (
                           // Prominent inline push-permission card — shown BEFORE the call notification
                           <div className="rounded-[20px] border-2 border-amber-400 bg-amber-50 p-4 space-y-3 shadow-sm">
