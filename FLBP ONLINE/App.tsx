@@ -543,7 +543,9 @@ const App: React.FC = () => {
     }, [view, tvMode]);
 
     useEffect(() => {
-        if (view !== 'admin') return;
+        // PlayerArea derives historical stats from the full workspace state;
+        // the public mirror can lag behind aliases/manual integrations.
+        if (view !== 'admin' && view !== 'player_area') return;
         if (repo.source !== 'remote') return;
         void repo.refresh?.();
     }, [view, repo]);
