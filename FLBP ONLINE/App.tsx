@@ -869,14 +869,17 @@ const App: React.FC = () => {
                 return true;
             }
         };
-        const hydratePublicRow = (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
+        const hydratePublicRow = async (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
             if (!row?.state) return false;
-            void coerceLoadedAppState(row.state).then((next) => {
-                if (!cancelled) setPublicDbState(next);
-            }).catch(() => {
+            try {
+                const next = await coerceLoadedAppState(row.state);
+                if (cancelled) return false;
+                setPublicDbState(next);
+                setPublicDbUpdatedAt(row.updated_at || null);
+            } catch {
                 // silent fallback to local state
-            });
-            setPublicDbUpdatedAt(row.updated_at || null);
+                return false;
+            }
             return true;
         };
 
@@ -887,7 +890,7 @@ const App: React.FC = () => {
                 if (cancelled) return;
                 if (!row?.state) return;
                 writeCachedPublicWorkspaceState(row);
-                hydratePublicRow(row);
+                await hydratePublicRow(row);
             } catch {
                 // silent fallback to local state
             }
