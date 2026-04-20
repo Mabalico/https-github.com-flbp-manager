@@ -313,7 +313,7 @@ const GlobalPlayerCallNotice: React.FC<{
     const callBody = t('global_player_call_body').replace('{team}', teamName);
 
     return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/80 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="global-player-call-title">
+        <div className={`fixed inset-0 z-[80] flex items-center justify-center px-4 py-6 ${isAndroidWebView ? 'bg-slate-950/80' : 'flbp-backdrop-blur bg-slate-950/60 backdrop-blur-sm'}`} role="dialog" aria-modal="true" aria-labelledby="global-player-call-title">
             <div className="w-full max-w-lg overflow-hidden rounded-[30px] border border-amber-200/40 bg-white shadow-2xl shadow-slate-950/30">
                 <div className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-6 py-6 text-white">
                     <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-amber-400/20 blur-2xl" aria-hidden />
@@ -373,6 +373,14 @@ const assertTvProjectionSafe = (val: string | null | undefined): TvProjection =>
 };
 
 const coerceLoadedAppState = async (raw: unknown): Promise<AppState> => coerceAppState(raw);
+
+export const isAndroidWebView = (() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('native_shell') === 'android') return true;
+    const ua = navigator.userAgent || '';
+    return /Android/i.test(ua) && /\bwv\b/i.test(ua);
+})();
 
 const App: React.FC = () => {
     const repo = React.useMemo(() => getAppStateRepository(), []);
@@ -949,6 +957,50 @@ const App: React.FC = () => {
 
     const t = useCallback((key: string) => getTranslationValue(translationDictionaries, language, key), [translationDictionaries, language]);
     const [menuOpen, setMenuOpen] = useState(false);
+
+    useEffect(() => {
+        if (!isAndroidWebView) return;
+      
+        document.documentElement.classList.add('flbp-android-webview');
+      
+        const cleanupTransientShellUi = () => {
+          setMenuOpen(false);
+          document.documentElement.classList.remove('overflow-hidden');
+          document.body.classList.remove('overflow-hidden');
+          document.documentElement.style.removeProperty('overflow');
+          document.body.style.removeProperty('overflow');
+        };
+      
+        const onVisible = () => requestAnimationFrame(cleanupTransientShellUi);
+        const onVisibilityChange = () => {
+          if (document.visibilityState === 'visible') onVisible();
+        };
+      
+        window.addEventListener('pageshow', onVisible);
+        window.addEventListener('flbp-native-resume', onVisible as EventListener);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+      
+        return () => {
+          document.documentElement.classList.remove('flbp-android-webview');
+          window.removeEventListener('pageshow', onVisible);
+          window.removeEventListener('flbp-native-resume', onVisible as EventListener);
+          document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, []);
+
+    const drawerStyle = React.useMemo<React.CSSProperties | undefined>(() => {
+      if (!isAndroidWebView) return undefined;
+    
+      return {
+        ['--flbp-drawer-w' as any]:
+          'min(20rem, calc(100vw - var(--flbp-safe-left, env(safe-area-inset-left, 0px)) - var(--flbp-safe-right, env(safe-area-inset-right, 0px)) - 8px))',
+        width: 'var(--flbp-drawer-w)',
+        left: menuOpen ? '0px' : 'calc(-1 * var(--flbp-drawer-w))',
+        paddingTop: 'max(12px, var(--flbp-safe-top, env(safe-area-inset-top, 0px)))',
+        paddingBottom: 'max(12px, var(--flbp-safe-bottom, env(safe-area-inset-bottom, 0px)))',
+      };
+    }, [menuOpen]);
+
 
     // Debounced persistence: reduces localStorage writes on rapid state updates (mobile-friendly)
     const saveTimeoutRef = useRef<number | null>(null);
@@ -1836,7 +1888,7 @@ const App: React.FC = () => {
                 ) : null}
 
                 {/* Sidebar Menu - Rendered at the end to ensure it stays on top of sticky elements */}
-                <div className={`fixed inset-y-0 left-0 bg-white w-64 shadow-2xl z-40 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                <div style={drawerStyle} className={`fixed inset-y-0 left-0 bg-white shadow-2xl z-40 ${isAndroidWebView ? 'transition-[left] duration-200' : `w-64 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}`}>
                     <div className="p-6 flex justify-between items-start border-b border-slate-100">
                         <div className="min-w-0">
                             <PublicBrandStack tone="onLight" className="mb-2" />
@@ -1938,7 +1990,7 @@ const App: React.FC = () => {
                     </nav>
                 </div>
                 {/* Overlay for menu - Rendered at the end for backdrop-blur to work on everything behind it */}
-                {menuOpen && <div className="fixed inset-0 bg-black/40 z-30 transition-all duration-300" onClick={() => setMenuOpen(false)}></div>}
+                {menuOpen && <div className={`fixed inset-0 z-30 transition-all duration-300 ${isAndroidWebView ? 'bg-slate-950/55' : 'flbp-backdrop-blur bg-black/40 backdrop-blur-md'}`} onClick={() => setMenuOpen(false)}></div>}
             </div>
             </TranslationDictionariesContext.Provider>
         </LanguageContext.Provider>

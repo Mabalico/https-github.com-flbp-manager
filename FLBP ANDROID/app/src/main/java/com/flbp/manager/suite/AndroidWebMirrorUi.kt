@@ -44,8 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.os.SystemClock
 import org.json.JSONObject
 
 object NativeWebMirrorConfig {
@@ -162,6 +166,7 @@ fun NativeWebMirrorHost(
     fallback: @Composable (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var reloadNonce by rememberSaveable { mutableIntStateOf(0) }
     var initialLoadComplete by rememberSaveable { mutableStateOf(false) }
     var fatalError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -186,6 +191,18 @@ fun NativeWebMirrorHost(
         NativePushRegistry.addListener(listener)
         onDispose {
             NativePushRegistry.removeListener(listener)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, webViewRef) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                webViewRef?.let { dispatchAndroidShellResume(it) }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -214,7 +231,7 @@ fun NativeWebMirrorHost(
                         settings.allowFileAccess = false
                         settings.databaseEnabled = true
                         settings.loadsImagesAutomatically = true
-                        settings.loadWithOverviewMode = true
+                        settings.loadWithOverviewMode = false
                         settings.useWideViewPort = true
                         settings.cacheMode = WebSettings.LOAD_NO_CACHE
                         addJavascriptInterface(
@@ -306,6 +323,32 @@ fun NativeWebMirrorHost(
                     }
                 }
             }
+        }
+    }
+}
+
+private fun dispatchAndroidShellResume(webView: WebView) {
+    val js = """
+        (() => {
+          document.documentElement.classList.add('flbp-android-webview');
+          window.dispatchEvent(new CustomEvent('flbp-native-resume'));
+        })();
+    """.trimIndent()
+
+    webView.post {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            webView.postVisualStateCallback(
+                SystemClock.uptimeMillis(),
+                object : WebView.VisualStateCallback() {
+                    override fun onComplete(requestId: Long) {
+                        webView.evaluateJavascript(js, null)
+                        webView.invalidate()
+                    }
+                }
+            )
+        } else {
+            webView.evaluateJavascript(js, null)
+            webView.invalidate()
         }
     }
 }

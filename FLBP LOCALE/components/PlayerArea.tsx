@@ -593,6 +593,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     return subscribeNativePushRegistration(setNativePushRegistration);
   }, [embeddedNativeShell]);
 
+  React.useEffect(() => {
+    if (!embeddedNativeShell) return;
+    const cleanup = () => {
+      setNativePushPermissionPromptOpen(false);
+    };
+    window.addEventListener('flbp-native-resume', cleanup);
+    return () => window.removeEventListener('flbp-native-resume', cleanup);
+  }, [embeddedNativeShell]);
+
   const persistNativePushRegistration = React.useCallback((registration: NativePushRegistrationSnapshot | null) => {
     if (!registration?.deviceId) return Promise.resolve(null);
     return registerPlayerAppDevice({
