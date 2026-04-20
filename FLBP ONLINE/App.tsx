@@ -313,7 +313,7 @@ const GlobalPlayerCallNotice: React.FC<{
     const callBody = t('global_player_call_body').replace('{team}', teamName);
 
     return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="global-player-call-title">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/80 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="global-player-call-title">
             <div className="w-full max-w-lg overflow-hidden rounded-[30px] border border-amber-200/40 bg-white shadow-2xl shadow-slate-950/30">
                 <div className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-6 py-6 text-white">
                     <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-amber-400/20 blur-2xl" aria-hidden />
@@ -1938,7 +1938,7 @@ const App: React.FC = () => {
                     </nav>
                 </div>
                 {/* Overlay for menu - Rendered at the end for backdrop-blur to work on everything behind it */}
-                {menuOpen && <div className="fixed inset-0 bg-black/20 z-30 backdrop-blur-md transition-all duration-300" onClick={() => setMenuOpen(false)}></div>}
+                {menuOpen && <div className="fixed inset-0 bg-black/40 z-30 transition-all duration-300" onClick={() => setMenuOpen(false)}></div>}
             </div>
             </TranslationDictionariesContext.Provider>
         </LanguageContext.Provider>

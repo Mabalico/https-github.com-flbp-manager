@@ -1581,7 +1581,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     embeddedNativeShell && nativePushPermissionPromptOpen && typeof document !== 'undefined'
       ? createPortal(
           <div
-            className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
+            className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/80 px-4 py-6"
             role="dialog"
             aria-modal="true"
           >
