@@ -303,8 +303,12 @@ const requestPermission = async () => {
 
 const openSettings = async () => {
   if (typeof window !== 'undefined') {
-    const plugins = (window as Window & { Capacitor?: { Plugins?: Record<string, any> } }).Capacitor?.Plugins;
-    const settingsPlugin = plugins?.FLBPAppSettings;
+    const runtime = window as Window & {
+      Capacitor?: { Plugins?: Record<string, any> };
+      FLBPAppSettings?: { openNotificationSettings?: () => Promise<unknown>; openSettings?: () => Promise<unknown> };
+    };
+    const plugins = runtime.Capacitor?.Plugins;
+    const settingsPlugin = runtime.FLBPAppSettings || plugins?.FLBPAppSettings;
     try {
       if (settingsPlugin?.openNotificationSettings) {
         await settingsPlugin.openNotificationSettings();
@@ -332,4 +336,3 @@ export const readCapacitorNativePushBridge = (): CapacitorPushBridge | null => {
   void refreshRegistration();
   return bridge;
 };
-
