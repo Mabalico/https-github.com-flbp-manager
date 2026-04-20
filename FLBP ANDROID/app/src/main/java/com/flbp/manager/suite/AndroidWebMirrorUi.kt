@@ -57,6 +57,7 @@ private class NativePushJavascriptBridge(
     private val context: android.content.Context,
     private val onRequestPermission: () -> Unit,
     private val onRefreshRegistration: () -> Unit,
+    private val onOpenSettings: () -> Unit,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -72,6 +73,14 @@ private class NativePushJavascriptBridge(
     @JavascriptInterface
     fun refreshRegistration(): String {
         mainHandler.post { onRefreshRegistration() }
+        return NativePushRegistry.registrationJson(context)
+    }
+
+    // Android deep link: apre prima le impostazioni notifiche dell'app (ACTION_APP_NOTIFICATION_SETTINGS),
+    // con fallback automatico alla pagina dettagli app (ACTION_APPLICATION_DETAILS_SETTINGS).
+    @JavascriptInterface
+    fun openSettings(): String {
+        mainHandler.post { onOpenSettings() }
         return NativePushRegistry.registrationJson(context)
     }
 }
@@ -197,6 +206,7 @@ fun NativeWebMirrorHost(
                                 context = factoryContext,
                                 onRequestPermission = requestNotificationPermission,
                                 onRefreshRegistration = { NativePushRegistry.refreshRegistration(factoryContext) },
+                                onOpenSettings = { openAppNotificationSettings(factoryContext) },
                             ),
                             "FLBPNativePushBridge",
                         )
