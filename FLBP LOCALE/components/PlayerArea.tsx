@@ -500,6 +500,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     React.useState<ReturnType<typeof derivePlayerLiveStatus> | null>(null);
   const [liveDerivedError, setLiveDerivedError] = React.useState<string | null>(null);
   const [liveDerivedPending, setLiveDerivedPending] = React.useState(false);
+  const [liveDerivedRefreshNonce, setLiveDerivedRefreshNonce] = React.useState(0);
   const [nativePushRegistration, setNativePushRegistration] = React.useState<NativePushRegistrationSnapshot | null>(() => readNativePushRegistration());
   const [nativePushPermissionPromptOpen, setNativePushPermissionPromptOpen] = React.useState(false);
   const liveRuntimeRequestRef = React.useRef(0);
@@ -858,6 +859,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         setLiveCalls((current) => (sameLiveCalls(current, nextCalls) ? current : nextCalls));
         setLiveRuntimeStatus(backendPending ? 'backend_pending' : 'ready');
         setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
+        if (!silent) setLiveDerivedRefreshNonce((value) => value + 1);
       });
     } catch (error: any) {
       if (silent) {
@@ -997,7 +999,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       cancelled = true;
       cancel();
     };
-  }, [activeLiveCall, liveRuntimeProfile, liveRuntimeSession, state, t]);
+  }, [activeLiveCall, liveDerivedRefreshNonce, liveRuntimeProfile, liveRuntimeSession, state, t]);
 
   const effectivePersonalProfile = liveRuntimeSession
     ? liveDerivedPersonalProfile
@@ -1467,6 +1469,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           canonicalPlayerName: identity.canonicalPlayerName,
         });
         setLiveProfileRow(row);
+        setLiveDerivedRefreshNonce((value) => value + 1);
         setLiveCallRefreshNonce((value) => value + 1);
       } else {
         savePlayerPreviewProfile(snapshot.session!, { firstName: safeFirstName, lastName: safeLastName, birthDate: safeBirthDate });
