@@ -858,7 +858,10 @@ const App: React.FC = () => {
         if (!getSupabaseConfig()) return;
 
         // Public views always refresh once on enter; continuous polling stays only where it adds value.
-        const shouldLoad = tvMode != null || view !== 'admin';
+        // PlayerArea uses the remote repository refresh for full alias/history data, so avoid
+        // doubling it with a public mirror pull on the same route transition.
+        const playerAreaUsesRemoteRefresh = view === 'player_area' && repo.source === 'remote';
+        const shouldLoad = tvMode != null || (view !== 'admin' && !playerAreaUsesRemoteRefresh);
         if (!shouldLoad) return;
 
         let cancelled = false;
@@ -924,7 +927,7 @@ const App: React.FC = () => {
             window.removeEventListener('focus', onVisible);
             window.clearInterval(id);
         };
-    }, [tvMode, view, selectedTournament?.isLive]);
+    }, [repo.source, tvMode, view, selectedTournament?.isLive]);
 
     useEffect(() => {
         if (translationDictionaries[language]) return;
