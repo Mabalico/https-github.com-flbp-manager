@@ -112,6 +112,8 @@ private fun areAppNotificationsEnabled(context: android.content.Context): Boolea
 private fun openAppNotificationSettings(context: android.content.Context) {
     val notificationSettingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
         putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        putExtra("app_package", context.packageName)
+        putExtra("app_uid", context.applicationInfo.uid)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
     val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -239,8 +241,12 @@ fun NativeWebMirrorHost(
                                 context = factoryContext,
                                 onRequestPermission = requestNotificationPermission,
                                 onRefreshRegistration = { NativePushRegistry.refreshRegistration(factoryContext) },
-                                // openSettings is now smart: first call = system dialog, subsequent = settings screen.
-                                onOpenSettings = { requestOrOpenNotificationSettings(factoryContext, permissionLauncher) },
+                                // openSettings is an explicit app-settings deep link.
+                                // The system permission dialog stays on requestPermission().
+                                onOpenSettings = {
+                                    NativePushRegistry.refreshRegistration(factoryContext)
+                                    openAppNotificationSettings(factoryContext)
+                                },
                             ),
                             "FLBPNativePushBridge",
                         )
