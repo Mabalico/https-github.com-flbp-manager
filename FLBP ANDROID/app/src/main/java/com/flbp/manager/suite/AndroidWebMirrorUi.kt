@@ -264,11 +264,12 @@ fun NativeWebMirrorHost(
                                 context = factoryContext,
                                 onRequestPermission = requestNotificationPermission,
                                 onRefreshRegistration = { NativePushRegistry.refreshRegistration(factoryContext) },
-                                // The web layer uses openSettings() as the single CTA for
-                                // "attiva notifiche". On Android we keep the native decision:
-                                // first request => system dialog, denied/disabled => app settings.
+                                // The manual CTA in Player Area must open the app notification
+                                // settings directly. The browser prompt flow remains separate and
+                                // still uses requestPermission() when needed.
                                 onOpenSettings = {
-                                    requestOrOpenNotificationSettings(factoryContext, permissionLauncher)
+                                    NativePushRegistry.refreshRegistration(factoryContext)
+                                    openAppNotificationSettings(factoryContext)
                                 },
                             ),
                             "FLBPNativePushBridge",

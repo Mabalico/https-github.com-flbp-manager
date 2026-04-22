@@ -667,15 +667,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
       return;
     }
-    // Sul dedicated shell Android il dialog di sistema è gestito dal Kotlin launcher:
-    // la web delega sempre a openSettings() e il bridge Kotlin decide internamente
-    // se mostrare il dialog (prima richiesta, API 33+) o aprire le impostazioni (già negato).
-    // Su iOS / Capacitor si usa openSettings() solo quando il permesso è già denied.
-    const shouldOpenSettings =
-      nativeShellRuntime.isDedicatedShell ||
-      (pendingRegistration?.permission === 'denied' &&
-        (pendingRegistration?.platform === 'ios' || nativeShellRuntime.isCapacitorWrapper));
-    let registration = await (shouldOpenSettings ? openNativePushSettings() : requestNativePushPermission());
+    const shouldRequestPermission =
+      pendingRegistration?.permission === 'prompt' &&
+      !(nativeShellRuntime.isDedicatedShell && nativeShellRuntime.platform === 'android');
+    let registration = await (shouldRequestPermission ? requestNativePushPermission() : openNativePushSettings());
     registration = registration || readNativePushRegistration() || pendingRegistration;
     nativePushPermissionRegistrationRef.current = null;
     if (!registration?.deviceId) return;
@@ -683,10 +678,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setNativePushRegistration(registration);
     try {
       await persistNativePushRegistration(registration);
-    } catch (error) {
-      console.warn('FLBP native push permission sync failed', error);
-    }
-  }, [nativePushRegistration, nativeShellRuntime.isCapacitorWrapper, persistNativePushRegistration]);
+      } catch (error) {
+        console.warn('FLBP native push permission sync failed', error);
+      }
+  }, [nativeShellRuntime.isDedicatedShell, nativeShellRuntime.platform, nativePushRegistration, persistNativePushRegistration]);
 
   const dismissNativePushPermission = React.useCallback(() => {
     nativePushPermissionRegistrationRef.current = null;
