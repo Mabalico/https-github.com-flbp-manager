@@ -279,6 +279,19 @@ fun NativeWebMirrorHost(
                         clearFormData()
                         webChromeClient = WebChromeClient()
                         webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): Boolean {
+                                val url = request?.url?.toString()?.trim().orEmpty()
+                                if (url.equals("flbp-native://open-notification-settings", ignoreCase = true)) {
+                                    NativePushRegistry.refreshRegistration(factoryContext)
+                                    openAppNotificationSettings(factoryContext)
+                                    return true
+                                }
+                                return false
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 fatalError = null
                             }

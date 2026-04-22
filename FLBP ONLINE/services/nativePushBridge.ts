@@ -19,6 +19,7 @@ export interface NativePushRegistrationSnapshot {
 }
 
 export const NATIVE_PUSH_REGISTRATION_EVENT = 'flbp-native-push-registration';
+const ANDROID_NATIVE_NOTIFICATION_SETTINGS_URL = 'flbp-native://open-notification-settings';
 
 type NativePushBridge = {
   getRegistrationJson?: () => string;
@@ -101,6 +102,18 @@ const readBridge = (): NativePushBridge | null => {
   return window.FLBPNativePushBridge || window.__flbpNativePushBridge || readCapacitorNativePushBridge();
 };
 
+const triggerDedicatedAndroidNotificationSettings = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const runtime = getNativeShellRuntime();
+  if (!(runtime.isDedicatedShell && runtime.platform === 'android')) return false;
+  try {
+    window.location.assign(ANDROID_NATIVE_NOTIFICATION_SETTINGS_URL);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const readNativePushRegistration = (): NativePushRegistrationSnapshot | null => {
   if (typeof window === 'undefined') return null;
   if (!getNativeShellRuntime().isNative) return null;
@@ -162,8 +175,12 @@ export const requestNativePushPermission = async (): Promise<NativePushRegistrat
 export const refreshNativePushRegistration = async (): Promise<NativePushRegistrationSnapshot | null> =>
   invokeBridgeMethod('refreshRegistration');
 
-export const openNativePushSettings = async (): Promise<NativePushRegistrationSnapshot | null> =>
-  invokeBridgeMethod('openSettings', { waitForFreshSnapshot: true, timeoutMs: 2400 });
+export const openNativePushSettings = async (): Promise<NativePushRegistrationSnapshot | null> => {
+  if (triggerDedicatedAndroidNotificationSettings()) {
+    return waitForNativePushRegistration(2400);
+  }
+  return invokeBridgeMethod('openSettings', { waitForFreshSnapshot: true, timeoutMs: 2400 });
+};
 
 export const subscribeNativePushRegistration = (onChange: (snapshot: NativePushRegistrationSnapshot | null) => void) => {
   if (typeof window === 'undefined') return () => {};
