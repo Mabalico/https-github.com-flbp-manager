@@ -258,6 +258,10 @@ fun NativeWebMirrorHost(
                                 fatalError = null
                                 canGoBack = view?.canGoBack() == true
                                 pushNativeRegistrationIntoWebView(view, factoryContext)
+                                // The SPA already knows how to clear transient overlays on this event.
+                                // Re-dispatch it here as well so the page can recover even when the
+                                // lifecycle resume happened before the first visually stable frame.
+                                view?.let(::dispatchAndroidShellResume)
                             }
 
                             override fun onReceivedError(
