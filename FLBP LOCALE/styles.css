@@ -71,3 +71,17 @@
     }
   }
 }
+
+/* Android WebView: disable backdrop-filter on all blur elements to prevent
+   compositing layer freeze after resume/login (ghost blur bug). */
+html.flbp-android-webview .backdrop-blur,
+html.flbp-android-webview .backdrop-blur-sm,
+html.flbp-android-webview .backdrop-blur-md,
+html.flbp-android-webview .backdrop-blur-lg,
+html.flbp-android-webview .backdrop-blur-xl,
+html.flbp-android-webview .backdrop-blur-2xl,
+html.flbp-android-webview .backdrop-blur-3xl,
+html.flbp-android-webview .flbp-backdrop-blur {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
