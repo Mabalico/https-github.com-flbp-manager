@@ -117,6 +117,7 @@ object NativePushRegistry {
             notifyListeners(context)
             return
         }
+        notifyListeners(context)
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
                 updateDeviceToken(context, token)

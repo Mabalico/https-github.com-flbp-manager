@@ -595,11 +595,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   React.useEffect(() => {
     if (!embeddedNativeShell) return;
-    const cleanup = () => {
+    const onResume = () => {
       setNativePushPermissionPromptOpen(false);
+      const fresh = readNativePushRegistration();
+      if (fresh) setNativePushRegistration(fresh);
     };
-    window.addEventListener('flbp-native-resume', cleanup);
-    return () => window.removeEventListener('flbp-native-resume', cleanup);
+    window.addEventListener('flbp-native-resume', onResume);
+    return () => window.removeEventListener('flbp-native-resume', onResume);
   }, [embeddedNativeShell]);
 
   const persistNativePushRegistration = React.useCallback((registration: NativePushRegistrationSnapshot | null) => {
