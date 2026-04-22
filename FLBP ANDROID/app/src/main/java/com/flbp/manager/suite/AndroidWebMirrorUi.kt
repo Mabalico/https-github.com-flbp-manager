@@ -56,7 +56,7 @@ import org.json.JSONObject
 
 object NativeWebMirrorConfig {
     const val enabled: Boolean = true
-    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260422c"
+    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260422d"
 }
 
 private class NativePushJavascriptBridge(
@@ -222,6 +222,7 @@ fun NativeWebMirrorHost(
     DisposableEffect(lifecycleOwner, webViewRef) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                NativePushRegistry.refreshRegistration(context)
                 webViewRef?.let { dispatchAndroidShellResume(it) }
             }
         }

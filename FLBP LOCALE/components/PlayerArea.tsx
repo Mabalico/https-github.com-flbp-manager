@@ -460,6 +460,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const liveBackendEnabled = !isLocalOnlyMode() && !!getSupabaseConfig();
   const nativeShellRuntime = getNativeShellRuntime();
   const embeddedNativeShell = nativeShellRuntime.isNative;
+  const dedicatedAndroidShell =
+    nativeShellRuntime.isDedicatedShell && nativeShellRuntime.platform === 'android';
   const initialStoredSession = liveBackendEnabled ? getPlayerSupabaseSession() : null;
   const initialLiveSessionPresent = !!initialStoredSession?.accessToken;
   const initialRecoveryFlow = initialStoredSession?.flowType === 'recovery';
@@ -667,7 +669,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
       return;
     }
-    const shouldRequestPermission = pendingRegistration?.permission === 'prompt';
+    const shouldRequestPermission = pendingRegistration?.permission === 'prompt' && !dedicatedAndroidShell;
     let registration = await (shouldRequestPermission ? requestNativePushPermission() : openNativePushSettings());
     registration = registration || readNativePushRegistration() || pendingRegistration;
     nativePushPermissionRegistrationRef.current = null;
@@ -679,7 +681,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       } catch (error) {
         console.warn('FLBP native push permission sync failed', error);
       }
-  }, [nativePushRegistration, persistNativePushRegistration]);
+  }, [dedicatedAndroidShell, nativePushRegistration, persistNativePushRegistration]);
 
   const dismissNativePushPermission = React.useCallback(() => {
     nativePushPermissionRegistrationRef.current = null;
