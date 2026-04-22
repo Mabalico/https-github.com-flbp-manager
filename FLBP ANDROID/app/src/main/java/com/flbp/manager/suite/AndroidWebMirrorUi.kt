@@ -56,7 +56,7 @@ import org.json.JSONObject
 
 object NativeWebMirrorConfig {
     const val enabled: Boolean = true
-    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260422b"
+    const val baseUrl: String = "https://flbp-pages.pages.dev/?native_shell=android&shell_rev=20260422c"
 }
 
 private class NativePushJavascriptBridge(
@@ -279,21 +279,44 @@ fun NativeWebMirrorHost(
                         clearFormData()
                         webChromeClient = WebChromeClient()
                         webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): Boolean {
-                                val url = request?.url?.toString()?.trim().orEmpty()
-                                if (url.equals("flbp-native://request-notification-permission", ignoreCase = true)) {
+                            private fun handleNativeSchemeUrl(url: String): Boolean {
+                                val normalized = url.trim()
+                                if (normalized.isBlank()) return false
+                                val uri = runCatching { Uri.parse(normalized) }.getOrNull() ?: return false
+                                if (!uri.scheme.equals("flbp-native", ignoreCase = true)) return false
+                                val command = sequenceOf(
+                                    uri.host,
+                                    uri.pathSegments.firstOrNull(),
+                                )
+                                    .filterNotNull()
+                                    .map { it.trim().lowercase() }
+                                    .firstOrNull { it.isNotBlank() }
+                                    ?: return false
+                                if (command == "request-notification-permission") {
                                     requestOrOpenNotificationSettings(factoryContext, permissionLauncher)
                                     return true
                                 }
-                                if (url.equals("flbp-native://open-notification-settings", ignoreCase = true)) {
+                                if (command == "open-notification-settings") {
                                     NativePushRegistry.refreshRegistration(factoryContext)
                                     openAppNotificationSettings(factoryContext)
                                     return true
                                 }
                                 return false
+                            }
+
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): Boolean {
+                                return handleNativeSchemeUrl(request?.url?.toString().orEmpty())
+                            }
+
+                            @Deprecated("Deprecated in Java")
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                url: String?,
+                            ): Boolean {
+                                return handleNativeSchemeUrl(url.orEmpty())
                             }
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
