@@ -667,9 +667,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
       return;
     }
-    const shouldRequestPermission =
-      pendingRegistration?.permission === 'prompt' &&
-      !(nativeShellRuntime.isDedicatedShell && nativeShellRuntime.platform === 'android');
+    const shouldRequestPermission = pendingRegistration?.permission === 'prompt';
     let registration = await (shouldRequestPermission ? requestNativePushPermission() : openNativePushSettings());
     registration = registration || readNativePushRegistration() || pendingRegistration;
     nativePushPermissionRegistrationRef.current = null;
@@ -681,7 +679,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       } catch (error) {
         console.warn('FLBP native push permission sync failed', error);
       }
-  }, [nativeShellRuntime.isDedicatedShell, nativeShellRuntime.platform, nativePushRegistration, persistNativePushRegistration]);
+  }, [nativePushRegistration, persistNativePushRegistration]);
 
   const dismissNativePushPermission = React.useCallback(() => {
     nativePushPermissionRegistrationRef.current = null;
