@@ -1888,15 +1888,15 @@ const App: React.FC = () => {
                 ) : null}
 
                 {/* Sidebar Menu - Rendered at the end to ensure it stays on top of sticky elements */}
-                <div style={drawerStyle} className={`fixed inset-y-0 left-0 bg-white shadow-2xl z-40 ${isAndroidWebView ? 'transition-[left] duration-200' : `w-64 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}`}>
-                    <div className="p-6 flex justify-between items-start border-b border-slate-100">
+                <div style={drawerStyle} className={`fixed inset-y-0 left-0 bg-white shadow-2xl z-40 flex flex-col ${isAndroidWebView ? 'transition-[left] duration-200' : `w-64 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}`}>
+                    <div className="p-6 flex justify-between items-start border-b border-slate-100 flex-shrink-0">
                         <div className="min-w-0">
                             <PublicBrandStack tone="onLight" className="mb-2" />
                             <h2 className="font-black text-xl uppercase tracking-tighter text-slate-800">{t('menu')}</h2>
                         </div>
                         <button aria-label={t('close_menu')} onClick={() => setMenuOpen(false)} className="hover:bg-slate-100 p-2 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"><X className="w-6 h-6"/></button>
                     </div>
-                    <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-100px)]">
+                    <nav className="p-3 space-y-1 overflow-y-auto flex-1 min-h-0">
                         <div className="px-2 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{t('public_section')}</div>
                         <button
                             aria-current={view === 'home' ? 'page' : undefined}
