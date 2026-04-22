@@ -197,11 +197,11 @@ const invokeBridgeMethod = async (
 };
 
 export const requestNativePushPermission = async (): Promise<NativePushRegistrationSnapshot | null> => {
-  const viaDedicatedBridge = await invokeDedicatedAndroidBridgeMethod('requestPermission', { timeoutMs: 3600 });
-  if (viaDedicatedBridge) return viaDedicatedBridge;
   if (triggerDedicatedAndroidNotificationPermission()) {
     return waitForNativePushRegistration(2400);
   }
+  const viaDedicatedBridge = await invokeDedicatedAndroidBridgeMethod('requestPermission', { timeoutMs: 3600 });
+  if (viaDedicatedBridge) return viaDedicatedBridge;
   return invokeBridgeMethod('requestPermission', { waitForFreshSnapshot: true });
 };
 
@@ -209,11 +209,11 @@ export const refreshNativePushRegistration = async (): Promise<NativePushRegistr
   invokeBridgeMethod('refreshRegistration');
 
 export const openNativePushSettings = async (): Promise<NativePushRegistrationSnapshot | null> => {
-  const viaDedicatedBridge = await invokeDedicatedAndroidBridgeMethod('openSettings', { timeoutMs: 2400 });
-  if (viaDedicatedBridge) return viaDedicatedBridge;
   if (triggerDedicatedAndroidNotificationSettings()) {
     return waitForNativePushRegistration(2400);
   }
+  const viaDedicatedBridge = await invokeDedicatedAndroidBridgeMethod('openSettings', { timeoutMs: 2400 });
+  if (viaDedicatedBridge) return viaDedicatedBridge;
   return invokeBridgeMethod('openSettings', { waitForFreshSnapshot: true, timeoutMs: 2400 });
 };
 
