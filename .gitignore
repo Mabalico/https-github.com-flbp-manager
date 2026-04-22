@@ -38,6 +38,7 @@ AuthKey_*.p8
 # Editor / tooling
 .idea/
 .vscode/
+.claude/
 
 # Archives and generated bundles
 *.zip
