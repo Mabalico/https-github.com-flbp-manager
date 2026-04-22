@@ -2,7 +2,9 @@ package com.flbp.manager.suite
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
@@ -109,19 +111,40 @@ private fun pushNativeRegistrationIntoWebView(webView: WebView?, context: androi
 private fun areAppNotificationsEnabled(context: android.content.Context): Boolean =
     NotificationManagerCompat.from(context).areNotificationsEnabled()
 
+private tailrec fun findActivity(context: android.content.Context): Activity? = when (context) {
+    is Activity -> context
+    is ContextWrapper -> findActivity(context.baseContext)
+    else -> null
+}
+
+private fun launchSettingsIntent(context: android.content.Context, intent: Intent): Boolean {
+    val packageManager = context.packageManager
+    val resolved = intent.resolveActivity(packageManager) != null
+    if (!resolved) return false
+    val activity = findActivity(context)
+    return runCatching {
+        if (activity != null) {
+            activity.startActivity(intent)
+        } else {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+        true
+    }.getOrDefault(false)
+}
+
 private fun openAppNotificationSettings(context: android.content.Context) {
     val notificationSettingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
         putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         putExtra("app_package", context.packageName)
         putExtra("app_uid", context.applicationInfo.uid)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        data = Uri.fromParts("package", context.packageName, null)
     }
     val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = Uri.parse("package:${context.packageName}")
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    if (!runCatching { context.startActivity(notificationSettingsIntent) }.isSuccess) {
-        runCatching { context.startActivity(appSettingsIntent) }
+    if (!launchSettingsIntent(context, notificationSettingsIntent)) {
+        launchSettingsIntent(context, appSettingsIntent)
     }
 }
 
@@ -241,11 +264,11 @@ fun NativeWebMirrorHost(
                                 context = factoryContext,
                                 onRequestPermission = requestNotificationPermission,
                                 onRefreshRegistration = { NativePushRegistry.refreshRegistration(factoryContext) },
-                                // openSettings is an explicit app-settings deep link.
-                                // The system permission dialog stays on requestPermission().
+                                // The web layer uses openSettings() as the single CTA for
+                                // "attiva notifiche". On Android we keep the native decision:
+                                // first request => system dialog, denied/disabled => app settings.
                                 onOpenSettings = {
-                                    NativePushRegistry.refreshRegistration(factoryContext)
-                                    openAppNotificationSettings(factoryContext)
+                                    requestOrOpenNotificationSettings(factoryContext, permissionLauncher)
                                 },
                             ),
                             "FLBPNativePushBridge",

@@ -654,6 +654,19 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setNativePushPermissionPromptOpen(false);
     const pendingRegistration =
       readNativePushRegistration() || nativePushPermissionRegistrationRef.current || nativePushRegistration;
+    if (pendingRegistration?.permission === 'granted' && !pendingRegistration.deviceToken) {
+      const refreshed = await refreshNativePushRegistration();
+      const nextRegistration = refreshed || readNativePushRegistration() || pendingRegistration;
+      nativePushPermissionRegistrationRef.current = null;
+      if (!nextRegistration?.deviceId) return;
+      setNativePushRegistration(nextRegistration);
+      try {
+        await persistNativePushRegistration(nextRegistration);
+      } catch (error) {
+        console.warn('FLBP native push token refresh sync failed', error);
+      }
+      return;
+    }
     // Sul dedicated shell Android il dialog di sistema è gestito dal Kotlin launcher:
     // la web delega sempre a openSettings() e il bridge Kotlin decide internamente
     // se mostrare il dialog (prima richiesta, API 33+) o aprire le impostazioni (già negato).
@@ -1089,11 +1102,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     embeddedNativeShell &&
     !!nativePushRegistration?.deviceId &&
     !nativePushRegistration.pushEnabled &&
-    (!nativePushRegistration.configReady ||
-      nativePushRegistration.permission === 'prompt' ||
+    (nativePushRegistration.permission === 'prompt' ||
       nativePushRegistration.permission === 'denied' ||
-      nativePushRegistration.permission === 'unknown' ||
-      (nativePushRegistration.permission === 'granted' && !nativePushRegistration.deviceToken));
+      nativePushRegistration.permission === 'unknown');
   const nativePushStatusMessage =
     nativePushRegistration?.permission === 'granted' && !nativePushRegistration.deviceToken
       ? t('player_area_push_initializing')
