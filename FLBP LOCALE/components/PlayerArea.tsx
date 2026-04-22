@@ -1588,44 +1588,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     setRefreshNonce((value) => value + 1);
   };
 
-  // Push permission prompt is now handled inline in the player area card (no full-screen modal)
-  const nativePushPromptModal =
-    embeddedNativeShell && nativePushPermissionPromptOpen && typeof document !== 'undefined'
-      ? createPortal(
-          <div
-            className="flbp-mobile-sheet fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/80 px-4 py-6"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
-              <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 px-5 py-5 text-white">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/40 bg-amber-400/15 text-amber-200">
-                  <BellRing className="h-6 w-6" />
-                </div>
-                <div className="mt-4 text-2xl font-black tracking-tight">{t('player_native_push_prompt_title')}</div>
-                <p className="mt-2 text-sm font-semibold leading-6 text-white/80">{t('player_native_push_prompt_body')}</p>
-              </div>
-              <div className="space-y-3 px-5 py-5">
-                <div className="rounded-2xl border border-amber-100 bg-amber-50/80 px-4 py-3 text-sm font-semibold text-amber-900">
-                  {nativePushStatusMessage}
-                </div>
-                <button
-                  type="button"
-                  onClick={confirmNativePushPermission}
-                  className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 shadow-sm transition hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-                >
-                  <BellRing className="h-4 w-4" />
-                  {t('player_native_push_prompt_enable')}
-                </button>
-                <button type="button" onClick={dismissNativePushPermission} className={`${btnSecondary} w-full justify-center`}>
-                  {t('player_native_push_prompt_later')}
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )
-      : null;
+  // Native push permission is intentionally handled by the inline card below.
+  // Keeping a second fullscreen portal here can leave a stale scrim visible
+  // inside Android WebView after login/resume, so we keep this path disabled.
+  const nativePushPromptModal = null;
 
   const registerAliasRequestModal =
     registerAliasModalOpen && authMode === 'register' && typeof document !== 'undefined'
