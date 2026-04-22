@@ -19,6 +19,7 @@ export interface NativePushRegistrationSnapshot {
 }
 
 export const NATIVE_PUSH_REGISTRATION_EVENT = 'flbp-native-push-registration';
+const ANDROID_NATIVE_NOTIFICATION_PERMISSION_URL = 'flbp-native://request-notification-permission';
 const ANDROID_NATIVE_NOTIFICATION_SETTINGS_URL = 'flbp-native://open-notification-settings';
 
 type NativePushBridge = {
@@ -114,6 +115,18 @@ const triggerDedicatedAndroidNotificationSettings = (): boolean => {
   }
 };
 
+const triggerDedicatedAndroidNotificationPermission = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const runtime = getNativeShellRuntime();
+  if (!(runtime.isDedicatedShell && runtime.platform === 'android')) return false;
+  try {
+    window.location.assign(ANDROID_NATIVE_NOTIFICATION_PERMISSION_URL);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const readNativePushRegistration = (): NativePushRegistrationSnapshot | null => {
   if (typeof window === 'undefined') return null;
   if (!getNativeShellRuntime().isNative) return null;
@@ -169,8 +182,12 @@ const invokeBridgeMethod = async (
   }
 };
 
-export const requestNativePushPermission = async (): Promise<NativePushRegistrationSnapshot | null> =>
-  invokeBridgeMethod('requestPermission', { waitForFreshSnapshot: true });
+export const requestNativePushPermission = async (): Promise<NativePushRegistrationSnapshot | null> => {
+  if (triggerDedicatedAndroidNotificationPermission()) {
+    return waitForNativePushRegistration(2400);
+  }
+  return invokeBridgeMethod('requestPermission', { waitForFreshSnapshot: true });
+};
 
 export const refreshNativePushRegistration = async (): Promise<NativePushRegistrationSnapshot | null> =>
   invokeBridgeMethod('refreshRegistration');

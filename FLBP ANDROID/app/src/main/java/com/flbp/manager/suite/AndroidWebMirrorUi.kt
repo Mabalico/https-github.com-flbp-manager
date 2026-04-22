@@ -284,6 +284,10 @@ fun NativeWebMirrorHost(
                                 request: WebResourceRequest?,
                             ): Boolean {
                                 val url = request?.url?.toString()?.trim().orEmpty()
+                                if (url.equals("flbp-native://request-notification-permission", ignoreCase = true)) {
+                                    requestOrOpenNotificationSettings(factoryContext, permissionLauncher)
+                                    return true
+                                }
                                 if (url.equals("flbp-native://open-notification-settings", ignoreCase = true)) {
                                     NativePushRegistry.refreshRegistration(factoryContext)
                                     openAppNotificationSettings(factoryContext)
