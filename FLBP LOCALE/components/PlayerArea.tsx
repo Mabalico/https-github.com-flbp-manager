@@ -1092,7 +1092,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     (!nativePushRegistration.configReady ||
       nativePushRegistration.permission === 'prompt' ||
       nativePushRegistration.permission === 'denied' ||
-      nativePushRegistration.permission === 'unknown');
+      nativePushRegistration.permission === 'unknown' ||
+      (nativePushRegistration.permission === 'granted' && !nativePushRegistration.deviceToken));
   const nativePushStatusMessage =
     nativePushRegistration?.permission === 'granted' && !nativePushRegistration.deviceToken
       ? t('player_area_push_initializing')
