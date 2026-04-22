@@ -14,7 +14,7 @@
   - Quick disable (client-side): localStorage flbp_sw_disabled=1 prevents registration.
 */
 
-const SW_VERSION = 'step84';
+const SW_VERSION = 'step85';
 const ASSET_CACHE = `flbp-assets-${SW_VERSION}`;
 const DOC_CACHE = `flbp-docs-${SW_VERSION}`;
 
