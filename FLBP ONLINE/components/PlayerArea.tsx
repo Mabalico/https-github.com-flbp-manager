@@ -990,6 +990,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         }
       }
 
+      if (
+        nextProfile
+        && !String(nextProfile.canonical_player_id || '').trim()
+        && nextMergeRequests.some((row) => String(row.status || '').trim().toLowerCase() === 'resolved')
+      ) {
+        try {
+          const refreshedProfile = await pullPlayerAppProfile();
+          if (refreshedProfile) {
+            nextProfile = refreshedProfile;
+          }
+        } catch (error) {
+          console.warn('[PlayerArea] Resolved merge profile refresh skipped', error);
+        }
+      }
+
       if (nextProfile) {
         let aliasState = state;
         try {

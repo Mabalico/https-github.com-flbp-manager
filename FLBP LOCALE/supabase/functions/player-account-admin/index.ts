@@ -393,6 +393,7 @@ const listMyMergeRequests = async (
 
   const safeWorkspaceId = await ensureWorkspace(adminClient, body.workspaceId);
   const requesterEmail = normalizeEmail(authenticatedUser.email ?? body.requesterEmail ?? '');
+  const requesterUserId = normalizeText(authenticatedUser.id);
   if (!requesterEmail) {
     throw new Response(JSON.stringify({ ok: false, reason: 'Requester email unavailable.' }), {
       status: 400,
@@ -401,25 +402,41 @@ const listMyMergeRequests = async (
   }
 
   const statusValue = normalizeText(body.status);
-  let query = adminClient
-    .from('player_account_merge_requests')
-    .select('*')
-    .eq('workspace_id', safeWorkspaceId)
-    .eq('requester_email', requesterEmail)
-    .order('created_at', { ascending: false });
+  const runQuery = async (mode: 'user' | 'email') => {
+    let query = adminClient
+      .from('player_account_merge_requests')
+      .select('*')
+      .eq('workspace_id', safeWorkspaceId)
+      .order('created_at', { ascending: false });
 
-  if (statusValue) {
-    query = query.eq('status', normalizeMergeRequestStatus(statusValue));
+    query = mode === 'user'
+      ? query.eq('requester_user_id', requesterUserId)
+      : query.eq('requester_email', requesterEmail);
+
+    if (statusValue) {
+      query = query.eq('status', normalizeMergeRequestStatus(statusValue));
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(error.message);
+    }
+    return Array.isArray(data) ? data : [];
+  };
+
+  let rows = requesterUserId ? await runQuery('user') : [];
+  if (!rows.length) {
+    rows = await runQuery('email');
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(error.message);
+  const latestResolvedRow = rows.find((row) => normalizeMergeRequestStatus(row?.status) === 'resolved');
+  if (latestResolvedRow && normalizeText(latestResolvedRow?.requester_user_id)) {
+    await applyResolvedMergeRequestToProfile(adminClient, safeWorkspaceId, latestResolvedRow as Record<string, unknown>);
   }
 
   return {
     ok: true,
-    rows: Array.isArray(data) ? data : [],
+    rows,
   };
 };
 
