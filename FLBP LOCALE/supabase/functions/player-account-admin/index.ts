@@ -151,6 +151,16 @@ const deletePlayerAccount = async (
     });
   }
 
+  let targetUserEmail = '';
+  try {
+    const { data: authUserData, error: authUserError } = await adminClient.auth.admin.getUserById(targetUserId);
+    if (!authUserError) {
+      targetUserEmail = normalizeEmail(authUserData?.user?.email || '');
+    }
+  } catch {
+    // Best effort: if auth lookup fails we still remove user-scoped rows below.
+  }
+
   const cleanupTargets = [
     adminClient.from('player_account_merge_requests').delete().eq('workspace_id', safeWorkspaceId).eq('requester_user_id', targetUserId),
     adminClient.from('player_app_calls').delete().eq('workspace_id', safeWorkspaceId).eq('target_user_id', targetUserId),
@@ -160,6 +170,18 @@ const deletePlayerAccount = async (
 
   for (const operation of cleanupTargets) {
     const { error } = await operation;
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  if (targetUserEmail) {
+    const { error } = await adminClient
+      .from('player_account_merge_requests')
+      .delete()
+      .eq('workspace_id', safeWorkspaceId)
+      .eq('requester_email', targetUserEmail);
+
     if (error) {
       throw new Error(error.message);
     }
