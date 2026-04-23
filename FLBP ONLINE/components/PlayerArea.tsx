@@ -1754,7 +1754,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         setFeedback(null);
         void (async () => {
           const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
-          const accountSession = await ensureFreshPlayerSupabaseSession();
+          let accountSession: Awaited<ReturnType<typeof ensureFreshPlayerSupabaseSession>> | null = null;
+          try {
+            accountSession = await ensureFreshPlayerSupabaseSession();
+          } catch {
+            accountSession = null;
+          }
           const accountAccessToken = String(accountSession?.accessToken || liveSession?.accessToken || '').trim() || null;
           const accountUserId = String(accountSession?.userId || liveSession?.userId || effectiveSession.accountId || '').trim() || null;
           const openProvisionalProfile = () => {
