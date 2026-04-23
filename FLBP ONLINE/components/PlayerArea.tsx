@@ -1158,6 +1158,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     registerAliasModalOpen,
   ]);
 
+  const openAccountAliasPrompt = React.useCallback(() => {
+    if (!pendingAccountAliasSuggestions.length) return;
+    accountAliasPromptDismissedRef.current = false;
+    setRegisterAliasPromptMode('account');
+    setRegisterAliasPromptSuggestions(pendingAccountAliasSuggestions);
+    setRegisterAliasSelectionIds([]);
+    setRegisterAliasComment('');
+    setRegisterAliasSubmitting(false);
+    setRegisterAliasModalOpen(true);
+  }, [pendingAccountAliasSuggestions]);
+
   const personalPerformanceSummary = React.useMemo(
     () => effectivePersonalProfile ? buildPlayerPerformanceSummary(state, effectivePersonalProfile) : null,
     [effectivePersonalProfile, state]
@@ -2375,6 +2386,43 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
             ) : (
               <div className="space-y-5">
+                {pendingAccountAliasSuggestions.length ? (
+                  <div className="rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-4 shadow-sm shadow-amber-100/60 md:px-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-black uppercase tracking-[0.08em] text-amber-800">
+                          <ShieldCheck className="h-4 w-4" />
+                          {t('player_register_alias_title')}
+                        </div>
+                        <div className="mt-2 text-sm font-semibold leading-6 text-amber-900">
+                          {pendingAccountAliasSuggestions.length === 1
+                            ? t('player_area_alias_suggestion_found_one')
+                            : t('player_area_alias_suggestions_found_many').replace('{count}', String(pendingAccountAliasSuggestions.length))}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold leading-6 text-amber-800/90">
+                          {t('player_register_alias_desc')}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={openAccountAliasPrompt}
+                          className={btnPrimary}
+                        >
+                          <BadgeCheck className="h-4 w-4" /> {t('player_register_alias_submit')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => closeRegisterAliasModal()}
+                          className={btnSecondary}
+                        >
+                          <ChevronRight className="h-4 w-4" /> {t('player_register_alias_skip')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="relative overflow-hidden rounded-[26px] border border-blue-100 bg-gradient-to-br from-blue-50/80 to-white/90 p-5 md:p-6 shadow-sm shadow-blue-100/50 ring-1 ring-inset ring-white">
                   <div className="absolute -right-4 -top-8 h-40 w-40 rounded-full bg-sky-200/40 blur-3xl" />
                   <div className="relative z-10 flex items-start justify-between gap-4 flex-wrap">
