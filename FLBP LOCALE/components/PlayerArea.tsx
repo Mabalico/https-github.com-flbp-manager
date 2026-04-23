@@ -169,6 +169,11 @@ const readPlayerAliasPromptAnswer = (
   }
 };
 
+const hasReportedPlayerAliasPromptAnswer = (
+  subjectKey: string,
+  candidatePlayerId: string
+) => readPlayerAliasPromptAnswer(subjectKey, candidatePlayerId) === 'reported';
+
 const writePlayerAliasPromptAnswer = (
   subjectKey: string,
   candidatePlayerId: string,
@@ -598,7 +603,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const pendingRegistrationAliasSuggestions = React.useMemo(
     () =>
       registrationAliasSuggestions.filter(
-        (row) => !readPlayerAliasPromptAnswer(registrationAliasSubjectKey, row.candidatePlayerId)
+        (row) => !hasReportedPlayerAliasPromptAnswer(registrationAliasSubjectKey, row.candidatePlayerId)
       ),
     [aliasPromptAnswerNonce, registrationAliasSubjectKey, registrationAliasSuggestions]
   );
@@ -1093,7 +1098,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const pendingAccountAliasSuggestions = React.useMemo(
     () =>
       accountAliasSuggestions.filter(
-        (row) => !accountAliasSubjectKeys.some((subjectKey) => readPlayerAliasPromptAnswer(subjectKey, row.candidatePlayerId))
+        (row) => !accountAliasSubjectKeys.some((subjectKey) => hasReportedPlayerAliasPromptAnswer(subjectKey, row.candidatePlayerId))
       ),
     [accountAliasSubjectKeys, accountAliasSuggestions, aliasPromptAnswerNonce]
   );
