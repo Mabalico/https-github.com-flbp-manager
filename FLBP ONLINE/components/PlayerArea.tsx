@@ -1202,6 +1202,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     return liveAccountAliasSuggestions;
   }, [effectiveProfile, liveAccountAliasSuggestions, liveBackendEnabled, liveRuntimeSession]);
 
+  const hasCanonicalAccountAliasLink = React.useMemo(
+    () => !!String(liveProfileRow?.canonical_player_id || effectiveProfile?.canonicalPlayerId || '').trim(),
+    [effectiveProfile?.canonicalPlayerId, liveProfileRow?.canonical_player_id]
+  );
+
   const requestedAliasCandidateIds = React.useMemo(
     () => new Set(
       liveMergeRequests
@@ -1214,10 +1219,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const pendingAccountAliasSuggestions = React.useMemo(
     () =>
+      hasCanonicalAccountAliasLink
+        ? []
+        :
       accountAliasSuggestions.filter(
         (row) => !requestedAliasCandidateIds.has(row.candidatePlayerId)
       ),
-    [accountAliasSuggestions, requestedAliasCandidateIds]
+    [accountAliasSuggestions, hasCanonicalAccountAliasLink, requestedAliasCandidateIds]
   );
 
   const hasPendingAccountMergeRequest = React.useMemo(
@@ -2214,6 +2222,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     && !!liveRuntimeSession
     && liveAuthFlow !== 'recovery'
     && liveAccountAliasLoaded
+    && !hasCanonicalAccountAliasLink
     && !hasPendingAccountMergeRequest
     && pendingAccountAliasSuggestions.length > 0
     && !accountAliasInterstitialDismissed

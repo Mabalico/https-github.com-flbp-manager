@@ -423,6 +423,37 @@ const listMyMergeRequests = async (
   };
 };
 
+const applyResolvedMergeRequestToProfile = async (
+  adminClient: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  requestRow: Record<string, unknown>,
+) => {
+  const requesterUserId = normalizeText(requestRow.requester_user_id);
+  if (!requesterUserId) return null;
+
+  const payload = {
+    workspace_id: workspaceId,
+    user_id: requesterUserId,
+    first_name: normalizeText(requestRow.requester_first_name),
+    last_name: normalizeText(requestRow.requester_last_name),
+    birth_date: normalizeDate(requestRow.requester_birth_date),
+    canonical_player_id: normalizeText(requestRow.candidate_player_id) || null,
+    canonical_player_name: normalizeText(requestRow.candidate_player_name) || null,
+  };
+
+  if (!payload.first_name || !payload.last_name || !payload.birth_date || !payload.canonical_player_id) {
+    throw new Error('Merge request requester profile is incomplete.');
+  }
+
+  const { error } = await adminClient
+    .from('player_app_profiles')
+    .upsert(payload, { onConflict: 'workspace_id,user_id' });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+};
+
 const setMergeRequestStatus = async (
   adminClient: ReturnType<typeof createAdminClient>,
   workspaceId: string,
@@ -444,6 +475,21 @@ const setMergeRequestStatus = async (
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+  }
+
+  const { data: currentRow, error: currentRowError } = await adminClient
+    .from('player_account_merge_requests')
+    .select('*')
+    .eq('workspace_id', safeWorkspaceId)
+    .eq('id', safeRequestId)
+    .single();
+
+  if (currentRowError || !currentRow) {
+    throw new Error(currentRowError?.message || 'Merge request not found.');
+  }
+
+  if (requestStatus === 'resolved') {
+    await applyResolvedMergeRequestToProfile(adminClient, safeWorkspaceId, currentRow as Record<string, unknown>);
   }
 
   const { data, error } = await adminClient
