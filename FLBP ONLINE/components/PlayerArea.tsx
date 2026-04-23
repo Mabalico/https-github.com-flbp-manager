@@ -1732,13 +1732,22 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         return;
       }
       if (registerAliasPromptMode === 'account') {
+        const openDeferredProvisionalProfile = () => {
+          setAccountAliasInterstitialDismissed(true);
+          closeRegisterAliasModal({ dismissAccountPrompt: false });
+          setLiveRuntimeError(null);
+          setFeedback({
+            tone: 'success',
+            message: t('player_area_merge_request_deferred'),
+          });
+        };
         if (!effectiveProfile || !effectiveSession?.email) {
-          setFeedback({ tone: 'error', message: t('player_area_auth_submit_failed') });
+          openDeferredProvisionalProfile();
           return;
         }
         const normalizedAccountBirthDate = normalizeBirthDateInput(effectiveProfile.birthDate);
         if (!normalizedAccountBirthDate) {
-          setFeedback({ tone: 'error', message: t('player_area_invalid_birthdate_error') });
+          openDeferredProvisionalProfile();
           return;
         }
         setRegisterAliasSubmitting(true);
@@ -1868,20 +1877,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               finalizeAccountAliasRequestSuccess(verifiedSuggestions);
               return;
             }
-            openProvisionalProfile();
-            setFeedback({
-              tone: 'error',
-              message: getPlayerAreaFriendlyErrorMessage(
-                error,
-                t('player_area_auth_submit_failed'),
-              t
-            ),
-            });
+            openDeferredProvisionalProfile();
           } finally {
             setRegisterAliasSubmitting(false);
           }
         })();
-      return;
+        return;
     }
     setRegisterAliasSubmitting(true);
     void completeAuth({
