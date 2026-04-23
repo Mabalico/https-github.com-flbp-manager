@@ -481,9 +481,10 @@ const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string, t?:
 
   const code = String(structured?.code ?? '').trim();
   const errorCode = String(structured?.error_code ?? '').trim();
-  const message = String(structured?.message ?? raw).trim();
+  const reason = String(structured?.reason ?? '').trim();
+  const message = String(structured?.message ?? (reason || raw)).trim();
   const hint = String(structured?.hint ?? '').trim();
-  const haystack = `${code} ${errorCode} ${message} ${hint}`.toLowerCase();
+  const haystack = `${code} ${errorCode} ${message} ${hint} ${reason}`.toLowerCase();
 
   if (/22008|date\/time field value out of range|datestyle/.test(haystack)) {
     return t?.('player_area_invalid_birthdate_error') || fallback;
@@ -509,8 +510,14 @@ const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string, t?:
   if (/row-level security|violates row-level security|permission denied/.test(haystack)) {
     return t?.('player_area_permission_session_error') || fallback;
   }
+  if (/requester identity is incomplete/.test(haystack)) {
+    return reason || t?.('player_area_profile_fields_required') || fallback;
+  }
+  if (/candidate player is required/.test(haystack)) {
+    return reason || fallback;
+  }
   if (structured) {
-    return fallback;
+    return message || reason || fallback;
   }
   if (/postgrest|supabase|duplicate key value|constraint|foreign key/i.test(message)) {
     return fallback;
@@ -1738,14 +1745,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         setFeedback(null);
         void (async () => {
           const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
+          const accountSession = await ensureFreshPlayerSupabaseSession();
+          const accountAccessToken = String(accountSession?.accessToken || liveSession?.accessToken || '').trim() || null;
+          const accountUserId = String(accountSession?.userId || liveSession?.userId || effectiveSession.accountId || '').trim() || null;
+          const openProvisionalProfile = () => {
+            setAccountAliasInterstitialDismissed(true);
+            closeRegisterAliasModal({ dismissAccountPrompt: false });
+          };
           const finalizeAccountAliasRequestSuccess = (resolvedSuggestions: PlayerRegistrationAliasSuggestion[]) => {
-          rememberAliasPromptAnswers(resolvedSuggestions, 'reported', accountAliasSubjectKeys);
-          const optimisticCreatedAt = new Date().toISOString();
-          setLiveMergeRequests((current) => {
-            const optimisticRows = resolvedSuggestions.map((suggestion) => ({
-              id: `optimistic-${effectiveSession.accountId || liveSession?.userId || effectiveSession.email}-${suggestion.candidatePlayerId}`,
+            rememberAliasPromptAnswers(resolvedSuggestions, 'reported', accountAliasSubjectKeys);
+            const optimisticCreatedAt = new Date().toISOString();
+            setLiveMergeRequests((current) => {
+              const optimisticRows = resolvedSuggestions.map((suggestion) => ({
+                id: `optimistic-${accountUserId || effectiveSession.email}-${suggestion.candidatePlayerId}`,
                 workspace_id: String(state.workspace?.id || ''),
-                requester_user_id: effectiveSession.accountId || liveSession?.userId || null,
+                requester_user_id: accountUserId,
                 requester_email: effectiveSession.email,
                 requester_first_name: effectiveProfile.firstName,
                 requester_last_name: effectiveProfile.lastName,
@@ -1774,31 +1788,30 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               ),
             ];
           });
-          setFeedback({
-            tone: 'success',
-            message: t('player_area_merge_request_sent'),
-          });
-          setLiveRuntimeError(null);
-          setAccountAliasInterstitialDismissed(true);
-          closeRegisterAliasModal();
-          try {
-            window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
-          } catch {
-            // Best effort: refresh other player-area derived state after an alias request.
-          }
+            setFeedback({
+              tone: 'success',
+              message: t('player_area_merge_request_sent'),
+            });
+            setLiveRuntimeError(null);
+            openProvisionalProfile();
+            try {
+              window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+            } catch {
+              // Best effort: refresh other player-area derived state after an alias request.
+            }
           void refreshLiveRuntime(undefined, { silent: true }).catch(() => {
             // Best effort: optimistic pending state already unlocks the provisional profile.
           });
-        };
-        const verifyPendingAliasSuggestions = async () => {
-          try {
-            const rows = await pullPlayerOwnAccountMergeRequests({
-              accessToken: liveSession?.accessToken || null,
-              workspaceId: String(state.workspace?.id || ''),
-              status: 'pending',
-            });
-            if (rows.length) {
-              setLiveMergeRequests(rows);
+          };
+          const verifyPendingAliasSuggestions = async () => {
+            try {
+              const rows = await pullPlayerOwnAccountMergeRequests({
+                accessToken: accountAccessToken,
+                workspaceId: String(state.workspace?.id || ''),
+                status: 'pending',
+              });
+              if (rows.length) {
+                setLiveMergeRequests(rows);
             }
             const pendingIds = new Set(
               rows
@@ -1811,12 +1824,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             return [];
           }
         };
-        try {
-          for (const suggestion of selectedAliasSuggestions) {
-            try {
-              await submitPlayerAccountMergeRequest({
-                  accessToken: liveSession?.accessToken || null,
-                  requesterUserId: effectiveSession.accountId || liveSession?.userId || null,
+          try {
+            for (const suggestion of selectedAliasSuggestions) {
+              try {
+                await submitPlayerAccountMergeRequest({
+                  accessToken: accountAccessToken,
+                  requesterUserId: accountUserId,
                   requesterEmail: effectiveSession.email,
                   requesterFirstName: effectiveProfile.firstName,
                   requesterLastName: effectiveProfile.lastName,
@@ -1837,35 +1850,37 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             finalizeAccountAliasRequestSuccess(deliveredSuggestions);
           } else {
             const verifiedSuggestions = await verifyPendingAliasSuggestions();
-            if (verifiedSuggestions.length) {
-              finalizeAccountAliasRequestSuccess(verifiedSuggestions);
-            } else {
-              setFeedback({
-                tone: 'success',
-                message: t('player_area_merge_request_deferred'),
-              });
-            }
+              if (verifiedSuggestions.length) {
+                finalizeAccountAliasRequestSuccess(verifiedSuggestions);
+              } else {
+                openProvisionalProfile();
+                setFeedback({
+                  tone: 'success',
+                  message: t('player_area_merge_request_deferred'),
+                });
+              }
           }
         } catch (error: any) {
           const verifiedSuggestions = deliveredSuggestions.length
             ? deliveredSuggestions
             : await verifyPendingAliasSuggestions();
-          if (verifiedSuggestions.length) {
-            finalizeAccountAliasRequestSuccess(verifiedSuggestions);
-            return;
-          }
-          setFeedback({
-            tone: 'error',
-            message: getPlayerAreaFriendlyErrorMessage(
-              error,
-              t('player_area_auth_submit_failed'),
+            if (verifiedSuggestions.length) {
+              finalizeAccountAliasRequestSuccess(verifiedSuggestions);
+              return;
+            }
+            openProvisionalProfile();
+            setFeedback({
+              tone: 'error',
+              message: getPlayerAreaFriendlyErrorMessage(
+                error,
+                t('player_area_auth_submit_failed'),
               t
             ),
-          });
-        } finally {
-          setRegisterAliasSubmitting(false);
-        }
-      })();
+            });
+          } finally {
+            setRegisterAliasSubmitting(false);
+          }
+        })();
       return;
     }
     setRegisterAliasSubmitting(true);
