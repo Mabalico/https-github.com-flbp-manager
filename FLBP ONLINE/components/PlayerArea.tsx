@@ -1130,6 +1130,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const previewRuntimeProfile = React.useMemo(() => toPlayerRuntimeProfile(snapshot.profile), [snapshot.profile]);
   const effectiveSession = liveRuntimeSession || snapshot.session;
   const effectiveProfile = liveRuntimeSession ? liveRuntimeProfile : previewRuntimeProfile;
+  const effectiveSessionEmail = React.useMemo(() => {
+    const raw = String(liveSession?.email || effectiveSession?.username || '').trim();
+    return raw ? raw.toLowerCase() : '';
+  }, [effectiveSession?.username, liveSession?.email]);
   const liveProfileHydrating = !!liveRuntimeSession && liveRuntimeStatus === 'loading';
   const activeLiveCall = React.useMemo(
     () =>
@@ -1184,11 +1188,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         new Set(
           [
             buildPlayerAliasPromptSubjectKey(effectiveProfile?.accountId || liveRuntimeSession?.accountId, null),
-            buildPlayerAliasPromptSubjectKey(null, effectiveSession?.email),
+            buildPlayerAliasPromptSubjectKey(null, effectiveSessionEmail),
           ].filter(Boolean)
         )
       ),
-    [effectiveProfile?.accountId, effectiveSession?.email, liveRuntimeSession?.accountId]
+    [effectiveProfile?.accountId, effectiveSessionEmail, liveRuntimeSession?.accountId]
   );
 
   const accountAliasSubjectKey = accountAliasSubjectKeys[0] || '';
@@ -1741,7 +1745,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             message: t('player_area_merge_request_deferred'),
           });
         };
-        if (!effectiveProfile || !effectiveSession?.email) {
+        if (!effectiveProfile || !effectiveSessionEmail) {
           openDeferredProvisionalProfile();
           return;
         }
@@ -1771,10 +1775,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             const optimisticCreatedAt = new Date().toISOString();
             setLiveMergeRequests((current) => {
               const optimisticRows = resolvedSuggestions.map((suggestion) => ({
-                id: `optimistic-${accountUserId || effectiveSession.email}-${suggestion.candidatePlayerId}`,
+                id: `optimistic-${accountUserId || effectiveSessionEmail}-${suggestion.candidatePlayerId}`,
                 workspace_id: String(state.workspace?.id || ''),
                 requester_user_id: accountUserId,
-                requester_email: effectiveSession.email,
+                requester_email: effectiveSessionEmail,
                 requester_first_name: effectiveProfile.firstName,
                 requester_last_name: effectiveProfile.lastName,
                 requester_birth_date: normalizedAccountBirthDate,
@@ -1844,7 +1848,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 await submitPlayerAccountMergeRequest({
                   accessToken: accountAccessToken,
                   requesterUserId: accountUserId,
-                  requesterEmail: effectiveSession.email,
+                  requesterEmail: effectiveSessionEmail,
                   requesterFirstName: effectiveProfile.firstName,
                   requesterLastName: effectiveProfile.lastName,
                   requesterBirthDate: normalizedAccountBirthDate,
