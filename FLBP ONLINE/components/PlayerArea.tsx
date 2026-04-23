@@ -539,6 +539,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [registerAliasSelectionIds, setRegisterAliasSelectionIds] = React.useState<string[]>([]);
   const [registerAliasComment, setRegisterAliasComment] = React.useState('');
   const [registerAliasSubmitting, setRegisterAliasSubmitting] = React.useState(false);
+  const [accountAliasInterstitialDismissed, setAccountAliasInterstitialDismissed] = React.useState(false);
   const [aliasPromptAnswerNonce, setAliasPromptAnswerNonce] = React.useState(0);
   const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(initialStoredSession);
   const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
@@ -1182,29 +1183,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   React.useEffect(() => {
     accountAliasPromptDismissedRef.current = false;
+    setAccountAliasInterstitialDismissed(false);
   }, [accountAliasSubjectKey]);
 
   React.useEffect(() => {
-    if (!liveBackendEnabled || !liveRuntimeSession || !effectiveProfile || liveAuthFlow === 'recovery') return;
-    if (!pendingAccountAliasSuggestions.length || registerAliasModalOpen || accountAliasPromptDismissedRef.current) return;
-    setRegisterAliasPromptMode('account');
-    setRegisterAliasPromptSuggestions(pendingAccountAliasSuggestions);
-    setRegisterAliasSelectionIds([]);
-    setRegisterAliasComment('');
-    setRegisterAliasSubmitting(false);
-    setRegisterAliasModalOpen(true);
-  }, [
-    effectiveProfile,
-    liveAuthFlow,
-    liveBackendEnabled,
-    liveRuntimeSession,
-    pendingAccountAliasSuggestions.length,
-    registerAliasModalOpen,
-  ]);
+    if (liveRuntimeSession) return;
+    setAccountAliasInterstitialDismissed(false);
+  }, [liveRuntimeSession]);
 
   const openAccountAliasPrompt = React.useCallback(() => {
     if (!pendingAccountAliasSuggestions.length) return;
     accountAliasPromptDismissedRef.current = false;
+    setAccountAliasInterstitialDismissed(false);
     setRegisterAliasPromptMode('account');
     setRegisterAliasPromptSuggestions(pendingAccountAliasSuggestions);
     setRegisterAliasSelectionIds([]);
@@ -1648,6 +1638,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const continueRegisterWithoutAliasRequest = () => {
     if (registerAliasPromptMode === 'account') {
       rememberAliasPromptAnswers(activeAliasPromptSuggestions, 'not_me', accountAliasSubjectKeys);
+      setAccountAliasInterstitialDismissed(true);
       closeRegisterAliasModal({ dismissAccountPrompt: false });
       return;
     }
@@ -2038,6 +2029,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           document.body
         )
       : null;
+
+  const showAccountAliasInterstitial = (
+    !!effectiveProfile
+    && !!liveRuntimeSession
+    && liveAuthFlow !== 'recovery'
+    && pendingAccountAliasSuggestions.length > 0
+    && !accountAliasInterstitialDismissed
+  );
 
   return (
     <>
@@ -2430,9 +2429,84 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   </button>
                 </div>
               </div>
+            ) : showAccountAliasInterstitial ? (
+              <div className="mx-auto max-w-4xl">
+                <div className="rounded-[28px] border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-amber-100/70 p-5 shadow-sm shadow-amber-100/70 md:p-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-amber-800">
+                        <ShieldCheck className="h-4 w-4" />
+                        {t('player_register_alias_title')}
+                      </div>
+                      <div className="mt-4 text-3xl font-black tracking-tight text-slate-950">
+                        {pendingAccountAliasSuggestions.length === 1
+                          ? t('player_area_alias_suggestion_found_one')
+                          : t('player_area_alias_suggestions_found_many').replace('{count}', String(pendingAccountAliasSuggestions.length))}
+                      </div>
+                      <div className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-700">
+                        {t('player_register_alias_desc')}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50/80 backdrop-blur-md px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
+                      <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
+                    </button>
+                  </div>
+
+                  <div className="mt-5 grid gap-3">
+                    {pendingAccountAliasSuggestions.map((suggestion) => (
+                      <div key={suggestion.id} className="rounded-[22px] border border-amber-200/80 bg-white/90 px-4 py-4 shadow-sm">
+                        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+                          <div className="min-w-0">
+                            <div className="text-base font-black text-slate-950">{suggestion.candidateDisplayName}</div>
+                            <div className="mt-1 text-xs font-bold text-slate-500">
+                              {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : t('player_register_alias_birthdate_missing')}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                                suggestion.confidence === 'high'
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-white text-slate-700'
+                              }`}>
+                                {suggestion.confidence === 'high' ? t('data_accounts_alias_confidence_high') : t('data_accounts_alias_confidence_medium')}
+                              </div>
+                              {suggestion.reasons.map((reason) => (
+                                <div key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                  {registrationAliasReasonLabel(reason, t)}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="grid w-full grid-cols-3 gap-1 text-left text-[11px] font-black text-slate-600 sm:w-auto sm:grid-cols-1 sm:text-right">
+                            <div>{t('titles')}: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                            <div>{t('canestri')}: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                            <div>{t('soffi')}: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={openAccountAliasPrompt}
+                      className={btnPrimary}
+                    >
+                      <BadgeCheck className="h-4 w-4" /> {t('player_register_alias_submit')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAccountAliasInterstitialDismissed(true)}
+                      className={btnSecondary}
+                    >
+                      <ChevronRight className="h-4 w-4" /> {t('player_register_alias_skip')}
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="space-y-5">
-                {pendingAccountAliasSuggestions.length ? (
+                {pendingAccountAliasSuggestions.length && !accountAliasInterstitialDismissed ? (
                   <div className="rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-4 shadow-sm shadow-amber-100/60 md:px-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="min-w-0">
