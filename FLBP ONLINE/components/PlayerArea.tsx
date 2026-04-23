@@ -19,7 +19,7 @@ import {
   UserRound,
   Wind,
 } from 'lucide-react';
-import type { AppState } from '../services/storageService';
+import { coerceAppState, type AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { BirthDateInput } from './admin/BirthDateInput';
 import { formatBirthDateDisplay, normalizeBirthDateInput } from '../services/playerIdentity';
@@ -38,6 +38,7 @@ import {
   playerSignOutSupabase,
   playerSignUpWithPassword,
   pullPlayerOwnAccountMergeRequests,
+  pullPublicWorkspaceState,
   setSupabaseSession,
   signOutSupabase,
   playerUpdatePassword,
@@ -220,6 +221,42 @@ const samePlayerAccountMergeRequest = (left: PlayerAccountMergeRequestRow, right
 const samePlayerAccountMergeRequests = (left: PlayerAccountMergeRequestRow[], right: PlayerAccountMergeRequestRow[]) => (
   left.length === right.length && left.every((row, index) => samePlayerAccountMergeRequest(row, right[index]))
 );
+
+const samePlayerRegistrationAliasSuggestion = (
+  left: PlayerRegistrationAliasSuggestion,
+  right: PlayerRegistrationAliasSuggestion
+) => (
+  left.id === right.id
+  && left.candidatePlayerId === right.candidatePlayerId
+  && left.candidateDisplayName === right.candidateDisplayName
+  && left.candidateBirthDate === right.candidateBirthDate
+  && left.confidence === right.confidence
+  && left.candidateTotalTitles === right.candidateTotalTitles
+  && left.candidateTotalCanestri === right.candidateTotalCanestri
+  && left.candidateTotalSoffi === right.candidateTotalSoffi
+  && left.reasons.length === right.reasons.length
+  && left.reasons.every((reason, index) => reason === right.reasons[index])
+);
+
+const samePlayerRegistrationAliasSuggestions = (
+  left: PlayerRegistrationAliasSuggestion[],
+  right: PlayerRegistrationAliasSuggestion[]
+) => (
+  left.length === right.length
+  && left.every((row, index) => samePlayerRegistrationAliasSuggestion(row, right[index]))
+);
+
+const buildLiveAccountAliasSuggestions = (
+  sourceState: AppState,
+  profile: Pick<PlayerSupabaseProfileRow, 'first_name' | 'last_name' | 'birth_date' | 'canonical_player_id'>
+) =>
+  buildPlayerRegistrationAliasSuggestions(sourceState, {
+    firstName: profile.first_name,
+    lastName: profile.last_name,
+    birthDate: profile.birth_date,
+  })
+    .filter((row) => row.candidatePlayerId !== String(profile.canonical_player_id || '').trim())
+    .slice(0, 6);
 
 const nativePushRegistrationNeedsAction = (registration: NativePushRegistrationSnapshot | null) => (
   !!registration?.deviceId &&
@@ -545,6 +582,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
   const [liveMergeRequests, setLiveMergeRequests] = React.useState<PlayerAccountMergeRequestRow[]>([]);
+  const [liveAccountAliasSuggestions, setLiveAccountAliasSuggestions] = React.useState<PlayerRegistrationAliasSuggestion[]>([]);
+  const [liveAccountAliasLoaded, setLiveAccountAliasLoaded] = React.useState(!(initialLiveSessionPresent && !initialRecoveryFlow));
   const [liveRuntimeArmed, setLiveRuntimeArmed] = React.useState(initialLiveSessionPresent && !initialRecoveryFlow);
   const [liveCallRefreshNonce, setLiveCallRefreshNonce] = React.useState(0);
   const [liveCalls, setLiveCalls] = React.useState<LiveCallRequest[]>([]);
@@ -867,13 +906,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         setLiveSession(null);
         setLiveProfileRow(null);
         setLiveMergeRequests([]);
+        setLiveAccountAliasSuggestions([]);
+        setLiveAccountAliasLoaded(false);
         setLiveCalls([]);
       });
       return;
     }
 
     applyIfCurrent(() => {
-      if (!silent) setLiveRuntimeStatus('loading');
+      if (!silent) {
+        setLiveRuntimeStatus('loading');
+        setLiveAccountAliasLoaded(false);
+      }
       setLiveRuntimeError(null);
     });
 
@@ -884,6 +928,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           syncUnifiedAuthFromPlayerSession(null);
           setLiveProfileRow(null);
           setLiveMergeRequests([]);
+          setLiveAccountAliasSuggestions([]);
+          setLiveAccountAliasLoaded(false);
           setLiveCalls([]);
           setLiveRuntimeStatus('disabled');
         });
@@ -895,6 +941,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       let pendingMessage = '';
       let nextProfile: PlayerSupabaseProfileRow | null = null;
       let nextMergeRequests: PlayerAccountMergeRequestRow[] = [];
+      let nextAliasSuggestions: PlayerRegistrationAliasSuggestion[] = [];
       let nextCalls: LiveCallRequest[] = [];
 
       try {
@@ -936,6 +983,22 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         }
       }
 
+      if (nextProfile) {
+        let aliasState = state;
+        try {
+          const publicWorkspace = await pullPublicWorkspaceState({
+            source: 'playerAreaAliasCheck',
+            kind: 'polling',
+          });
+          if (publicWorkspace?.state && typeof publicWorkspace.state === 'object') {
+            aliasState = coerceAppState(publicWorkspace.state);
+          }
+        } catch (error) {
+          console.warn('[PlayerArea] Alias state refresh skipped', error);
+        }
+        nextAliasSuggestions = buildLiveAccountAliasSuggestions(aliasState, nextProfile);
+      }
+
       try {
         const rows = await pullPlayerAppCalls();
         nextCalls = rows
@@ -954,6 +1017,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       applyIfCurrent(() => {
         setLiveProfileRow((current) => (sameLiveProfileRow(current, nextProfile) ? current : nextProfile));
         setLiveMergeRequests((current) => (samePlayerAccountMergeRequests(current, nextMergeRequests) ? current : nextMergeRequests));
+        setLiveAccountAliasSuggestions((current) => (
+          samePlayerRegistrationAliasSuggestions(current, nextAliasSuggestions) ? current : nextAliasSuggestions
+        ));
+        setLiveAccountAliasLoaded(true);
         setLiveCalls((current) => (sameLiveCalls(current, nextCalls) ? current : nextCalls));
         setLiveRuntimeStatus(backendPending ? 'backend_pending' : 'ready');
         setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
@@ -972,6 +1039,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       applyIfCurrent(() => {
         setLiveRuntimeStatus('error');
         setLiveRuntimeError(message);
+        setLiveAccountAliasLoaded(true);
       });
     }
   }, [liveBackendEnabled, syncLiveDeviceRegistration, t]);
@@ -1120,15 +1188,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const accountAliasSuggestions = React.useMemo(() => {
     if (!liveBackendEnabled || !liveRuntimeSession || !effectiveProfile) return [];
-    const canonicalPlayerId = String(effectiveProfile.canonicalPlayerId || '').trim();
-    return buildPlayerRegistrationAliasSuggestions(state, {
-      firstName: effectiveProfile.firstName,
-      lastName: effectiveProfile.lastName,
-      birthDate: effectiveProfile.birthDate,
-    })
-      .filter((row) => row.candidatePlayerId !== canonicalPlayerId)
-      .slice(0, 6);
-  }, [effectiveProfile, liveBackendEnabled, liveRuntimeSession, state]);
+    return liveAccountAliasSuggestions;
+  }, [effectiveProfile, liveAccountAliasSuggestions, liveBackendEnabled, liveRuntimeSession]);
 
   const requestedAliasCandidateIds = React.useMemo(
     () => new Set(
@@ -2034,6 +2095,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     !!effectiveProfile
     && !!liveRuntimeSession
     && liveAuthFlow !== 'recovery'
+    && liveAccountAliasLoaded
     && pendingAccountAliasSuggestions.length > 0
     && !accountAliasInterstitialDismissed
   );
