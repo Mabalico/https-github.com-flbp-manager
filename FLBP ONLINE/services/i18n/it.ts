@@ -2194,7 +2194,7 @@ export const dictionary: TranslationDictionary = {
   "data_accounts_merge_reason_same_stats": "Statistiche identiche",
   "data_accounts_merge_status_resolved": "Gestita",
   "data_accounts_merge_status_ignored": "Ignorata",
-  "data_accounts_merge_status_pending": "In attesa",
+  "data_accounts_merge_status_pending": "In attesa di revisione",
   "data_accounts_merge_already_integrated": "I due account risultano già integrati sullo stesso profilo giocatore.",
   "data_accounts_merge_integrated_done": "Account integrati correttamente sullo stesso profilo giocatore.",
   "data_accounts_merge_integrated_admin_done": "Account integrati correttamente sullo stesso profilo giocatore. Ho allineato anche i permessi admin.",

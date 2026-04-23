@@ -1209,6 +1209,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     [accountAliasSuggestions, requestedAliasCandidateIds]
   );
 
+  const hasPendingAccountMergeRequest = React.useMemo(
+    () =>
+      liveMergeRequests.some(
+        (row) => String(row.status || '').trim().toLowerCase() === 'pending'
+      ),
+    [liveMergeRequests]
+  );
+
   const activeAliasPromptSuggestions = React.useMemo(() => {
     if (registerAliasModalOpen && registerAliasPromptSuggestions.length) {
       return registerAliasPromptSuggestions;
@@ -1758,6 +1766,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               message: t('player_area_merge_request_deferred'),
             });
           }
+          setAccountAliasInterstitialDismissed(true);
           await refreshLiveRuntime(undefined, { silent: true });
           closeRegisterAliasModal();
         } catch (error: any) {
@@ -2096,6 +2105,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     && !!liveRuntimeSession
     && liveAuthFlow !== 'recovery'
     && liveAccountAliasLoaded
+    && !hasPendingAccountMergeRequest
     && pendingAccountAliasSuggestions.length > 0
     && !accountAliasInterstitialDismissed
   );
@@ -2568,7 +2578,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
             ) : (
               <div className="space-y-5">
-                {pendingAccountAliasSuggestions.length && !accountAliasInterstitialDismissed ? (
+                {pendingAccountAliasSuggestions.length && !accountAliasInterstitialDismissed && !hasPendingAccountMergeRequest ? (
                   <div className="rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-4 shadow-sm shadow-amber-100/60 md:px-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="min-w-0">
@@ -2609,7 +2619,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   <div className="absolute -right-4 -top-8 h-40 w-40 rounded-full bg-sky-200/40 blur-3xl" />
                   <div className="relative z-10 flex items-start justify-between gap-4 flex-wrap">
                     <div>
-                      <div className="text-2xl font-black text-blue-950 tracking-tight">{effectiveProfile.canonicalPlayerName}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-2xl font-black text-blue-950 tracking-tight">{effectiveProfile.canonicalPlayerName}</div>
+                        {hasPendingAccountMergeRequest ? (
+                          <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-amber-800">
+                            {t('data_accounts_merge_status_pending')}
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/60 px-2.5 py-0.5 text-xs font-bold text-slate-600 shadow-sm ring-1 ring-inset ring-slate-200/60 backdrop-blur-md">
                         {effectiveSession.mode === 'live'
                           ? `${formatBirthDateDisplay(effectiveProfile.birthDate)}`
