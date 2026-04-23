@@ -1756,9 +1756,48 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           }
           if (deliveredSuggestions.length) {
             rememberAliasPromptAnswers(deliveredSuggestions, 'reported', accountAliasSubjectKeys);
+            const optimisticCreatedAt = new Date().toISOString();
+            setLiveMergeRequests((current) => {
+              const optimisticRows = deliveredSuggestions.map((suggestion) => ({
+                id: `optimistic-${effectiveSession.accountId || liveSession?.userId || effectiveSession.email}-${suggestion.candidatePlayerId}`,
+                workspace_id: String(state.workspace?.id || ''),
+                requester_user_id: effectiveSession.accountId || liveSession?.userId || null,
+                requester_email: effectiveSession.email,
+                requester_first_name: effectiveProfile.firstName,
+                requester_last_name: effectiveProfile.lastName,
+                requester_birth_date: effectiveProfile.birthDate,
+                requester_canonical_player_id: effectiveProfile.canonicalPlayerId || null,
+                requester_canonical_player_name: effectiveProfile.canonicalPlayerName || null,
+                candidate_player_id: suggestion.candidatePlayerId,
+                candidate_player_name: suggestion.candidateDisplayName,
+                candidate_birth_date: suggestion.candidateBirthDate || null,
+                comment: registerAliasComment || null,
+                status: 'pending' as const,
+                created_at: optimisticCreatedAt,
+                updated_at: optimisticCreatedAt,
+                resolved_at: null,
+                resolved_by_user_id: null,
+              }));
+              return [
+                ...current,
+                ...optimisticRows.filter(
+                  (row) =>
+                    !current.some(
+                      (existing) =>
+                        String(existing.candidate_player_id || '').trim() === row.candidate_player_id
+                        && String(existing.status || '').trim().toLowerCase() === 'pending'
+                    )
+                ),
+              ];
+            });
             setFeedback({
               tone: 'success',
               message: t('player_area_merge_request_sent'),
+            });
+            setAccountAliasInterstitialDismissed(true);
+            closeRegisterAliasModal();
+            void refreshLiveRuntime(undefined, { silent: true }).catch(() => {
+              // Best effort: optimistic pending state already unlocks the provisional profile.
             });
           } else {
             setFeedback({
@@ -1766,9 +1805,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               message: t('player_area_merge_request_deferred'),
             });
           }
-          setAccountAliasInterstitialDismissed(true);
-          await refreshLiveRuntime(undefined, { silent: true });
-          closeRegisterAliasModal();
         } catch (error: any) {
           setFeedback({
             tone: 'error',
