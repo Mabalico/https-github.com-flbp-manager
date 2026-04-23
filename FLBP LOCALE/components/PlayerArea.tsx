@@ -1719,37 +1719,42 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     });
   };
 
-  const continueRegisterWithAliasRequest = () => {
-    if (!selectedAliasSuggestions.length) {
-      setFeedback({ tone: 'error', message: t('player_area_select_alias_first') });
-      return;
-    }
-    if (registerAliasPromptMode === 'account') {
-      if (!effectiveProfile || !effectiveSession?.email) {
-        setFeedback({ tone: 'error', message: t('player_area_auth_submit_failed') });
+    const continueRegisterWithAliasRequest = () => {
+      if (!selectedAliasSuggestions.length) {
+        setFeedback({ tone: 'error', message: t('player_area_select_alias_first') });
         return;
       }
-      setRegisterAliasSubmitting(true);
-      setFeedback(null);
-      void (async () => {
-        const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
-        const finalizeAccountAliasRequestSuccess = (resolvedSuggestions: PlayerRegistrationAliasSuggestion[]) => {
+      if (registerAliasPromptMode === 'account') {
+        if (!effectiveProfile || !effectiveSession?.email) {
+          setFeedback({ tone: 'error', message: t('player_area_auth_submit_failed') });
+          return;
+        }
+        const normalizedAccountBirthDate = normalizeBirthDateInput(effectiveProfile.birthDate);
+        if (!normalizedAccountBirthDate) {
+          setFeedback({ tone: 'error', message: t('player_area_invalid_birthdate_error') });
+          return;
+        }
+        setRegisterAliasSubmitting(true);
+        setFeedback(null);
+        void (async () => {
+          const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
+          const finalizeAccountAliasRequestSuccess = (resolvedSuggestions: PlayerRegistrationAliasSuggestion[]) => {
           rememberAliasPromptAnswers(resolvedSuggestions, 'reported', accountAliasSubjectKeys);
           const optimisticCreatedAt = new Date().toISOString();
           setLiveMergeRequests((current) => {
             const optimisticRows = resolvedSuggestions.map((suggestion) => ({
               id: `optimistic-${effectiveSession.accountId || liveSession?.userId || effectiveSession.email}-${suggestion.candidatePlayerId}`,
-              workspace_id: String(state.workspace?.id || ''),
-              requester_user_id: effectiveSession.accountId || liveSession?.userId || null,
-              requester_email: effectiveSession.email,
-              requester_first_name: effectiveProfile.firstName,
-              requester_last_name: effectiveProfile.lastName,
-              requester_birth_date: effectiveProfile.birthDate,
-              requester_canonical_player_id: effectiveProfile.canonicalPlayerId || null,
-              requester_canonical_player_name: effectiveProfile.canonicalPlayerName || null,
-              candidate_player_id: suggestion.candidatePlayerId,
-              candidate_player_name: suggestion.candidateDisplayName,
-              candidate_birth_date: suggestion.candidateBirthDate || null,
+                workspace_id: String(state.workspace?.id || ''),
+                requester_user_id: effectiveSession.accountId || liveSession?.userId || null,
+                requester_email: effectiveSession.email,
+                requester_first_name: effectiveProfile.firstName,
+                requester_last_name: effectiveProfile.lastName,
+                requester_birth_date: normalizedAccountBirthDate,
+                requester_canonical_player_id: effectiveProfile.canonicalPlayerId || null,
+                requester_canonical_player_name: effectiveProfile.canonicalPlayerName || null,
+                candidate_player_id: suggestion.candidatePlayerId,
+                candidate_player_name: suggestion.candidateDisplayName,
+                candidate_birth_date: suggestion.candidateBirthDate || null,
               comment: registerAliasComment || null,
               status: 'pending' as const,
               created_at: optimisticCreatedAt,
@@ -1810,17 +1815,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           for (const suggestion of selectedAliasSuggestions) {
             try {
               await submitPlayerAccountMergeRequest({
-                accessToken: liveSession?.accessToken || null,
-                requesterUserId: effectiveSession.accountId || liveSession?.userId || null,
-                requesterEmail: effectiveSession.email,
-                requesterFirstName: effectiveProfile.firstName,
-                requesterLastName: effectiveProfile.lastName,
-                requesterBirthDate: effectiveProfile.birthDate,
-                requesterCanonicalPlayerId: effectiveProfile.canonicalPlayerId || null,
-                requesterCanonicalPlayerName: effectiveProfile.canonicalPlayerName || null,
-                candidatePlayerId: suggestion.candidatePlayerId,
-                candidatePlayerName: suggestion.candidateDisplayName,
-                candidateBirthDate: suggestion.candidateBirthDate || null,
+                  accessToken: liveSession?.accessToken || null,
+                  requesterUserId: effectiveSession.accountId || liveSession?.userId || null,
+                  requesterEmail: effectiveSession.email,
+                  requesterFirstName: effectiveProfile.firstName,
+                  requesterLastName: effectiveProfile.lastName,
+                  requesterBirthDate: normalizedAccountBirthDate,
+                  requesterCanonicalPlayerId: effectiveProfile.canonicalPlayerId || null,
+                  requesterCanonicalPlayerName: effectiveProfile.canonicalPlayerName || null,
+                  candidatePlayerId: suggestion.candidatePlayerId,
+                  candidatePlayerName: suggestion.candidateDisplayName,
+                  candidateBirthDate: suggestion.candidateBirthDate || null,
                 comment: registerAliasComment || null,
               });
               deliveredSuggestions.push(suggestion);
