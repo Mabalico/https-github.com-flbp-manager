@@ -516,6 +516,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [feedback, setFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [registerAliasModalOpen, setRegisterAliasModalOpen] = React.useState(false);
   const [registerAliasPromptMode, setRegisterAliasPromptMode] = React.useState<'register' | 'account' | null>(null);
+  const [registerAliasPromptSuggestions, setRegisterAliasPromptSuggestions] = React.useState<PlayerRegistrationAliasSuggestion[]>([]);
   const [registerAliasSelectionIds, setRegisterAliasSelectionIds] = React.useState<string[]>([]);
   const [registerAliasComment, setRegisterAliasComment] = React.useState('');
   const [registerAliasSubmitting, setRegisterAliasSubmitting] = React.useState(false);
@@ -1097,10 +1098,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     [accountAliasSubjectKeys, accountAliasSuggestions, aliasPromptAnswerNonce]
   );
 
-  const activeAliasPromptSuggestions = React.useMemo(
-    () => (registerAliasPromptMode === 'account' ? pendingAccountAliasSuggestions : pendingRegistrationAliasSuggestions),
-    [pendingAccountAliasSuggestions, pendingRegistrationAliasSuggestions, registerAliasPromptMode]
-  );
+  const activeAliasPromptSuggestions = React.useMemo(() => {
+    if (registerAliasModalOpen && registerAliasPromptSuggestions.length) {
+      return registerAliasPromptSuggestions;
+    }
+    return registerAliasPromptMode === 'account' ? pendingAccountAliasSuggestions : pendingRegistrationAliasSuggestions;
+  }, [
+    pendingAccountAliasSuggestions,
+    pendingRegistrationAliasSuggestions,
+    registerAliasModalOpen,
+    registerAliasPromptMode,
+    registerAliasPromptSuggestions,
+  ]);
 
   const selectedAliasSuggestions = React.useMemo(
     () => activeAliasPromptSuggestions.filter((row) => registerAliasSelectionIds.includes(row.id)),
@@ -1130,6 +1139,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     if (!liveBackendEnabled || !liveRuntimeSession || !effectiveProfile || liveAuthFlow === 'recovery') return;
     if (!pendingAccountAliasSuggestions.length || registerAliasModalOpen || accountAliasPromptDismissedRef.current) return;
     setRegisterAliasPromptMode('account');
+    setRegisterAliasPromptSuggestions(pendingAccountAliasSuggestions);
     setRegisterAliasSelectionIds([]);
     setRegisterAliasComment('');
     setRegisterAliasSubmitting(false);
@@ -1322,6 +1332,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     }
     setRegisterAliasModalOpen(false);
     setRegisterAliasPromptMode(null);
+    setRegisterAliasPromptSuggestions([]);
     setRegisterAliasSelectionIds([]);
     setRegisterAliasComment('');
     setRegisterAliasSubmitting(false);
@@ -1373,6 +1384,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     ) {
       stopAliasSubmitting();
       setRegisterAliasPromptMode('register');
+      setRegisterAliasPromptSuggestions(pendingRegistrationAliasSuggestions);
       setRegisterAliasSelectionIds([]);
       setRegisterAliasComment('');
       setRegisterAliasModalOpen(true);
