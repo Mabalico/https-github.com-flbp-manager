@@ -36,6 +36,13 @@ Questo file descrive **cosa fa l’app e come lavora**, collegando ogni macro-fu
 - La schermata `player_area` non autenticata e' stata riallineata a un funnel piu' chiaro: social login visuale in alto, separatore `oppure`, ingresso email in evidenza e form email/password subito sotto.
 - Ripulita la formattazione corrotta del dizionario italiano (`Modalità`, frecce, ellissi, apostrofi e caratteri accentati) nei testi UI che mostravano mojibake.
 
+## Aggiornamento 2026-04-23
+
+- `player_area` ora segnala in modo persistente anche agli account gia' loggati le possibili corrispondenze con giocatori storici, usando la stessa logica alias gia' impiegata in registrazione.
+- Il prompt alias lato account supporta selezione multipla: l'utente puo' inviare una o piu' segnalazioni di merge agli admin oppure marcare le corrispondenze come `non sono io`, senza dover ripetere la stessa risposta a ogni accesso.
+- `Gestione dati -> Account giocatori` include ora il filtro `Segnalazioni`, che raccoglie le richieste di merge inviate dagli utenti, oltre a una vista separata delle corrispondenze storiche automatiche rilevate dal sistema alias.
+- Le nuove stringhe UI per alias/segnalazioni sono state riallineate in tutte le lingue supportate, sia in `FLBP ONLINE` sia in `FLBP LOCALE`.
+
 ---
 
 ## Modalità applicazione (Tester vs Ufficiale)

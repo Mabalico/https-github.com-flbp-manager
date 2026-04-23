@@ -101,6 +101,9 @@ const btnPrimary = `${btnBase} border border-blue-600 bg-blue-600 text-white hov
 const btnSecondary = `${btnBase} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98] focus-visible:ring-slate-300`;
 const btnDanger = `${btnBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 active:scale-[0.98] focus-visible:ring-rose-500`;
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
+const PLAYER_ALIAS_PROMPT_ANSWER_PREFIX = 'flbp_player_alias_prompt_answer::';
+
+type PlayerAliasPromptAnswer = 'reported' | 'not_me';
 
 const schedulePlayerAreaTask = (task: () => void) => {
   if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
@@ -144,6 +147,39 @@ const sameLiveProfileRow = (left: PlayerSupabaseProfileRow | null, right: Player
     && sameNullableText(left.canonical_player_name, right.canonical_player_name)
     && sameNullableText(left.created_at, right.created_at)
     && sameNullableText(left.updated_at, right.updated_at);
+};
+
+const buildPlayerAliasPromptSubjectKey = (accountId?: string | null, email?: string | null) => {
+  const safeAccountId = String(accountId || '').trim();
+  if (safeAccountId) return `account:${safeAccountId}`;
+  const safeEmail = String(email || '').trim().toLowerCase();
+  return safeEmail ? `email:${safeEmail}` : '';
+};
+
+const readPlayerAliasPromptAnswer = (
+  subjectKey: string,
+  candidatePlayerId: string
+): PlayerAliasPromptAnswer | null => {
+  if (!subjectKey || typeof window === 'undefined') return null;
+  try {
+    const value = window.localStorage.getItem(`${PLAYER_ALIAS_PROMPT_ANSWER_PREFIX}${subjectKey}::${candidatePlayerId}`);
+    return value === 'reported' || value === 'not_me' ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePlayerAliasPromptAnswer = (
+  subjectKey: string,
+  candidatePlayerId: string,
+  answer: PlayerAliasPromptAnswer
+) => {
+  if (!subjectKey || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(`${PLAYER_ALIAS_PROMPT_ANSWER_PREFIX}${subjectKey}::${candidatePlayerId}`, answer);
+  } catch {
+    // ignore local storage failures
+  }
 };
 
 const sameLiveCall = (left: LiveCallRequest, right: LiveCallRequest) => (
@@ -479,9 +515,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [birthDate, setBirthDate] = React.useState('');
   const [feedback, setFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [registerAliasModalOpen, setRegisterAliasModalOpen] = React.useState(false);
-  const [registerAliasSelectionId, setRegisterAliasSelectionId] = React.useState('');
+  const [registerAliasPromptMode, setRegisterAliasPromptMode] = React.useState<'register' | 'account' | null>(null);
+  const [registerAliasSelectionIds, setRegisterAliasSelectionIds] = React.useState<string[]>([]);
   const [registerAliasComment, setRegisterAliasComment] = React.useState('');
   const [registerAliasSubmitting, setRegisterAliasSubmitting] = React.useState(false);
+  const [aliasPromptAnswerNonce, setAliasPromptAnswerNonce] = React.useState(0);
   const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(initialStoredSession);
   const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
@@ -509,6 +547,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const nativePushPermissionRequestedRef = React.useRef(false);
   const nativePushPermissionRegistrationRef = React.useRef<NativePushRegistrationSnapshot | null>(null);
   const nativePushSyncKeyRef = React.useRef('');
+  const accountAliasPromptDismissedRef = React.useRef(false);
   const authFeedbackRef = React.useRef<HTMLDivElement | null>(null);
 
   const syncUnifiedAuthFromPlayerSession = React.useCallback((session: PlayerSupabaseSession | null) => {
@@ -550,24 +589,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     [authMode, birthDate, firstName, lastName, state]
   );
 
-  const selectedRegistrationAlias = React.useMemo(
-    () => registrationAliasSuggestions.find((row) => row.id === registerAliasSelectionId) || registrationAliasSuggestions[0] || null,
-    [registerAliasSelectionId, registrationAliasSuggestions]
+  const registrationAliasSubjectKey = React.useMemo(
+    () => buildPlayerAliasPromptSubjectKey(null, email),
+    [email]
   );
 
-  React.useEffect(() => {
-    if (!registerAliasModalOpen) return;
-    if (!registrationAliasSuggestions.length) {
-      setRegisterAliasModalOpen(false);
-      setRegisterAliasSelectionId('');
-      setRegisterAliasComment('');
-      setRegisterAliasSubmitting(false);
-      return;
-    }
-    if (!registrationAliasSuggestions.some((row) => row.id === registerAliasSelectionId)) {
-      setRegisterAliasSelectionId(registrationAliasSuggestions[0]?.id || '');
-    }
-  }, [registerAliasModalOpen, registerAliasSelectionId, registrationAliasSuggestions]);
+  const pendingRegistrationAliasSuggestions = React.useMemo(
+    () =>
+      registrationAliasSuggestions.filter(
+        (row) => !readPlayerAliasPromptAnswer(registrationAliasSubjectKey, row.candidatePlayerId)
+      ),
+    [aliasPromptAnswerNonce, registrationAliasSubjectKey, registrationAliasSuggestions]
+  );
 
   React.useEffect(() => {
     const handler = () => setRefreshNonce((value) => value + 1);
@@ -1029,6 +1062,87 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     ? liveDerivedPersonalProfile
     : snapshot.personalProfile;
 
+  const accountAliasSubjectKeys = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            buildPlayerAliasPromptSubjectKey(effectiveProfile?.accountId || liveRuntimeSession?.accountId, null),
+            buildPlayerAliasPromptSubjectKey(null, effectiveSession?.email),
+          ].filter(Boolean)
+        )
+      ),
+    [effectiveProfile?.accountId, effectiveSession?.email, liveRuntimeSession?.accountId]
+  );
+
+  const accountAliasSubjectKey = accountAliasSubjectKeys[0] || '';
+
+  const accountAliasSuggestions = React.useMemo(() => {
+    if (!liveBackendEnabled || !liveRuntimeSession || !effectiveProfile) return [];
+    const canonicalPlayerId = String(effectiveProfile.canonicalPlayerId || '').trim();
+    return buildPlayerRegistrationAliasSuggestions(state, {
+      firstName: effectiveProfile.firstName,
+      lastName: effectiveProfile.lastName,
+      birthDate: effectiveProfile.birthDate,
+    })
+      .filter((row) => row.candidatePlayerId !== canonicalPlayerId)
+      .slice(0, 6);
+  }, [effectiveProfile, liveBackendEnabled, liveRuntimeSession, state]);
+
+  const pendingAccountAliasSuggestions = React.useMemo(
+    () =>
+      accountAliasSuggestions.filter(
+        (row) => !accountAliasSubjectKeys.some((subjectKey) => readPlayerAliasPromptAnswer(subjectKey, row.candidatePlayerId))
+      ),
+    [accountAliasSubjectKeys, accountAliasSuggestions, aliasPromptAnswerNonce]
+  );
+
+  const activeAliasPromptSuggestions = React.useMemo(
+    () => (registerAliasPromptMode === 'account' ? pendingAccountAliasSuggestions : pendingRegistrationAliasSuggestions),
+    [pendingAccountAliasSuggestions, pendingRegistrationAliasSuggestions, registerAliasPromptMode]
+  );
+
+  const selectedAliasSuggestions = React.useMemo(
+    () => activeAliasPromptSuggestions.filter((row) => registerAliasSelectionIds.includes(row.id)),
+    [activeAliasPromptSuggestions, registerAliasSelectionIds]
+  );
+
+  React.useEffect(() => {
+    if (!registerAliasModalOpen) return;
+    if (!activeAliasPromptSuggestions.length) {
+      setRegisterAliasModalOpen(false);
+      setRegisterAliasPromptMode(null);
+      setRegisterAliasSelectionIds([]);
+      setRegisterAliasComment('');
+      setRegisterAliasSubmitting(false);
+      return;
+    }
+    setRegisterAliasSelectionIds((current) =>
+      current.filter((id) => activeAliasPromptSuggestions.some((row) => row.id === id))
+    );
+  }, [activeAliasPromptSuggestions, registerAliasModalOpen]);
+
+  React.useEffect(() => {
+    accountAliasPromptDismissedRef.current = false;
+  }, [accountAliasSubjectKey]);
+
+  React.useEffect(() => {
+    if (!liveBackendEnabled || !liveRuntimeSession || !effectiveProfile || liveAuthFlow === 'recovery') return;
+    if (!pendingAccountAliasSuggestions.length || registerAliasModalOpen || accountAliasPromptDismissedRef.current) return;
+    setRegisterAliasPromptMode('account');
+    setRegisterAliasSelectionIds([]);
+    setRegisterAliasComment('');
+    setRegisterAliasSubmitting(false);
+    setRegisterAliasModalOpen(true);
+  }, [
+    effectiveProfile,
+    liveAuthFlow,
+    liveBackendEnabled,
+    liveRuntimeSession,
+    pendingAccountAliasSuggestions.length,
+    registerAliasModalOpen,
+  ]);
+
   const personalPerformanceSummary = React.useMemo(
     () => effectivePersonalProfile ? buildPlayerPerformanceSummary(state, effectivePersonalProfile) : null,
     [effectivePersonalProfile, state]
@@ -1178,17 +1292,47 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     }
   };
 
-  const closeRegisterAliasModal = () => {
+  const rememberAliasPromptAnswers = React.useCallback((
+    suggestions: PlayerRegistrationAliasSuggestion[],
+    answer: PlayerAliasPromptAnswer,
+    subjectKeyOrKeys: string | string[]
+  ) => {
+    const subjectKeys = Array.isArray(subjectKeyOrKeys) ? subjectKeyOrKeys : [subjectKeyOrKeys];
+    const safeSubjectKeys = Array.from(new Set(subjectKeys.filter(Boolean)));
+    if (!safeSubjectKeys.length || !suggestions.length) return;
+    safeSubjectKeys.forEach((subjectKey) => {
+      suggestions.forEach((suggestion) => {
+        writePlayerAliasPromptAnswer(subjectKey, suggestion.candidatePlayerId, answer);
+      });
+    });
+    setAliasPromptAnswerNonce((value) => value + 1);
+  }, []);
+
+  const toggleAliasSuggestionSelection = React.useCallback((suggestionId: string) => {
+    setRegisterAliasSelectionIds((current) =>
+      current.includes(suggestionId)
+        ? current.filter((id) => id !== suggestionId)
+        : [...current, suggestionId]
+    );
+  }, []);
+
+  const closeRegisterAliasModal = (options?: { dismissAccountPrompt?: boolean }) => {
+    if ((options?.dismissAccountPrompt ?? true) && registerAliasPromptMode === 'account') {
+      accountAliasPromptDismissedRef.current = true;
+    }
     setRegisterAliasModalOpen(false);
-    setRegisterAliasSelectionId('');
+    setRegisterAliasPromptMode(null);
+    setRegisterAliasSelectionIds([]);
     setRegisterAliasComment('');
     setRegisterAliasSubmitting(false);
   };
 
   const completeAuth = async (options?: {
     skipAliasPrompt?: boolean;
-    aliasSuggestion?: PlayerRegistrationAliasSuggestion | null;
+    aliasSuggestions?: PlayerRegistrationAliasSuggestion[];
+    aliasIgnoredSuggestions?: PlayerRegistrationAliasSuggestion[];
     aliasComment?: string;
+    aliasAnswerSubjectKey?: string;
   }) => {
     const stopAliasSubmitting = () => {
       if (options?.skipAliasPrompt) {
@@ -1225,12 +1369,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       liveBackendEnabled
       && authMode === 'register'
       && !options?.skipAliasPrompt
-      && registrationAliasSuggestions.length
+      && pendingRegistrationAliasSuggestions.length
     ) {
       stopAliasSubmitting();
-      setRegisterAliasSelectionId((current) => current && registrationAliasSuggestions.some((row) => row.id === current)
-        ? current
-        : registrationAliasSuggestions[0]?.id || '');
+      setRegisterAliasPromptMode('register');
+      setRegisterAliasSelectionIds([]);
+      setRegisterAliasComment('');
       setRegisterAliasModalOpen(true);
       return;
     }
@@ -1256,25 +1400,44 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           });
           if (signUpResult.status === 'confirm_email') {
             let mergeRequestMessage = '';
-            if (options?.aliasSuggestion && registerIdentity && registrationIdentity) {
-              try {
-                await submitPlayerAccountMergeRequest({
-                  requesterUserId: signUpResult.userId || null,
-                  requesterEmail: signUpResult.email || safeEmail,
-                  requesterFirstName: registerIdentity.firstName,
-                  requesterLastName: registerIdentity.lastName,
-                  requesterBirthDate: registrationIdentity.birthDate,
-                  requesterCanonicalPlayerId: registrationIdentity.canonicalPlayerId,
-                  requesterCanonicalPlayerName: registrationIdentity.canonicalPlayerName,
-                  candidatePlayerId: options.aliasSuggestion.candidatePlayerId,
-                  candidatePlayerName: options.aliasSuggestion.candidateDisplayName,
-                  candidateBirthDate: options.aliasSuggestion.candidateBirthDate || null,
-                  comment: options.aliasComment || null,
-                });
+            if (options?.aliasSuggestions?.length && registerIdentity && registrationIdentity) {
+              const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
+              for (const suggestion of options.aliasSuggestions) {
+                try {
+                  await submitPlayerAccountMergeRequest({
+                    requesterUserId: signUpResult.userId || null,
+                    requesterEmail: signUpResult.email || safeEmail,
+                    requesterFirstName: registerIdentity.firstName,
+                    requesterLastName: registerIdentity.lastName,
+                    requesterBirthDate: registrationIdentity.birthDate,
+                    requesterCanonicalPlayerId: registrationIdentity.canonicalPlayerId,
+                    requesterCanonicalPlayerName: registrationIdentity.canonicalPlayerName,
+                    candidatePlayerId: suggestion.candidatePlayerId,
+                    candidatePlayerName: suggestion.candidateDisplayName,
+                    candidateBirthDate: suggestion.candidateBirthDate || null,
+                    comment: options.aliasComment || null,
+                  });
+                  deliveredSuggestions.push(suggestion);
+                } catch {
+                  // Best effort: failed suggestions remain visible for a future retry.
+                }
+              }
+              if (deliveredSuggestions.length) {
+                rememberAliasPromptAnswers(
+                  deliveredSuggestions,
+                  'reported',
+                  options.aliasAnswerSubjectKey || registrationAliasSubjectKey
+                );
                 mergeRequestMessage = ` ${t('player_area_merge_request_sent_after_signup')}`;
-              } catch {
+              } else {
                 mergeRequestMessage = ` ${t('player_area_merge_request_deferred_after_signup')}`;
               }
+            } else if (options?.aliasIgnoredSuggestions?.length) {
+              rememberAliasPromptAnswers(
+                options.aliasIgnoredSuggestions,
+                'not_me',
+                options.aliasAnswerSubjectKey || registrationAliasSubjectKey
+              );
             }
             setPassword('');
             setFeedback({
@@ -1283,7 +1446,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             });
             setLiveRuntimeStatus('disabled');
             setLiveRuntimeError(null);
-            closeRegisterAliasModal();
+            closeRegisterAliasModal({ dismissAccountPrompt: false });
             return;
           }
           session = signUpResult.session;
@@ -1316,32 +1479,51 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           }
         }
 
-        if (options?.aliasSuggestion && registerIdentity && registrationIdentity) {
-          try {
-            await submitPlayerAccountMergeRequest({
-              accessToken: session?.accessToken || null,
-              requesterUserId: session?.userId || signUpResult?.userId || null,
-              requesterEmail: session?.email || safeEmail,
-              requesterFirstName: registerIdentity.firstName,
-              requesterLastName: registerIdentity.lastName,
-              requesterBirthDate: registrationIdentity.birthDate,
-              requesterCanonicalPlayerId: registrationIdentity.canonicalPlayerId,
-              requesterCanonicalPlayerName: registrationIdentity.canonicalPlayerName,
-              candidatePlayerId: options.aliasSuggestion.candidatePlayerId,
-              candidatePlayerName: options.aliasSuggestion.candidateDisplayName,
-              candidateBirthDate: options.aliasSuggestion.candidateBirthDate || null,
-              comment: options.aliasComment || null,
-            });
+        if (options?.aliasSuggestions?.length && registerIdentity && registrationIdentity) {
+          const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
+          for (const suggestion of options.aliasSuggestions) {
+            try {
+              await submitPlayerAccountMergeRequest({
+                accessToken: session?.accessToken || null,
+                requesterUserId: session?.userId || signUpResult?.userId || null,
+                requesterEmail: session?.email || safeEmail,
+                requesterFirstName: registerIdentity.firstName,
+                requesterLastName: registerIdentity.lastName,
+                requesterBirthDate: registrationIdentity.birthDate,
+                requesterCanonicalPlayerId: registrationIdentity.canonicalPlayerId,
+                requesterCanonicalPlayerName: registrationIdentity.canonicalPlayerName,
+                candidatePlayerId: suggestion.candidatePlayerId,
+                candidatePlayerName: suggestion.candidateDisplayName,
+                candidateBirthDate: suggestion.candidateBirthDate || null,
+                comment: options.aliasComment || null,
+              });
+              deliveredSuggestions.push(suggestion);
+            } catch {
+              // Best effort: failed suggestions remain visible for a future retry.
+            }
+          }
+          if (deliveredSuggestions.length) {
+            rememberAliasPromptAnswers(
+              deliveredSuggestions,
+              'reported',
+              options.aliasAnswerSubjectKey || registrationAliasSubjectKey
+            );
             finalFeedback = {
               tone: 'success',
               message: t('player_area_merge_request_sent'),
             };
-          } catch {
+          } else {
             finalFeedback = {
               tone: 'success',
               message: t('player_area_merge_request_deferred'),
             };
           }
+        } else if (options?.aliasIgnoredSuggestions?.length) {
+          rememberAliasPromptAnswers(
+            options.aliasIgnoredSuggestions,
+            'not_me',
+            options.aliasAnswerSubjectKey || registrationAliasSubjectKey
+          );
         }
 
         await refreshLiveRuntime(session);
@@ -1370,7 +1552,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
       setRefreshNonce((value) => value + 1);
       setLiveCallRefreshNonce((value) => value + 1);
-      closeRegisterAliasModal();
+      closeRegisterAliasModal({ dismissAccountPrompt: false });
     } catch (error: any) {
       setFeedback({
         tone: 'error',
@@ -1392,20 +1574,88 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   };
 
   const continueRegisterWithoutAliasRequest = () => {
-    setRegisterAliasSubmitting(true);
-    void completeAuth({ skipAliasPrompt: true });
-  };
-
-  const continueRegisterWithAliasRequest = () => {
-    if (!selectedRegistrationAlias) {
-      setFeedback({ tone: 'error', message: t('player_area_select_alias_first') });
+    if (registerAliasPromptMode === 'account') {
+      rememberAliasPromptAnswers(activeAliasPromptSuggestions, 'not_me', accountAliasSubjectKeys);
+      closeRegisterAliasModal({ dismissAccountPrompt: false });
       return;
     }
     setRegisterAliasSubmitting(true);
     void completeAuth({
       skipAliasPrompt: true,
-      aliasSuggestion: selectedRegistrationAlias,
+      aliasIgnoredSuggestions: activeAliasPromptSuggestions,
+      aliasAnswerSubjectKey: registrationAliasSubjectKey,
+    });
+  };
+
+  const continueRegisterWithAliasRequest = () => {
+    if (!selectedAliasSuggestions.length) {
+      setFeedback({ tone: 'error', message: t('player_area_select_alias_first') });
+      return;
+    }
+    if (registerAliasPromptMode === 'account') {
+      if (!effectiveProfile || !effectiveSession?.email) {
+        setFeedback({ tone: 'error', message: t('player_area_auth_submit_failed') });
+        return;
+      }
+      setRegisterAliasSubmitting(true);
+      void (async () => {
+        try {
+          const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
+          for (const suggestion of selectedAliasSuggestions) {
+            try {
+              await submitPlayerAccountMergeRequest({
+                accessToken: liveSession?.accessToken || null,
+                requesterUserId: effectiveSession.accountId || liveSession?.userId || null,
+                requesterEmail: effectiveSession.email,
+                requesterFirstName: effectiveProfile.firstName,
+                requesterLastName: effectiveProfile.lastName,
+                requesterBirthDate: effectiveProfile.birthDate,
+                requesterCanonicalPlayerId: effectiveProfile.canonicalPlayerId || null,
+                requesterCanonicalPlayerName: effectiveProfile.canonicalPlayerName || null,
+                candidatePlayerId: suggestion.candidatePlayerId,
+                candidatePlayerName: suggestion.candidateDisplayName,
+                candidateBirthDate: suggestion.candidateBirthDate || null,
+                comment: registerAliasComment || null,
+              });
+              deliveredSuggestions.push(suggestion);
+            } catch {
+              // Best effort: failed suggestions remain visible for a future retry.
+            }
+          }
+          if (deliveredSuggestions.length) {
+            rememberAliasPromptAnswers(deliveredSuggestions, 'reported', accountAliasSubjectKeys);
+            setFeedback({
+              tone: 'success',
+              message: t('player_area_merge_request_sent'),
+            });
+          } else {
+            setFeedback({
+              tone: 'success',
+              message: t('player_area_merge_request_deferred'),
+            });
+          }
+          closeRegisterAliasModal();
+        } catch (error: any) {
+          setFeedback({
+            tone: 'error',
+            message: getPlayerAreaFriendlyErrorMessage(
+              error,
+              t('player_area_auth_submit_failed'),
+              t
+            ),
+          });
+        } finally {
+          setRegisterAliasSubmitting(false);
+        }
+      })();
+      return;
+    }
+    setRegisterAliasSubmitting(true);
+    void completeAuth({
+      skipAliasPrompt: true,
+      aliasSuggestions: selectedAliasSuggestions,
       aliasComment: registerAliasComment,
+      aliasAnswerSubjectKey: registrationAliasSubjectKey,
     });
   };
 
@@ -1610,7 +1860,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const nativePushPromptModal = null;
 
   const registerAliasRequestModal =
-    registerAliasModalOpen && authMode === 'register' && typeof document !== 'undefined'
+    registerAliasModalOpen && typeof document !== 'undefined'
       ? createPortal(
           <div className="flbp-mobile-sheet fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 px-4 py-6">
             <div className="flbp-mobile-sheet-panel w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-950/15 md:p-6">
@@ -1632,13 +1882,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
 
               <div className="mt-5 space-y-3">
-                {registrationAliasSuggestions.map((suggestion) => (
+                {activeAliasPromptSuggestions.map((suggestion) => (
                   <button
                     key={suggestion.id}
                     type="button"
-                    onClick={() => setRegisterAliasSelectionId(suggestion.id)}
+                    onClick={() => toggleAliasSuggestionSelection(suggestion.id)}
                     className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
-                      selectedRegistrationAlias?.id === suggestion.id
+                      registerAliasSelectionIds.includes(suggestion.id)
                         ? 'border-rose-300 bg-rose-50 shadow-sm shadow-rose-100'
                         : 'border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white'
                     }`}
@@ -1662,6 +1912,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                               {registrationAliasReasonLabel(reason, t)}
                             </div>
                           ))}
+                          {registerAliasSelectionIds.includes(suggestion.id) ? (
+                            <div className="rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-black text-rose-700">
+                              {t('selected')}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                       <div className="grid w-full grid-cols-3 gap-1 text-left text-[11px] font-black text-slate-600 sm:w-auto sm:grid-cols-1 sm:text-right">
@@ -1690,7 +1945,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 <button
                   type="button"
                   onClick={continueRegisterWithAliasRequest}
-                  disabled={registerAliasSubmitting || !selectedRegistrationAlias}
+                  disabled={registerAliasSubmitting || !selectedAliasSuggestions.length}
                   className={btnPrimary}
                 >
                   <BadgeCheck className="h-4 w-4" /> {t('player_register_alias_submit')}
@@ -1935,11 +2190,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                               />
                               <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
                             </div>
-                            {registrationAliasSuggestions.length ? (
+                            {pendingRegistrationAliasSuggestions.length ? (
                               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-                                {(registrationAliasSuggestions.length === 1
+                                {(pendingRegistrationAliasSuggestions.length === 1
                                   ? t('player_area_alias_suggestion_found_one')
-                                  : t('player_area_alias_suggestions_found_many').replace('{count}', String(registrationAliasSuggestions.length)))}
+                                  : t('player_area_alias_suggestions_found_many').replace('{count}', String(pendingRegistrationAliasSuggestions.length)))}
                               </div>
                             ) : null}
                           </>

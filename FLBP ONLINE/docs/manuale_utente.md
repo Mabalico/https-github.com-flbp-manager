@@ -349,6 +349,8 @@ Sezione per consultare/modificare dati storici, archivi e integrazioni (es. hall
   - **Hall of Fame**: inserimento manuale titoli/premi.
   - **Marcatori**: import/elenco integrazioni marcatori (se previsto dalla UI).
   - **Alias giocatori**: merge e gestione nomi duplicati.
+    - Gli account giocatore che risultano compatibili con uno o piu' profili storici possono inviare una **segnalazione agli admin** direttamente dall'Area Giocatore.
+    - In **Account giocatori** e' disponibile anche il filtro **Segnalazioni**, che raccoglie le richieste di merge pendenti, mentre la vista alias continua a mostrare anche le corrispondenze automatiche rilevate dal sistema.
   - (Solo **TESTER**) può comparire un pannello **Backup & Sync (beta)** per diagnostica/migrazione dati: è facoltativo e non serve per l’operativo live.
 - Eventuali campi mancanti possono essere indicati come **ND** (Non Disponibile) quando previsto dalla logica dati.
 

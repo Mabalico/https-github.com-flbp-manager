@@ -15,11 +15,13 @@ import {
   applyPlayerAccountAliasSuggestion,
   buildPlayerAccountAliasSuggestions,
   buildPlayerAccountMergeSuggestions,
+  buildPlayerRegistrationAliasSuggestions,
   buildPlayerAccountAliasTargetProfilePayload,
   ignorePlayerAccountAliasSuggestion,
   shouldSyncAccountCanonicalAfterAliasMerge,
   type PlayerAccountAliasReason,
   type PlayerAccountMergeReason,
+  type PlayerRegistrationAliasSuggestion,
 } from '../../../../services/playerAccountAliasSuggestions';
 import {
   deleteAdminPlayerAccount,
@@ -40,7 +42,7 @@ interface AccountsSubTabProps {
   t: (key: string) => string;
 }
 
-type AccountFilter = 'all' | PlayerAccountAdminOrigin | 'alias_candidates';
+type AccountFilter = 'all' | PlayerAccountAdminOrigin | 'alias_candidates' | 'merge_requests';
 
 const cardClass = 'rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md';
 const inputClass =
@@ -91,6 +93,8 @@ const originLabel = (t: AccountsSubTabProps['t'], origin: AccountFilter) => {
       return t('data_accounts_origin_apple');
     case 'alias_candidates':
       return t('data_accounts_filter_alias');
+    case 'merge_requests':
+      return t('data_accounts_filter_merge_requests');
     default:
       return t('data_accounts_origin_other');
   }
@@ -158,6 +162,42 @@ interface AccountListGroup {
 const getAccountGroupId = (row: AccountAdminRow) => {
   const canonicalPlayerId = String(row.canonicalPlayerId || '').trim();
   return canonicalPlayerId ? `canonical:${canonicalPlayerId}` : `account:${row.id}`;
+};
+
+const splitLinkedPlayerName = (linkedPlayerName?: string | null) => {
+  const parts = String(linkedPlayerName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) {
+    return { firstName: '', lastName: '' };
+  }
+  return {
+    lastName: parts.slice(0, -1).join(' '),
+    firstName: parts[parts.length - 1] || '',
+  };
+};
+
+const groupMatchesMergeRequest = (
+  group: AccountListGroup,
+  request: PlayerAccountMergeRequestRow
+) => {
+  const relatedIds = new Set(group.rows.map((row) => row.id));
+  const relatedEmails = new Set(
+    group.rows.map((row) => row.email)
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const relatedCanonicalIds = new Set(
+    group.rows.map((row) => row.canonicalPlayerId)
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+  const requesterUserId = String(request.requester_user_id || '').trim();
+  const requesterEmail = String(request.requester_email || '').trim().toLowerCase();
+  const requesterCanonical = String(request.requester_canonical_player_id || '').trim();
+  const candidatePlayerId = String(request.candidate_player_id || '').trim();
+  return relatedIds.has(requesterUserId)
+    || relatedEmails.has(requesterEmail)
+    || relatedCanonicalIds.has(requesterCanonical)
+    || relatedCanonicalIds.has(candidatePlayerId);
 };
 
 const compareAccountRows = (left: AccountAdminRow, right: AccountAdminRow) => {
@@ -345,25 +385,61 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     [rows]
   );
 
+  const historicalAliasSuggestionMap = React.useMemo(
+    () =>
+      new Map<string, PlayerRegistrationAliasSuggestion[]>(
+        rows.map((row) => {
+          const { firstName, lastName } = splitLinkedPlayerName(row.linkedPlayerName);
+          const canonicalPlayerId = String(row.canonicalPlayerId || '').trim();
+          if (!firstName || !lastName) {
+            return [row.id, []];
+          }
+          const suggestions = buildPlayerRegistrationAliasSuggestions(state, {
+            firstName,
+            lastName,
+            birthDate: row.birthDate || '',
+          })
+            .filter((suggestion) => suggestion.candidatePlayerId !== canonicalPlayerId)
+            .slice(0, 6);
+          return [row.id, suggestions];
+        })
+      ),
+    [rows, state]
+  );
+
   const aliasCandidateIds = React.useMemo(
     () => new Set(
       accountGroups
         .filter((group) => {
           const memberIds = new Set(group.rows.map((row) => row.id));
-          return group.rows.some((row) =>
+          const hasAccountMergeSuggestion = group.rows.some((row) =>
             (accountMergeSuggestionMap.get(row.id) || []).some((suggestion) => !memberIds.has(suggestion.candidateAccountId))
           );
+          const hasHistoricalAliasSuggestion = group.rows.some(
+            (row) => (historicalAliasSuggestionMap.get(row.id) || []).length > 0
+          );
+          return hasAccountMergeSuggestion || hasHistoricalAliasSuggestion;
         })
         .map((group) => group.id)
     ),
-    [accountGroups, accountMergeSuggestionMap]
+    [accountGroups, accountMergeSuggestionMap, historicalAliasSuggestionMap]
+  );
+
+  const mergeRequestGroupIds = React.useMemo(
+    () => new Set(
+      accountGroups
+        .filter((group) => remoteMergeRequests.some((request) => groupMatchesMergeRequest(group, request)))
+        .map((group) => group.id)
+    ),
+    [accountGroups, remoteMergeRequests]
   );
 
   const filteredGroups = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
     return accountGroups.filter((group) => {
       if (filter === 'alias_candidates' && !aliasCandidateIds.has(group.id)) return false;
-      if (filter !== 'all' && filter !== 'alias_candidates' && !(group.providerOrigins || [group.primaryRow.origin]).includes(filter)) return false;
+      if (filter === 'merge_requests' && !mergeRequestGroupIds.has(group.id)) return false;
+      if (filter !== 'all' && filter !== 'alias_candidates' && filter !== 'merge_requests' && !(group.providerOrigins || [group.primaryRow.origin]).includes(filter)) return false;
       if (!needle) return true;
       const haystack = [
         group.emails.join(' '),
@@ -375,7 +451,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [accountGroups, filter, search, aliasCandidateIds]);
+  }, [accountGroups, filter, search, aliasCandidateIds, mergeRequestGroupIds]);
 
   const selectedGroup = React.useMemo(() => {
     if (!filteredGroups.length) return null;
@@ -456,6 +532,21 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     return buildPlayerAccountAliasSuggestions(state, selectedRow).slice(0, 6);
   }, [selectedRow, state]);
 
+  const historicalAliasSuggestions = React.useMemo(() => {
+    if (!selectedGroup) return [];
+    const actionableCandidateIds = new Set(aliasSuggestions.map((suggestion) => suggestion.candidatePlayerId));
+    const collected = new Map<string, PlayerRegistrationAliasSuggestion>();
+    selectedGroup.rows.forEach((row) => {
+      (historicalAliasSuggestionMap.get(row.id) || []).forEach((suggestion) => {
+        if (actionableCandidateIds.has(suggestion.candidatePlayerId)) return;
+        if (!collected.has(suggestion.candidatePlayerId)) {
+          collected.set(suggestion.candidatePlayerId, suggestion);
+        }
+      });
+    });
+    return Array.from(collected.values()).slice(0, 6);
+  }, [aliasSuggestions, historicalAliasSuggestionMap, selectedGroup]);
+
   const accountMergeSuggestions = React.useMemo(
     () => {
       if (!selectedGroup) return [];
@@ -504,27 +595,7 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
 
   const selectedMergeRequests = React.useMemo(() => {
     if (!selectedRow || !selectedGroup) return [];
-    const relatedIds = new Set(selectedGroup.rows.map((row) => row.id));
-    const relatedEmails = new Set(
-      selectedGroup.rows.map((row) => row.email)
-        .map((value) => String(value || '').trim().toLowerCase())
-        .filter(Boolean)
-    );
-    const relatedCanonicalIds = new Set(
-      selectedGroup.rows.map((row) => row.canonicalPlayerId)
-        .map((value) => String(value || '').trim())
-        .filter(Boolean)
-    );
-    return remoteMergeRequests.filter((request) => {
-      const requesterUserId = String(request.requester_user_id || '').trim();
-      const requesterEmail = String(request.requester_email || '').trim().toLowerCase();
-      const requesterCanonical = String(request.requester_canonical_player_id || '').trim();
-      const candidatePlayerId = String(request.candidate_player_id || '').trim();
-      return relatedIds.has(requesterUserId)
-        || relatedEmails.has(requesterEmail)
-        || relatedCanonicalIds.has(requesterCanonical)
-        || relatedCanonicalIds.has(candidatePlayerId);
-    });
+    return remoteMergeRequests.filter((request) => groupMatchesMergeRequest(selectedGroup, request));
   }, [selectedGroup, remoteMergeRequests, selectedRow]);
 
   const saveSelected = async () => {
@@ -981,6 +1052,17 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
               >
                 {`${originLabel(t, 'alias_candidates')} ${aliasCandidateIds.size}`}
               </button>
+              <button
+                type="button"
+                onClick={() => setFilter('merge_requests')}
+                className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                  filter === 'merge_requests'
+                    ? 'border-amber-700 bg-amber-700 text-white'
+                    : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                }`}
+              >
+                {`${originLabel(t, 'merge_requests')} ${mergeRequestGroupIds.size}`}
+              </button>
             </div>
           </div>
 
@@ -1370,6 +1452,63 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed border-amber-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
                     {t('data_accounts_alias_suggestions_empty')}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/70 px-4 py-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-sm font-black text-blue-950">{t('data_accounts_historical_matches_title')}</div>
+                    <div className="mt-1 text-xs font-bold leading-5 text-blue-900/80">
+                      {t('data_accounts_historical_matches_desc')}
+                    </div>
+                  </div>
+                  <div className="rounded-full border border-blue-200 bg-white px-3 py-1 text-[11px] font-black text-blue-800">
+                    {historicalAliasSuggestions.length}
+                  </div>
+                </div>
+
+                {historicalAliasSuggestions.length ? (
+                  <div className="mt-4 space-y-3">
+                    {historicalAliasSuggestions.map((suggestion) => (
+                      <div key={suggestion.id} className="rounded-2xl border border-blue-200 bg-white px-4 py-4">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-slate-950">
+                              {suggestion.candidateDisplayName}
+                              {suggestion.candidateBirthDateLabel !== 'ND' ? ` · ${suggestion.candidateBirthDateLabel}` : ''}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <div className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                                suggestion.confidence === 'high'
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-slate-100 text-slate-700'
+                              }`}>
+                                {suggestion.confidence === 'high'
+                                  ? t('data_accounts_alias_confidence_high')
+                                  : t('data_accounts_alias_confidence_medium')}
+                              </div>
+                              {suggestion.reasons.map((reason) => (
+                                <div key={reason} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                  {aliasReasonLabel(t, reason)}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid gap-2 text-right text-[11px] font-black text-slate-600 sm:grid-cols-2">
+                            <div>{t('titles')}: <span className="text-slate-950">{suggestion.candidateTotalTitles}</span></div>
+                            <div>{t('scores_label')}: <span className="text-slate-950">{suggestion.candidateTotalCanestri}</span></div>
+                            <div>{t('soffi_label')}: <span className="text-slate-950">{suggestion.candidateTotalSoffi}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-blue-200 bg-white px-4 py-4 text-sm font-semibold text-slate-600">
+                    {t('data_accounts_historical_matches_empty')}
                   </div>
                 )}
               </div>
