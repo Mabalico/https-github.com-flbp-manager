@@ -37,6 +37,7 @@ import {
   playerSignInWithPassword,
   playerSignOutSupabase,
   playerSignUpWithPassword,
+  pullPlayerOwnAccountMergeRequests,
   setSupabaseSession,
   signOutSupabase,
   playerUpdatePassword,
@@ -45,6 +46,7 @@ import {
   pushPlayerAppProfile,
   registerPlayerAppDevice,
   submitPlayerAccountMergeRequest,
+  type PlayerAccountMergeRequestRow,
 } from '../services/supabaseRest';
 import {
   acknowledgePlayerPreviewCall,
@@ -205,6 +207,18 @@ const sameLiveCall = (left: LiveCallRequest, right: LiveCallRequest) => (
 
 const sameLiveCalls = (left: LiveCallRequest[], right: LiveCallRequest[]) => (
   left.length === right.length && left.every((call, index) => sameLiveCall(call, right[index]))
+);
+
+const samePlayerAccountMergeRequest = (left: PlayerAccountMergeRequestRow, right: PlayerAccountMergeRequestRow) => (
+  left.id === right.id
+  && left.candidate_player_id === right.candidate_player_id
+  && left.requester_email === right.requester_email
+  && left.status === right.status
+  && left.updated_at === right.updated_at
+);
+
+const samePlayerAccountMergeRequests = (left: PlayerAccountMergeRequestRow[], right: PlayerAccountMergeRequestRow[]) => (
+  left.length === right.length && left.every((row, index) => samePlayerAccountMergeRequest(row, right[index]))
 );
 
 const nativePushRegistrationNeedsAction = (registration: NativePushRegistrationSnapshot | null) => (
@@ -529,6 +543,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(initialStoredSession);
   const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
   const [liveProfileRow, setLiveProfileRow] = React.useState<PlayerSupabaseProfileRow | null>(null);
+  const [liveMergeRequests, setLiveMergeRequests] = React.useState<PlayerAccountMergeRequestRow[]>([]);
   const [liveRuntimeArmed, setLiveRuntimeArmed] = React.useState(initialLiveSessionPresent && !initialRecoveryFlow);
   const [liveCallRefreshNonce, setLiveCallRefreshNonce] = React.useState(0);
   const [liveCalls, setLiveCalls] = React.useState<LiveCallRequest[]>([]);
@@ -850,6 +865,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         setLiveRuntimeError(null);
         setLiveSession(null);
         setLiveProfileRow(null);
+        setLiveMergeRequests([]);
         setLiveCalls([]);
       });
       return;
@@ -866,6 +882,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         applyIfCurrent(() => {
           syncUnifiedAuthFromPlayerSession(null);
           setLiveProfileRow(null);
+          setLiveMergeRequests([]);
           setLiveCalls([]);
           setLiveRuntimeStatus('disabled');
         });
@@ -876,6 +893,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       let backendPending = false;
       let pendingMessage = '';
       let nextProfile: PlayerSupabaseProfileRow | null = null;
+      let nextMergeRequests: PlayerAccountMergeRequestRow[] = [];
       let nextCalls: LiveCallRequest[] = [];
 
       try {
@@ -903,6 +921,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
 
       try {
+        nextMergeRequests = await pullPlayerOwnAccountMergeRequests({
+          accessToken: nextSession.accessToken,
+          status: null,
+        });
+      } catch (error: any) {
+        const message = String(error?.message || error || '').trim();
+        if (isPlayerBackendPendingError(message)) {
+          backendPending = true;
+          pendingMessage = pendingMessage || message;
+        } else {
+          console.warn('[PlayerArea] Merge request sync skipped', error);
+        }
+      }
+
+      try {
         const rows = await pullPlayerAppCalls();
         nextCalls = rows
           .map(mapSupabaseCallRowToPlayerCallRequest)
@@ -919,6 +952,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
       applyIfCurrent(() => {
         setLiveProfileRow((current) => (sameLiveProfileRow(current, nextProfile) ? current : nextProfile));
+        setLiveMergeRequests((current) => (samePlayerAccountMergeRequests(current, nextMergeRequests) ? current : nextMergeRequests));
         setLiveCalls((current) => (sameLiveCalls(current, nextCalls) ? current : nextCalls));
         setLiveRuntimeStatus(backendPending ? 'backend_pending' : 'ready');
         setLiveRuntimeError(backendPending ? (pendingMessage || t('player_area_password_reset_pending')) : null);
@@ -1095,12 +1129,22 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       .slice(0, 6);
   }, [effectiveProfile, liveBackendEnabled, liveRuntimeSession, state]);
 
+  const requestedAliasCandidateIds = React.useMemo(
+    () => new Set(
+      liveMergeRequests
+        .filter((row) => String(row.status || '').trim().toLowerCase() !== 'ignored')
+        .map((row) => String(row.candidate_player_id || '').trim())
+        .filter(Boolean)
+    ),
+    [liveMergeRequests]
+  );
+
   const pendingAccountAliasSuggestions = React.useMemo(
     () =>
       accountAliasSuggestions.filter(
-        (row) => !accountAliasSubjectKeys.some((subjectKey) => hasReportedPlayerAliasPromptAnswer(subjectKey, row.candidatePlayerId))
+        (row) => !requestedAliasCandidateIds.has(row.candidatePlayerId)
       ),
-    [accountAliasSubjectKeys, accountAliasSuggestions, aliasPromptAnswerNonce]
+    [accountAliasSuggestions, requestedAliasCandidateIds]
   );
 
   const activeAliasPromptSuggestions = React.useMemo(() => {
@@ -1662,6 +1706,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               message: t('player_area_merge_request_deferred'),
             });
           }
+          await refreshLiveRuntime(undefined, { silent: true });
           closeRegisterAliasModal();
         } catch (error: any) {
           setFeedback({
@@ -1858,6 +1903,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       setLiveRuntimeArmed(false);
       syncUnifiedAuthFromPlayerSession(null);
       setLiveProfileRow(null);
+      setLiveMergeRequests([]);
       setLiveCalls([]);
       setLiveRuntimeStatus('disabled');
       setLiveRuntimeError(null);

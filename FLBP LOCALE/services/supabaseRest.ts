@@ -1451,6 +1451,44 @@ export const submitPlayerAccountMergeRequest = async (input: {
     return payload.row;
 };
 
+export const pullPlayerOwnAccountMergeRequests = async (input?: {
+    accessToken?: string | null;
+    workspaceId?: string | null;
+    status?: PlayerAccountMergeRequestStatus | null;
+}): Promise<PlayerAccountMergeRequestRow[]> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    let accessToken = String(input?.accessToken || '').trim();
+    if (!accessToken) {
+        const session = await ensureFreshPlayerSupabaseSession();
+        accessToken = String(session?.accessToken || '').trim();
+    }
+    if (!accessToken) return [];
+
+    const res = await fetchWithTimeout(
+        functionsUrl(cfg, 'player-account-admin'),
+        {
+            method: 'POST',
+            headers: {
+                'apikey': cfg.anonKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+                action: 'list_my_merge_requests',
+                workspaceId: String(input?.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+                status: input?.status ?? null,
+            }),
+        },
+        8000,
+        { source: 'pullPlayerOwnAccountMergeRequests', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const payload = await res.json() as { ok?: boolean; rows?: PlayerAccountMergeRequestRow[] };
+    return Array.isArray(payload?.rows) ? payload.rows : [];
+};
+
 export const pullAdminPlayerAccountMergeRequests = async (
     status: PlayerAccountMergeRequestStatus | null = 'pending'
 ): Promise<PlayerAccountMergeRequestRow[]> => {

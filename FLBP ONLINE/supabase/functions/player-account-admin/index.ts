@@ -379,6 +379,50 @@ const listMergeRequests = async (
   };
 };
 
+const listMyMergeRequests = async (
+  adminClient: ReturnType<typeof createAdminClient>,
+  body: Record<string, unknown>,
+  authenticatedUser: User | null,
+) => {
+  if (!authenticatedUser) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Player session invalid or expired.' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const safeWorkspaceId = await ensureWorkspace(adminClient, body.workspaceId);
+  const requesterEmail = normalizeEmail(authenticatedUser.email ?? body.requesterEmail ?? '');
+  if (!requesterEmail) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Requester email unavailable.' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const statusValue = normalizeText(body.status);
+  let query = adminClient
+    .from('player_account_merge_requests')
+    .select('*')
+    .eq('workspace_id', safeWorkspaceId)
+    .eq('requester_email', requesterEmail)
+    .order('created_at', { ascending: false });
+
+  if (statusValue) {
+    query = query.eq('status', normalizeMergeRequestStatus(statusValue));
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    ok: true,
+    rows: Array.isArray(data) ? data : [],
+  };
+};
+
 const setMergeRequestStatus = async (
   adminClient: ReturnType<typeof createAdminClient>,
   workspaceId: string,
@@ -441,6 +485,12 @@ serve(async (req) => {
       const adminClient = createAdminClient(env);
       const authenticatedUser = await getOptionalUser(req, adminClient);
       return json(200, await submitMergeRequest(adminClient, body, authenticatedUser));
+    }
+
+    if (action === 'list_my_merge_requests') {
+      const adminClient = createAdminClient(env);
+      const authenticatedUser = await getOptionalUser(req, adminClient);
+      return json(200, await listMyMergeRequests(adminClient, body, authenticatedUser));
     }
 
     const { adminClient, adminUserId } = await ensureAdminUser(req, env);
