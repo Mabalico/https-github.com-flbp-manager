@@ -36,6 +36,7 @@ interface SupabaseTournamentSummary {
   status?: 'live' | 'archived';
   start_date?: string;
   updated_at?: string;
+  config?: Record<string, unknown> | null;
 }
 
 interface SupabasePublicTournamentTeam {
@@ -105,6 +106,7 @@ interface SupabaseFantaPlayerStanding {
 export type FantaSaveTeamErrorCode =
   | 'not_authenticated'
   | 'no_live_tournament'
+  | 'results_only_tournament'
   | 'tournament_locked'
   | 'invalid_roster'
   | 'backend_error';
@@ -129,7 +131,10 @@ const buildHeaders = (cfg: { anonKey: string }, token?: string | null) => {
 };
 
 const encode = (value: string) => encodeURIComponent(value);
-const publicTournamentsSelect = 'id,name,status,start_date,updated_at';
+const publicTournamentsSelect = 'id,name,status,start_date,updated_at,config';
+
+const hasResultsOnlyConfig = (config?: Record<string, unknown> | null): boolean =>
+  Boolean(config && typeof config === 'object' && config.resultsOnly === true);
 
 const fetchJson = async <T>(
   url: string,
@@ -200,15 +205,17 @@ export const fetchFantaConfig = async (): Promise<FantaConfig | null> => {
   if (!activeTournamentId) return null;
 
   const tournamentStarted = await fetchTournamentStarted(cfg, activeTournamentId);
+  const activeTournamentResultsOnly = hasResultsOnlyConfig(activeTournament?.config);
   return {
     activeTournamentId,
     activeTournamentName: activeTournament?.name,
-    isLockActive: tournamentStarted,
-    registrationOpen: !tournamentStarted,
+    activeTournamentResultsOnly,
+    isLockActive: activeTournamentResultsOnly || tournamentStarted,
+    registrationOpen: !activeTournamentResultsOnly && !tournamentStarted,
     registrationOpenFlag: true,
     manualLockActive: false,
     tournamentStarted,
-    lockReason: tournamentStarted ? 'first_match_started' : null,
+    lockReason: activeTournamentResultsOnly ? 'results_only_tournament' : tournamentStarted ? 'first_match_started' : null,
     updatedAt: configured?.updated_at,
   };
 };
@@ -219,7 +226,10 @@ export const fetchFantaTournamentTeams = async (
   const cfg = getSupabaseConfig();
   if (!cfg) return [];
 
-  const activeTournamentId = tournamentId || (await fetchFantaConfig())?.activeTournamentId || '';
+  const config = await fetchFantaConfig();
+  if (config?.activeTournamentResultsOnly) return [];
+
+  const activeTournamentId = tournamentId || config?.activeTournamentId || '';
   if (!activeTournamentId) return [];
 
   const rows = await fetchJson<SupabasePublicTournamentTeam[]>(
@@ -336,6 +346,8 @@ const fantaSaveFailure = (code: FantaSaveTeamErrorCode): FantaSaveTeamResult => 
       return { ok: false, code, message: 'Accedi al tuo account giocatore e riprova.' };
     case 'no_live_tournament':
       return { ok: false, code, message: 'Non c’è un torneo live disponibile per creare la squadra Fanta.' };
+    case 'results_only_tournament':
+      return { ok: false, code, message: 'Questo torneo live è in modalità solo risultati: il FantaBeerpong è disponibile solo quando si segnano canestri e soffi.' };
     case 'tournament_locked':
       return { ok: false, code, message: 'Il mercato Fanta è chiuso: la squadra non può più essere modificata.' };
     case 'invalid_roster':
@@ -358,6 +370,9 @@ const fantaSaveFailureFromResponse = async (res: Response): Promise<FantaSaveTea
   const lowerBody = body.toLowerCase();
   if (lowerBody.includes('no live tournament') || lowerBody.includes('while the tournament is live')) {
     return fantaSaveFailure('no_live_tournament');
+  }
+  if (lowerBody.includes('results-only') || lowerBody.includes('results only') || lowerBody.includes('scorer stats')) {
+    return fantaSaveFailure('results_only_tournament');
   }
   if (lowerBody.includes('locked') || lowerBody.includes('first match')) {
     return fantaSaveFailure('tournament_locked');
@@ -430,7 +445,7 @@ export const fetchUserFantaTeam = async (
   if (!cfg || !token) return null;
 
   const config = await fetchFantaConfig();
-  if (!config?.activeTournamentId) return null;
+  if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return null;
 
   const teams = await fetchJson<SupabaseFantaTeam[]>(
     `${restUrl(cfg, 'fanta_teams')}?user_id=eq.${encode(userId)}&workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=*&limit=1`,
@@ -476,6 +491,7 @@ export const saveFantaTeamWithResult = async (
     const distinctPlayers = new Set(lineup.map((item) => item.player.id)).size;
 
     if (!config?.activeTournamentId) return fantaSaveFailure('no_live_tournament');
+    if (config.activeTournamentResultsOnly) return fantaSaveFailure('results_only_tournament');
     if (config.isLockActive || !config.registrationOpen) return fantaSaveFailure('tournament_locked');
     if (!name || lineup.length !== 4 || distinctPlayers !== 4 || captainCount !== 1 || defenderCount !== 2) {
       return fantaSaveFailure('invalid_roster');
@@ -511,7 +527,7 @@ export const fetchFantaStandings = async (): Promise<any[]> => {
   if (!cfg) return [];
 
   const config = await fetchFantaConfig();
-  if (!config?.activeTournamentId) return [];
+  if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return [];
 
   return await fetchJson<any[]>(
     `${restUrl(cfg, 'fanta_live_standings')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=*&order=total_points.desc,players_in_game.desc,points_from_wins.desc,points_from_goals.desc`,
@@ -525,7 +541,7 @@ export const fetchFantaPlayerStandings = async (): Promise<any[]> => {
   if (!cfg) return [];
 
   const config = await fetchFantaConfig();
-  if (!config?.activeTournamentId) return [];
+  if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return [];
 
   return await fetchJson<any[]>(
     `${restUrl(cfg, 'fanta_player_standings')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=*&order=total_points.desc,points_from_wins.desc,points_from_goals.desc`,
@@ -550,7 +566,7 @@ export const fetchFantaPlayerContributions = async (playerId: string): Promise<a
   if (!cfg || !playerId) return [];
 
   const config = await fetchFantaConfig();
-  if (!config?.activeTournamentId) return [];
+  if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return [];
 
   const [stats, matches, teams] = await Promise.all([
     fetchJson<SupabasePublicMatchStat[]>(

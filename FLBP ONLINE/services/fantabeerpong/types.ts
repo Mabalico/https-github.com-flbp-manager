@@ -17,10 +17,11 @@ export interface FantaConfig {
   activeTournamentName?: string;
   isLockActive: boolean;
   registrationOpen: boolean;
+  activeTournamentResultsOnly?: boolean;
   registrationOpenFlag?: boolean;
   manualLockActive?: boolean;
   tournamentStarted?: boolean;
-  lockReason?: 'no_live_tournament' | 'first_match_started' | null;
+  lockReason?: 'no_live_tournament' | 'first_match_started' | 'results_only_tournament' | null;
   updatedAt?: string;
 }
 

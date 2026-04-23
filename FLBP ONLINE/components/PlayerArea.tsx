@@ -1362,6 +1362,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       setPassword('');
       if (liveBackendEnabled) {
         setFeedback(finalFeedback);
+        try {
+          window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+        } catch {
+          // Best effort: App listens to refresh the full workspace state for alias-linked stats.
+        }
       }
       setRefreshNonce((value) => value + 1);
       setLiveCallRefreshNonce((value) => value + 1);
@@ -1498,6 +1503,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         savePlayerPreviewProfile(snapshot.session!, { firstName: safeFirstName, lastName: safeLastName, birthDate: safeBirthDate });
       }
       setFeedback({ tone: 'success', message: t('player_area_profile_saved') });
+      try {
+        window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+      } catch {
+        // Best effort: keep profile-derived historical stats aligned after live profile edits.
+      }
       setRefreshNonce((value) => value + 1);
     } catch (error: any) {
       setFeedback({

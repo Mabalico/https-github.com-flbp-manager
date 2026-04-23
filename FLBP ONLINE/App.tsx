@@ -562,7 +562,13 @@ const App: React.FC = () => {
         // the public mirror can lag behind aliases/manual integrations.
         if (view !== 'admin' && view !== 'player_area') return;
         if (repo.source !== 'remote') return;
-        void repo.refresh?.();
+        const refreshWorkspace = () => { void repo.refresh?.(); };
+        refreshWorkspace();
+        if (view !== 'player_area') return;
+        window.addEventListener(PLAYER_APP_CHANGE_EVENT, refreshWorkspace as EventListener);
+        return () => {
+            window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refreshWorkspace as EventListener);
+        };
     }, [view, repo]);
 
     useEffect(() => {
@@ -736,6 +742,13 @@ const App: React.FC = () => {
             logo: publicDbState.logo || state.logo || '',
         };
     }, [publicDbState, publicDbUpdatedAt, state]);
+
+    const stateForPlayerArea = React.useMemo<AppState>(() => (
+        // PlayerArea derives historical stats and alias-linked profiles from the
+        // complete workspace state. The public mirror can lag or be sanitized, so
+        // in remote mode prefer the repository state that is refreshed on entry.
+        repo.source === 'remote' ? state : stateForPublicViews
+    ), [repo.source, state, stateForPublicViews]);
 
     // Lightweight, informative banner for ops (non-blocking).
     const dbPrimaryActive = repo.source === 'remote';
@@ -1457,15 +1470,15 @@ const App: React.FC = () => {
                             }}
                         >
                             <PlayerAreaLazy
-                                state={stateForPublicViews}
+                                state={stateForPlayerArea}
                                 onOpenReferees={() => { void navigateToView('referees_area'); }}
                                 onOpenTournament={(tournamentId) => {
-                                    const liveTournament = stateForPublicViews.tournament;
+                                    const liveTournament = stateForPlayerArea.tournament;
                                     if (liveTournament?.id === tournamentId) {
                                         handleViewTournament(liveTournament, true);
                                         return;
                                     }
-                                    const archivedTournament = (stateForPublicViews.tournamentHistory || [])
+                                    const archivedTournament = (stateForPlayerArea.tournamentHistory || [])
                                         .find((tournament) => tournament.id === tournamentId);
                                     if (archivedTournament) {
                                         handleViewTournament(archivedTournament, false);
