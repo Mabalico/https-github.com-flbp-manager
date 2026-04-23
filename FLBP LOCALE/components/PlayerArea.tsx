@@ -1730,9 +1730,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         return;
       }
       setRegisterAliasSubmitting(true);
+      setFeedback(null);
       void (async () => {
+        const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
         try {
-          const deliveredSuggestions: PlayerRegistrationAliasSuggestion[] = [];
           for (const suggestion of selectedAliasSuggestions) {
             try {
               await submitPlayerAccountMergeRequest({
@@ -1794,8 +1795,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               tone: 'success',
               message: t('player_area_merge_request_sent'),
             });
+            setLiveRuntimeError(null);
             setAccountAliasInterstitialDismissed(true);
             closeRegisterAliasModal();
+            try {
+              window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+            } catch {
+              // Best effort: refresh other player-area derived state after an alias request.
+            }
             void refreshLiveRuntime(undefined, { silent: true }).catch(() => {
               // Best effort: optimistic pending state already unlocks the provisional profile.
             });
@@ -1806,6 +1813,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             });
           }
         } catch (error: any) {
+          if (deliveredSuggestions.length) {
+            setFeedback({
+              tone: 'success',
+              message: t('player_area_merge_request_sent'),
+            });
+            setLiveRuntimeError(null);
+            setAccountAliasInterstitialDismissed(true);
+            closeRegisterAliasModal();
+            try {
+              window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+            } catch {
+              // Best effort: refresh other player-area derived state after an alias request.
+            }
+            return;
+          }
           setFeedback({
             tone: 'error',
             message: getPlayerAreaFriendlyErrorMessage(
