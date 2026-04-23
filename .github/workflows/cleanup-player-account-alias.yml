@@ -1,0 +1,104 @@
+name: Cleanup player account alias link
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace_id:
+        description: Workspace id
+        required: true
+        default: default
+      user_id:
+        description: Target player_app_profiles user_id
+        required: true
+      requester_email:
+        description: Optional requester email to purge stale merge requests
+        required: false
+        default: ''
+      confirm:
+        description: Type RUN to execute the cleanup
+        required: true
+        default: 'NO'
+
+jobs:
+  cleanup:
+    if: ${{ github.event.inputs.confirm == 'RUN' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Validate required secret
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_DB_URL" || {
+            echo "::error::Missing GitHub secret SUPABASE_DB_URL"
+            exit 1
+          }
+
+      - name: Clear canonical link and merge requests
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          WORKSPACE_ID: ${{ github.event.inputs.workspace_id }}
+          USER_ID: ${{ github.event.inputs.user_id }}
+          REQUESTER_EMAIL: ${{ github.event.inputs.requester_email }}
+        run: |
+          set -euo pipefail
+
+          psql "$SUPABASE_DB_URL" \
+            -v ON_ERROR_STOP=1 \
+            -v workspace_id="$WORKSPACE_ID" \
+            -v user_id="$USER_ID" <<'SQL'
+          update public.player_app_profiles
+          set
+            canonical_player_id = null,
+            canonical_player_name = null,
+            updated_at = now()
+          where workspace_id = :'workspace_id'
+            and user_id = :'user_id';
+
+          delete from public.player_account_merge_requests
+          where workspace_id = :'workspace_id'
+            and requester_user_id = :'user_id';
+
+          select
+            workspace_id,
+            user_id,
+            first_name,
+            last_name,
+            birth_date,
+            canonical_player_id,
+            canonical_player_name
+          from public.player_app_profiles
+          where workspace_id = :'workspace_id'
+            and user_id = :'user_id';
+          SQL
+
+          if [ -n "$REQUESTER_EMAIL" ]; then
+            psql "$SUPABASE_DB_URL" \
+              -v ON_ERROR_STOP=1 \
+              -v workspace_id="$WORKSPACE_ID" \
+              -v requester_email="$REQUESTER_EMAIL" <<'SQL'
+            delete from public.player_account_merge_requests
+            where workspace_id = :'workspace_id'
+              and lower(requester_email) = lower(:'requester_email');
+
+            select
+              id,
+              requester_user_id,
+              requester_email,
+              status,
+              candidate_player_id,
+              candidate_player_name
+            from public.player_account_merge_requests
+            where workspace_id = :'workspace_id'
+              and lower(requester_email) = lower(:'requester_email');
+            SQL
+          fi
