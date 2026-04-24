@@ -1219,6 +1219,25 @@ const App: React.FC = () => {
         void navigateToView('tournament_detail');
     };
 
+    const applyAdminState = useCallback((next: AppState) => {
+        const removedLiveTournament = Boolean(state.tournament && !next.tournament);
+        if (removedLiveTournament) {
+            setSelectedTournament((current) => (current?.isLive ? null : current));
+            setPublicDbState((current) => {
+                if (!current?.tournament && !(current?.tournamentMatches || []).length) return current;
+                return { ...current, tournament: null, tournamentMatches: [] };
+            });
+            try {
+                const raw = localStorage.getItem(SELECTED_TOURNAMENT_KEY);
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (parsed?.isLive) localStorage.removeItem(SELECTED_TOURNAMENT_KEY);
+            } catch {
+                // ignore stale selected tournament cache
+            }
+        }
+        setState(next);
+    }, [SELECTED_TOURNAMENT_KEY, state.tournament]);
+
     useEffect(() => {
         if (tvMode) return;
         if (!['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail'].includes(view)) return;
@@ -1445,7 +1464,7 @@ const App: React.FC = () => {
                                 void navigateToView('home');
                             }}
                         >
-                            <AdminDashboardLazy state={state} setState={setState} onEnterTv={handleEnterTv} />
+                            <AdminDashboardLazy state={state} setState={applyAdminState} onEnterTv={handleEnterTv} />
                         </UiErrorBoundary>
                     </React.Suspense>
                 );

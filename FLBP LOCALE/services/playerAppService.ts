@@ -166,6 +166,14 @@ const PREVIEW_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 const normalizePlayerPreviewEmail = (raw: string) => String(raw || '').trim().toLowerCase();
 
+const isUsefulPresenceName = (value?: string | null) => {
+  const safe = String(value || '').trim();
+  if (!safe) return false;
+  if (safe.length < 2) return false;
+  if (/^\d+$/.test(safe)) return false;
+  return true;
+};
+
 const toDisplayFirstName = (raw: string, email?: string | null) => {
   const safeRaw = String(raw || '').trim();
   if (safeRaw) return safeRaw.split(/\s+/)[0] || safeRaw;
@@ -423,12 +431,16 @@ export const readPlayerPresenceSnapshot = (): PlayerPresenceSnapshot | null => {
   try {
     const raw = safeParse<PlayerPresenceSnapshot | null>(localStorage.getItem(PLAYER_PRESENCE_KEY), null);
     if (!raw?.accountId || !raw.mode) return null;
+    const email = String(raw.email || '').trim();
+    const fallbackName = toDisplayFirstName('', email) || email || 'Profilo';
+    const firstName = isUsefulPresenceName(raw.firstName) ? String(raw.firstName || '').trim() : fallbackName;
+    const displayName = isUsefulPresenceName(raw.displayName) ? String(raw.displayName || '').trim() : firstName;
     return {
       accountId: String(raw.accountId || '').trim(),
       mode: raw.mode === 'live' ? 'live' : 'preview',
-      email: String(raw.email || '').trim(),
-      firstName: String(raw.firstName || '').trim(),
-      displayName: String(raw.displayName || '').trim(),
+      email,
+      firstName,
+      displayName,
       lastActiveAt: Number(raw.lastActiveAt || 0) || nowTs(),
     };
   } catch {
@@ -445,7 +457,8 @@ export const writePlayerPresenceSnapshot = (input: {
   const accountId = String(input.accountId || '').trim();
   if (!accountId) return;
   const email = normalizePlayerPreviewEmail(input.email || '');
-  const firstName = toDisplayFirstName(String(input.firstName || '').trim(), email);
+  const rawFirstName = toDisplayFirstName(String(input.firstName || '').trim(), email);
+  const firstName = isUsefulPresenceName(rawFirstName) ? rawFirstName : (toDisplayFirstName('', email) || email || 'Profilo');
   const next: PlayerPresenceSnapshot = {
     accountId,
     mode: input.mode === 'live' ? 'live' : 'preview',

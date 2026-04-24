@@ -316,27 +316,42 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
       try {
         const liveRows = await pullAdminPlayerAccounts();
         if (cancelled) return;
-        let liveAdminIds = new Set<string>();
-        let rolesMessage = '';
-        let mergeRequests: PlayerAccountMergeRequestRow[] = [];
-        let mergeRequestsMessage = '';
-        try {
-          const liveAdmins = await pullAdminUserRoles();
-          if (cancelled) return;
-          liveAdminIds = new Set(
-            liveAdmins
-              .map((row) => String(row.user_id || '').trim())
-              .filter(Boolean)
-          );
-        } catch (rolesError: any) {
-          rolesMessage = String(rolesError?.message || rolesError || '').trim();
-        }
-        try {
-          mergeRequests = await pullAdminPlayerAccountMergeRequests('pending');
-          if (cancelled) return;
-        } catch (mergeRequestError: any) {
-          mergeRequestsMessage = String(mergeRequestError?.message || mergeRequestError || '').trim();
-        }
+
+        // Show the account catalog as soon as the primary RPC returns; roles
+        // and merge requests are useful enrichments but should not keep the tab empty.
+        setRemoteRows(
+          liveRows.map((row) =>
+            buildPlayerAccountAdminRowFromLive(state, {
+              ...row,
+              is_admin: false,
+            })
+          )
+        );
+        setRemoteStatus('ready');
+
+        const [rolesResult, mergeRequestsResult] = await Promise.allSettled([
+          pullAdminUserRoles(),
+          pullAdminPlayerAccountMergeRequests('pending'),
+        ]);
+        if (cancelled) return;
+
+        const liveAdminIds = rolesResult.status === 'fulfilled'
+          ? new Set(
+              rolesResult.value
+                .map((row) => String(row.user_id || '').trim())
+                .filter(Boolean)
+            )
+          : new Set<string>();
+        const mergeRequests = mergeRequestsResult.status === 'fulfilled'
+          ? mergeRequestsResult.value
+          : [];
+        const rolesMessage = rolesResult.status === 'rejected'
+          ? String(rolesResult.reason?.message || rolesResult.reason || '').trim()
+          : '';
+        const mergeRequestsMessage = mergeRequestsResult.status === 'rejected'
+          ? String(mergeRequestsResult.reason?.message || mergeRequestsResult.reason || '').trim()
+          : '';
+
         setRemoteRows(
           liveRows.map((row) =>
             buildPlayerAccountAdminRowFromLive(state, {
@@ -346,7 +361,6 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
           )
         );
         setRemoteMergeRequests(mergeRequests);
-        setRemoteStatus('ready');
         setRemoteError([rolesMessage, mergeRequestsMessage].filter(Boolean).join(' · ') || null);
       } catch (error: any) {
         if (cancelled) return;
