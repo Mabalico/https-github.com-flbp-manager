@@ -1160,10 +1160,29 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         : null,
     [liveProfileRow]
   );
+  const provisionalLiveProfile = React.useMemo(() => {
+    if (!liveProfileRow) return null;
+    const firstName = String(liveProfileRow.first_name || '').trim();
+    const lastName = String(liveProfileRow.last_name || '').trim();
+    const birthDate = normalizeBirthDateInput(liveProfileRow.birth_date) || String(liveProfileRow.birth_date || '').trim();
+    if (!firstName || !lastName || !birthDate) return null;
+    const canonicalPlayerName =
+      String(liveProfileRow.canonical_player_name || '').trim()
+      || `${lastName} ${firstName}`.trim();
+    return {
+      accountId: String(liveProfileRow.user_id || '').trim(),
+      firstName,
+      lastName,
+      birthDate,
+      canonicalPlayerId: String(liveProfileRow.canonical_player_id || '').trim(),
+      canonicalPlayerName,
+    };
+  }, [liveProfileRow]);
 
   const previewRuntimeProfile = React.useMemo(() => toPlayerRuntimeProfile(snapshot.profile), [snapshot.profile]);
   const effectiveSession = liveRuntimeSession || snapshot.session;
   const effectiveProfile = liveRuntimeSession ? liveRuntimeProfile : previewRuntimeProfile;
+  const displayProfile = effectiveProfile || (liveRuntimeSession ? provisionalLiveProfile : null);
   const effectiveSessionEmail = React.useMemo(() => {
     const raw = String(liveSession?.email || effectiveSession?.username || '').trim();
     return raw ? raw.toLowerCase() : '';
@@ -1232,13 +1251,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const accountAliasSubjectKey = accountAliasSubjectKeys[0] || '';
 
   const accountAliasSuggestions = React.useMemo(() => {
-    if (!liveBackendEnabled || !liveRuntimeSession || !effectiveProfile) return [];
+    if (!liveBackendEnabled || !liveRuntimeSession || !provisionalLiveProfile) return [];
     return liveAccountAliasSuggestions;
-  }, [effectiveProfile, liveAccountAliasSuggestions, liveBackendEnabled, liveRuntimeSession]);
+  }, [liveAccountAliasSuggestions, liveBackendEnabled, liveRuntimeSession, provisionalLiveProfile]);
 
   const hasCanonicalAccountAliasLink = React.useMemo(
-    () => !!String(liveProfileRow?.canonical_player_id || effectiveProfile?.canonicalPlayerId || '').trim(),
-    [effectiveProfile?.canonicalPlayerId, liveProfileRow?.canonical_player_id]
+    () => !!String(liveProfileRow?.canonical_player_id || effectiveProfile?.canonicalPlayerId || provisionalLiveProfile?.canonicalPlayerId || '').trim(),
+    [effectiveProfile?.canonicalPlayerId, liveProfileRow?.canonical_player_id, provisionalLiveProfile?.canonicalPlayerId]
   );
 
   const requestedAliasCandidateIds = React.useMemo(
@@ -1787,11 +1806,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             message: t('player_area_merge_request_deferred'),
           });
         };
-        if (!effectiveProfile || !effectiveSessionEmail) {
+        const aliasRequestProfile = provisionalLiveProfile || effectiveProfile;
+        if (!aliasRequestProfile || !effectiveSessionEmail) {
           openDeferredProvisionalProfile();
           return;
         }
-        const normalizedAccountBirthDate = normalizeBirthDateInput(effectiveProfile.birthDate);
+        const normalizedAccountBirthDate = normalizeBirthDateInput(aliasRequestProfile.birthDate);
         if (!normalizedAccountBirthDate) {
           openDeferredProvisionalProfile();
           return;
@@ -1821,11 +1841,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 workspace_id: String(state.workspace?.id || ''),
                 requester_user_id: accountUserId,
                 requester_email: effectiveSessionEmail,
-                requester_first_name: effectiveProfile.firstName,
-                requester_last_name: effectiveProfile.lastName,
+                requester_first_name: aliasRequestProfile.firstName,
+                requester_last_name: aliasRequestProfile.lastName,
                 requester_birth_date: normalizedAccountBirthDate,
-                requester_canonical_player_id: effectiveProfile.canonicalPlayerId || null,
-                requester_canonical_player_name: effectiveProfile.canonicalPlayerName || null,
+                requester_canonical_player_id: aliasRequestProfile.canonicalPlayerId || null,
+                requester_canonical_player_name: aliasRequestProfile.canonicalPlayerName || null,
                 candidate_player_id: suggestion.candidatePlayerId,
                 candidate_player_name: suggestion.candidateDisplayName,
                 candidate_birth_date: suggestion.candidateBirthDate || null,
@@ -1891,11 +1911,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   accessToken: accountAccessToken,
                   requesterUserId: accountUserId,
                   requesterEmail: effectiveSessionEmail,
-                  requesterFirstName: effectiveProfile.firstName,
-                  requesterLastName: effectiveProfile.lastName,
+                  requesterFirstName: aliasRequestProfile.firstName,
+                  requesterLastName: aliasRequestProfile.lastName,
                   requesterBirthDate: normalizedAccountBirthDate,
-                  requesterCanonicalPlayerId: effectiveProfile.canonicalPlayerId || null,
-                  requesterCanonicalPlayerName: effectiveProfile.canonicalPlayerName || null,
+                  requesterCanonicalPlayerId: aliasRequestProfile.canonicalPlayerId || null,
+                  requesterCanonicalPlayerName: aliasRequestProfile.canonicalPlayerName || null,
                   candidatePlayerId: suggestion.candidatePlayerId,
                   candidatePlayerName: suggestion.candidateDisplayName,
                   candidateBirthDate: suggestion.candidateBirthDate || null,
@@ -2252,7 +2272,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       : null;
 
   const showAccountAliasInterstitial = (
-    !!effectiveProfile
+    !!displayProfile
     && !!liveRuntimeSession
     && liveAuthFlow !== 'recovery'
     && liveAccountAliasLoaded
@@ -2263,7 +2283,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   );
 
   const accountAliasGatePending = (
-    !!effectiveProfile
+    !!displayProfile
     && !!liveRuntimeSession
     && liveAuthFlow !== 'recovery'
     && !liveAccountAliasLoaded
@@ -2695,7 +2715,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 </div>
                 <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
               </div>
-            ) : !effectiveProfile ? (
+            ) : !displayProfile ? (
               <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
                 <div>
                   <div className={sectionTitleClass}>{t('player_area_profile_title')}</div>
@@ -2795,7 +2815,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   <div className="relative z-10 flex items-start justify-between gap-4 flex-wrap">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-2xl font-black text-blue-950 tracking-tight">{effectiveProfile.canonicalPlayerName}</div>
+                        <div className="text-2xl font-black text-blue-950 tracking-tight">{displayProfile.canonicalPlayerName}</div>
                         {hasPendingAccountMergeRequest ? (
                           <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-[0.08em] text-amber-800">
                             {t('data_accounts_merge_status_pending')}
@@ -2804,7 +2824,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       </div>
                       <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/60 px-2.5 py-0.5 text-xs font-bold text-slate-600 shadow-sm ring-1 ring-inset ring-slate-200/60 backdrop-blur-md">
                         {effectiveSession.mode === 'live'
-                          ? `${formatBirthDateDisplay(effectiveProfile.birthDate)}`
+                          ? `${formatBirthDateDisplay(displayProfile.birthDate)}`
                           : getPlayerPreviewIdentityLabel(snapshot.profile)}
                       </div>
                     </div>
