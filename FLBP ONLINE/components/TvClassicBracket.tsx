@@ -3,6 +3,7 @@ import { Trophy } from 'lucide-react';
 import { TournamentBracket } from './TournamentBracket';
 import type { Match, Team, TournamentData } from '../types';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
+import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 import { useTranslation } from '../App';
 
 type LayoutProfile = {
@@ -206,7 +207,7 @@ const TeamLine: React.FC<{
   const textFontSize = getTeamTextFontSize(name, profile.fontSize, compact);
   const scoreClass = scoreTextClass(profile, compact);
   const isPlaceholder = isPlaceholderTeamName(name);
-  const isPendingScore = score === '–';
+  const isPendingScore = score === 'â€“';
   const scoreNode = (
     <span
       className={`shrink-0 font-mono font-black tabular-nums ${scoreClass} ${winner ? 'text-amber-100' : 'text-slate-100'} ${isPendingScore ? 'opacity-55' : ''}`}
@@ -420,25 +421,12 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   }, [matches]);
 
   const allRounds = React.useMemo(() => {
-    if (Array.isArray(data?.rounds) && data?.rounds.length) {
-      return data.rounds.map((round) =>
-        round
-          .map((match) => currentMatchesById.get(match.id) || match)
-          .sort(sortByOrderIndexSafe)
-      );
-    }
-
-    const grouped = new Map<number, Match[]>();
-    for (const match of (matches || [])) {
-      if (match.phase !== 'bracket') continue;
-      const round = match.round || 1;
-      if (!grouped.has(round)) grouped.set(round, []);
-      grouped.get(round)?.push(match);
-    }
-    return Array.from(grouped.keys())
-      .sort((a, b) => a - b)
-      .map((round) => (grouped.get(round) || []).slice().sort(sortByOrderIndexSafe));
-  }, [currentMatchesById, data?.rounds, matches]);
+    return getPreferredBracketRounds(data || null, matches || []).map((round) =>
+      round
+        .map((match) => currentMatchesById.get(match.id) || match)
+        .sort(sortByOrderIndexSafe)
+    );
+  }, [currentMatchesById, data, matches]);
 
   const resolvedRounds = React.useMemo<ResolvedStageMatch[][]>(() => {
     return allRounds.map((round, roundIndex) => {
@@ -518,11 +506,23 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   const layout = React.useMemo<LayoutData | null>(() => {
     if (!resolvedRounds.length || !viewportSize.width || !viewportSize.height) return null;
 
+    let firstVisibleRound = 0;
+    for (let i = 0; i < resolvedRounds.length - 1; i++) {
+      if (resolvedRounds[i].some(m => m.visible)) {
+        firstVisibleRound = i;
+        break;
+      }
+      if (i === resolvedRounds.length - 2) {
+        firstVisibleRound = i;
+      }
+    }
+
+    const effectiveRounds = resolvedRounds.slice(firstVisibleRound);
     const profile = activeProfile;
-    const totalRounds = resolvedRounds.length;
+    const totalRounds = effectiveRounds.length;
     const sideRounds = Math.max(0, totalRounds - 1);
     const firstRoundPerSide = sideRounds > 0
-      ? Math.max(1, Math.floor((resolvedRounds[0]?.length || 0) / 2))
+      ? Math.max(1, Math.floor((effectiveRounds[0]?.length || 0) / 2))
       : 1;
 
     const centers = computeRoundCenters(firstRoundPerSide, profile.topPad, profile.matchHeight, profile.gapY);
@@ -531,14 +531,35 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
       + Math.max(0, firstRoundPerSide - 1) * profile.gapY
       + profile.bottomPad;
 
-    const leftWidth = sideRounds > 0 ? sideRounds * profile.matchWidth + Math.max(0, sideRounds - 1) * profile.gapX : 0;
+    const availableWidth = Math.max(1, viewportSize.width - 12);
+    const availableHeight = Math.max(1, viewportSize.height - 12);
+    const fixedColumnsWidth = sideRounds > 0
+      ? profile.sidePad * 2 + (sideRounds * 2 + 1) * profile.matchWidth
+      : profile.sidePad * 2 + profile.matchWidth;
+    const baseFlexibleWidth = sideRounds > 0
+      ? Math.max(0, sideRounds - 1) * 2 * profile.gapX + 2 * profile.centerGap
+      : 0;
+    const baseStageWidth = fixedColumnsWidth + baseFlexibleWidth;
+    const heightScale = Math.min(1, availableHeight / Math.max(1, stageHeight));
+    const widthScale = Math.min(1, availableWidth / Math.max(1, baseStageWidth));
+
+    // Tall brackets shrink vertically; stretch the horizontal gutters so round 1 still hugs the TV edges.
+    const targetStageWidth = sideRounds > 0 && baseFlexibleWidth > 0
+      ? Math.max(baseStageWidth, availableWidth / Math.max(0.001, heightScale))
+      : baseStageWidth;
+    const flexibleWidth = Math.max(baseFlexibleWidth, targetStageWidth - fixedColumnsWidth);
+    const horizontalGapMultiplier = baseFlexibleWidth > 0 ? flexibleWidth / baseFlexibleWidth : 1;
+    const horizontalGapX = sideRounds > 1 ? profile.gapX * horizontalGapMultiplier : profile.gapX;
+    const horizontalCenterGap = sideRounds > 0 ? profile.centerGap * horizontalGapMultiplier : profile.centerGap;
+
+    const leftWidth = sideRounds > 0 ? sideRounds * profile.matchWidth + Math.max(0, sideRounds - 1) * horizontalGapX : 0;
     const rightWidth = leftWidth;
     const stageWidth = sideRounds > 0
-      ? profile.sidePad + leftWidth + profile.centerGap + profile.matchWidth + profile.centerGap + rightWidth + profile.sidePad
+      ? profile.sidePad + leftWidth + horizontalCenterGap + profile.matchWidth + horizontalCenterGap + rightWidth + profile.sidePad
       : profile.sidePad * 2 + profile.matchWidth;
 
     const finalX = sideRounds > 0
-      ? profile.sidePad + leftWidth + profile.centerGap
+      ? profile.sidePad + leftWidth + horizontalCenterGap
       : (stageWidth - profile.matchWidth) / 2;
     const finalCenterY = centers[centers.length - 1]?.[0] ?? (profile.topPad + profile.matchHeight / 2);
 
@@ -546,12 +567,13 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     const labels: LayoutData['labels'] = [];
 
     for (let roundIndex = 0; roundIndex < sideRounds; roundIndex += 1) {
-      const round = resolvedRounds[roundIndex] || [];
+      const round = effectiveRounds[roundIndex] || [];
       const leftRound = round.slice(0, round.length / 2);
       const rightRound = round.slice(round.length / 2);
-      const leftX = profile.sidePad + roundIndex * (profile.matchWidth + profile.gapX);
-      const rightX = finalX + profile.matchWidth + profile.centerGap + (sideRounds - 1 - roundIndex) * (profile.matchWidth + profile.gapX);
-      const roundText = roundLabelFromMatch(round[0]?.raw, `Turno ${roundIndex + 1}`);
+      const leftX = profile.sidePad + roundIndex * (profile.matchWidth + horizontalGapX);
+      const rightX = finalX + profile.matchWidth + horizontalCenterGap + (sideRounds - 1 - roundIndex) * (profile.matchWidth + horizontalGapX);
+      const originalRoundIndex = roundIndex + firstVisibleRound;
+      const roundText = roundLabelFromMatch(round[0]?.raw, `Turno ${originalRoundIndex + 1}`);
 
       labels.push({ key: `left-${roundIndex}`, x: leftX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'left' });
       labels.push({ key: `right-${roundIndex}`, x: rightX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'right' });
@@ -569,14 +591,12 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
       });
     }
 
-    const finalMatch = resolvedRounds[totalRounds - 1]?.[0];
+    const finalMatch = effectiveRounds[totalRounds - 1]?.[0];
     if (finalMatch) {
       placements[finalMatch.uid] = { x: finalX, y: finalCenterY - profile.matchHeight / 2, centerY: finalCenterY, side: 'center' };
       labels.push({ key: 'final', x: finalX + profile.matchWidth / 2, y: profile.labelY, text: 'FINALE', side: 'center' });
     }
 
-    const availableWidth = Math.max(1, viewportSize.width - 12);
-    const availableHeight = Math.max(1, viewportSize.height - 12);
     const scale = Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight);
     const offsetX = (viewportSize.width - stageWidth * scale) / 2;
     const offsetY = (viewportSize.height - stageHeight * scale) / 2;
@@ -803,7 +823,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.top}
-                        score={match.raw.status === 'finished' ? match.raw.scoreA : '–'}
+                        score={match.raw.status === 'finished' ? match.raw.scoreA : 'â€“'}
                         placementSide={placement.side}
                         profile={layout.profile}
                         compact={compact}
@@ -816,7 +836,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.bottom}
-                        score={match.raw.status === 'finished' ? match.raw.scoreB : '–'}
+                        score={match.raw.status === 'finished' ? match.raw.scoreB : 'â€“'}
                         placementSide={placement.side}
                         profile={layout.profile}
                         compact={compact}
@@ -966,7 +986,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.top}
-                      score={match.raw.status === 'finished' ? match.raw.scoreA : '–'}
+                      score={match.raw.status === 'finished' ? match.raw.scoreA : 'â€“'}
                       placementSide={placement.side}
                       profile={layout.profile}
                       compact={compact}
@@ -979,7 +999,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.bottom}
-                      score={match.raw.status === 'finished' ? match.raw.scoreB : '–'}
+                      score={match.raw.status === 'finished' ? match.raw.scoreB : 'â€“'}
                       placementSide={placement.side}
                       profile={layout.profile}
                       compact={compact}
