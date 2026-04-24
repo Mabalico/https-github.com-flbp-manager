@@ -562,9 +562,24 @@ const App: React.FC = () => {
         // the public mirror can lag behind aliases/manual integrations.
         if (view !== 'admin' && view !== 'player_area') return;
         if (repo.source !== 'remote') return;
+
         const refreshWorkspace = () => { void repo.refresh?.(); };
+        if (view === 'admin') {
+            // Admin remains the strong-sync entry point, but give auth/session
+            // bootstrap a short head start to avoid colliding with the first
+            // admin_users check on slower Supabase Nano cold starts.
+            const timeoutId = window.setTimeout(() => {
+                try {
+                    if (document.visibilityState !== 'visible') return;
+                } catch {
+                    // ignore visibility probe failures
+                }
+                refreshWorkspace();
+            }, 650);
+            return () => window.clearTimeout(timeoutId);
+        }
+
         refreshWorkspace();
-        if (view !== 'player_area') return;
         window.addEventListener(PLAYER_APP_CHANGE_EVENT, refreshWorkspace as EventListener);
         return () => {
             window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refreshWorkspace as EventListener);

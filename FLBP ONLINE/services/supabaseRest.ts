@@ -1810,6 +1810,9 @@ export interface SupabaseAdminAccessResult {
     reason?: string;
 }
 
+let ensureSupabaseAdminAccessInFlight: Promise<SupabaseAdminAccessResult> | null = null;
+let ensureSupabaseAdminAccessInFlightKey = '';
+
 const resolveSessionUserId = (session: SupabaseSession | null): string | null => {
     const direct = String(session?.userId || '').trim();
     if (direct) return direct;
@@ -1832,52 +1835,71 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
         return { ok: false, reason: 'Impossibile determinare l’utente autenticato.' };
     }
 
-    let res: Response;
+    const requestKey = `${cfg.url}|${cfg.workspaceId}|${userId}|${String(session.accessToken || '').slice(0, 32)}`;
+    if (ensureSupabaseAdminAccessInFlight && ensureSupabaseAdminAccessInFlightKey === requestKey) {
+        return ensureSupabaseAdminAccessInFlight;
+    }
+
+    const requestPromise = (async (): Promise<SupabaseAdminAccessResult> => {
+        let res: Response;
+        try {
+            res = await fetchWithTimeout(
+                restUrl(cfg, `admin_users?user_id=eq.${encodeURIComponent(userId)}&select=user_id,email&limit=1`),
+                { headers: buildHeaders(cfg, session.accessToken) },
+                12000,
+                { source: 'ensureSupabaseAdminAccess', kind: 'admin' }
+            );
+        } catch (error: any) {
+            return {
+                ok: false,
+                reason: normalizeFetchFailure(error, 'Timeout verifica admin_users. Supabase REST potrebbe essere lento: riprova tra qualche secondo, poi controlla RLS/progetto Supabase.').message,
+                userId,
+                email: session.email || null
+            };
+        }
+
+        if (!res.ok) {
+            return { ok: false, reason: await readErrorBody(res), userId, email: session.email || null };
+        }
+
+        const rows = (await res.json()) as Array<{ user_id?: string; email?: string | null }>;
+        const hit = rows?.[0];
+        if (!hit?.user_id) {
+            return {
+                ok: false,
+                userId,
+                email: session.email || null,
+                reason: 'Questo account autenticato non ha ruolo admin in Supabase.'
+            };
+        }
+
+        const nextSession: SupabaseSession = {
+            ...session,
+            userId,
+            email: hit.email || session.email || null
+        };
+        if (!sameSupabaseSession(session, nextSession)) {
+            setSupabaseSession(nextSession);
+        }
+
+        return {
+            ok: true,
+            userId,
+            email: hit.email || session.email || null
+        };
+    })();
+
+    ensureSupabaseAdminAccessInFlightKey = requestKey;
+    ensureSupabaseAdminAccessInFlight = requestPromise;
+
     try {
-        res = await fetchWithTimeout(
-            restUrl(cfg, `admin_users?user_id=eq.${encodeURIComponent(userId)}&select=user_id,email&limit=1`),
-            { headers: buildHeaders(cfg, session.accessToken) },
-            5000,
-            { source: 'ensureSupabaseAdminAccess', kind: 'admin' }
-        );
-    } catch (error: any) {
-        return {
-            ok: false,
-            reason: normalizeFetchFailure(error, 'Timeout verifica admin_users. Controlla RLS/progetto Supabase e riprova.').message,
-            userId,
-            email: session.email || null
-        };
+        return await requestPromise;
+    } finally {
+        if (ensureSupabaseAdminAccessInFlight === requestPromise) {
+            ensureSupabaseAdminAccessInFlight = null;
+            ensureSupabaseAdminAccessInFlightKey = '';
+        }
     }
-
-    if (!res.ok) {
-        return { ok: false, reason: await readErrorBody(res), userId, email: session.email || null };
-    }
-
-    const rows = (await res.json()) as Array<{ user_id?: string; email?: string | null }>;
-    const hit = rows?.[0];
-    if (!hit?.user_id) {
-        return {
-            ok: false,
-            userId,
-            email: session.email || null,
-            reason: 'Questo account autenticato non ha ruolo admin in Supabase.'
-        };
-    }
-
-    const nextSession: SupabaseSession = {
-        ...session,
-        userId,
-        email: hit.email || session.email || null
-    };
-    if (!sameSupabaseSession(session, nextSession)) {
-        setSupabaseSession(nextSession);
-    }
-
-    return {
-        ok: true,
-        userId,
-        email: hit.email || session.email || null
-    };
 };
 
 export const testSupabaseConnection = async (): Promise<{ ok: boolean; message: string }> => {
