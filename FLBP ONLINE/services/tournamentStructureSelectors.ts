@@ -75,6 +75,35 @@ export const buildBracketRoundsFromMatches = (matches: Match[]): Match[][] => {
     );
 };
 
+const getBracketRoundsShapeScore = (rounds: Match[][]) => {
+  const normalized = (rounds || []).filter((round) => Array.isArray(round) && round.length > 0);
+  return {
+    roundCount: normalized.length,
+    matchCount: normalized.reduce((total, round) => total + round.length, 0),
+  };
+};
+
+export const getPreferredBracketRounds = (
+  tournament: TournamentData | null | undefined,
+  matches: Match[]
+): Match[][] => {
+  const tournamentRounds = Array.isArray(tournament?.rounds)
+    ? (tournament?.rounds || []).map((round) => cloneMatches(round || []))
+    : [];
+  const matchRounds = buildBracketRoundsFromMatches(matches || []);
+  const tournamentScore = getBracketRoundsShapeScore(tournamentRounds);
+  const matchScore = getBracketRoundsShapeScore(matchRounds);
+
+  if (!tournamentScore.roundCount) return matchRounds;
+  if (!matchScore.roundCount) return tournamentRounds;
+  if (matchScore.roundCount > tournamentScore.roundCount) return matchRounds;
+  if (matchScore.roundCount === tournamentScore.roundCount && matchScore.matchCount > tournamentScore.matchCount) {
+    return matchRounds;
+  }
+
+  return tournamentRounds;
+};
+
 export const buildSlotKey = (matchId: string, side: 'A' | 'B') => `${matchId}|${side}`;
 
 export const parseSlotKey = (

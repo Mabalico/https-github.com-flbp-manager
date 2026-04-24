@@ -4,6 +4,7 @@ import { Match, Team, TournamentData, TournamentMatch } from '../types';
 import { Edit2, Save, X, Trophy, Lock } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
+import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 
 interface TournamentBracketProps {
     teams: Team[];
@@ -145,25 +146,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         return () => ro.disconnect();
     }, [showConnectors, tvMode, matches, showByeSlots]);
 
-    const rounds: Match[][] = [];
-    if (data?.rounds) {
-        data.rounds.forEach(r => rounds.push(r));
-    } else if (matches && matches.length > 0) {
-        const baseBracketMatches = matches.filter(m => m.phase === 'bracket');
-        const bracketMatches = showByeSlots
-            ? baseBracketMatches.filter(m => !(isByeTeamId(m.teamAId) && isByeTeamId(m.teamBId)))
-            : baseBracketMatches;
-        const map = new Map<number, Match[]>();
-        bracketMatches.forEach(m => {
-            const r = m.round || 1;
-            if (!map.has(r)) map.set(r, []);
-            map.get(r)!.push(m);
-        });
-        const sortedKeys = Array.from(map.keys()).sort((a, b) => a - b);
-        sortedKeys.forEach(k => {
-            rounds.push(map.get(k)!.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)));
-        });
-    }
+    const rounds = React.useMemo(() => {
+        const baseRounds = getPreferredBracketRounds(data, matches);
+        if (showByeSlots) return baseRounds;
+        return baseRounds.map((round) =>
+            round.filter((match) => !(isByeTeamId(match.teamAId) && isByeTeamId(match.teamBId)))
+        );
+    }, [data, matches, showByeSlots]);
 
     const getMatch = (id: string) => matches.find(m => m.id === id);
 

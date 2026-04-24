@@ -7,6 +7,7 @@ import { TvProjection } from '../types';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
 import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
+import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 
 const ROTATION_MS = 15000;
 
@@ -104,31 +105,17 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   }, [teamNameById]);
 
   const visibleBracketTeamsCount = React.useMemo(() => visibleTeams(teams).length, [teams, visibleTeams]);
+  const preferredBracketRounds = React.useMemo(() => getPreferredBracketRounds(data, matches), [data, matches]);
 
   const bracketRoundCount = React.useMemo(() => {
-    if (Array.isArray(data?.rounds) && data.rounds.length > 0) return data.rounds.length;
-
-    const rounds = new Set<string>();
-    for (const m of (matches || [])) {
-      if (m.phase !== 'bracket') continue;
-      if (m.hidden || m.isBye) continue;
-      if (typeof m.round === 'number') {
-        rounds.add(`round-${m.round}`);
-        continue;
-      }
-      if (m.roundName) {
-        rounds.add(`name-${m.roundName}`);
-      }
-    }
-
-    return rounds.size;
-  }, [data?.rounds, matches]);
+    return preferredBracketRounds.length;
+  }, [preferredBracketRounds]);
 
 
   const hasBracketContent = React.useMemo(() => {
-    if (Array.isArray(data?.rounds) && data.rounds.length > 0) return true;
+    if (preferredBracketRounds.length > 0) return true;
     return (matches || []).some((m) => m.phase === 'bracket' && !m.hidden && !m.isBye);
-  }, [data?.rounds, matches]);
+  }, [matches, preferredBracketRounds.length]);
 
   // In split mode (Gironi + Tabellone), avoid scroll: paginate + auto-rotate like TV gironi.
   // If groups are "too large", show 1 per page; if small, allow 2 per page.
