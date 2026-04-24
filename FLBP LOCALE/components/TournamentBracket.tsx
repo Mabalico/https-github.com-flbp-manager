@@ -22,6 +22,8 @@ interface TournamentBracketProps {
     scale?: number;
     /** Optional: override click behavior for a match (e.g. open referto instead of score modal). */
     onMatchClick?: (match: Match) => void;
+    /** Public read-only: open details for a real team row without changing match behavior. */
+    onTeamClick?: (team: Team, args: { teamId: string; side: 'A' | 'B'; match: Match }) => void;
     /** If true, team names wrap instead of being truncated with ellipsis. */
     wrapTeamNames?: boolean;
 
@@ -66,7 +68,7 @@ interface TournamentBracketProps {
     showConnectors?: boolean;
 }
 
-export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, highlightedSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
+export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, highlightedSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
     const { t } = useTranslation();
     const resultsOnly = isResultsOnlyTournament(data);
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -567,6 +569,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
 
                          const t1 = teams.find(t => t.id === teamAId);
                          const t2 = teams.find(t => t.id === teamBId);
+                         const canOpenTeamA = !!readOnly && !!onTeamClick && !!t1 && !!teamAId && !isByeTeamId(teamAId) && !isTbdTeamId(teamAId) && !preserveEmptySlot;
+                         const canOpenTeamB = !!readOnly && !!onTeamClick && !!t2 && !!teamBId && !isByeTeamId(teamBId) && !isTbdTeamId(teamBId) && !preserveEmptySlot;
                          
                          const isWinnerA = match.status === 'finished' && match.scoreA > match.scoreB;
                          const isWinnerB = match.status === 'finished' && match.scoreB > match.scoreA;
@@ -671,7 +675,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                 )}
 
                                 <div
-                                    onClick={selectableSlotA ? (e) => { e.stopPropagation(); e.preventDefault(); onParticipantClick?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match }); } : undefined}
+                                    onClick={selectableSlotA ? (e) => { e.stopPropagation(); e.preventDefault(); onParticipantClick?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match }); } : (canOpenTeamA ? (e) => { e.stopPropagation(); e.preventDefault(); onTeamClick?.(t1!, { teamId: teamAId!, side: 'A', match }); } : undefined)}
                                     draggable={selectableSlotA}
                                     onDragStart={selectableSlotA ? (e) => {
                                         e.stopPropagation();
@@ -700,22 +704,26 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         onParticipantDrop?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match });
                                     } : undefined}
                                     onDragEnd={selectableSlotA ? () => onParticipantDragEnd?.() : undefined}
-                                    onKeyDown={selectableSlotA ? (e) => {
+                                    onKeyDown={(selectableSlotA || canOpenTeamA) ? (e) => {
                                         if (e.key === 'Enter' || e.key === ' ') {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            onParticipantClick?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match });
+                                            if (selectableSlotA) {
+                                                onParticipantClick?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match });
+                                            } else if (canOpenTeamA) {
+                                                onTeamClick?.(t1!, { teamId: teamAId!, side: 'A', match });
+                                            }
                                         }
                                     } : undefined}
-                                    role={selectableSlotA ? 'button' : undefined}
-                                    tabIndex={selectableSlotA ? 0 : undefined}
+                                    role={(selectableSlotA || canOpenTeamA) ? 'button' : undefined}
+                                    tabIndex={(selectableSlotA || canOpenTeamA) ? 0 : undefined}
                                     className={`
                                         flex justify-between ${wrapTeamNames ? 'items-start' : 'items-center'} outline-none
                                         ${rowBaseClass}
                                         ${rowWinAClass}
                                         ${changedRowAClass}
                                         ${lockedRowAClass}
-                                        ${selectableSlotA ? `${editorStructuredLayout ? 'cursor-pointer hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer'}` : ''}
+                                        ${(selectableSlotA || canOpenTeamA) ? `${editorStructuredLayout ? 'cursor-pointer hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer hover:border-beer-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950'}` : ''}
                                         ${selectedRingA}
                                         ${invalidA ? 'border-2 border-rose-500 bg-rose-50/85 ring-2 ring-rose-200' : ''}
                                         ${draggingA ? 'opacity-60 ring-2 ring-slate-500' : ''}
@@ -723,7 +731,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         ${inlineEditSlotKey === `${match.id}|A` ? 'ring-2 ring-beer-600 bg-white/90' : ''}
                                         ${isSlotLibreA ? 'border border-dashed border-sky-300 bg-sky-50 text-sky-700' : ''}
                                     `}
-                                    aria-label={selectableSlotA ? t('bracket_select_team_a_slot') : undefined}
+                                    aria-label={selectableSlotA ? t('bracket_select_team_a_slot') : (canOpenTeamA ? formatTeamLabel(teamAId, t1, allowByeSlotsThisRound) : undefined)}
                                 >
                                     {inlineEditSlotKey === `${match.id}|A` && inlineEditOptions && onInlineEditChange ? (
                                         <select
@@ -754,7 +762,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                 </div>
 
                                 <div
-                                    onClick={selectableSlotB ? (e) => { e.stopPropagation(); e.preventDefault(); onParticipantClick?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match }); } : undefined}
+                                    onClick={selectableSlotB ? (e) => { e.stopPropagation(); e.preventDefault(); onParticipantClick?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match }); } : (canOpenTeamB ? (e) => { e.stopPropagation(); e.preventDefault(); onTeamClick?.(t2!, { teamId: teamBId!, side: 'B', match }); } : undefined)}
                                     draggable={selectableSlotB}
                                     onDragStart={selectableSlotB ? (e) => {
                                         e.stopPropagation();
@@ -783,22 +791,26 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         onParticipantDrop?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match });
                                     } : undefined}
                                     onDragEnd={selectableSlotB ? () => onParticipantDragEnd?.() : undefined}
-                                    onKeyDown={selectableSlotB ? (e) => {
+                                    onKeyDown={(selectableSlotB || canOpenTeamB) ? (e) => {
                                         if (e.key === 'Enter' || e.key === ' ') {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            onParticipantClick?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match });
+                                            if (selectableSlotB) {
+                                                onParticipantClick?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match });
+                                            } else if (canOpenTeamB) {
+                                                onTeamClick?.(t2!, { teamId: teamBId!, side: 'B', match });
+                                            }
                                         }
                                     } : undefined}
-                                    role={selectableSlotB ? 'button' : undefined}
-                                    tabIndex={selectableSlotB ? 0 : undefined}
+                                    role={(selectableSlotB || canOpenTeamB) ? 'button' : undefined}
+                                    tabIndex={(selectableSlotB || canOpenTeamB) ? 0 : undefined}
                                     className={`
                                         flex justify-between ${wrapTeamNames ? 'items-start' : 'items-center'} outline-none
                                         ${rowBaseClass}
                                         ${rowWinBClass}
                                         ${changedRowBClass}
                                         ${lockedRowBClass}
-                                        ${selectableSlotB ? `${editorStructuredLayout ? 'cursor-pointer hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer'}` : ''}
+                                        ${(selectableSlotB || canOpenTeamB) ? `${editorStructuredLayout ? 'cursor-pointer hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer hover:border-beer-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950'}` : ''}
                                         ${selectedRingB}
                                         ${invalidB ? 'border-2 border-rose-500 bg-rose-50/85 ring-2 ring-rose-200' : ''}
                                         ${draggingB ? 'opacity-60 ring-2 ring-slate-500' : ''}
@@ -806,7 +818,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         ${inlineEditSlotKey === `${match.id}|B` ? 'ring-2 ring-beer-600 bg-white/90' : ''}
                                         ${isSlotLibreB ? 'border border-dashed border-sky-300 bg-sky-50 text-sky-700' : ''}
                                     `}
-                                    aria-label={selectableSlotB ? t('bracket_select_team_b_slot') : undefined}
+                                    aria-label={selectableSlotB ? t('bracket_select_team_b_slot') : (canOpenTeamB ? formatTeamLabel(teamBId, t2, allowByeSlotsThisRound) : undefined)}
                                 >
                                     {inlineEditSlotKey === `${match.id}|B` && inlineEditOptions && onInlineEditChange ? (
                                         <select

@@ -4,6 +4,7 @@ import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { TournamentBracket } from './TournamentBracket';
 import { TournamentLeaderboard } from './TournamentLeaderboard';
+import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
 import { getMatchParticipantIds, formatMatchScoreLabel, formatMatchTeamsLabel, isByeTeamId } from '../services/matchUtils';
@@ -51,6 +52,11 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [showAwards, setShowAwards] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedTeamPlayer, setSelectedTeamPlayer] = useState<{
+    name: string;
+    birthDate?: string | null;
+  } | null>(null);
 
   const [turnsOpen, setTurnsOpen] = useState(false);
   const [turnsTab, setTurnsTab] = useState<'all' | 'live' | 'next' | 'played' | 'tbd'>('all');
@@ -68,6 +74,12 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   const getTeamName = (id?: string) => {
     if (!id) return 'TBD';
     return teamNameById.get(id) || 'TBD';
+  };
+
+  const openTeamPlayerProfile = (name?: string | null, birthDate?: string | null) => {
+    const safeName = String(name || '').trim();
+    if (!safeName) return;
+    setSelectedTeamPlayer({ name: safeName, birthDate });
   };
 
   const dataResultsOnly = isResultsOnlyTournament(data);
@@ -1072,7 +1084,15 @@ const visibleTeamsCount = React.useMemo(() => {
                   </div>
 
                   <div className="relative bg-[linear-gradient(180deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.88)_100%)]">
-                    <TournamentBracket teams={teams} data={data} matches={matches} readOnly={true} showConnectors={true} wrapTeamNames={true} />
+                    <TournamentBracket
+                      teams={teams}
+                      data={data}
+                      matches={matches}
+                      readOnly={true}
+                      showConnectors={true}
+                      wrapTeamNames={true}
+                      onTeamClick={(team) => setSelectedTeam(team)}
+                    />
                   </div>
 
                 </div>
@@ -1128,6 +1148,68 @@ const visibleTeamsCount = React.useMemo(() => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {selectedTeam && (
+        <div className="flbp-mobile-sheet fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setSelectedTeam(null)}>
+          <div
+            className="flbp-mobile-sheet-panel w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="team-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between bg-slate-900 p-4 text-white">
+              <h3 id="team-dialog-title" className="font-black uppercase">Squadra</h3>
+              <button
+                type="button"
+                onClick={() => setSelectedTeam(null)}
+                className="rounded p-1 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+                aria-label={t('close')}
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <div>
+                <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">Nome squadra</div>
+                <div className="mt-1 text-2xl font-black text-slate-950">{selectedTeam.name}</div>
+              </div>
+
+              <div className="space-y-3">
+                {[
+                  { label: 'Giocatore 1', name: selectedTeam.player1, birthDate: selectedTeam.player1BirthDate },
+                  { label: 'Giocatore 2', name: selectedTeam.player2, birthDate: selectedTeam.player2BirthDate },
+                ].filter((player) => String(player.name || '').trim()).map((player) => (
+                  <button
+                    key={`${player.label}:${player.name}`}
+                    type="button"
+                    onClick={() => openTeamPlayerProfile(player.name, player.birthDate)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-beer-300 hover:bg-beer-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
+                  >
+                    <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{player.label}</div>
+                    <div className="mt-1 text-lg font-black text-slate-950">{player.name}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedTeamPlayer && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto bg-slate-50 p-3 sm:p-6">
+          <PublicPlayerDetail
+            state={publicState}
+            playerName={selectedTeamPlayer.name}
+            playerBirthDate={selectedTeamPlayer.birthDate}
+            onBack={() => setSelectedTeamPlayer(null)}
+            onOpenTournament={() => {
+              setSelectedTeamPlayer(null);
+              setSelectedTeam(null);
+            }}
+          />
         </div>
       )}
 
