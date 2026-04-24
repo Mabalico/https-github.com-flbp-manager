@@ -2279,7 +2279,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     && !hasCanonicalAccountAliasLink
     && !hasPendingAccountMergeRequest
     && pendingAccountAliasSuggestions.length > 0
-    && !accountAliasInterstitialDismissed
   );
 
   const showAccountAliasInterstitial = false;
