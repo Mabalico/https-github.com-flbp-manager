@@ -2250,6 +2250,21 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     && !accountAliasInterstitialDismissed
   );
 
+  const accountAliasGatePending = (
+    !!effectiveProfile
+    && !!liveRuntimeSession
+    && liveAuthFlow !== 'recovery'
+    && !liveAccountAliasLoaded
+    && !hasCanonicalAccountAliasLink
+    && !hasPendingAccountMergeRequest
+    && !accountAliasInterstitialDismissed
+  );
+
+  React.useEffect(() => {
+    if (!showAccountAliasInterstitial || registerAliasModalOpen || registerAliasPromptMode) return;
+    openAccountAliasPrompt();
+  }, [openAccountAliasPrompt, registerAliasModalOpen, registerAliasPromptMode, showAccountAliasInterstitial]);
+
   return (
     <>
     {nativePushPromptModal}
@@ -2569,6 +2584,19 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
                     </button>
                   </div>
+                </div>
+              </div>
+            ) : accountAliasGatePending ? (
+              <div className="rounded-[22px] border border-amber-200 bg-amber-50/80 p-4 md:p-5 space-y-4">
+                <div>
+                  <div className={sectionTitleClass}>{t('player_register_alias_title')}</div>
+                  <div className="mt-1 text-sm font-semibold leading-6 text-amber-900">
+                    {t('player_register_alias_desc')}
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="h-14 rounded-2xl border border-amber-100 bg-white/80" />
+                  <div className="h-14 rounded-2xl border border-amber-100 bg-white/80" />
                 </div>
               </div>
             ) : liveProfileHydrating ? (
