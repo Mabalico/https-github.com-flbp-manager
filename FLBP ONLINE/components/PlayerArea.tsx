@@ -1256,8 +1256,31 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   }, [liveAccountAliasSuggestions, liveBackendEnabled, liveRuntimeSession, provisionalLiveProfile]);
 
   const hasCanonicalAccountAliasLink = React.useMemo(
-    () => !!String(liveProfileRow?.canonical_player_id || effectiveProfile?.canonicalPlayerId || provisionalLiveProfile?.canonicalPlayerId || '').trim(),
-    [effectiveProfile?.canonicalPlayerId, liveProfileRow?.canonical_player_id, provisionalLiveProfile?.canonicalPlayerId]
+    () => {
+      const canonicalPlayerId = String(
+        liveProfileRow?.canonical_player_id
+        || effectiveProfile?.canonicalPlayerId
+        || ''
+      ).trim();
+      if (!canonicalPlayerId) return false;
+
+      // A saved account may have its own provisional canonical id before an admin
+      // merges it into a historical player. Treat it as "linked" only once the
+      // current public snapshot actually resolves to existing player data.
+      return !!effectivePersonalProfile && (
+        effectivePersonalProfile.hasArchivedData
+        || effectivePersonalProfile.hasManualData
+        || effectivePersonalProfile.aliasCount > 0
+        || effectivePersonalProfile.totalTitles > 0
+        || effectivePersonalProfile.totalCanestri > 0
+        || effectivePersonalProfile.totalSoffi > 0
+      );
+    },
+    [
+      effectivePersonalProfile,
+      effectiveProfile?.canonicalPlayerId,
+      liveProfileRow?.canonical_player_id,
+    ]
   );
 
   const requestedAliasCandidateIds = React.useMemo(
