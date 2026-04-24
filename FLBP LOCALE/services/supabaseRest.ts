@@ -1079,7 +1079,7 @@ export const pullPlayerAppProfile = async (): Promise<PlayerSupabaseProfileRow |
         cfg,
         `player_app_profiles?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&user_id=eq.${encodeURIComponent(userId)}&select=workspace_id,user_id,first_name,last_name,birth_date,canonical_player_id,canonical_player_name,created_at,updated_at&limit=1`
     );
-    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 4000, { source: 'pullPlayerAppProfile', kind: 'sync' });
+    const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 8000, { source: 'pullPlayerAppProfile', kind: 'sync' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     const rows = await res.json();
     return Array.isArray(rows) && rows[0] ? rows[0] as PlayerSupabaseProfileRow : null;

@@ -952,7 +952,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       let nextCalls: LiveCallRequest[] = [];
 
       try {
-        await syncLiveDeviceRegistration();
+        nextProfile = await pullPlayerAppProfile();
       } catch (error: any) {
         const message = String(error?.message || error || '').trim();
         if (isPlayerBackendPendingError(message)) {
@@ -963,15 +963,22 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         }
       }
 
+      if (nextProfile) {
+        applyIfCurrent(() => {
+          setLiveProfileRow((current) => (sameLiveProfileRow(current, nextProfile) ? current : nextProfile));
+          if (!silent) setLiveDerivedRefreshNonce((value) => value + 1);
+        });
+      }
+
       try {
-        nextProfile = await pullPlayerAppProfile();
+        await syncLiveDeviceRegistration();
       } catch (error: any) {
         const message = String(error?.message || error || '').trim();
         if (isPlayerBackendPendingError(message)) {
           backendPending = true;
           pendingMessage = pendingMessage || message;
         } else {
-          throw error;
+          console.warn('[PlayerArea] Device registration sync skipped', error);
         }
       }
 
@@ -1032,7 +1039,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           backendPending = true;
           pendingMessage = pendingMessage || message;
         } else {
-          throw error;
+          console.warn('[PlayerArea] Live calls sync skipped', error);
         }
       }
 
