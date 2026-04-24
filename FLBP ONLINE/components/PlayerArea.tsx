@@ -2271,7 +2271,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         )
       : null;
 
-  const showAccountAliasInterstitial = (
+  const showAccountAliasNotice = (
     !!displayProfile
     && !!liveRuntimeSession
     && liveAuthFlow !== 'recovery'
@@ -2282,15 +2282,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     && !accountAliasInterstitialDismissed
   );
 
-  const accountAliasGatePending = (
-    !!displayProfile
-    && !!liveRuntimeSession
-    && liveAuthFlow !== 'recovery'
-    && !liveAccountAliasLoaded
-    && !hasCanonicalAccountAliasLink
-    && !hasPendingAccountMergeRequest
-    && !accountAliasInterstitialDismissed
-  );
+  const showAccountAliasInterstitial = false;
+  const accountAliasGatePending = false;
 
   return (
     <>
@@ -2773,7 +2766,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
             ) : (
               <div className="space-y-5">
-                {pendingAccountAliasSuggestions.length && !accountAliasInterstitialDismissed && !hasPendingAccountMergeRequest ? (
+                {false && pendingAccountAliasSuggestions.length && !accountAliasInterstitialDismissed && !hasPendingAccountMergeRequest ? (
                   <div className="rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-4 shadow-sm shadow-amber-100/60 md:px-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="min-w-0">
@@ -2827,6 +2820,24 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           ? `${formatBirthDateDisplay(displayProfile.birthDate)}`
                           : getPlayerPreviewIdentityLabel(snapshot.profile)}
                       </div>
+                      {showAccountAliasNotice ? (
+                        <button
+                          type="button"
+                          onClick={openAccountAliasPrompt}
+                          className="mt-3 flex w-full max-w-xl items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/95 px-3 py-3 text-left shadow-sm shadow-amber-100/60 transition hover:border-amber-300 hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 sm:w-auto sm:min-w-[min(100%,28rem)]"
+                        >
+                          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-black text-amber-950">
+                              Possibile presenza di dati storici già presenti
+                            </span>
+                            <span className="mt-0.5 block text-xs font-bold leading-5 text-amber-800">
+                              Tocca qui per aprire la richiesta e segnalarla agli admin.
+                            </span>
+                          </span>
+                          <ChevronRight className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                        </button>
+                      ) : null}
                     </div>
                     <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50/80 backdrop-blur-md px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
                       <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
