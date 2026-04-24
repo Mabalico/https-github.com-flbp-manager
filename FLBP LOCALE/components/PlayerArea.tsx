@@ -971,18 +971,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       }
 
       try {
-        await syncLiveDeviceRegistration();
-      } catch (error: any) {
-        const message = String(error?.message || error || '').trim();
-        if (isPlayerBackendPendingError(message)) {
-          backendPending = true;
-          pendingMessage = pendingMessage || message;
-        } else {
-          console.warn('[PlayerArea] Device registration sync skipped', error);
-        }
-      }
-
-      try {
         nextMergeRequests = await pullPlayerOwnAccountMergeRequests({
           accessToken: nextSession.accessToken,
           status: null,
@@ -1026,6 +1014,30 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
           console.warn('[PlayerArea] Alias state refresh skipped', error);
         }
         nextAliasSuggestions = buildLiveAccountAliasSuggestions(aliasState, nextProfile);
+      }
+
+      if (nextProfile) {
+        applyIfCurrent(() => {
+          setLiveProfileRow((current) => (sameLiveProfileRow(current, nextProfile) ? current : nextProfile));
+          setLiveMergeRequests((current) => (samePlayerAccountMergeRequests(current, nextMergeRequests) ? current : nextMergeRequests));
+          setLiveAccountAliasSuggestions((current) => (
+            samePlayerRegistrationAliasSuggestions(current, nextAliasSuggestions) ? current : nextAliasSuggestions
+          ));
+          setLiveAccountAliasLoaded(true);
+          if (!silent) setLiveDerivedRefreshNonce((value) => value + 1);
+        });
+      }
+
+      try {
+        await syncLiveDeviceRegistration();
+      } catch (error: any) {
+        const message = String(error?.message || error || '').trim();
+        if (isPlayerBackendPendingError(message)) {
+          backendPending = true;
+          pendingMessage = pendingMessage || message;
+        } else {
+          console.warn('[PlayerArea] Device registration sync skipped', error);
+        }
       }
 
       try {
@@ -2250,6 +2262,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     && !accountAliasInterstitialDismissed
   );
 
+  const accountAliasGatePending = (
+    !!effectiveProfile
+    && !!liveRuntimeSession
+    && liveAuthFlow !== 'recovery'
+    && !liveAccountAliasLoaded
+    && !hasCanonicalAccountAliasLink
+    && !hasPendingAccountMergeRequest
+    && !accountAliasInterstitialDismissed
+  );
+
   return (
     <>
     {nativePushPromptModal}
@@ -2571,74 +2593,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                   </div>
                 </div>
               </div>
-            ) : liveProfileHydrating ? (
-              <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
+            ) : accountAliasGatePending ? (
+              <div className="rounded-[22px] border border-amber-200 bg-amber-50/80 p-4 md:p-5 space-y-4">
                 <div>
-                  <div className={sectionTitleClass}>{t('player_area_loading_profile_title')}</div>
-                  <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                    {t('player_area_loading_profile_desc')}
+                  <div className={sectionTitleClass}>{t('player_register_alias_title')}</div>
+                  <div className="mt-1 text-sm font-semibold leading-6 text-amber-900">
+                    {t('player_register_alias_desc')}
                   </div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
-                  <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
-                </div>
-                <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
-              </div>
-            ) : !effectiveProfile ? (
-              <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
-                <div>
-                  <div className={sectionTitleClass}>{t('player_area_profile_title')}</div>
-                  <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                    {t('player_area_profile_desc')}
-                  </div>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
-                    <input
-                      name="player-profile-first-name"
-                      autoComplete="given-name"
-                      value={firstName}
-                      onChange={(event) => setFirstName(event.target.value)}
-                      className={inputClass}
-                      placeholder={t('player_area_first_name_placeholder')}
-                    />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
-                    <input
-                      name="player-profile-last-name"
-                      autoComplete="family-name"
-                      value={lastName}
-                      onChange={(event) => setLastName(event.target.value)}
-                      className={inputClass}
-                      placeholder={t('player_area_last_name_placeholder')}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
-                  <BirthDateInput
-                    value={birthDate}
-                    onChange={setBirthDate}
-                    className={inputClass}
-                    placeholder="gg/mm/aaaa"
-                    ariaLabel={t('birth_date')}
-                    calendarTitle={t('player_area_open_calendar')}
-                  />
-                  <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  <button type="button" onClick={submitProfile} className={btnPrimary}>
-                    <BadgeCheck className="h-4 w-4" /> {t('player_area_save_profile')}
-                  </button>
-                  <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
-                    <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
-                  </button>
+                  <div className="h-14 rounded-2xl border border-amber-100 bg-white/80" />
+                  <div className="h-14 rounded-2xl border border-amber-100 bg-white/80" />
                 </div>
               </div>
             ) : showAccountAliasInterstitial ? (
@@ -2714,6 +2679,76 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                       <ChevronRight className="h-4 w-4" /> {t('player_register_alias_skip')}
                     </button>
                   </div>
+                </div>
+              </div>
+            ) : liveProfileHydrating ? (
+              <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
+                <div>
+                  <div className={sectionTitleClass}>{t('player_area_loading_profile_title')}</div>
+                  <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+                    {t('player_area_loading_profile_desc')}
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
+                  <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
+                </div>
+                <div className="h-14 rounded-2xl border border-slate-200 bg-white/80" />
+              </div>
+            ) : !effectiveProfile ? (
+              <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4 md:p-5 space-y-4">
+                <div>
+                  <div className={sectionTitleClass}>{t('player_area_profile_title')}</div>
+                  <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+                    {t('player_area_profile_desc')}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
+                    <input
+                      name="player-profile-first-name"
+                      autoComplete="given-name"
+                      value={firstName}
+                      onChange={(event) => setFirstName(event.target.value)}
+                      className={inputClass}
+                      placeholder={t('player_area_first_name_placeholder')}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
+                    <input
+                      name="player-profile-last-name"
+                      autoComplete="family-name"
+                      value={lastName}
+                      onChange={(event) => setLastName(event.target.value)}
+                      className={inputClass}
+                      placeholder={t('player_area_last_name_placeholder')}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date')}</div>
+                  <BirthDateInput
+                    value={birthDate}
+                    onChange={setBirthDate}
+                    className={inputClass}
+                    placeholder="gg/mm/aaaa"
+                    ariaLabel={t('birth_date')}
+                    calendarTitle={t('player_area_open_calendar')}
+                  />
+                  <div className="mt-2 text-xs font-semibold text-slate-500">{t('player_area_birth_date_hint')}</div>
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
+                  <button type="button" onClick={submitProfile} className={btnPrimary}>
+                    <BadgeCheck className="h-4 w-4" /> {t('player_area_save_profile')}
+                  </button>
+                  <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
+                    <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
+                  </button>
                 </div>
               </div>
             ) : (
