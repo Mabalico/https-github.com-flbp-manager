@@ -3954,7 +3954,7 @@ while (guard < 5000) {
                 <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
                          <div className="flex items-center gap-2 font-black text-amber-900 text-sm">
-                              <Settings className="h-5 w-5" /> {t('admin_tester_tools')}
+                              {t('admin_tester_tools')}
                          </div>
                          <div className="flex flex-wrap gap-2">
                             <button type="button" onClick={handleSimulateTurn} disabled={simBusy} className="bg-amber-500 text-white px-3 py-1.5 rounded-xl font-black text-xs inline-flex items-center gap-1.5 hover:bg-amber-600 disabled:opacity-50">
