@@ -1,10 +1,11 @@
-import React from 'react';
+﻿import React from 'react';
 import { Trophy } from 'lucide-react';
 import { TournamentBracket } from './TournamentBracket';
 import type { Match, Team, TournamentData } from '../types';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 import { useTranslation } from '../App';
+import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 type LayoutProfile = {
   matchWidth: number;
@@ -207,8 +208,8 @@ const TeamLine: React.FC<{
   const textFontSize = getTeamTextFontSize(name, profile.fontSize, compact);
   const scoreClass = scoreTextClass(profile, compact);
   const isPlaceholder = isPlaceholderTeamName(name);
-  const isPendingScore = score === 'â€“';
-  const scoreNode = (
+  const isPendingScore = score === '-';
+  const scoreNode = score === '' ? null : (
     <span
       className={`shrink-0 font-mono font-black tabular-nums ${scoreClass} ${winner ? 'text-amber-100' : 'text-slate-100'} ${isPendingScore ? 'opacity-55' : ''}`}
       aria-label={isPendingScore ? pendingAriaLabel : `${scoreAriaLabel} ${score}`}
@@ -369,6 +370,17 @@ const pathForConnector = (
 
 export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, matches, data, compact = false, minimalChrome = false }) => {
   const { t } = useTranslation();
+  const resultsOnlyBracket = isResultsOnlyTournament(data || null);
+
+  const getTeamOutcomeLabel = React.useCallback((match: Match, side: 'A' | 'B') => {
+    if (match.status !== 'finished') return resultsOnlyBracket ? '' : '-';
+    if (!resultsOnlyBracket) return side === 'A' ? match.scoreA : match.scoreB;
+
+    const winnerA = match.scoreA > match.scoreB;
+    const winnerB = match.scoreB > match.scoreA;
+    if (side === 'A') return winnerA ? 'W' : winnerB ? 'L' : '';
+    return winnerB ? 'W' : winnerA ? 'L' : '';
+  }, [resultsOnlyBracket]);
 
   const localizeRoundLabel = React.useCallback((text: string, compactMode = false) => {
     const normalized = String(text || '').trim().toUpperCase();
@@ -823,7 +835,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.top}
-                        score={match.raw.status === 'finished' ? match.raw.scoreA : 'â€“'}
+                        score={getTeamOutcomeLabel(match.raw, 'A')}
                         placementSide={placement.side}
                         profile={layout.profile}
                         compact={compact}
@@ -836,7 +848,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.bottom}
-                        score={match.raw.status === 'finished' ? match.raw.scoreB : 'â€“'}
+                        score={getTeamOutcomeLabel(match.raw, 'B')}
                         placementSide={placement.side}
                         profile={layout.profile}
                         compact={compact}
@@ -986,7 +998,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.top}
-                      score={match.raw.status === 'finished' ? match.raw.scoreA : 'â€“'}
+                      score={getTeamOutcomeLabel(match.raw, 'A')}
                       placementSide={placement.side}
                       profile={layout.profile}
                       compact={compact}
@@ -999,7 +1011,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.bottom}
-                      score={match.raw.status === 'finished' ? match.raw.scoreB : 'â€“'}
+                      score={getTeamOutcomeLabel(match.raw, 'B')}
                       placementSide={placement.side}
                       profile={layout.profile}
                       compact={compact}

@@ -5,6 +5,7 @@ import { Edit2, Save, X, Trophy, Lock } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
 import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
+import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 interface TournamentBracketProps {
     teams: Team[];
@@ -67,9 +68,22 @@ interface TournamentBracketProps {
 
 export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, highlightedSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
     const { t } = useTranslation();
+    const resultsOnly = isResultsOnlyTournament(data);
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
     const [scoreA, setScoreA] = useState(0);
     const [scoreB, setScoreB] = useState(0);
+
+    const getOutcomeLabel = React.useCallback((m: Match, side: 'A' | 'B', isByeDisplay: boolean): string | number => {
+        if (isByeDisplay) return '';
+        if (m.status !== 'finished') return resultsOnly ? '' : '-';
+        if (resultsOnly) {
+            const winA = (m.scoreA as number) > (m.scoreB as number);
+            const winB = (m.scoreB as number) > (m.scoreA as number);
+            if (side === 'A') return winA ? 'W' : winB ? 'L' : '';
+            return winB ? 'W' : winA ? 'L' : '';
+        }
+        return side === 'A' ? m.scoreA : m.scoreB;
+    }, [resultsOnly]);
 
 
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -736,7 +750,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                             </span>
                                         </span>
                                     )}
-                                    <span className={scoreClass}>{(!isByeSlotMatchDisplay && match.status === 'finished') ? match.scoreA : '-'}</span>
+                                    {(() => { const lbl = getOutcomeLabel(match, 'A', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClass}>{lbl}</span> : null; })()}
                                 </div>
 
                                 <div
@@ -819,7 +833,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                             </span>
                                         </span>
                                     )}
-                                    <span className={scoreClass}>{(!isByeSlotMatchDisplay && match.status === 'finished') ? match.scoreB : '-'}</span>
+                                    {(() => { const lbl = getOutcomeLabel(match, 'B', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClass}>{lbl}</span> : null; })()}
                                 </div>
 
                                 {!readOnly && !isByeSlotMatchDisplay && !preserveEmptySlot && <Edit2 className="w-3 h-3 absolute top-1 right-1 text-slate-300" />}
