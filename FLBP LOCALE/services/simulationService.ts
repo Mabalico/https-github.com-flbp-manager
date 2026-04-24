@@ -80,6 +80,16 @@ export const simulateMatchResult = (match: Match, teamA: Team, teamB: Team) => {
     return { scoreA: sA, scoreB: sB, stats };
 };
 
+// Results-only tournaments must produce a winner without creating scorer/blow stats.
+export const simulateResultsOnlyMatchResult = (_match: Match, teamA: Team, teamB: Team) => {
+    const winnerA = Math.random() < 0.5;
+    return {
+        scoreA: winnerA ? 1 : 0,
+        scoreB: winnerA ? 0 : 1,
+        winnerTeamId: winnerA ? teamA.id : teamB.id,
+    };
+};
+
 // Multi-team tie-break simulation (A vs B vs C ...).
 // Rules:
 // - targetScore defaults to 10, but group tie-break uses 1 (race-to-1).
@@ -181,4 +191,19 @@ export const simulateMultiMatchResult = (match: Match, teams: Team[]) => {
     }
 
     return { scoresByTeam: scores, stats };
+};
+
+export const simulateResultsOnlyMultiMatchResult = (match: Match, teams: Team[]) => {
+    const teamIds = (match.teamIds || []).filter(Boolean);
+    const byId = new Map(teams.map(t => [t.id, t] as const));
+    const participants = teamIds.filter(id => byId.has(id));
+    if (participants.length < 2) {
+        return { scoresByTeam: {}, winnerTeamId: undefined as string | undefined };
+    }
+
+    const winnerTeamId = participants[Math.floor(Math.random() * participants.length)];
+    const scoresByTeam: Record<string, number> = {};
+    participants.forEach(id => { scoresByTeam[id] = id === winnerTeamId ? 1 : 0; });
+
+    return { scoresByTeam, winnerTeamId };
 };

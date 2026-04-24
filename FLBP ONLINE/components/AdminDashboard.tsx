@@ -5,7 +5,7 @@ import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } fro
 import { useTranslation } from '../App';
 import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
-import { simulateMatchResult, simulateMultiMatchResult } from '../services/simulationService';
+import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
 import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
@@ -2943,6 +2943,8 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     };
 
     const simulateFinishMatch = (m: Match, matches: Match[]) => {
+        const resultsOnlySimulation = isResultsOnlyTournament(state.tournament);
+
         // Multi-team match (used for group tie-breaks): A vs B vs C ...
         if ((m.teamIds && m.teamIds.length >= 2)) {
             const ids = (m.teamIds || []).filter(Boolean);
@@ -2950,7 +2952,9 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             const ts = ids.map(id => getTeamFromCatalog(id)).filter(Boolean) as Team[];
             if (ts.length < 2) return matches;
 
-            const res = simulateMultiMatchResult(m, ts);
+            const res = resultsOnlySimulation
+                ? simulateResultsOnlyMultiMatchResult(m, ts)
+                : simulateMultiMatchResult(m, ts);
             const scores = res.scoresByTeam || {};
             const ordered = Object.values(scores).sort((a, b) => b - a);
 
@@ -2960,7 +2964,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 // Keep legacy fields populated for any UI still expecting 1v1.
                 scoreA: ordered[0] ?? 0,
                 scoreB: ordered[1] ?? 0,
-                stats: res.stats,
+                stats: resultsOnlySimulation ? undefined : res.stats,
                 played: true,
                 status: 'finished'
             };
@@ -2975,12 +2979,14 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!teamA || !teamB) return matches;
         if (m.teamAId === 'BYE' || m.teamBId === 'BYE') return matches;
 
-        const res = simulateMatchResult(m, teamA, teamB);
+        const res = resultsOnlySimulation
+            ? simulateResultsOnlyMatchResult(m, teamA, teamB)
+            : simulateMatchResult(m, teamA, teamB);
         const updated: Match = {
             ...m,
             scoreA: res.scoreA,
             scoreB: res.scoreB,
-            stats: res.stats,
+            stats: resultsOnlySimulation ? undefined : res.stats,
             played: true,
             status: 'finished'
         };
