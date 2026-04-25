@@ -3487,6 +3487,33 @@ while (guard < 5000) {
             setAdminAuthError('');
 
             try {
+                if (!supabaseConfig) {
+                    throw new Error(t('db_supabase_not_configured'));
+                }
+
+                const existingSession = getSupabaseSession();
+                if (existingSession?.accessToken) {
+                    const access = await ensureSupabaseAdminAccess();
+                    if (access.ok) {
+                        const resolvedEmail = access.email || existingSession.email || getConfiguredAdminEmail();
+                        mirrorAdminSessionToPlayer({
+                            accessToken: existingSession.accessToken,
+                            refreshToken: existingSession.refreshToken || null,
+                            expiresAt: existingSession.expiresAt || null,
+                            email: resolvedEmail,
+                            userId: access.userId || existingSession.userId || null,
+                        });
+                        applyAdminAuthState(resolvedEmail, false);
+                        setAdminAuthPasswordInput('');
+                        return;
+                    }
+
+                    if (!adminAuthPasswordInput.trim()) {
+                        const reason = access.reason || t('admin_access_not_authorized');
+                        throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+                    }
+                }
+
                 if (!adminAuthEmailInput.trim()) {
                     throw new Error(t('admin_supabase_email_label'));
                 }
@@ -3494,32 +3521,28 @@ while (guard < 5000) {
                     throw new Error(t('admin_enter_valid_password'));
                 }
 
-                if (supabaseConfig) {
-                    try {
-                        const result = await signInWithPassword(adminAuthEmailInput, adminAuthPasswordInput);
-                        const access = await ensureSupabaseAdminAccess();
-                        if (!access.ok) {
-                            await signOutSupabase();
-                            const reason = access.reason || t('admin_access_not_authorized');
-                            throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
-                        }
-                        const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
-                        mirrorAdminSessionToPlayer({
-                            accessToken: result.accessToken,
-                            refreshToken: result.refreshToken || null,
-                            expiresAt: result.expiresAt || null,
-                            email: resolvedEmail,
-                            userId: result.userId || null,
-                        });
-                        applyAdminAuthState(resolvedEmail, false);
-                        setAdminAuthPasswordInput('');
-                        return;
-                    } catch (err: any) {
-                        throw err;
+                try {
+                    const result = await signInWithPassword(adminAuthEmailInput, adminAuthPasswordInput);
+                    const access = await ensureSupabaseAdminAccess();
+                    if (!access.ok) {
+                        await signOutSupabase();
+                        const reason = access.reason || t('admin_access_not_authorized');
+                        throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
                     }
+                    const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
+                    mirrorAdminSessionToPlayer({
+                        accessToken: result.accessToken,
+                        refreshToken: result.refreshToken || null,
+                        expiresAt: result.expiresAt || null,
+                        email: resolvedEmail,
+                        userId: result.userId || null,
+                    });
+                    applyAdminAuthState(resolvedEmail, false);
+                    setAdminAuthPasswordInput('');
+                    return;
+                } catch (err: any) {
+                    throw err;
                 }
-
-                throw new Error(!supabaseConfig ? t('db_supabase_not_configured') : t('admin_access_not_authorized'));
             } catch (err: any) {
                 setAuthed(false);
                 setAdminAuthMode('none');
