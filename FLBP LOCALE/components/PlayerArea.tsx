@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { createPortal } from 'react-dom';
 import {
   BadgeCheck,
@@ -584,6 +584,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const [registerAliasComment, setRegisterAliasComment] = React.useState('');
   const [registerAliasSubmitting, setRegisterAliasSubmitting] = React.useState(false);
   const [accountAliasInterstitialDismissed, setAccountAliasInterstitialDismissed] = React.useState(false);
+  const [appleModalOpen, setAppleModalOpen] = React.useState(false);
   const [aliasPromptAnswerNonce, setAliasPromptAnswerNonce] = React.useState(0);
   const [liveSession, setLiveSession] = React.useState<PlayerSupabaseSession | null>(initialStoredSession);
   const [liveAuthFlow, setLiveAuthFlow] = React.useState<PlayerSupabaseSession['flowType']>(initialRecoveryFlow ? 'recovery' : 'session');
@@ -2391,7 +2392,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                     </button>
                     <button
                       type="button"
-                      onClick={() => submitSocialAuth('apple')}
+                      onClick={() => setAppleModalOpen(true)}
                       className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-900 bg-slate-900 px-4 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_-22px_rgba(15,23,42,0.45)] hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
                     >
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[11px] font-black text-white">A</span>
@@ -2414,9 +2415,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                     </button>
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                    {socialPendingNote}
-                  </div>
 
                   <form
                     autoComplete="on"
@@ -3116,6 +3114,34 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         </div>
       </div>
     </div>
+      {appleModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setAppleModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center gap-4 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-slate-900 text-2xl font-black text-white shadow-lg">
+                A
+              </div>
+              <div>
+                <div className="text-lg font-black text-slate-900">{t('player_sign_in_apple')}</div>
+                <div className="mt-2 text-sm font-semibold leading-relaxed text-slate-600">{t('player_area_apple_not_active')}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppleModalOpen(false)}
+                className="mt-2 inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 transition-colors"
+              >
+                {t('close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

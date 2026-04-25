@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "لوسينس بنك الاحتياطي الفيدرالي",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "تسجيل الدخول الاجتماعي",
   "player_area_social_desc": "Google وFacebook وApple جاهزة من جانب التطبيق. يظل Instagram خارج الإصدار 1 عمدًا لتجنب التبعية الأكثر هشاشة.",
   "player_area_social_pending": "لم يتم تفعيل مقدمي الخدمات الاجتماعية بعد في الواجهة الخلفية.",
+  "player_area_apple_not_active": "\u062a\u0633\u062c\u064a\u0644 Apple \u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u0628\u0639\u062f. \u064a\u0645\u0643\u0646\u0643 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0639\u0628\u0631 \u0627\u0644\u0628\u0631\u064a\u062f \u0627\u0644\u0625\u0644\u0643\u062a\u0631\u0648\u0646\u064a \u0623\u0648 Facebook \u0623\u0648 Google.",
   "player_area_profile_title": "أكمل الملف الشخصي",
   "player_area_profile_desc": "أدخل اسمك ولقبك وتاريخ ميلادك. يتم استخدامها للتصنيفات، U25 والإدارة المتجانسة.",
   "player_area_loading_profile_title": "أنا أقوم بتحميل ملف التعريف الخاص بك",

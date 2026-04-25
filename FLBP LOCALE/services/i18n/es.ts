@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "Reserva Federal de Lucense",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "Inicio de sesión social",
   "player_area_social_desc": "Google, Facebook y Apple están listos en el lado de la aplicación. Instagram se mantiene deliberadamente fuera de la versión 1 para evitar una dependencia más frágil.",
   "player_area_social_pending": "Los proveedores sociales aún no se han activado en el backend.",
+  "player_area_apple_not_active": "El inicio de sesi\u00f3n con Apple a\u00fan no est\u00e1 activo. Accede con email, Facebook o Google.",
   "player_area_profile_title": "Completa el perfil",
   "player_area_profile_desc": "Introduce tu nombre, apellido y fecha de nacimiento. Se utilizan para rankings, U25 y gestión homónima.",
   "player_area_loading_profile_title": "Estoy cargando tu perfil",

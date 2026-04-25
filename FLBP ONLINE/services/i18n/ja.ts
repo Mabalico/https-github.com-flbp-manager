@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "ルーセンス連銀",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "ソーシャルログイン",
   "player_area_social_desc": "アプリ側ではGoogle、Facebook、Appleが用意されています。 Instagram は、より脆弱な依存関係を回避するために、意図的に v1 から除外されます。",
   "player_area_social_pending": "ソーシャル プロバイダーがバックエンドでまだアクティブ化されていません。",
+  "player_area_apple_not_active": "Apple\u30ed\u30b0\u30a4\u30f3\u306f\u307e\u3060\u6709\u52b9\u3067\u306f\u3042\u308a\u307e\u305b\u3093\u3002\u30e1\u30fc\u30eb\u3001Facebook\u3001Google\u3067\u30ed\u30b0\u30a4\u30f3\u3067\u304d\u307e\u3059\u3002",
   "player_area_profile_title": "プロフィールを完成させる",
   "player_area_profile_desc": "名前、姓、生年月日を入力します。ランキングやU25、同名管理などに利用させていただいております。",
   "player_area_loading_profile_title": "あなたのプロフィールを読み込んでいます",

@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "卢森斯联储",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "社交登录",
   "player_area_social_desc": "Google、Facebook 和 Apple 在应用程序端已准备就绪。 Instagram 故意不参与 v1 以避免更脆弱的依赖性。",
   "player_area_social_pending": "社交提供商尚未在后端激活。",
+  "player_area_apple_not_active": "Apple \u767b\u5f55\u5c1a\u672a\u6fc0\u6d3b\u3002\u60a8\u53ef\u4ee5\u901a\u8fc7\u90ae\u4ef6\u3001Facebook \u6216 Google \u767b\u5f55\u3002",
   "player_area_profile_title": "完成个人资料",
   "player_area_profile_desc": "输入您的姓名和出生日期。它们用于排名、U25和同名管理。",
   "player_area_loading_profile_title": "我正在加载你的个人资料",

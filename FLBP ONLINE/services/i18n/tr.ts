@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "Lucense Fed",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "Sosyal giriş",
   "player_area_social_desc": "Google, Facebook ve Apple uygulama tarafında hazır. Instagram, daha kırılgan bir bağımlılığı önlemek için bilerek v1'in dışında kalıyor.",
   "player_area_social_pending": "Sosyal sağlayıcılar henüz arka uçta etkinleştirilmedi.",
+  "player_area_apple_not_active": "Apple girişi henüz aktif değil. E-posta, Facebook veya Google ile giriş yapabilirsiniz.",
   "player_area_profile_title": "Profili tamamla",
   "player_area_profile_desc": "Adınızı, soyadınızı ve doğum tarihinizi girin. Sıralamalar, U25 ve eşsesli yönetim için kullanılırlar.",
   "player_area_loading_profile_title": "Profilini yüklüyorum",

@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "Люсенсе ФРС",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "Социальный вход",
   "player_area_social_desc": "Google, Facebook и Apple готовы на стороне приложения. Instagram намеренно не использует версию 1, чтобы избежать более хрупкой зависимости.",
   "player_area_social_pending": "Социальные провайдеры еще не активированы в серверной части.",
+  "player_area_apple_not_active": "\u0412\u0445\u043e\u0434 \u0447\u0435\u0440\u0435\u0437 Apple \u043f\u043e\u043a\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 email, Facebook \u0438\u043b\u0438 Google.",
   "player_area_profile_title": "Заполните профиль",
   "player_area_profile_desc": "Введите свое имя, фамилию и дату рождения. Они используются для ранжирования, U25 и одноименного управления.",
   "player_area_loading_profile_title": "Я загружаю твой профиль",

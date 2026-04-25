@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from '../i18nService';
+﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
   "federation_name": "Fed z licencją",
@@ -1787,6 +1787,7 @@ export const dictionary: TranslationDictionary = {
   "player_area_social_title": "Logowanie społecznościowe",
   "player_area_social_desc": "Google, Facebook i Apple są gotowe po stronie aplikacji. Instagram celowo pozostaje poza wersją 1, aby uniknąć bardziej delikatnej zależności.",
   "player_area_social_pending": "Dostawcy usług społecznościowych nie zostali jeszcze aktywowani w backendie.",
+  "player_area_apple_not_active": "Logowanie przez Apple nie jest jeszcze aktywne. Mo\u017cesz si\u0119 zalogowa\u0107 przez email, Facebook lub Google.",
   "player_area_profile_title": "Uzupełnij profil",
   "player_area_profile_desc": "Wpisz swoje imię, nazwisko i datę urodzenia. Używane są do rankingów, U25 i zarządzania o tej samej nazwie.",
   "player_area_loading_profile_title": "Ładuję Twój profil",
