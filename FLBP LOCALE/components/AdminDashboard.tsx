@@ -993,6 +993,7 @@ const [aliasModalTitle, setAliasModalTitle] = useState<string>('');
 const [aliasModalConflicts, setAliasModalConflicts] = useState<AliasConflict[]>([]);
 const [pendingTeamSave, setPendingTeamSave] = useState<Team | null>(null);
 const [pendingScorersImport, setPendingScorersImport] = useState<{ entries: IntegrationScorerEntry[]; warnings: string[] } | null>(null);
+const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } | null>(null);
 
 
     // Lista Codici filter
@@ -1153,6 +1154,42 @@ const makeAliasConflict = (name: string, yob?: number, index?: Map<string, Set<s
         candidates,
         action: 'separate'
     };
+};
+
+const collectTeamAliasConflicts = (teams: Team[]) => {
+    const idxProfiles = buildProfilesIndex();
+    const conflicts: AliasConflict[] = [];
+    const seen = new Set<string>();
+
+    const addConflict = (conflict: AliasConflict | null) => {
+        if (!conflict) return;
+        const signature = `${conflict.sourceKey}::${conflict.candidates.map(c => c.key).sort().join('|')}`;
+        if (seen.has(signature)) return;
+        seen.add(signature);
+        conflicts.push(conflict);
+    };
+
+    teams.forEach(team => {
+        addConflict(makeAliasConflict(team.player1, team.player1YoB, idxProfiles, (team as any).player1BirthDate));
+        addConflict(makeAliasConflict(team.player2, team.player2YoB, idxProfiles, (team as any).player2BirthDate));
+    });
+
+    return conflicts;
+};
+
+const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[]) => {
+    // Same append semantics as the direct import path: avoid duplicate team names.
+    const existing = new Map((baseState.teams || []).map(t => [t.name.trim().toLowerCase(), t]));
+    const merged = [...(baseState.teams || [])];
+    const seen = new Set<string>();
+    for (const team of importedTeams) {
+        const key = team.name.trim().toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (!existing.has(key)) merged.push(team);
+    }
+    const tournament = mergeIntoLiveTournamentTeams(baseState.tournament, merged);
+    return { teams: merged, tournament };
 };
 
     const toInt = (v: any): number | undefined => {
@@ -1713,6 +1750,7 @@ if (conflicts.length > 0) {
     setAliasModalConflicts(conflicts);
     setPendingTeamSave(next);
     setPendingScorersImport(null);
+    setPendingTeamsImport(null);
     setAliasModalOpen(true);
     return;
 }
@@ -1772,6 +1810,7 @@ const closeAliasModal = () => {
     setAliasModalConflicts([]);
     setPendingTeamSave(null);
     setPendingScorersImport(null);
+    setPendingTeamsImport(null);
 };
 
 const confirmAliasModal = () => {
@@ -1794,6 +1833,8 @@ const confirmAliasModal = () => {
         resetForm();
     }
 
+    let importCompletedMessage = '';
+
     if (pendingScorersImport) {
         nextState = {
             ...nextState,
@@ -1801,8 +1842,19 @@ const confirmAliasModal = () => {
         };
     }
 
+    if (pendingTeamsImport) {
+        const imported = mergeImportedTeamsIntoState(nextState, pendingTeamsImport.teams);
+        nextState = {
+            ...nextState,
+            teams: imported.teams,
+            tournament: imported.tournament
+        };
+        importCompletedMessage = `${t('admin_import_completed')}: ${pendingTeamsImport.teams.length} Â· ${t('admin_total_label')}: ${imported.teams.length}`;
+    }
+
     setState(nextState);
     closeAliasModal();
+    if (importCompletedMessage) alert(importCompletedMessage);
 };
 
 
@@ -2345,17 +2397,20 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
 
             const teams = parsed.teams;
-            // merge (append) evitando duplicati per nome squadra (case-insensitive)
-            const existing = new Map((state.teams || []).map(t => [t.name.trim().toLowerCase(), t]));
-            const merged = [...(state.teams || [])];
-            const seen = new Set<string>();
-            for (const t of teams) {
-                const k = t.name.trim().toLowerCase();
-                if (seen.has(k)) continue;
-                seen.add(k);
-                if (!existing.has(k)) merged.push(t);
+            const conflicts = collectTeamAliasConflicts(teams);
+            if (conflicts.length > 0) {
+                setAliasModalTitle(`${t('possible_homonyms_birthdate')} - ${t('import_excel_csv')}`);
+                setAliasModalConflicts(conflicts);
+                setPendingTeamSave(null);
+                setPendingScorersImport(null);
+                setPendingTeamsImport({ teams });
+                setAliasModalOpen(true);
+                return;
             }
-            const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
+
+            const imported = mergeImportedTeamsIntoState(state, teams);
+            const merged = imported.teams;
+            const nextTournament = imported.tournament;
             setState({ ...state, teams: merged, tournament: nextTournament });
             alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_total_label')}: ${merged.length}`);
         } catch (e) {
