@@ -1062,6 +1062,7 @@ const App: React.FC = () => {
         saveTimeoutRef.current = window.setTimeout(() => {
             saveTimeoutRef.current = null;
             repo.save(latestStateRef.current);
+            void repo.flush?.();
 
             // Optional: keep DB normalised/public mirrors updated.
             // Default OFF; best-effort; never blocks UI.
@@ -1070,7 +1071,7 @@ const App: React.FC = () => {
             }).catch(() => {
                 // ignore best-effort background sync loader errors
             });
-        }, 200);
+        }, 50);
 
         return () => {
             if (saveTimeoutRef.current) {
@@ -1087,6 +1088,7 @@ const App: React.FC = () => {
                 saveTimeoutRef.current = null;
             }
             repo.save(latestStateRef.current);
+            void repo.flush?.();
 
             // On lifecycle flush we attempt a best-effort immediate DB sync when enabled.
             // (Scheduling a debounced sync here risks being cancelled by pagehide/unload.)

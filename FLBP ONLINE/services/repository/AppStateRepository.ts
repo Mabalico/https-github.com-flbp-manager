@@ -13,4 +13,5 @@ export interface AppStateRepository {
 
   subscribe?: (listener: (state: AppState, meta?: RepositoryUpdateMeta) => void) => () => void;
   refresh?: () => Promise<void>;
+  flush?: () => Promise<void>;
 }

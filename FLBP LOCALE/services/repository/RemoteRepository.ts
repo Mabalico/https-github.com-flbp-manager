@@ -19,7 +19,10 @@ export class RemoteRepository implements AppStateRepository {
   readonly source = 'remote' as const;
 
   private static readonly REMOTE_POLL_INTERVAL_MS = 20000;
+  private static readonly REMOTE_SAVE_DEBOUNCE_MS = 100;
+  private static readonly REMOTE_SNAPSHOT_EVENT_KEY = 'flbp_remote_snapshot_event';
 
+  private readonly instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private pullKicked = false;
   private pendingTimer: number | null = null;
   private pendingState: AppState | null = null;
@@ -42,6 +45,35 @@ export class RemoteRepository implements AppStateRepository {
     if (this.pendingState || hasRemoteDraftCache()) return true;
     return this.isAdminViewActive();
   }
+
+  private publishRemoteSnapshotUpdate(updatedAt?: string | null) {
+    if (!updatedAt) return;
+    try {
+      localStorage.setItem(RemoteRepository.REMOTE_SNAPSHOT_EVENT_KEY, JSON.stringify({
+        sourceId: this.instanceId,
+        updatedAt,
+        ts: Date.now(),
+      }));
+    } catch {
+      // Cross-tab refresh is best-effort; polling remains the fallback.
+    }
+  }
+
+  private handleRemoteSnapshotStorageEvent = (event: StorageEvent) => {
+    if (event.key !== RemoteRepository.REMOTE_SNAPSHOT_EVENT_KEY || !event.newValue) return;
+
+    try {
+      const payload = JSON.parse(event.newValue) as { sourceId?: string; updatedAt?: string };
+      const updatedAt = String(payload.updatedAt || '').trim();
+      if (!updatedAt || payload.sourceId === this.instanceId) return;
+      if (updatedAt === this.lastRemoteUpdatedAt) return;
+      if (this.pendingState || hasRemoteDraftCache()) return;
+
+      void this.pullAndApply({ forceEmit: true });
+    } catch {
+      // Ignore malformed storage events from older bundles.
+    }
+  };
 
   private restoreCachedDraft(): boolean {
     const cachedDraft = readRestorableRemoteDraftCache();
@@ -110,6 +142,7 @@ export class RemoteRepository implements AppStateRepository {
       });
       window.addEventListener('online', refresh);
       window.addEventListener('focus', refresh);
+      window.addEventListener('storage', this.handleRemoteSnapshotStorageEvent);
       window.setInterval(() => {
         try {
           if (document.visibilityState === 'visible') refresh();
@@ -132,7 +165,7 @@ export class RemoteRepository implements AppStateRepository {
     }
   }
 
-  private rememberRemoteState(state: AppState, updatedAt?: string | null) {
+  private rememberRemoteState(state: AppState, updatedAt?: string | null, opts?: { broadcast?: boolean }) {
     const safeState = coerceAppState(state);
     this.lastStateFingerprint = this.fingerprint(safeState);
     this.lastRemoteUpdatedAt = updatedAt || null;
@@ -147,6 +180,10 @@ export class RemoteRepository implements AppStateRepository {
       });
     } catch {
       // ignore
+    }
+
+    if (opts?.broadcast) {
+      this.publishRemoteSnapshotUpdate(updatedAt || null);
     }
   }
 
@@ -221,7 +258,7 @@ export class RemoteRepository implements AppStateRepository {
       });
       this.pendingState = null;
       clearRemoteDraftCache();
-      this.rememberRemoteState(mergeResult.state, pushed.updated_at || null);
+      this.rememberRemoteState(mergeResult.state, pushed.updated_at || null, { broadcast: true });
       clearDbSyncCurrentIssue();
       markDbSyncOk('snapshot');
       markAdminSyncSynced(pushed.updated_at || null, this.source);
@@ -316,8 +353,16 @@ export class RemoteRepository implements AppStateRepository {
     this.pendingTimer = window.setTimeout(() => {
       this.pendingTimer = null;
       void this.flushNow();
-    }, 800);
+    }, RemoteRepository.REMOTE_SAVE_DEBOUNCE_MS);
   }
+
+  flush = async (): Promise<void> => {
+    if (this.pendingTimer != null) {
+      window.clearTimeout(this.pendingTimer);
+      this.pendingTimer = null;
+    }
+    await this.flushNow();
+  };
 
   private async pullAndApply(opts?: { forceEmit?: boolean }): Promise<boolean> {
     if (this.pendingState || hasRemoteDraftCache()) return false;
@@ -397,7 +442,7 @@ export class RemoteRepository implements AppStateRepository {
     try {
       const row = await pushWorkspaceState(state);
       this.pendingState = null;
-      this.rememberRemoteState(state, row.updated_at || null);
+      this.rememberRemoteState(state, row.updated_at || null, { broadcast: true });
       clearRemoteDraftCache();
       clearDbSyncCurrentIssue();
       markDbSyncOk('snapshot');
