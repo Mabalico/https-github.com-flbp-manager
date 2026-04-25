@@ -575,7 +575,7 @@ const App: React.FC = () => {
                     // ignore visibility probe failures
                 }
                 refreshWorkspace();
-            }, 650);
+            }, 3000);
             return () => window.clearTimeout(timeoutId);
         }
 

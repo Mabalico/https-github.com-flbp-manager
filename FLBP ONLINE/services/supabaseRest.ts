@@ -716,7 +716,7 @@ export const signInWithPassword = async (email: string, password: string): Promi
                 'Accept': 'application/json'
             },
             body: JSON.stringify({ email: e, password: p })
-        }, 8000, { source: 'signInWithPassword', kind: 'admin' });
+        }, 20000, { source: 'signInWithPassword', kind: 'admin' });
     } catch (error: any) {
         throw normalizeFetchFailure(error, 'Timeout login Supabase. Controlla connessione, progetto Supabase e riprova.');
     }
@@ -1846,7 +1846,7 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
             res = await fetchWithTimeout(
                 restUrl(cfg, `admin_users?user_id=eq.${encodeURIComponent(userId)}&select=user_id,email&limit=1`),
                 { headers: buildHeaders(cfg, session.accessToken) },
-                12000,
+                25000,
                 { source: 'ensureSupabaseAdminAccess', kind: 'admin' }
             );
         } catch (error: any) {
