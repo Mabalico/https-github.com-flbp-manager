@@ -7,6 +7,7 @@ import { clearRemoteDraftCache, hasRemoteDraftCache, isRemoteDraftCacheFresh, re
 import type { AppStateRepository, RepositoryUpdateMeta } from './AppStateRepository';
 import { tryMergeRemoteStateConflict } from '../stateConflictMerge';
 import { hasMeaningfulAppState } from '../appStateMeaning';
+import { subscribeWorkspaceStateRealtime } from './workspaceStateRealtime';
 
 /**
  * Remote repository (Supabase REST).
@@ -152,6 +153,16 @@ export class RemoteRepository implements AppStateRepository {
       }, RemoteRepository.REMOTE_POLL_INTERVAL_MS);
     } catch {
       // ignore
+    }
+
+    try {
+      subscribeWorkspaceStateRealtime(({ updatedAt }) => {
+        if (!this.shouldBackgroundRefresh()) return;
+        if (updatedAt && updatedAt === this.lastRemoteUpdatedAt) return;
+        void this.refresh();
+      });
+    } catch {
+      // realtime is best-effort: polling continues to cover the gap
     }
 
     void this.reconcileStaleDraft();

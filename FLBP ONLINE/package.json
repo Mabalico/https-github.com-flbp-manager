@@ -36,6 +36,7 @@
     "@capacitor/app": "^8.1.0",
     "@capacitor/core": "^8.3.1",
     "@capacitor/push-notifications": "^8.0.3",
+    "@supabase/realtime-js": "^2.10.7",
     "lucide-react": "^0.561.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
