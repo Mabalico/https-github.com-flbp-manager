@@ -172,6 +172,9 @@ const fetchWithTimeout = async (
     }
 };
 
+let pullPublicWorkspaceStateLastEtag: string | null = null;
+let pullPublicWorkspaceStateLastRow: SupabasePublicWorkspaceStateRow | null = null;
+
 export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
@@ -180,15 +183,25 @@ export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<
         cfg,
         `public_workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`
     );
+    const headers: Record<string, string> = { ...buildAnonHeaders(cfg) };
+    if (pullPublicWorkspaceStateLastEtag) {
+        headers['If-None-Match'] = pullPublicWorkspaceStateLastEtag;
+    }
     const res = await fetchWithTimeout(
         url,
-        { headers: buildAnonHeaders(cfg) },
+        { headers },
         2500,
         { source: perf?.source || 'pullPublicWorkspaceState', kind: perf?.kind || 'polling' }
     );
+    if (res.status === 304) {
+        return pullPublicWorkspaceStateLastRow;
+    }
     if (!res.ok) throw new Error(await readErrorBody(res));
+    const etag = res.headers.get('ETag') || res.headers.get('etag');
+    if (etag) pullPublicWorkspaceStateLastEtag = etag;
     const rows = (await res.json()) as SupabasePublicWorkspaceStateRow[];
-    return rows?.[0] || null;
+    pullPublicWorkspaceStateLastRow = rows?.[0] || null;
+    return pullPublicWorkspaceStateLastRow;
 };
 
 export const trackPublicSiteView = async (date?: string): Promise<{ ok: boolean; view_date?: string; views?: number } | null> => {

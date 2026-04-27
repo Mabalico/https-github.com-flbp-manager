@@ -963,11 +963,30 @@ const App: React.FC = () => {
         }
 
         const intervalMs = tvMode != null ? 5000 : (view === 'tournament_detail' ? 15000 : 60000);
-        const id = window.setInterval(() => { void pullOnce(); }, intervalMs);
+        const isTvMode = tvMode != null;
+        const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
+        let lastActivityAt = Date.now();
+        const isCurrentlyIdle = () => !isTvMode && Date.now() - lastActivityAt > IDLE_THRESHOLD_MS;
+        const onUserActivity = () => {
+            const wasIdle = isCurrentlyIdle();
+            lastActivityAt = Date.now();
+            if (wasIdle) void pullOnce();
+        };
+        const activityEvents: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+        if (!isTvMode) {
+            activityEvents.forEach((ev) => window.addEventListener(ev, onUserActivity, { passive: true }));
+        }
+        const id = window.setInterval(() => {
+            if (isCurrentlyIdle()) return;
+            void pullOnce();
+        }, intervalMs);
         return () => {
             cancelled = true;
             document.removeEventListener('visibilitychange', onVisible);
             window.removeEventListener('focus', onVisible);
+            if (!isTvMode) {
+                activityEvents.forEach((ev) => window.removeEventListener(ev, onUserActivity));
+            }
             window.clearInterval(id);
         };
     }, [repo.source, tvMode, view, selectedTournament?.isLive]);
