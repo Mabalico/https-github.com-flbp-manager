@@ -18,9 +18,9 @@ const thPad = 'px-3 py-3 md:px-4';
 const tdPad = 'px-3 py-3 md:px-4';
 
 const statusBadgeClass = (status: FantaPlayersStandingsRow['status']) =>
-  status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+  status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700';
 const statusLabel = (t: (k: string) => string, status: FantaPlayersStandingsRow['status']) =>
-  status === 'live' ? t('fanta_players_status_live') : status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_waiting');
+  status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_live');
 const sortCopy = <T,>(items: readonly T[], compareFn: (left: T, right: T) => number): T[] =>
   [...items].sort(compareFn);
 

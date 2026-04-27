@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Shield, Target, Wind, Trophy, Zap, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, Shield, Target, Users, Wind, Trophy, Zap, Loader2 } from 'lucide-react';
 import { fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { loadState } from '../../services/storageService';
@@ -7,13 +7,20 @@ import { useTranslation } from '../../App';
 import { MetricCard, panelClass } from './_shared';
 
 const statusBadgeClass = (status: 'live' | 'eliminated' | 'waiting') =>
-  status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+  status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700';
 const statusLabel = (t: (key: string) => string, status: 'live' | 'eliminated' | 'waiting') =>
-  status === 'live' ? t('fanta_players_status_live') : status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_waiting');
+  status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_live');
 
-interface Props { teamId: string; onBack: () => void; onOpenPlayerDetail?: (playerId: string) => void; }
+interface Props {
+  teamId: string;
+  onBack: () => void;
+  onOpenPlayerDetail?: (playerId: string) => void;
+  onOpenMyTeam?: () => void;
+  onOpenStandings?: () => void;
+  onOpenPlayers?: () => void;
+}
 
-export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerDetail }) => {
+export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerDetail, onOpenMyTeam, onOpenStandings, onOpenPlayers }) => {
   const { t } = useTranslation();
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<any>(null);
@@ -125,6 +132,32 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
           </div>
         </div>
       </div>
+
+      {(onOpenMyTeam || onOpenStandings || onOpenPlayers) && (
+        <div className={panelClass}>
+          <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_rules_destinations_title')}</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {onOpenMyTeam && (
+              <button type="button" onClick={onOpenMyTeam} className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:bg-white hover:shadow-md">
+                <div className="flex items-center gap-3 min-w-0"><Shield className="h-4 w-4 shrink-0 text-beer-600" /><div className="text-sm font-black text-slate-950 truncate">{t('fanta_shell_my_team')}</div></div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 group-hover:translate-x-1 transition-transform" />
+              </button>
+            )}
+            {onOpenStandings && (
+              <button type="button" onClick={onOpenStandings} className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:bg-white hover:shadow-md">
+                <div className="flex items-center gap-3 min-w-0"><BarChart3 className="h-4 w-4 shrink-0 text-beer-600" /><div className="text-sm font-black text-slate-950 truncate">{t('fanta_shell_standings')}</div></div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 group-hover:translate-x-1 transition-transform" />
+              </button>
+            )}
+            {onOpenPlayers && (
+              <button type="button" onClick={onOpenPlayers} className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:bg-white hover:shadow-md">
+                <div className="flex items-center gap-3 min-w-0"><Users className="h-4 w-4 shrink-0 text-beer-600" /><div className="text-sm font-black text-slate-950 truncate">{t('fanta_shell_players')}</div></div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 group-hover:translate-x-1 transition-transform" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className={panelClass}>
         <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_roster_fanta')}</div>

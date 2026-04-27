@@ -13,9 +13,9 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const { t } = useTranslation();
 
   const statusLabel = (status: FantaBuilderPlayerOption['status']) =>
-    status === 'live' ? t('fanta_status_live') : status === 'eliminated' ? t('fanta_status_eliminated') : t('fanta_status_waiting');
+    status === 'eliminated' ? t('fanta_status_eliminated') : t('fanta_status_live');
   const statusBadgeClass = (status: FantaBuilderPlayerOption['status']) =>
-    status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+    status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700';
   const [step, setStep] = React.useState<'info' | 'selection' | 'review'>('info');
   const [activeTab, setActiveTab] = React.useState<'teams' | 'players'>('teams');
   const [searchTerm, setSearchTerm] = React.useState('');

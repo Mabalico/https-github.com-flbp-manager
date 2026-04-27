@@ -119,7 +119,16 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
   }
 
   if (selectedFantasyTeamId) {
-    return <FantaTeamDetail teamId={selectedFantasyTeamId} onBack={() => setSelectedFantasyTeamId(null)} onOpenPlayerDetail={openPlayerDetail} />;
+    return (
+      <FantaTeamDetail
+        teamId={selectedFantasyTeamId}
+        onBack={() => setSelectedFantasyTeamId(null)}
+        onOpenPlayerDetail={openPlayerDetail}
+        onOpenMyTeam={() => { setSelectedFantasyTeamId(null); setActiveSection('my_team'); }}
+        onOpenStandings={() => { setSelectedFantasyTeamId(null); setActiveSection('general_standings'); }}
+        onOpenPlayers={() => { setSelectedFantasyTeamId(null); setActiveSection('players_standings'); }}
+      />
+    );
   }
 
   if (selectedFantasyPlayerId) {

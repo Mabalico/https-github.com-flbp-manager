@@ -1,7 +1,8 @@
 import React from 'react';
-import { ArrowLeft, Loader2, Star, Target, Trophy, Wind, Zap } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, Star, Target, Trophy, Wind, Zap } from 'lucide-react';
 import { fetchFantaArchivedEditionDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import type { FantaArchivedEditionDetail } from '../../services/fantabeerpong/types';
+import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { useTranslation } from '../../App';
 import { MetricCard, panelClass } from './_shared';
 
@@ -50,6 +51,8 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   }
 
   const podium = data.standings.slice(0, 3);
+  const session = readPlayerPresenceSnapshot();
+  const personalRow = session?.accountId ? data.standings.find((row) => row.userId === session.accountId) : null;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -80,6 +83,27 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
         <MetricCard label={t('fanta_history_detail_top_players')} value={String(data.topPlayers.length)} hint={t('fanta_history_detail_highlight_players_hint')} />
       </div>
 
+      {personalRow && (
+        <div className="rounded-[26px] border-2 border-beer-200 bg-gradient-to-r from-beer-50/70 to-amber-50/50 p-5 shadow-sm md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-2 rounded-full border border-beer-200 bg-white px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700">
+                <Sparkles className="h-3.5 w-3.5" />
+                {t('fanta_your_team')}
+              </div>
+              <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 truncate">{personalRow.teamName}</div>
+              <div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_standings_rank')} #{personalRow.rank} · {personalRow.totalPoints} {t('fanta_points_label')}</div>
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm"><div className="text-[10px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="mt-0.5 text-lg font-black text-slate-950">{personalRow.goals}</div></div>
+              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm"><div className="text-[10px] font-black uppercase text-slate-500">{t('fanta_standings_blows')}</div><div className="mt-0.5 text-lg font-black text-slate-950">{personalRow.blows}</div></div>
+              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm"><div className="text-[10px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="mt-0.5 text-lg font-black text-slate-950">{personalRow.wins}</div></div>
+              <div className="rounded-2xl border border-indigo-100 bg-white px-3 py-2 shadow-sm"><div className="text-[10px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="mt-0.5 text-lg font-black text-indigo-700">{personalRow.bonusScia}</div></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
         <div className={panelClass}>
           <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_final_standings')}</div>
@@ -97,17 +121,25 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {data.standings.map((row) => (
-                  <tr key={row.teamId} className="bg-white">
-                    <td className="px-4 py-3 text-center font-black text-slate-700">#{row.rank}</td>
-                    <td className="px-4 py-3 font-black text-slate-950">{row.teamName}</td>
-                    <td className="px-4 py-3 text-center text-lg font-black text-slate-950">{row.totalPoints}</td>
-                    <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
-                    <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
-                    <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
-                    <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
-                  </tr>
-                ))}
+                {data.standings.map((row) => {
+                  const isMine = !!personalRow && row.teamId === personalRow.teamId;
+                  return (
+                    <tr key={row.teamId} className={isMine ? 'bg-beer-50/60' : 'bg-white'}>
+                      <td className="px-4 py-3 text-center font-black text-slate-700">#{row.rank}</td>
+                      <td className="px-4 py-3 font-black text-slate-950">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate">{row.teamName}</span>
+                          {isMine && <span className="inline-flex shrink-0 rounded-md border border-beer-200 bg-beer-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center text-lg font-black text-slate-950">{row.totalPoints}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
+                      <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

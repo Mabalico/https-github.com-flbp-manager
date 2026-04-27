@@ -404,6 +404,7 @@ export const fetchFantaArchivedEditionDetail = async (
     .sort(compareFantaStandings)
     .map((row, index) => ({
       teamId: row.team_id,
+      userId: row.user_id || null,
       rank: index + 1,
       teamName: row.team_name || 'N/D',
       totalPoints: row.total_points || 0,

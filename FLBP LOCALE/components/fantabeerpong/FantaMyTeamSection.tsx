@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from '../../App';
-import { AlertCircle, ArrowRight, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
 import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { loadState } from '../../services/storageService';
@@ -27,8 +27,8 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
   };
 
   const statusBadgeClass = (status: FantaMyTeamPlayer['status']) =>
-    status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
-  const statusLabel = (status: FantaMyTeamPlayer['status']) => status === 'live' ? t('fanta_status_live') : status === 'eliminated' ? t('fanta_status_eliminated') : t('fanta_status_waiting');
+    status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  const statusLabel = (status: FantaMyTeamPlayer['status']) => status === 'eliminated' ? t('fanta_status_eliminated') : t('fanta_status_live');
   const [data, setData] = React.useState<FantaMyTeam | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [session, setSession] = React.useState(readPlayerPresenceSnapshot());
@@ -215,6 +215,33 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         <MetricCard label={t('fanta_captain')} value={data.summary.captainName} hint={t('fanta_captain_hint')} />
         <MetricCard label={t('fanta_defenders')} value={`${data.summary.defendersCount}/2`} hint={t('fanta_defenders_hint')} />
         <MetricCard label={t('fanta_total_points_metric')} value={String(data.summary.totalPoints || 0)} hint={t('fanta_total_points_hint')} />
+      </div>
+
+      <div className={panelClass}>
+        <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_team_state')}</div>
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-2">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
+            <div className="text-[10px] font-black uppercase tracking-wider text-emerald-700">{t('fanta_status_live')}</div>
+            <div className="mt-1 text-2xl font-black text-slate-950">{data.players.filter((p) => p.status !== 'eliminated').length}</div>
+          </div>
+          <div className="rounded-2xl border border-rose-100 bg-rose-50/40 p-4">
+            <div className="text-[10px] font-black uppercase tracking-wider text-rose-700">{t('fanta_status_eliminated')}</div>
+            <div className="mt-1 text-2xl font-black text-slate-950">{data.players.filter((p) => p.status === 'eliminated').length}</div>
+          </div>
+        </div>
+        {data.constraints.length > 0 && (
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            {data.constraints.map((constraint) => (
+              <div key={constraint.id} className={`flex items-start gap-2 rounded-2xl border px-3 py-2.5 ${constraint.satisfied ? 'border-emerald-100 bg-emerald-50/30' : 'border-amber-100 bg-amber-50/30'}`}>
+                <CheckCircle2 className={`mt-0.5 h-4 w-4 shrink-0 ${constraint.satisfied ? 'text-emerald-600' : 'text-amber-500'}`} />
+                <div className="min-w-0">
+                  <div className={`text-xs font-black uppercase tracking-wide ${constraint.satisfied ? 'text-emerald-800' : 'text-amber-800'}`}>{constraint.label}</div>
+                  <div className="mt-0.5 text-xs font-bold text-slate-500 truncate">{constraint.helper}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className={panelClass}>

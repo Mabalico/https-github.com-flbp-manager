@@ -1,9 +1,9 @@
 import React from 'react';
 import { useTranslation } from '../../App';
-import { ArrowRight, BarChart3, Clock3, History, Shield, Users, Loader2 } from 'lucide-react';
-import { fetchFantaConfig, fetchFantaStandings, fetchFantaPlayerStandings, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
+import { ArrowRight, BarChart3, Clock3, History, Shield, Trophy, Users, Loader2 } from 'lucide-react';
+import { fetchFantaConfig, fetchFantaStandings, fetchFantaPlayerStandings, fetchUserFantaTeam, fetchFantaArchivedEditions } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
-import type { FantaOverviewQuickAction, FantaConfig } from '../../services/fantabeerpong/types';
+import type { FantaOverviewQuickAction, FantaConfig, FantaArchivedEdition } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { MetricCard, panelClass } from './_shared';
 
@@ -33,6 +33,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
   const [standings, setStandings] = React.useState<any[]>([]);
   const [players, setPlayers] = React.useState<any[]>([]);
   const [userTeam, setUserTeam] = React.useState<any>(null);
+  const [archivedEditions, setArchivedEditions] = React.useState<FantaArchivedEdition[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [session, setSession] = React.useState(readPlayerPresenceSnapshot);
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -66,17 +67,19 @@ export const FantaOverviewSection: React.FC<Props> = ({
     async function load() {
       setLoading(true);
       try {
-        const [cfg, stds, plyrs, team] = await Promise.all([
+        const [cfg, stds, plyrs, team, archived] = await Promise.all([
           fetchFantaConfig(),
           fetchFantaStandings(),
           fetchFantaPlayerStandings(),
-          session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null)
+          session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null),
+          fetchFantaArchivedEditions()
         ]);
         if (cancelled) return;
         setConfig(cfg);
         setStandings(stds || []);
         setPlayers(plyrs || []);
         setUserTeam(team);
+        setArchivedEditions(archived || []);
       } catch (err) {
         if (!cancelled) console.error('Error loading fanta overview:', err);
       } finally {
@@ -231,6 +234,33 @@ export const FantaOverviewSection: React.FC<Props> = ({
               {topPlayers.length === 0 && <div className="py-4 text-center text-xs font-bold text-slate-400 italic">{t('fanta_no_players_data')}</div>}
             </div>
           </div>
+
+          {archivedEditions.length > 0 && (
+            <div className={panelClass}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <History className="h-5 w-5 text-amber-500" />
+                  <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_last_champ')}</div>
+                </div>
+                <button type="button" onClick={onOpenHistory} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50">
+                  {t('fanta_view_archive')} <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <button type="button" onClick={onOpenHistory} className="mt-4 w-full rounded-[22px] border border-amber-200 bg-amber-50/50 px-4 py-4 text-left transition hover:bg-amber-50">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-amber-700">{archivedEditions[0].dateLabel}</div>
+                    <div className="mt-1 truncate text-sm font-black text-slate-950">{archivedEditions[0].tournamentName}</div>
+                    <div className="mt-1 flex items-center gap-1 text-xs font-bold text-slate-600"><Trophy className="h-3.5 w-3.5 text-amber-500" /><span className="truncate">{archivedEditions[0].winnerTeamName}</span></div>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-amber-200 bg-white px-3 py-2 text-center shadow-sm">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_points_label')}</div>
+                    <div className="mt-0.5 text-xl font-black text-slate-950">{archivedEditions[0].winnerPoints}</div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

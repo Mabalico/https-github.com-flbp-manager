@@ -138,6 +138,7 @@ export interface FantaArchivedEdition {
 
 export interface FantaArchivedStandingRow {
   teamId: string;
+  userId?: string | null;
   rank: number;
   teamName: string;
   totalPoints: number;

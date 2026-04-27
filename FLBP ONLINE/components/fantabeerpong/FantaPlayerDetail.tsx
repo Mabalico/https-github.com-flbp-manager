@@ -6,9 +6,9 @@ import { useTranslation } from '../../App';
 import { MetricCard, panelClass } from './_shared';
 
 const statusBadgeClass = (status: 'live' | 'eliminated' | 'waiting') =>
-  status === 'live' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-100 text-slate-600';
+  status === 'eliminated' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700';
 const statusLabel = (t: (key: string) => string, status: 'live' | 'eliminated' | 'waiting') =>
-  status === 'live' ? t('fanta_players_status_live') : status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_waiting');
+  status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_live');
 
 interface Props { playerId: string; onBack: () => void; onOpenMyTeam?: () => void; }
 
