@@ -3872,12 +3872,6 @@ while (guard < 5000) {
                         </div>
                     </details>
 
-                    {adminSection === 'live' && (
-                         <span className="hidden items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 sm:inline-flex">
-                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                             {t('live_badge')}
-                         </span>
-                    )}
                     {adminSection === 'editor' && (
                          <span className="hidden items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-200 sm:inline-flex">
                              {t('admin_structural_editor')}
