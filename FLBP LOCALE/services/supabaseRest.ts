@@ -1451,6 +1451,74 @@ export const submitPlayerAccountMergeRequest = async (input: {
     return payload.row;
 };
 
+export type DispatchPlayerAliasAlertResult = {
+    ok: boolean;
+    targetUserId?: string;
+    skipped?: boolean;
+    code?: string | null;
+    reasonCode?: string | null;
+    reason?: string | null;
+    deliveries?: Array<{ ok: boolean; platform: string; provider: string; status?: number | null; code?: string | null; reason?: string | null }>;
+};
+
+export const dispatchPlayerAliasAlert = async (input: {
+    targetUserId: string;
+    candidatePlayerName: string;
+    tournamentName?: string;
+    accessToken?: string | null;
+    workspaceId?: string | null;
+}): Promise<DispatchPlayerAliasAlertResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const targetUserId = String(input.targetUserId || '').trim();
+    const candidatePlayerName = String(input.candidatePlayerName || '').trim();
+    if (!targetUserId || !candidatePlayerName) {
+        throw new Error('Notifica alias: targetUserId e candidatePlayerName sono obbligatori.');
+    }
+
+    const postDispatch = (accessToken: string) => fetchWithTimeout(
+        functionsUrl(cfg, 'player-alias-alert'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, accessToken),
+            body: JSON.stringify({
+                workspaceId: String(input.workspaceId || cfg.workspaceId || '').trim() || cfg.workspaceId,
+                targetUserId,
+                candidatePlayerName,
+                tournamentName: String(input.tournamentName || '').trim() || null,
+            }),
+        },
+        8000,
+        { source: 'dispatchPlayerAliasAlert', kind: 'sync' }
+    );
+
+    const explicitAccessToken = String(input.accessToken || '').trim();
+    let res: Response;
+    if (explicitAccessToken) {
+        res = await postDispatch(explicitAccessToken);
+    } else {
+        let session = await requireSupabaseWriteSession();
+        res = await postDispatch(session.accessToken);
+        if (!res.ok) {
+            const body = await readErrorBody(res);
+            if (isRejectedAdminEdgeSession(res.status, body)) {
+                const retrySession = await recoverRejectedAdminWriteSession();
+                if (retrySession?.accessToken) {
+                    session = retrySession;
+                    res = await postDispatch(session.accessToken);
+                } else {
+                    throw new Error(body);
+                }
+            } else {
+                throw new Error(body);
+            }
+        }
+    }
+
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as DispatchPlayerAliasAlertResult;
+};
+
 export const pullPlayerOwnAccountMergeRequests = async (input?: {
     accessToken?: string | null;
     workspaceId?: string | null;
@@ -2215,6 +2283,7 @@ const DB_SCHEMA_RPC_REQUIREMENTS: DbHealthRpcRequirement[] = [
 const DB_EXPECTED_EDGE_FUNCTIONS = [
     { flow: 'Player accounts/calls', name: 'player-call-push', purpose: 'dispatch push FCM/APNs per convocazioni squadra' },
     { flow: 'Player accounts/calls', name: 'player-account-admin', purpose: 'eliminazione protetta account giocatore da Admin' },
+    { flow: 'Player accounts/calls', name: 'player-alias-alert', purpose: 'notifiche push manuali per possibili alias giocatore' },
 ];
 
 const dbHealthHeadersForAccess = (

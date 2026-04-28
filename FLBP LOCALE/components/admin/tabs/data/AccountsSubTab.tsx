@@ -25,6 +25,7 @@ import {
 } from '../../../../services/playerAccountAliasSuggestions';
 import {
   deleteAdminPlayerAccount,
+  dispatchPlayerAliasAlert,
   grantAdminPlayerAccount,
   playerRequestPasswordReset,
   pullAdminPlayerAccountMergeRequests,
@@ -915,6 +916,42 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     setFeedback({ tone: 'success', message: t('data_accounts_alias_ignore_done') });
   };
 
+  const [notifyingSuggestionId, setNotifyingSuggestionId] = React.useState<string | null>(null);
+
+  const notifyAliasSuggestion = async (suggestionId: string) => {
+    if (!selectedRow || selectedRow.mode !== 'live' || !selectedRow.id) {
+      setFeedback({ tone: 'error', message: 'Notifica disponibile solo per account live.' });
+      return;
+    }
+    const suggestion = aliasSuggestions.find((row) => row.id === suggestionId);
+    if (!suggestion) return;
+    setNotifyingSuggestionId(suggestionId);
+    try {
+      const result = await dispatchPlayerAliasAlert({
+        targetUserId: selectedRow.id,
+        candidatePlayerName: suggestion.candidateDisplayName,
+        tournamentName: state.tournament?.name || '',
+      });
+      if (result.skipped) {
+        const reason = result.reason || 'Nessun dispositivo nativo pronto.';
+        setFeedback({ tone: 'error', message: `Notifica saltata: ${reason}` });
+      } else {
+        const okCount = (result.deliveries || []).filter((d) => d.ok).length;
+        const total = (result.deliveries || []).length;
+        if (total > 0 && okCount === 0) {
+          const failedReason = (result.deliveries || []).find((d) => !d.ok)?.reason || result.reason || 'Provider push non raggiunto.';
+          setFeedback({ tone: 'error', message: `Notifica non partita: ${failedReason}` });
+        } else {
+          setFeedback({ tone: 'success', message: `Notifica inviata (${okCount}/${total} dispositivi).` });
+        }
+      }
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: String(error?.message || error || 'Errore notifica alias.') });
+    } finally {
+      setNotifyingSuggestionId(null);
+    }
+  };
+
   const mergeAliasSuggestion = async (suggestionId: string) => {
     if (!selectedRow) return;
     const suggestion = aliasSuggestions.find((row) => row.id === suggestionId);
@@ -1452,6 +1489,17 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
                           >
                             {t('data_accounts_alias_merge')}
                           </button>
+                          {selectedRow?.mode === 'live' && (
+                            <button
+                              type="button"
+                              disabled={notifyingSuggestionId === suggestion.id}
+                              onClick={() => void notifyAliasSuggestion(suggestion.id)}
+                              className="inline-flex items-center justify-center rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                              title="Invia una notifica push al giocatore per segnalargli questo possibile alias"
+                            >
+                              {notifyingSuggestionId === suggestion.id ? 'Invio…' : 'Notifica giocatore'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => ignoreAliasSuggestion(suggestion.id)}
