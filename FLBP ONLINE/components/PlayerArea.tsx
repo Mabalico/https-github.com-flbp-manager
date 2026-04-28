@@ -2786,7 +2786,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
               </div>
             ) : (
               <div className="space-y-5">
-                {false && pendingAccountAliasSuggestions.length && !accountAliasInterstitialDismissed && !hasPendingAccountMergeRequest ? (
+                {pendingAccountAliasSuggestions.length > 0 && !accountAliasInterstitialDismissed && !hasPendingAccountMergeRequest ? (
                   <div className="rounded-[22px] border border-amber-200 bg-amber-50/90 px-4 py-4 shadow-sm shadow-amber-100/60 md:px-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="min-w-0">
@@ -2840,30 +2840,96 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           ? `${formatBirthDateDisplay(displayProfile.birthDate)}`
                           : getPlayerPreviewIdentityLabel(snapshot.profile)}
                       </div>
-                      {showAccountAliasNotice ? (
-                        <button
-                          type="button"
-                          onClick={openAccountAliasPrompt}
-                          className="mt-3 flex w-full max-w-xl items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/95 px-3 py-3 text-left shadow-sm shadow-amber-100/60 transition hover:border-amber-300 hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 sm:w-auto sm:min-w-[min(100%,28rem)]"
-                        >
-                          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-                          <span className="min-w-0">
-                            <span className="block text-sm font-black text-amber-950">
-                              Possibile presenza di dati storici già presenti
-                            </span>
-                            <span className="mt-0.5 block text-xs font-bold leading-5 text-amber-800">
-                              Tocca qui per aprire la richiesta e segnalarla agli admin.
-                            </span>
-                          </span>
-                          <ChevronRight className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                        </button>
-                      ) : null}
+                      {/* CTA inline rimosso: la sezione "Alias" unificata sotto centralizza suggerimenti e segnalazioni */}
                     </div>
                     <button type="button" onClick={() => { if (window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) { void signOut(); } }} className="inline-flex items-center gap-2 rounded-xl bg-red-50/80 backdrop-blur-md px-3 py-2 text-sm font-black text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-100 hover:text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50">
                       <LogOut className="h-4 w-4" /> {t('player_area_sign_out')}
                     </button>
                   </div>
                 </div>
+
+                {(pendingAccountAliasSuggestions.length > 0 || liveMergeRequests.length > 0) && (
+                  <div className="rounded-[26px] border border-amber-100 bg-gradient-to-br from-amber-50/60 to-white p-5 shadow-sm md:p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="inline-flex items-center gap-2">
+                        <ShieldCheck className="h-5 w-5 text-amber-700" />
+                        <div className="text-lg font-black tracking-tight text-slate-950">
+                          {t('data_accounts_alias_suggestions_title')}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {pendingAccountAliasSuggestions.length > 0 && (
+                          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wide text-amber-800">
+                            {pendingAccountAliasSuggestions.length} {t('player_register_alias_title')}
+                          </span>
+                        )}
+                        {liveMergeRequests.length > 0 && (
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wide text-slate-700">
+                            {liveMergeRequests.length} {t('data_accounts_filter_merge_requests')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {pendingAccountAliasSuggestions.length > 0 && !hasPendingAccountMergeRequest && (
+                      <div className="mt-4">
+                        <div className="space-y-2">
+                          {pendingAccountAliasSuggestions.slice(0, 5).map((suggestion) => (
+                            <div key={suggestion.id} className="rounded-2xl border border-amber-200 bg-white px-3 py-2.5">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-black text-slate-950 truncate">{suggestion.candidateDisplayName}</div>
+                                  <div className="text-xs font-bold text-slate-500">
+                                    {suggestion.candidateBirthDateLabel !== 'ND' ? suggestion.candidateBirthDateLabel : t('player_register_alias_birthdate_missing')}
+                                  </div>
+                                </div>
+                                <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${suggestion.confidence === 'high' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700'}`}>
+                                  {suggestion.confidence === 'high' ? t('data_accounts_alias_confidence_high') : t('data_accounts_alias_confidence_medium')}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button type="button" onClick={openAccountAliasPrompt} className={`mt-3 ${btnPrimary}`}>
+                          <BadgeCheck className="h-4 w-4" /> {t('player_register_alias_submit')}
+                        </button>
+                      </div>
+                    )}
+
+                    {liveMergeRequests.length > 0 && (
+                      <div className={`${pendingAccountAliasSuggestions.length > 0 && !hasPendingAccountMergeRequest ? 'mt-5 pt-4 border-t border-amber-100' : 'mt-4'}`}>
+                        <div className="space-y-2">
+                          {liveMergeRequests.map((req) => {
+                            const status = String(req.status || '').toLowerCase();
+                            const statusLabel = status === 'resolved' ? t('data_accounts_merge_status_resolved') :
+                                                status === 'ignored'  ? t('data_accounts_merge_status_ignored') :
+                                                t('data_accounts_merge_status_pending');
+                            const statusClass = status === 'resolved' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' :
+                                                status === 'ignored'  ? 'border-slate-200 bg-slate-50 text-slate-700' :
+                                                'border-amber-200 bg-amber-50 text-amber-800';
+                            return (
+                              <div key={req.id} className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-black text-slate-950 truncate">{req.candidate_player_name}</div>
+                                    {req.created_at && (
+                                      <div className="text-xs font-bold text-slate-500">
+                                        {new Date(req.created_at).toLocaleDateString('it-IT')}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${statusClass}`}>
+                                    {statusLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
                   <MetricCard label={t('titles')} value={effectivePersonalProfile?.totalTitles ?? 0} />
