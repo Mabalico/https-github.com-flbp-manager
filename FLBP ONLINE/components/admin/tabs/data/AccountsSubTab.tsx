@@ -400,6 +400,11 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
     [rows]
   );
 
+  const accountAliasSuggestionMap = React.useMemo(
+    () => new Map(rows.map((row) => [row.id, buildPlayerAccountAliasSuggestions(state, row).slice(0, 6)])),
+    [rows, state]
+  );
+
   const historicalAliasSuggestionMap = React.useMemo(
     () =>
       new Map<string, PlayerRegistrationAliasSuggestion[]>(
@@ -433,11 +438,14 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
           const hasHistoricalAliasSuggestion = group.rows.some(
             (row) => (historicalAliasSuggestionMap.get(row.id) || []).length > 0
           );
-          return hasAccountMergeSuggestion || hasHistoricalAliasSuggestion;
+          const hasAccountAliasSuggestion = group.rows.some(
+            (row) => (accountAliasSuggestionMap.get(row.id) || []).length > 0
+          );
+          return hasAccountMergeSuggestion || hasHistoricalAliasSuggestion || hasAccountAliasSuggestion;
         })
         .map((group) => group.id)
     ),
-    [accountGroups, accountMergeSuggestionMap, historicalAliasSuggestionMap]
+    [accountGroups, accountMergeSuggestionMap, accountAliasSuggestionMap, historicalAliasSuggestionMap]
   );
 
   const mergeRequestGroupIds = React.useMemo(
@@ -544,8 +552,8 @@ export const AccountsSubTab: React.FC<AccountsSubTabProps> = ({ state, setState,
 
   const aliasSuggestions = React.useMemo(() => {
     if (!selectedRow || !selectedRow.canonicalPlayerId || !selectedRow.linkedPlayerName) return [];
-    return buildPlayerAccountAliasSuggestions(state, selectedRow).slice(0, 6);
-  }, [selectedRow, state]);
+    return accountAliasSuggestionMap.get(selectedRow.id) || [];
+  }, [accountAliasSuggestionMap, selectedRow]);
 
   const historicalAliasSuggestions = React.useMemo(() => {
     if (!selectedGroup) return [];
