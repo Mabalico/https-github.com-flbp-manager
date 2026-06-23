@@ -250,7 +250,7 @@ const GlobalPlayerCallNotice: React.FC<{
                     if (!cancelled) setActiveCall(null);
                     return;
                 }
-                const rows = await pullPlayerAppCalls();
+                const rows = await pullPlayerAppCalls({ normalizeStale: false });
                 const nextCall = rows
                     .map(mapSupabaseCallRowToPlayerCallRequest)
                     .filter((call) => call.status === 'ringing' || call.status === 'acknowledged')

@@ -1185,16 +1185,19 @@ const expireStalePlayerAppCallsForCurrentUser = async (cutoff: string): Promise<
     }
 };
 
-export const pullPlayerAppCalls = async (): Promise<PlayerSupabaseCallRow[]> => {
+export const pullPlayerAppCalls = async (opts?: { normalizeStale?: boolean }): Promise<PlayerSupabaseCallRow[]> => {
     const cfg = getSupabaseConfig();
     const session = await requirePlayerSupabaseSession();
     const userId = String(session.userId || '').trim();
     if (!cfg || !userId) return [];
-    // Keep the read cutoff, but first let the backend mark old ringing calls as terminal when available.
+    // Keep stale normalization enabled by default. High-frequency UI polling can opt out
+    // and rely on the read cutoff to avoid running the write-like RPC every few seconds.
     const cutoff = new Date(Date.now() - PLAYER_APP_CALL_STALE_MS).toISOString();
-    await expireStalePlayerAppCallsForCurrentUser(cutoff).catch((error) => {
-        console.warn('FLBP stale player call normalization failed', error);
-    });
+    if (opts?.normalizeStale !== false) {
+        await expireStalePlayerAppCallsForCurrentUser(cutoff).catch((error) => {
+            console.warn('FLBP stale player call normalization failed', error);
+        });
+    }
     const url = restUrl(
         cfg,
         `player_app_calls?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&target_user_id=eq.${encodeURIComponent(userId)}&requested_at=gte.${encodeURIComponent(cutoff)}&select=id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,requested_by_user_id,status,requested_at,acknowledged_at,cancelled_at,metadata&order=requested_at.desc`

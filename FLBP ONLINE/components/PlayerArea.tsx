@@ -1089,7 +1089,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
   const refreshLiveCallsOnly = React.useCallback(async () => {
     if (!liveBackendEnabled) return;
     try {
-      const rows = await pullPlayerAppCalls();
+      const rows = await pullPlayerAppCalls({ normalizeStale: false });
       const nextCalls = rows
         .map(mapSupabaseCallRowToPlayerCallRequest)
         .filter((row) => row.status === 'ringing' || row.status === 'acknowledged');
