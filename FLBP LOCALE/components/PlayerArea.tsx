@@ -1086,6 +1086,19 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     }
   }, [liveBackendEnabled, syncLiveDeviceRegistration, t]);
 
+  const refreshLiveCallsOnly = React.useCallback(async () => {
+    if (!liveBackendEnabled) return;
+    try {
+      const rows = await pullPlayerAppCalls();
+      const nextCalls = rows
+        .map(mapSupabaseCallRowToPlayerCallRequest)
+        .filter((row) => row.status === 'ringing' || row.status === 'acknowledged');
+      setLiveCalls((current) => (sameLiveCalls(current, nextCalls) ? current : nextCalls));
+    } catch (error) {
+      console.warn('[PlayerArea] Live calls polling skipped', error);
+    }
+  }, [liveBackendEnabled]);
+
   React.useEffect(() => {
     if (!liveBackendEnabled) return;
     try {
@@ -1129,14 +1142,14 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !liveRuntimeArmed || liveCallRefreshNonce === 0) return;
-    void refreshLiveRuntime(undefined, { silent: true });
-  }, [liveBackendEnabled, liveCallRefreshNonce, liveRuntimeArmed, refreshLiveRuntime]);
+    void refreshLiveCallsOnly();
+  }, [liveBackendEnabled, liveCallRefreshNonce, liveRuntimeArmed, refreshLiveCallsOnly]);
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !liveRuntimeArmed || !liveSession?.accessToken || liveAuthFlow === 'recovery') return;
     const timer = window.setInterval(() => {
       setLiveCallRefreshNonce((value) => value + 1);
-    }, 6000);
+    }, 12000);
     return () => window.clearInterval(timer);
   }, [liveAuthFlow, liveBackendEnabled, liveRuntimeArmed, liveSession?.accessToken]);
 
