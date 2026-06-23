@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, setPlayerSupabaseSession, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -2775,6 +2775,66 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return getTeamFromCatalog(id)?.name || id;
     };
 
+    const getTeamFromStateSnapshot = (snapshot: AppState, id?: string) => {
+        if (!id) return undefined;
+        const live = (snapshot.tournament?.teams || []) as Team[];
+        return live.find(t => t.id === id) || (snapshot.teams || []).find(t => t.id === id);
+    };
+
+    const getTeamNameFromStateSnapshot = (snapshot: AppState, id?: string) => {
+        if (!id) return 'TBD';
+        if (id === 'BYE') return 'BYE';
+        return getTeamFromStateSnapshot(snapshot, id)?.name || id;
+    };
+
+    const buildReportConflictSignature = (match?: Match | null) => {
+        if (!match) return '';
+        const stats = (match.stats || [])
+            .map(s => ({
+                teamId: String(s.teamId || ''),
+                playerName: String(s.playerName || ''),
+                canestri: Number(s.canestri || 0),
+                soffi: Number(s.soffi || 0),
+            }))
+            .sort((a, b) => `${a.teamId}|${a.playerName}`.localeCompare(`${b.teamId}|${b.playerName}`));
+        return JSON.stringify({
+            status: match.status || 'scheduled',
+            played: !!match.played,
+            scoreA: Number(match.scoreA || 0),
+            scoreB: Number(match.scoreB || 0),
+            scoresByTeam: match.scoresByTeam || null,
+            stats,
+            refereeReportFinalId: match.refereeReportFinalId || null,
+            refereeReportSavedAt: match.refereeReportSavedAt || null,
+        });
+    };
+
+    const describeReportForConflict = (snapshot: AppState, match?: Match | null) => {
+        if (!match) return 'Referto non presente nello snapshot remoto.';
+        const ids = getMatchParticipantIds(match).filter(Boolean);
+        const teams = ids.length
+            ? ids.map(id => getTeamNameFromStateSnapshot(snapshot, id)).join(' vs ')
+            : `${getTeamNameFromStateSnapshot(snapshot, match.teamAId)} vs ${getTeamNameFromStateSnapshot(snapshot, match.teamBId)}`;
+        const score = match.scoresByTeam
+            ? ids.map(id => `${getTeamNameFromStateSnapshot(snapshot, id)} ${match.scoresByTeam?.[id] ?? 0}`).join(' / ')
+            : `${Number(match.scoreA || 0)} - ${Number(match.scoreB || 0)}`;
+        const statsTotals = (match.stats || []).reduce((acc, row) => {
+            acc.canestri += Number(row.canestri || 0);
+            acc.soffi += Number(row.soffi || 0);
+            return acc;
+        }, { canestri: 0, soffi: 0 });
+        const savedBy = match.refereeReportAuthorName
+            ? `\nSalvato da: ${match.refereeReportAuthorName}${match.refereeReportSavedAt ? ` (${new Date(match.refereeReportSavedAt).toLocaleString()})` : ''}`
+            : '';
+        return [
+            `Match: ${match.code || match.id}`,
+            `Squadre: ${teams}`,
+            `Stato: ${match.status || 'scheduled'}${match.played ? ' / giocata' : ''}`,
+            `Punteggio: ${score}`,
+            `Statistiche: ${statsTotals.canestri} canestri, ${statsTotals.soffi} soffi`,
+        ].join('\n') + savedBy;
+    };
+
     const buildBracketRounds = (allMatches: Match[]): Match[][] => {
         const rounds: Match[][] = [];
         if (state.tournament?.rounds && state.tournament.rounds.length) {
@@ -3327,12 +3387,66 @@ while (guard < 5000) {
         }
     };
 
-    const handleSaveReport = () => {
+    const handleSaveReport = async () => {
         if (!state.tournament) {
             alert(t('alert_no_live_active'));
             return;
         }
-        const matches = [...(state.tournamentMatches || [])];
+        let workingState = state;
+        const localMatches = [...(state.tournamentMatches || [])];
+        const localBaseMatch = localMatches.find(m => m.id === reportMatchId) || null;
+        const cfg = getSupabaseConfig();
+        const session = getSupabaseSession();
+        if (cfg && session?.accessToken && reportMatchId) {
+            try {
+                const remoteRow = await pullWorkspaceState({ source: 'AdminDashboard.handleSaveReport.preflight', kind: 'admin' });
+                const remoteUpdatedAt = remoteRow?.updated_at || null;
+                const baseUpdatedAt = getRemoteBaseUpdatedAt();
+                const remoteIsNewer = !!remoteUpdatedAt && (
+                    !baseUpdatedAt || Date.parse(remoteUpdatedAt) > Date.parse(baseUpdatedAt)
+                );
+                if (remoteRow?.state && remoteIsNewer) {
+                    const remoteState = coerceAppState(remoteRow.state);
+                    const remoteMatch = (remoteState.tournamentMatches || []).find(m => m.id === reportMatchId) || null;
+                    const selectedMatchChanged =
+                        buildReportConflictSignature(remoteMatch) !== buildReportConflictSignature(localBaseMatch);
+
+                    if (selectedMatchChanged) {
+                        const overwrite = confirm([
+                            'Il DB contiene un referto piu recente per questa partita.',
+                            '',
+                            'Referto nel DB:',
+                            describeReportForConflict(remoteState, remoteMatch),
+                            '',
+                            'Referto nella tua finestra:',
+                            describeReportForConflict(state, localBaseMatch),
+                            '',
+                            'OK = applica comunque il tuo referto sopra i dati aggiornati.',
+                            'Annulla = ricarica i dati del DB senza salvare.',
+                        ].join('\n'));
+
+                        if (!overwrite) {
+                            setRemoteBaseUpdatedAt(remoteUpdatedAt);
+                            setState(remoteState);
+                            alert('Ho ricaricato i dati aggiornati dal DB. Controlla il referto prima di salvare di nuovo.');
+                            return;
+                        }
+                    }
+
+                    // Remote state is newer. Continue from it so unrelated changes made by
+                    // another admin are preserved instead of overwritten by this window.
+                    setRemoteBaseUpdatedAt(remoteUpdatedAt);
+                    workingState = remoteState;
+                }
+            } catch (error: any) {
+                console.warn('Admin report preflight failed', error);
+                alert(`Non riesco a verificare lo stato aggiornato del DB prima del salvataggio.\n\n${String(error?.message || error || '')}\n\nRiprova tra qualche secondo: il referto non e stato salvato.`);
+                return;
+            }
+        }
+
+        const getTeamFromWorkingCatalog = (id?: string) => getTeamFromStateSnapshot(workingState, id);
+        const matches = [...(workingState.tournamentMatches || [])];
         const idx = matches.findIndex(m => m.id === reportMatchId);
         if (idx === -1) {
             alert(t('alert_select_match'));
@@ -3362,10 +3476,10 @@ while (guard < 5000) {
 
         const participantTeams = participantIds
             .filter(id => id && id !== 'BYE')
-            .map(id => getTeamFromCatalog(id))
+            .map(id => getTeamFromWorkingCatalog(id))
             .filter(Boolean) as Team[];
 
-        const isResultsOnlyReport = isResultsOnlyTournament(state.tournament);
+        const isResultsOnlyReport = isResultsOnlyTournament(workingState.tournament);
         const scoresByTeam: Record<string, number> = {};
         if (isResultsOnlyReport) {
             const winnerId = String(reportWinnerTeamId || '').trim();
@@ -3421,7 +3535,7 @@ while (guard < 5000) {
 
         const teamsForStats: Team[] = isMulti
             ? participantTeams
-            : ([getTeamFromCatalog(updated.teamAId), getTeamFromCatalog(updated.teamBId)].filter(Boolean) as Team[]);
+            : ([getTeamFromWorkingCatalog(updated.teamAId), getTeamFromWorkingCatalog(updated.teamBId)].filter(Boolean) as Team[]);
 
         if (!isResultsOnlyReport && updated.status === 'finished') {
             teamsForStats.forEach(tt => {
@@ -3435,14 +3549,14 @@ while (guard < 5000) {
 
         // Sync bracket from groups when in groups+elimination mode (fills placeholders / reseeds when groups are complete).
         let finalMatches = matches;
-        if (updated.phase === 'groups' && state.tournament?.type === 'groups_elimination') {
-            finalMatches = syncBracketFromGroups(state.tournament, finalMatches);
+        if (updated.phase === 'groups' && workingState.tournament?.type === 'groups_elimination') {
+            finalMatches = syncBracketFromGroups(workingState.tournament, finalMatches);
             finalMatches = autoResolveBracketByes(finalMatches);
         }
 
         // Final stage: if the final round-robin is activated and completed, auto-create FTB* if needed.
-        if (updated.phase === 'groups' && state.tournament) {
-            finalMatches = ensureFinalTieBreakIfNeeded(state.tournament, finalMatches);
+        if (updated.phase === 'groups' && workingState.tournament) {
+            finalMatches = ensureFinalTieBreakIfNeeded(workingState.tournament, finalMatches);
         }
 
         // Propagate winner in bracket (and auto-win BYEs) when a bracket match is finished.
@@ -3450,8 +3564,11 @@ while (guard < 5000) {
             finalMatches = propagateWinnerFromMatch(updated, finalMatches);
         }
 
-        commitLiveMatches(finalMatches);
-        closeLiveCallsForMatch(updated, state.tournament.id);
+        const nextTournament = workingState.tournament
+            ? { ...workingState.tournament, matches: finalMatches }
+            : workingState.tournament;
+        setState({ ...workingState, tournament: nextTournament, tournamentMatches: finalMatches });
+        closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
         alert(t('alert_report_saved'));
     };
 
@@ -3925,8 +4042,8 @@ while (guard < 5000) {
                         </>
                     )}
 
-                    {/* Sync badge: visibile SOLO se c'Ã¨ un problema */}
-                    {(adminSyncState.phase !== 'synced' && adminSyncState.phase !== 'idle') && (
+                    {/* Sync badge: always visible so live admins can spot stale/conflict state early. */}
+                    {(
                         <>
                             <div className="w-px h-5 bg-slate-200 mx-0.5"></div>
                             <div
