@@ -204,6 +204,25 @@ export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<
     return pullPublicWorkspaceStateLastRow;
 };
 
+export const pullPublicWorkspaceUpdatedAt = async (perf?: RequestPerfHint): Promise<string | null> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+
+    const url = restUrl(
+        cfg,
+        `public_workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=updated_at&limit=1`
+    );
+    const res = await fetchWithTimeout(
+        url,
+        { headers: buildAnonHeaders(cfg) },
+        2500,
+        { source: perf?.source || 'pullPublicWorkspaceUpdatedAt', kind: perf?.kind || 'polling' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = (await res.json()) as Array<{ updated_at?: string | null }>;
+    return rows?.[0]?.updated_at || null;
+};
+
 export const trackPublicSiteView = async (date?: string): Promise<{ ok: boolean; view_date?: string; views?: number } | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) return null;

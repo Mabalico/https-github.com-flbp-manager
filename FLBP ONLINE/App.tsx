@@ -116,6 +116,7 @@ const getSupabasePublicOps = async () => {
     const module = await loadSupabasePublicModule();
     return {
         pullPublicWorkspaceState: module.pullPublicWorkspaceState,
+        pullPublicWorkspaceUpdatedAt: module.pullPublicWorkspaceUpdatedAt,
         trackPublicSiteView: module.trackPublicSiteView
     };
 };
@@ -435,6 +436,7 @@ const App: React.FC = () => {
     const [remoteBootstrapStatus, setRemoteBootstrapStatus] = useState<'idle' | 'booting' | 'ready'>('idle');
     const [publicDbState, setPublicDbState] = useState<AppState | null>(null);
     const [publicDbUpdatedAt, setPublicDbUpdatedAt] = useState<string | null>(null);
+    const publicDbUpdatedAtRef = useRef<string | null>(null);
     const VIEW_KEY = 'flbp_view';
     const POST_RELOAD_VIEW_KEY = 'flbp_post_reload_view';
     const LANG_KEY = 'flbp_lang';
@@ -894,6 +896,7 @@ const App: React.FC = () => {
         if (!publicDbReadEnabled()) {
             setPublicDbState(null);
             setPublicDbUpdatedAt(null);
+            publicDbUpdatedAtRef.current = null;
             return;
         }
 
@@ -921,7 +924,9 @@ const App: React.FC = () => {
                 const next = await coerceLoadedAppState(row.state);
                 if (cancelled) return false;
                 setPublicDbState(next);
-                setPublicDbUpdatedAt(row.updated_at || null);
+                const nextUpdatedAt = row.updated_at || null;
+                publicDbUpdatedAtRef.current = nextUpdatedAt;
+                setPublicDbUpdatedAt(nextUpdatedAt);
             } catch {
                 // silent fallback to local state
                 return false;
@@ -929,10 +934,15 @@ const App: React.FC = () => {
             return true;
         };
 
-        const pullOnce = async () => {
+        const pullOnce = async (opts?: { checkUpdatedAtOnly?: boolean }) => {
             if (!shouldPollNow()) return;
             try {
-                const row = await (await getSupabasePublicOps()).pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll' });
+                const ops = await getSupabasePublicOps();
+                if (opts?.checkUpdatedAtOnly && publicDbUpdatedAtRef.current) {
+                    const updatedAt = await ops.pullPublicWorkspaceUpdatedAt({ kind: 'polling', source: 'App.publicWorkspaceUpdatedAtPoll' });
+                    if (!updatedAt || updatedAt === publicDbUpdatedAtRef.current) return;
+                }
+                const row = await ops.pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll' });
                 if (cancelled) return;
                 if (!row?.state) return;
                 writeCachedPublicWorkspaceState(row);
@@ -962,7 +972,7 @@ const App: React.FC = () => {
             };
         }
 
-        const intervalMs = tvMode != null ? 5000 : (view === 'tournament_detail' ? 15000 : 60000);
+        const intervalMs = tvMode != null ? 90000 : (view === 'tournament_detail' ? 15000 : 60000);
         const isTvMode = tvMode != null;
         const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
         let lastActivityAt = Date.now();
@@ -978,7 +988,7 @@ const App: React.FC = () => {
         }
         const id = window.setInterval(() => {
             if (isCurrentlyIdle()) return;
-            void pullOnce();
+            void pullOnce({ checkUpdatedAtOnly: isTvMode });
         }, intervalMs);
         return () => {
             cancelled = true;
