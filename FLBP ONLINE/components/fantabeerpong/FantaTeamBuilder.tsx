@@ -158,6 +158,12 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
 
       const result = await saveFantaTeamWithResult(session.accountId, teamName, lineup);
       if (result.ok) {
+        const savedTeam = await fetchUserFantaTeam(session.accountId);
+        if (!savedTeam) {
+          setInfo('Squadra inviata, ma non riesco a rileggerla da questo browser. Esci e rientra nell’area giocatore, poi controlla La mia squadra.', 'error');
+          emitFantaAppChange();
+          return;
+        }
         emitFantaAppChange();
         setInfo(t('fanta_save_success'));
         setTimeout(onBack, 1500);
