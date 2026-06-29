@@ -631,6 +631,7 @@ const getPublicMatchSort = (match: SupabasePublicTournamentMatch): number =>
 type FantaComputedFallback = {
   standings: SupabaseFantaStanding[];
   players: SupabaseFantaPlayerStanding[];
+  rosterRows: any[];
   hasLiveProgress: boolean;
 };
 
@@ -645,7 +646,7 @@ const fetchComputedFantaFallback = async (
   ) || [];
 
   if (!fantaTeams.length) {
-    return { standings: [], players: [], hasLiveProgress: false };
+    return { standings: [], players: [], rosterRows: [], hasLiveProgress: false };
   }
 
   const fantaTeamIds = fantaTeams.map((team) => team.id).filter(Boolean);
@@ -735,6 +736,7 @@ const fetchComputedFantaFallback = async (
   });
 
   const playerRowsById = new Map<string, SupabaseFantaPlayerStanding & { selectedByTeamsSet?: Set<string> }>();
+  const computedRosterRows: any[] = [];
   const standings = fantaTeams.map((team) => {
     const rosterRows = rostersByTeamId.get(team.id) || [];
     let pointsFromGoals = 0;
@@ -764,12 +766,41 @@ const fetchComputedFantaFallback = async (
       const blowsPoints = (roster.role === 'captain' || roster.role === 'defender') ? rawBlows * 4 : rawBlows * 2;
       const winsPoints = roster.role === 'captain' ? rawWins * 14 : rawWins * 7;
       const sciaPoints = roster.role === 'captain' ? rawScia * 2 : rawScia;
+      const eliminatorTeamId = firstLossByTeamId.get(realTeamId)?.eliminatedByTeamId || null;
+      const eliminatedByTeamName = eliminated && eliminatorTeamId ? realTeamNameById.get(eliminatorTeamId) || null : null;
 
       pointsFromGoals += goalsPoints;
       pointsFromBlows += blowsPoints;
       pointsFromWins += winsPoints;
       bonusScia += sciaPoints;
       livePoints += goalsPoints + blowsPoints + winsPoints;
+
+      computedRosterRows.push({
+        workspace_id: cfg.workspaceId,
+        tournament_id: tournamentId,
+        team_id: team.id,
+        team_name: team.name,
+        user_id: team.user_id,
+        player_id: roster.player_id,
+        player_name: playerName,
+        real_team_id: realTeamId || null,
+        real_team_name: roster.real_team_name || realTeamNameById.get(realTeamId) || 'N/D',
+        role: roster.role,
+        raw_goals: rawGoals,
+        raw_blows: rawBlows,
+        raw_wins: rawWins,
+        raw_scia: rawScia,
+        points_from_goals: goalsPoints,
+        points_from_blows: blowsPoints,
+        points_from_wins: winsPoints,
+        points_from_scia: sciaPoints,
+        bonus_scia: sciaPoints,
+        live_points: goalsPoints + blowsPoints + winsPoints,
+        total_points: goalsPoints + blowsPoints + winsPoints + sciaPoints,
+        status: eliminated ? 'eliminated' : 'live',
+        eliminated_by_team_id: eliminatorTeamId,
+        eliminated_by_team_name: eliminatedByTeamName,
+      });
 
       const existingPlayer = playerRowsById.get(roster.player_id) || {
         tournament_id: tournamentId,
@@ -815,7 +846,7 @@ const fetchComputedFantaFallback = async (
   const players = Array.from(playerRowsById.values()).map(({ selectedByTeamsSet, ...row }) => row);
   const hasLiveProgress = winnerRows.length > 0 || Array.from(statsByTeamPlayer.values()).some((row) => row.goals > 0 || row.blows > 0);
 
-  return { standings, players, hasLiveProgress };
+  return { standings, players, rosterRows: computedRosterRows, hasLiveProgress };
 };
 
 const hasMeaningfulFantaStandings = (rows: SupabaseFantaStanding[]): boolean =>
@@ -835,6 +866,17 @@ const hasMeaningfulFantaPlayers = (rows: SupabaseFantaPlayerStanding[]): boolean
     || toNumber(row.points_from_goals) > 0
     || toNumber(row.points_from_blows) > 0
     || toNumber(row.points_from_wins) > 0
+    || toNumber(row.bonus_scia) > 0
+  );
+
+const hasMeaningfulFantaRosterRows = (rows: any[]): boolean =>
+  rows.some((row) =>
+    toNumber(row.total_points) > 0
+    || toNumber(row.live_points) > 0
+    || toNumber(row.points_from_goals) > 0
+    || toNumber(row.points_from_blows) > 0
+    || toNumber(row.points_from_wins) > 0
+    || toNumber(row.points_from_scia) > 0
     || toNumber(row.bonus_scia) > 0
   );
 
@@ -890,11 +932,27 @@ export const fetchFantaTeamDetail = async (teamId: string): Promise<any[]> => {
   const cfg = getSupabaseConfig();
   if (!cfg || !teamId) return [];
 
-  return await fetchJson<any[]>(
+  const rows = await fetchJson<any[]>(
     `${restUrl(cfg, 'fanta_roster_live_rows')}?team_id=eq.${encode(teamId)}&select=*&order=role.asc,player_name.asc`,
     buildHeaders(cfg),
     'fetchFantaTeamDetail',
   ) || [];
+
+  if (rows.length && hasMeaningfulFantaRosterRows(rows)) return rows;
+
+  const config = await fetchFantaConfig();
+  if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return rows;
+
+  const fallback = await fetchComputedFantaFallback(cfg, config.activeTournamentId);
+  const fallbackRows = fallback.rosterRows
+    .filter((row) => row.team_id === teamId)
+    .sort((left, right) =>
+      String(left.role || '').localeCompare(String(right.role || ''))
+      || String(left.player_name || '').localeCompare(String(right.player_name || ''), 'it', { sensitivity: 'base' })
+    );
+
+  if (fallbackRows.length && (!rows.length || fallback.hasLiveProgress)) return fallbackRows;
+  return rows;
 };
 
 export const fetchFantaPlayerContributions = async (playerId: string): Promise<any[]> => {
