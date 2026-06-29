@@ -3508,8 +3508,10 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
     await ensureWorkspace(cfg);
 
     // 1) Clear normalized workspace data.
-    // Do not delete `tournaments`: Fanta teams reference it and a parent delete cascades
+    // Do not delete all `tournaments`: Fanta teams reference it and a parent delete cascades
     // into saved Fanta rosters. Clear only tournament child tables, then upsert parents.
+    // Exception: stale live tournaments must be pruned. When an admin deletes the current
+    // live tournament, Fanta live views must stop counting that cancelled tournament.
     await restDeleteWhere(cfg, 'hall_of_fame_entries', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'player_aliases', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'integrations_scorers', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
@@ -3518,6 +3520,14 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
     await restDeleteWhere(cfg, 'tournament_group_teams', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'tournament_groups', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'tournament_teams', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
+    const currentLiveTournamentId = String(state.tournament?.id || '').trim();
+    await restDeleteWhere(
+        cfg,
+        'tournaments',
+        currentLiveTournamentId
+            ? `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&status=eq.live&id=neq.${encodeURIComponent(currentLiveTournamentId)}`
+            : `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&status=eq.live`
+    );
 
     // Public tables (safe read)
     try {

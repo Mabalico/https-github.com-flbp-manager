@@ -1684,11 +1684,15 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
 
         recoverToSafeAdmin();
         closeLiveCallsForTournament(state.tournament.id);
-        setState({
+        const nextState = {
             ...state,
             tournament: null,
             tournamentMatches: [],
-        });
+        };
+        setState(nextState);
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: { state: nextState, source: 'admin-delete-live-tournament' }
+        }));
         alert(t('admin_delete_live_tournament_done').replace('{name}', tournamentName));
     };
 
