@@ -137,10 +137,12 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
     .filter((team) => team.players.length > 0);
   const filteredPlayers = flatPlayers.filter((player) => player.playerName.toLowerCase().includes(searchTerm.trim().toLowerCase()));
 
-  const allRulesOk = selectedIds.length === 4 && captainId !== '' && defenderIds.length === 2;
+  const rosterRulesOk = selectedIds.length === 4 && captainId !== '' && defenderIds.length === 2;
+  const teamNameOk = teamName.trim().length > 0;
+  const canSave = rosterRulesOk && teamNameOk;
 
   const handleSave = async () => {
-    if (!allRulesOk || isReadOnly) return;
+    if (!canSave || isReadOnly) return;
     if (!session?.accountId) {
       setInfo(t('fanta_login_required_save'), 'error');
       return;
@@ -162,6 +164,8 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
       } else {
         setInfo(result.message || t('fanta_save_error'), 'error');
       }
+    } catch (error) {
+      setInfo(error instanceof Error ? error.message : t('fanta_save_error'), 'error');
     } finally {
       setSaving(false);
     }
@@ -300,16 +304,22 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                 <div className={`flex items-center gap-2 text-sm font-bold ${selectedIds.length === 4 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> {t('fanta_builder_check_4_players')}</div>
                 <div className={`flex items-center gap-2 text-sm font-bold ${captainId ? 'text-emerald-700' : 'text-rose-600'}`}><CheckCircle2 className="h-4 w-4" /> {t('fanta_builder_check_captain')}</div>
                 <div className={`flex items-center gap-2 text-sm font-bold ${defenderIds.length === 2 ? 'text-emerald-700' : 'text-slate-400'}`}><CheckCircle2 className="h-4 w-4" /> {t('fanta_builder_check_defenders')}</div>
-                {!session?.accountId && (
+                <div className={`flex items-center gap-2 text-sm font-bold ${teamNameOk ? 'text-emerald-700' : 'text-rose-600'}`}><CheckCircle2 className="h-4 w-4" /> {t('fanta_builder_team_name_label')}</div>
+                  {!session?.accountId && (
                   <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-bold text-rose-800">
                     {t('fanta_builder_login_warning')}
                   </div>
                 )}
               </div>
+              {feedback && (
+                <div className={`mt-4 rounded-xl border px-3 py-2.5 text-xs font-bold ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+                  {feedback.message}
+                </div>
+              )}
               <button 
                 type="button" 
                 onClick={handleSave} 
-                disabled={!allRulesOk || isReadOnly || saving} 
+                disabled={!canSave || isReadOnly || saving} 
                 className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-beer-500 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 disabled:opacity-50 disabled:grayscale"
               >
                 {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : t('fanta_builder_save_button')}
@@ -429,7 +439,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
           <div className={panelClass}>
             <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_next_step')}</div>
             <div className="mt-2 text-sm font-semibold leading-relaxed text-slate-600">{t('fanta_builder_hint')}</div>
-            <button type="button" disabled={!allRulesOk || isReadOnly} onClick={() => setStep('review')} className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg transition hover:bg-slate-800 disabled:opacity-50 disabled:grayscale disabled:shadow-none">{t('fanta_go_to_review')} <ArrowRight className="h-4 w-4" /></button>
+            <button type="button" disabled={!rosterRulesOk || isReadOnly} onClick={() => setStep('review')} className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg transition hover:bg-slate-800 disabled:opacity-50 disabled:grayscale disabled:shadow-none">{t('fanta_go_to_review')} <ArrowRight className="h-4 w-4" /></button>
           </div>
         </div>
       </div>
