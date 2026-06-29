@@ -162,7 +162,7 @@ export const flushAutoStructuredSync = async (
   pending = null;
 
   try {
-    const summary = await pushNormalizedFromState(s);
+    const summary = await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
     lastRunAt = Date.now();
     lastFingerprint = fp;
     markDbSyncOk('structured', summary);
