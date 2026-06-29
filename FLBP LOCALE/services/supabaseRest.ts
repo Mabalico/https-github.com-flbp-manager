@@ -3507,11 +3507,17 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
     await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
-    // 1) Clear normalized workspace data (tournaments cascade to children).
+    // 1) Clear normalized workspace data.
+    // Do not delete `tournaments`: Fanta teams reference it and a parent delete cascades
+    // into saved Fanta rosters. Clear only tournament child tables, then upsert parents.
     await restDeleteWhere(cfg, 'hall_of_fame_entries', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'player_aliases', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'integrations_scorers', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
-    await restDeleteWhere(cfg, 'tournaments', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
+    await restDeleteWhere(cfg, 'tournament_match_stats', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
+    await restDeleteWhere(cfg, 'tournament_matches', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
+    await restDeleteWhere(cfg, 'tournament_group_teams', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
+    await restDeleteWhere(cfg, 'tournament_groups', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
+    await restDeleteWhere(cfg, 'tournament_teams', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
 
     // Public tables (safe read)
     try {
