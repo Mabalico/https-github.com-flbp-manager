@@ -112,7 +112,7 @@ export type FantaSaveTeamErrorCode =
   | 'backend_error';
 
 export type FantaSaveTeamResult =
-  | { ok: true }
+  | { ok: true; teamId?: string }
   | { ok: false; code: FantaSaveTeamErrorCode; message: string };
 
 const restUrl = (cfg: { url: string }, path: string) => {
@@ -147,6 +147,15 @@ const fetchJson = async <T>(
     return await res.json() as T;
   } catch {
     return null;
+  }
+};
+
+const readRpcStringResult = async (res: Response): Promise<string> => {
+  try {
+    const payload = await res.json();
+    return String(payload || '').trim();
+  } catch {
+    return '';
   }
 };
 
@@ -483,6 +492,31 @@ export const fetchUserFantaTeam = async (
   return { team, roster: roster || [] };
 };
 
+export const fetchFantaTeamById = async (
+  teamId: string,
+): Promise<{ team: SupabaseFantaTeam; roster: SupabaseFantaRoster[] } | null> => {
+  const cfg = getSupabaseConfig();
+  const token = getPlayerSupabaseSession()?.accessToken || null;
+  const safeTeamId = String(teamId || '').trim();
+  if (!cfg || !token || !safeTeamId) return null;
+
+  const teams = await fetchJson<SupabaseFantaTeam[]>(
+    `${restUrl(cfg, 'fanta_teams')}?id=eq.${encode(safeTeamId)}&workspace_id=eq.${encode(cfg.workspaceId)}&select=*&limit=1`,
+    buildHeaders(cfg, token),
+    'fetchFantaTeamById',
+  );
+  const team = teams?.[0];
+  if (!team) return null;
+
+  const roster = await fetchJson<SupabaseFantaRoster[]>(
+    `${restUrl(cfg, 'fanta_rosters')}?team_id=eq.${encode(team.id)}&select=*&order=created_at.asc`,
+    buildHeaders(cfg, token),
+    'fetchFantaTeamByIdRoster',
+  );
+
+  return { team, roster: roster || [] };
+};
+
 export const saveFantaTeam = async (
   _userId: string,
   teamName: string,
@@ -542,7 +576,7 @@ export const saveFantaTeamWithResult = async (
         p_roster: rosterPayload,
       }),
     }, { source: 'saveFantaTeam' });
-    if (res.ok) return { ok: true };
+    if (res.ok) return { ok: true, teamId: await readRpcStringResult(res) };
     return await fantaSaveFailureFromResponse(res);
   } catch {
     return fantaSaveFailure('backend_error');

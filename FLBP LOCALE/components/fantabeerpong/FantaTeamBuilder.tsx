@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader2 } from 'lucide-react';
-import { fetchFantaConfig, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeamWithResult } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaConfig, fetchFantaTeamById, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeamWithResult } from '../../services/fantabeerpong/fantaSupabaseService';
 import { emitFantaAppChange, readPlayerPresenceSnapshot, PLAYER_APP_CHANGE_EVENT } from '../../services/playerAppService';
 import type { FantaBuilderPlayerOption, FantaBuilderTeamGroup, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
@@ -158,9 +158,9 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
 
       const result = await saveFantaTeamWithResult(session.accountId, teamName, lineup);
       if (result.ok) {
-        const savedTeam = await fetchUserFantaTeam(session.accountId);
+        const savedTeam = result.teamId ? await fetchFantaTeamById(result.teamId) : await fetchUserFantaTeam(session.accountId);
         if (!savedTeam) {
-          setInfo('Squadra inviata, ma non riesco a rileggerla da questo browser. Esci e rientra nell’area giocatore, poi controlla La mia squadra.', 'error');
+          setInfo('Squadra inviata, ma non riesco a rileggerla subito. Esci e rientra nell’area giocatore, poi controlla La mia squadra.', 'error');
           emitFantaAppChange();
           return;
         }
