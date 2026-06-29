@@ -49,8 +49,10 @@ interface SupabasePublicTournamentTeam {
 interface SupabasePublicTournamentMatch {
   id: string;
   code?: string | null;
+  phase?: string | null;
   round?: number | null;
   round_name?: string | null;
+  order_index?: number | null;
   team_a_id?: string | null;
   team_b_id?: string | null;
   score_a?: number | null;
@@ -83,24 +85,34 @@ interface SupabaseFantaStanding {
   tournament_id: string;
   team_id: string;
   team_name: string;
+  user_id?: string | null;
+  live_points?: number | null;
   total_points?: number | null;
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
   bonus_scia?: number | null;
   players_in_game?: number | null;
+  captain_name?: string | null;
+  defenders_count?: number | null;
+  status_label?: string | null;
 }
 
 interface SupabaseFantaPlayerStanding {
   tournament_id: string;
   player_key: string;
   player_name?: string | null;
+  real_team_id?: string | null;
   real_team_name?: string | null;
+  live_points?: number | null;
   total_points?: number | null;
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
   bonus_scia?: number | null;
+  selected_by_teams?: number | null;
+  status?: string | null;
+  eliminated_by_team_name?: string | null;
 }
 
 export type FantaSaveTeamErrorCode =
@@ -583,6 +595,249 @@ export const saveFantaTeamWithResult = async (
   }
 };
 
+const normalizeFantaNameKey = (value: unknown) =>
+  String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const toNumber = (value: unknown): number => {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const isFinishedPublicMatch = (match: SupabasePublicTournamentMatch): boolean => {
+  if (match.hidden || match.is_bye) return false;
+  if (!match.team_a_id || !match.team_b_id) return false;
+  if (match.team_a_id === 'BYE' || match.team_b_id === 'BYE') return false;
+  if (!(match.played || match.status === 'finished')) return false;
+  return toNumber(match.score_a) !== toNumber(match.score_b);
+};
+
+const getPublicMatchWinner = (match: SupabasePublicTournamentMatch): string | null => {
+  if (!isFinishedPublicMatch(match)) return null;
+  return toNumber(match.score_a) > toNumber(match.score_b)
+    ? String(match.team_a_id || '')
+    : String(match.team_b_id || '');
+};
+
+const getPublicMatchLoser = (match: SupabasePublicTournamentMatch): string | null => {
+  if (!isFinishedPublicMatch(match)) return null;
+  return toNumber(match.score_a) > toNumber(match.score_b)
+    ? String(match.team_b_id || '')
+    : String(match.team_a_id || '');
+};
+
+const getPublicMatchSort = (match: SupabasePublicTournamentMatch): number =>
+  (toNumber(match.round) * 10000) + toNumber(match.order_index);
+
+type FantaComputedFallback = {
+  standings: SupabaseFantaStanding[];
+  players: SupabaseFantaPlayerStanding[];
+  hasLiveProgress: boolean;
+};
+
+const fetchComputedFantaFallback = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  tournamentId: string,
+): Promise<FantaComputedFallback> => {
+  const fantaTeams = await fetchJson<SupabaseFantaTeam[]>(
+    `${restUrl(cfg, 'fanta_teams')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*`,
+    buildHeaders(cfg),
+    'fetchComputedFantaFallbackTeams',
+  ) || [];
+
+  if (!fantaTeams.length) {
+    return { standings: [], players: [], hasLiveProgress: false };
+  }
+
+  const fantaTeamIds = fantaTeams.map((team) => team.id).filter(Boolean);
+  const rosterFilter = fantaTeamIds.length ? `&team_id=in.(${fantaTeamIds.map(encode).join(',')})` : '';
+  const [rosters, publicTeams, matches, stats] = await Promise.all([
+    fetchJson<SupabaseFantaRoster[]>(
+      `${restUrl(cfg, 'fanta_rosters')}?select=*${rosterFilter}&order=created_at.asc`,
+      buildHeaders(cfg),
+      'fetchComputedFantaFallbackRosters',
+    ),
+    fetchJson<SupabasePublicTournamentTeam[]>(
+      `${restUrl(cfg, 'public_tournament_teams')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=id,name,player1,player2`,
+      buildHeaders(cfg),
+      'fetchComputedFantaFallbackRealTeams',
+    ),
+    fetchJson<SupabasePublicTournamentMatch[]>(
+      `${restUrl(cfg, 'public_tournament_matches')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=id,phase,round,round_name,order_index,team_a_id,team_b_id,score_a,score_b,played,status,is_bye,hidden`,
+      buildHeaders(cfg),
+      'fetchComputedFantaFallbackMatches',
+    ),
+    fetchJson<SupabasePublicMatchStat[]>(
+      `${restUrl(cfg, 'public_tournament_match_stats')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=match_id,team_id,player_name,canestri,soffi`,
+      buildHeaders(cfg),
+      'fetchComputedFantaFallbackStats',
+    ),
+  ]);
+
+  const rostersByTeamId = new Map<string, SupabaseFantaRoster[]>();
+  (rosters || []).forEach((roster) => {
+    const rows = rostersByTeamId.get(roster.team_id) || [];
+    rows.push(roster);
+    rostersByTeamId.set(roster.team_id, rows);
+  });
+
+  const realTeamNameById = new Map<string, string>();
+  (publicTeams || []).forEach((team) => {
+    if (team.id) realTeamNameById.set(team.id, team.name || team.id);
+  });
+
+  const statsByTeamPlayer = new Map<string, { goals: number; blows: number; playerName: string }>();
+  (stats || []).forEach((stat) => {
+    const key = `${stat.team_id}||${normalizeFantaNameKey(stat.player_name)}`;
+    const current = statsByTeamPlayer.get(key) || { goals: 0, blows: 0, playerName: String(stat.player_name || '') };
+    current.goals += toNumber(stat.canestri);
+    current.blows += toNumber(stat.soffi);
+    if (stat.player_name) current.playerName = stat.player_name;
+    statsByTeamPlayer.set(key, current);
+  });
+
+  const winnerRows = (matches || [])
+    .filter(isFinishedPublicMatch)
+    .map((match) => ({
+      match,
+      winnerTeamId: getPublicMatchWinner(match),
+      loserTeamId: getPublicMatchLoser(match),
+      sort: getPublicMatchSort(match),
+      phase: String(match.phase || ''),
+    }))
+    .filter((row) => row.winnerTeamId && row.loserTeamId);
+
+  const winsByTeamId = new Map<string, number>();
+  winnerRows.forEach((row) => {
+    winsByTeamId.set(row.winnerTeamId!, (winsByTeamId.get(row.winnerTeamId!) || 0) + 1);
+  });
+
+  const firstLossByTeamId = new Map<string, { eliminatedByTeamId: string; sort: number }>();
+  winnerRows
+    .filter((row) => row.phase === 'bracket')
+    .sort((left, right) => left.sort - right.sort)
+    .forEach((row) => {
+      if (!row.loserTeamId || !row.winnerTeamId || firstLossByTeamId.has(row.loserTeamId)) return;
+      firstLossByTeamId.set(row.loserTeamId, { eliminatedByTeamId: row.winnerTeamId, sort: row.sort });
+    });
+
+  const sciaByTeamId = new Map<string, number>();
+  firstLossByTeamId.forEach((loss, eliminatedTeamId) => {
+    const firstEliminatorLossSort = winnerRows
+      .filter((row) => row.loserTeamId === loss.eliminatedByTeamId && row.sort > loss.sort)
+      .map((row) => row.sort)
+      .sort((left, right) => left - right)[0] ?? Number.POSITIVE_INFINITY;
+    const chainedWins = winnerRows.filter((row) =>
+      row.winnerTeamId === loss.eliminatedByTeamId
+      && row.sort > loss.sort
+      && row.sort < firstEliminatorLossSort
+    ).length;
+    sciaByTeamId.set(eliminatedTeamId, chainedWins * 5);
+  });
+
+  const playerRowsById = new Map<string, SupabaseFantaPlayerStanding & { selectedByTeamsSet?: Set<string> }>();
+  const standings = fantaTeams.map((team) => {
+    const rosterRows = rostersByTeamId.get(team.id) || [];
+    let pointsFromGoals = 0;
+    let pointsFromBlows = 0;
+    let pointsFromWins = 0;
+    let bonusScia = 0;
+    let livePoints = 0;
+    let playersInGame = 0;
+    let captainName = 'N/D';
+    let defendersCount = 0;
+
+    rosterRows.forEach((roster) => {
+      const playerName = String(roster.player_name || getPlayerKeyLabel(roster.player_id).name || roster.player_id || '').trim();
+      const realTeamId = String(roster.real_team_id || '').trim();
+      const stat = statsByTeamPlayer.get(`${realTeamId}||${normalizeFantaNameKey(playerName)}`) || { goals: 0, blows: 0, playerName };
+      const rawGoals = stat.goals;
+      const rawBlows = stat.blows;
+      const rawWins = winsByTeamId.get(realTeamId) || 0;
+      const rawScia = sciaByTeamId.get(realTeamId) || 0;
+      const eliminated = realTeamId ? firstLossByTeamId.has(realTeamId) : false;
+
+      if (!eliminated) playersInGame += 1;
+      if (roster.role === 'captain') captainName = playerName || captainName;
+      if (roster.role === 'defender') defendersCount += 1;
+
+      const goalsPoints = roster.role === 'captain' ? rawGoals * 2 : rawGoals;
+      const blowsPoints = (roster.role === 'captain' || roster.role === 'defender') ? rawBlows * 4 : rawBlows * 2;
+      const winsPoints = roster.role === 'captain' ? rawWins * 14 : rawWins * 7;
+      const sciaPoints = roster.role === 'captain' ? rawScia * 2 : rawScia;
+
+      pointsFromGoals += goalsPoints;
+      pointsFromBlows += blowsPoints;
+      pointsFromWins += winsPoints;
+      bonusScia += sciaPoints;
+      livePoints += goalsPoints + blowsPoints + winsPoints;
+
+      const existingPlayer = playerRowsById.get(roster.player_id) || {
+        tournament_id: tournamentId,
+        player_key: roster.player_id,
+        player_name: playerName,
+        real_team_id: realTeamId || null,
+        real_team_name: roster.real_team_name || realTeamNameById.get(realTeamId) || 'N/D',
+        points_from_goals: rawGoals,
+        points_from_blows: rawBlows * 2,
+        points_from_wins: rawWins * 7,
+        bonus_scia: rawScia,
+        total_points: rawGoals + (rawBlows * 2) + (rawWins * 7) + rawScia,
+        live_points: rawGoals + (rawBlows * 2) + (rawWins * 7),
+        status: eliminated ? 'eliminated' : 'live',
+        eliminated_by_team_name: eliminated ? realTeamNameById.get(firstLossByTeamId.get(realTeamId)?.eliminatedByTeamId || '') || null : null,
+        selected_by_teams: 0,
+        selectedByTeamsSet: new Set<string>(),
+      };
+      existingPlayer.selectedByTeamsSet?.add(team.id);
+      existingPlayer.selected_by_teams = existingPlayer.selectedByTeamsSet?.size || 0;
+      playerRowsById.set(roster.player_id, existingPlayer);
+    });
+
+    const totalPoints = pointsFromGoals + pointsFromBlows + pointsFromWins + bonusScia;
+    return {
+      tournament_id: tournamentId,
+      team_id: team.id,
+      team_name: team.name,
+      user_id: team.user_id,
+      total_points: totalPoints,
+      live_points: livePoints,
+      points_from_goals: pointsFromGoals,
+      points_from_blows: pointsFromBlows,
+      points_from_wins: pointsFromWins,
+      bonus_scia: bonusScia,
+      players_in_game: playersInGame,
+      captain_name: captainName,
+      defenders_count: defendersCount,
+      status_label: playersInGame > 0 ? 'Live' : 'Stabile',
+    };
+  });
+
+  const players = Array.from(playerRowsById.values()).map(({ selectedByTeamsSet, ...row }) => row);
+  const hasLiveProgress = winnerRows.length > 0 || Array.from(statsByTeamPlayer.values()).some((row) => row.goals > 0 || row.blows > 0);
+
+  return { standings, players, hasLiveProgress };
+};
+
+const hasMeaningfulFantaStandings = (rows: SupabaseFantaStanding[]): boolean =>
+  rows.some((row) =>
+    toNumber(row.total_points) > 0
+    || toNumber(row.live_points) > 0
+    || toNumber(row.points_from_goals) > 0
+    || toNumber(row.points_from_blows) > 0
+    || toNumber(row.points_from_wins) > 0
+    || toNumber(row.bonus_scia) > 0
+  );
+
+const hasMeaningfulFantaPlayers = (rows: SupabaseFantaPlayerStanding[]): boolean =>
+  rows.some((row) =>
+    toNumber(row.total_points) > 0
+    || toNumber(row.live_points) > 0
+    || toNumber(row.points_from_goals) > 0
+    || toNumber(row.points_from_blows) > 0
+    || toNumber(row.points_from_wins) > 0
+    || toNumber(row.bonus_scia) > 0
+  );
+
 export const fetchFantaStandings = async (): Promise<any[]> => {
   const cfg = getSupabaseConfig();
   if (!cfg) return [];
@@ -590,11 +845,19 @@ export const fetchFantaStandings = async (): Promise<any[]> => {
   const config = await fetchFantaConfig();
   if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return [];
 
-  return await fetchJson<any[]>(
+  const rows = await fetchJson<SupabaseFantaStanding[]>(
     `${restUrl(cfg, 'fanta_live_standings')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=*&order=total_points.desc,players_in_game.desc,points_from_wins.desc,points_from_goals.desc`,
     buildHeaders(cfg),
     'fetchFantaStandings',
   ) || [];
+
+  if (rows.length && hasMeaningfulFantaStandings(rows)) return rows;
+
+  const fallback = await fetchComputedFantaFallback(cfg, config.activeTournamentId);
+  if (fallback.standings.length && (!rows.length || fallback.hasLiveProgress)) {
+    return fallback.standings.sort(compareFantaStandings);
+  }
+  return rows;
 };
 
 export const fetchFantaPlayerStandings = async (): Promise<any[]> => {
@@ -604,11 +867,23 @@ export const fetchFantaPlayerStandings = async (): Promise<any[]> => {
   const config = await fetchFantaConfig();
   if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return [];
 
-  return await fetchJson<any[]>(
+  const rows = await fetchJson<SupabaseFantaPlayerStanding[]>(
     `${restUrl(cfg, 'fanta_player_standings')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=*&order=total_points.desc,points_from_wins.desc,points_from_goals.desc`,
     buildHeaders(cfg),
     'fetchFantaPlayerStandings',
   ) || [];
+
+  if (rows.length && hasMeaningfulFantaPlayers(rows)) return rows;
+
+  const fallback = await fetchComputedFantaFallback(cfg, config.activeTournamentId);
+  if (fallback.players.length && (!rows.length || fallback.hasLiveProgress)) {
+    return fallback.players.sort((left, right) => {
+      if (toNumber(right.total_points) !== toNumber(left.total_points)) return toNumber(right.total_points) - toNumber(left.total_points);
+      if (toNumber(right.points_from_wins) !== toNumber(left.points_from_wins)) return toNumber(right.points_from_wins) - toNumber(left.points_from_wins);
+      return toNumber(right.points_from_goals) - toNumber(left.points_from_goals);
+    });
+  }
+  return rows;
 };
 
 export const fetchFantaTeamDetail = async (teamId: string): Promise<any[]> => {
