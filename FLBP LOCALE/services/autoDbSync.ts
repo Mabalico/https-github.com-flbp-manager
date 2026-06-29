@@ -21,6 +21,8 @@ import { isAutoStructuredSyncEnabled } from './repository/featureFlags';
 let pending: AppState | null = null;
 let timer: number | null = null;
 let inFlight = false;
+let queuedFlushAfterInFlight = false;
+let queuedForceAfterInFlight = false;
 
 let lastRunAt = 0;
 let lastFingerprint = '';
@@ -124,7 +126,15 @@ export const flushAutoStructuredSync = async (
   opts?: { force?: boolean }
 ): Promise<void> => {
   if (stateOverride) pending = stateOverride;
-  if (inFlight) return;
+  if (inFlight) {
+    // Live/referto/simulation commits can arrive while a previous structured
+    // export is still running. Keep the latest state queued and drain it right
+    // after the current push, otherwise Fanta/TV can remain on the pre-simulation
+    // stats until another unrelated sync happens.
+    queuedFlushAfterInFlight = true;
+    if (opts?.force) queuedForceAfterInFlight = true;
+    return;
+  }
   const s = pending;
   if (!s) return;
   if (!hasMeaningfulAppState(s)) {
@@ -137,10 +147,13 @@ export const flushAutoStructuredSync = async (
 
   const now = Date.now();
   const fp = safeFingerprint(s);
+  const forceThisRun = !!opts?.force || queuedForceAfterInFlight;
+  queuedFlushAfterInFlight = false;
+  queuedForceAfterInFlight = false;
 
   // Skip if too soon or identical fingerprint.
   // When force=true (e.g. on pagehide/beforeunload), we best-effort try once immediately.
-  if (!opts?.force) {
+  if (!forceThisRun) {
     if ((now - lastRunAt) < MIN_INTERVAL_MS && fp === lastFingerprint) return;
     if ((now - lastRunAt) < MIN_INTERVAL_MS) return;
   }
@@ -153,6 +166,11 @@ export const flushAutoStructuredSync = async (
     lastRunAt = Date.now();
     lastFingerprint = fp;
     markDbSyncOk('structured', summary);
+    try {
+      window.dispatchEvent(new CustomEvent('flbp-fanta-change'));
+    } catch {
+      // ignore UI refresh notification failures
+    }
   } catch (e: any) {
     if (e?.code === 'FLBP_DB_CONFLICT') {
       markDbSyncConflict(e?.message || 'Conflitto DB', {
@@ -165,10 +183,19 @@ export const flushAutoStructuredSync = async (
         // ignore
       }
     } else {
-      pending = s;
+      if (!queuedFlushAfterInFlight) pending = s;
       markDbSyncError(e?.message || String(e));
     }
   } finally {
+    const shouldDrainQueuedState = queuedFlushAfterInFlight;
+    const forceQueuedState = queuedForceAfterInFlight;
+    queuedFlushAfterInFlight = false;
+    queuedForceAfterInFlight = false;
     inFlight = false;
+    if (shouldDrainQueuedState && pending) {
+      window.setTimeout(() => {
+        void flushAutoStructuredSync(undefined, { force: forceQueuedState });
+      }, 0);
+    }
   }
 };
