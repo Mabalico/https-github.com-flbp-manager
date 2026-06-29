@@ -2728,11 +2728,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 })()
                 : m
         );
-        // Keep tournament.matches in sync for parts of the app that read from the tournament object.
-        const nextTournament = state.tournament
-            ? { ...state.tournament, matches: nextMatches }
-            : state.tournament;
-        setState({ ...state, tournament: nextTournament, tournamentMatches: nextMatches });
+        commitLiveMatches(nextMatches);
     };
 
     const handleDeleteLiveReport = (matchId: string) => {
@@ -2744,8 +2740,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         const nextMatches = (state.tournamentMatches || []).map((m) =>
             m.id === matchId ? clearRefereeReportFromMatch(m) : m
         );
-        const nextTournament = { ...state.tournament, matches: nextMatches };
-        setState({ ...state, tournament: nextTournament, tournamentMatches: nextMatches });
+        commitLiveMatches(nextMatches);
     };
 
     const prepareRefereeCounterEmailDraft = (snapshot: AppState) => {
@@ -3575,7 +3570,11 @@ while (guard < 5000) {
         const nextTournament = workingState.tournament
             ? { ...workingState.tournament, matches: finalMatches }
             : workingState.tournament;
-        setState({ ...workingState, tournament: nextTournament, tournamentMatches: finalMatches });
+        const nextState = { ...workingState, tournament: nextTournament, tournamentMatches: finalMatches };
+        setState(nextState);
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: { state: nextState, source: 'admin-save-report' }
+        }));
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
         alert(t('alert_report_saved'));
     };
