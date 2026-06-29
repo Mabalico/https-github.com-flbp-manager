@@ -8,7 +8,7 @@ import type {
   FantaLineupSlot,
   FantaPlayer,
 } from './types';
-import { getPlayerSupabaseSession, getSupabaseConfig } from '../supabaseRest';
+import { ensureFreshPlayerSupabaseSession, getSupabaseConfig } from '../supabaseRest';
 import { fetchWithDevRequestPerf } from '../devRequestPerf';
 import { getPlayerKey, getPlayerKeyLabel } from '../playerIdentity';
 
@@ -469,7 +469,7 @@ export const fetchUserFantaTeam = async (
   userId: string,
 ): Promise<{ team: SupabaseFantaTeam; roster: SupabaseFantaRoster[] } | null> => {
   const cfg = getSupabaseConfig();
-  const token = getPlayerSupabaseSession()?.accessToken || null;
+  const token = (await ensureFreshPlayerSupabaseSession())?.accessToken || null;
   if (!cfg || !token) return null;
 
   const config = await fetchFantaConfig();
@@ -496,7 +496,7 @@ export const fetchFantaTeamById = async (
   teamId: string,
 ): Promise<{ team: SupabaseFantaTeam; roster: SupabaseFantaRoster[] } | null> => {
   const cfg = getSupabaseConfig();
-  const token = getPlayerSupabaseSession()?.accessToken || null;
+  const token = (await ensureFreshPlayerSupabaseSession())?.accessToken || null;
   const safeTeamId = String(teamId || '').trim();
   if (!cfg || !token || !safeTeamId) return null;
 
@@ -532,7 +532,7 @@ export const saveFantaTeamWithResult = async (
   lineup: { player: FantaPlayer; role: FantaLineupSlot['role'] }[],
 ): Promise<FantaSaveTeamResult> => {
   const cfg = getSupabaseConfig();
-  const playerSession = getPlayerSupabaseSession();
+  const playerSession = await ensureFreshPlayerSupabaseSession();
   const token = playerSession?.accessToken || null;
   const expectedUserId = String(_userId || '').trim();
   if (!cfg) return fantaSaveFailure('backend_error');
