@@ -1147,7 +1147,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   React.useEffect(() => {
     if (!liveBackendEnabled || !liveRuntimeArmed || !liveSession?.accessToken || liveAuthFlow === 'recovery') return;
+    const isVisible = () => {
+      try {
+        return document.visibilityState === 'visible';
+      } catch {
+        return true;
+      }
+    };
     const timer = window.setInterval(() => {
+      if (!isVisible()) return;
       setLiveCallRefreshNonce((value) => value + 1);
     }, 12000);
     return () => window.clearInterval(timer);

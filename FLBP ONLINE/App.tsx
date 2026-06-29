@@ -262,7 +262,17 @@ const GlobalPlayerCallNotice: React.FC<{
             }
         };
 
-        const refreshNow = () => { void refresh(); };
+        const isVisible = () => {
+            try {
+                return document.visibilityState === 'visible';
+            } catch {
+                return true;
+            }
+        };
+        const refreshNow = () => {
+            if (!isVisible()) return;
+            void refresh();
+        };
         refreshNow();
         const intervalId = window.setInterval(refreshNow, 12000);
         const onVisible = () => {
