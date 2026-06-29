@@ -1128,9 +1128,20 @@ const App: React.FC = () => {
             });
         };
 
+        const onLiveStateCommitted = (event: Event) => {
+            const nextState = (event as CustomEvent<{ state?: AppState }>).detail?.state;
+            if (!nextState) return;
+            void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
+                return flushAutoStructuredSync(nextState, { force: true });
+            }).catch(() => {
+                // Best-effort: the normal autosave path still runs.
+            });
+        };
+
         // Ensure we don't lose the last updates on refresh/close (especially important on mobile)
         window.addEventListener('beforeunload', flush);
         window.addEventListener('pagehide', flush);
+        window.addEventListener('flbp:live-state-committed', onLiveStateCommitted as EventListener);
 
         const onVis = () => {
             if (document.visibilityState === 'hidden') flush();
@@ -1140,6 +1151,7 @@ const App: React.FC = () => {
         return () => {
             window.removeEventListener('beforeunload', flush);
             window.removeEventListener('pagehide', flush);
+            window.removeEventListener('flbp:live-state-committed', onLiveStateCommitted as EventListener);
             document.removeEventListener('visibilitychange', onVis);
         };
     }, []);

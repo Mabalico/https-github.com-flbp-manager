@@ -282,7 +282,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         const nextTournament = nextTournamentBase
             ? { ...nextTournamentBase, matches }
             : nextTournamentBase;
-        setState({ ...state, tournament: nextTournament, tournamentMatches: matches });
+        const nextState = { ...state, tournament: nextTournament, tournamentMatches: matches };
+        setState(nextState);
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: { state: nextState, source: 'admin-live-matches' }
+        }));
     };
 
     const closeLiveCallsForMatch = React.useCallback((match: Match, tournamentId?: string | null) => {
