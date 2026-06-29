@@ -8,7 +8,7 @@ import type {
   FantaLineupSlot,
   FantaPlayer,
 } from './types';
-import { getPlayerSupabaseAccessToken, getSupabaseConfig } from '../supabaseRest';
+import { getPlayerSupabaseSession, getSupabaseConfig } from '../supabaseRest';
 import { fetchWithDevRequestPerf } from '../devRequestPerf';
 import { getPlayerKey, getPlayerKeyLabel } from '../playerIdentity';
 
@@ -358,6 +358,24 @@ const fantaSaveFailure = (code: FantaSaveTeamErrorCode): FantaSaveTeamResult => 
   }
 };
 
+const isSupabaseSessionExpired = (expiresAt?: string | null) => {
+  if (!expiresAt) return false;
+  const raw = String(expiresAt).trim();
+  if (!raw) return false;
+  const numeric = Number(raw);
+  const expiresMs = Number.isFinite(numeric)
+    ? numeric * 1000
+    : new Date(raw).getTime();
+  if (!Number.isFinite(expiresMs)) return false;
+  return expiresMs <= Date.now() + 30_000;
+};
+
+const fantaSaveAuthFailure = (message: string): FantaSaveTeamResult => ({
+  ok: false,
+  code: 'not_authenticated',
+  message,
+});
+
 const fantaSaveFailureFromResponse = async (res: Response): Promise<FantaSaveTeamResult> => {
   if (res.status === 401 || res.status === 403) return fantaSaveFailure('not_authenticated');
 
@@ -442,7 +460,7 @@ export const fetchUserFantaTeam = async (
   userId: string,
 ): Promise<{ team: SupabaseFantaTeam; roster: SupabaseFantaRoster[] } | null> => {
   const cfg = getSupabaseConfig();
-  const token = getPlayerSupabaseAccessToken();
+  const token = getPlayerSupabaseSession()?.accessToken || null;
   if (!cfg || !token) return null;
 
   const config = await fetchFantaConfig();
@@ -480,9 +498,17 @@ export const saveFantaTeamWithResult = async (
   lineup: { player: FantaPlayer; role: FantaLineupSlot['role'] }[],
 ): Promise<FantaSaveTeamResult> => {
   const cfg = getSupabaseConfig();
-  const token = getPlayerSupabaseAccessToken();
+  const playerSession = getPlayerSupabaseSession();
+  const token = playerSession?.accessToken || null;
+  const expectedUserId = String(_userId || '').trim();
   if (!cfg) return fantaSaveFailure('backend_error');
   if (!token) return fantaSaveFailure('not_authenticated');
+  if (isSupabaseSessionExpired(playerSession?.expiresAt)) {
+    return fantaSaveAuthFailure('La sessione giocatore su questo browser è scaduta. Esci dall’area giocatore e accedi di nuovo.');
+  }
+  if (playerSession?.userId && expectedUserId && playerSession.userId !== expectedUserId) {
+    return fantaSaveAuthFailure('La sessione salvata in questo browser non coincide con l’account attivo. Esci dall’area giocatore e accedi di nuovo.');
+  }
 
   try {
     const config = await fetchFantaConfig();
