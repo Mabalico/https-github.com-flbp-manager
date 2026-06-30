@@ -50,11 +50,10 @@ type LayoutData = {
   placements: Record<string, Placement>;
 };
 
-type DenseBracketPanel = 'left' | 'finals' | 'right';
-type StageCrop = { x: number; y: number; width: number; height: number };
+type DenseBracketPanel = 'sideA' | 'finals' | 'sideB';
 
-const DENSE_BRACKET_PANELS: DenseBracketPanel[] = ['left', 'finals', 'right'];
-const DENSE_BRACKET_PANEL_MS = 14000;
+const DENSE_BRACKET_PANELS: DenseBracketPanel[] = ['sideA', 'sideB', 'finals'];
+const DENSE_BRACKET_PANEL_MS = 19000;
 
 const getDevicePixelRatioSafe = () => {
   if (typeof window === 'undefined') return 1;
@@ -84,50 +83,6 @@ const getStageRenderStyle = (layout: LayoutData): React.CSSProperties => ({
   textRendering: 'geometricPrecision',
   willChange: 'transform',
 });
-
-const getStagePanelRenderStyle = (
-  layout: LayoutData,
-  viewportSize: { width: number; height: number },
-  crop: StageCrop,
-): React.CSSProperties => {
-  const viewportWidth = Math.max(1, viewportSize.width);
-  const viewportHeight = Math.max(1, viewportSize.height);
-  const scale = quantizeScaleForTv(Math.min(
-    viewportWidth / Math.max(1, crop.width),
-    viewportHeight / Math.max(1, crop.height),
-  ));
-  const offsetX = snapToDevicePixel((viewportWidth - crop.width * scale) / 2 - crop.x * scale);
-  const offsetY = snapToDevicePixel((viewportHeight - crop.height * scale) / 2 - crop.y * scale);
-
-  return {
-    ...getStageRenderStyle(layout),
-    transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${scale})`,
-  };
-};
-
-const getCropFromPlacements = (
-  layout: LayoutData,
-  placements: Placement[],
-  includeFullHeight = false,
-): StageCrop => {
-  if (!placements.length) return { x: 0, y: 0, width: layout.stageWidth, height: layout.stageHeight };
-
-  const padX = layout.profile.matchWidth * 0.45;
-  const padY = layout.profile.matchHeight * 1.25;
-  const minX = Math.max(0, Math.min(...placements.map((p) => p.x)) - padX);
-  const maxX = Math.min(layout.stageWidth, Math.max(...placements.map((p) => p.x + layout.profile.matchWidth)) + padX);
-  const minY = includeFullHeight ? 0 : Math.max(0, Math.min(...placements.map((p) => p.y)) - padY - layout.profile.labelY);
-  const maxY = includeFullHeight
-    ? layout.stageHeight
-    : Math.min(layout.stageHeight, Math.max(...placements.map((p) => p.y + layout.profile.matchHeight)) + padY);
-
-  return {
-    x: minX,
-    y: minY,
-    width: Math.max(layout.profile.matchWidth, maxX - minX),
-    height: Math.max(layout.profile.matchHeight, maxY - minY),
-  };
-};
 
 interface TvClassicBracketProps {
   teams: Team[];
@@ -213,6 +168,126 @@ const getProfile = (bracketSize: number, compact: boolean): LayoutProfile => {
   if (bracketSize <= 32) return { matchWidth: 214, matchHeight: 64, gapX: 30, gapY: 16, centerGap: 42, topPad: 86, bottomPad: 34, sidePad: 28, labelY: 26, fontSize: 13, labelSize: 11 };
   if (bracketSize <= 64) return { matchWidth: 188, matchHeight: 56, gapX: 24, gapY: 10, centerGap: 34, topPad: 80, bottomPad: 28, sidePad: 24, labelY: 24, fontSize: 11, labelSize: 10 };
   return { matchWidth: 210, matchHeight: 48, gapX: 10, gapY: 6, centerGap: 16, topPad: 74, bottomPad: 22, sidePad: 16, labelY: 22, fontSize: 12, labelSize: 9 };
+};
+
+const buildLayoutData = ({
+  rounds,
+  profile,
+  viewportSize,
+  finalLabel = 'FINALE',
+  labelPrefix = 'full',
+}: {
+  rounds: ResolvedStageMatch[][];
+  profile: LayoutProfile;
+  viewportSize: { width: number; height: number };
+  finalLabel?: string;
+  labelPrefix?: string;
+}): LayoutData | null => {
+  if (!rounds.length || !viewportSize.width || !viewportSize.height) return null;
+
+  let firstVisibleRound = 0;
+  for (let i = 0; i < rounds.length - 1; i++) {
+    if (rounds[i].some(m => m.visible)) {
+      firstVisibleRound = i;
+      break;
+    }
+    if (i === rounds.length - 2) {
+      firstVisibleRound = i;
+    }
+  }
+
+  const effectiveRounds = rounds.slice(firstVisibleRound);
+  const totalRounds = effectiveRounds.length;
+  const sideRounds = Math.max(0, totalRounds - 1);
+  const firstRoundPerSide = sideRounds > 0
+    ? Math.max(1, Math.floor((effectiveRounds[0]?.length || 0) / 2))
+    : 1;
+
+  const centers = computeRoundCenters(firstRoundPerSide, profile.topPad, profile.matchHeight, profile.gapY);
+  const stageHeight = profile.topPad
+    + firstRoundPerSide * profile.matchHeight
+    + Math.max(0, firstRoundPerSide - 1) * profile.gapY
+    + profile.bottomPad;
+
+  const availableWidth = Math.max(1, viewportSize.width - 12);
+  const availableHeight = Math.max(1, viewportSize.height - 12);
+  const fixedColumnsWidth = sideRounds > 0
+    ? profile.sidePad * 2 + (sideRounds * 2 + 1) * profile.matchWidth
+    : profile.sidePad * 2 + profile.matchWidth;
+  const baseFlexibleWidth = sideRounds > 0
+    ? Math.max(0, sideRounds - 1) * 2 * profile.gapX + 2 * profile.centerGap
+    : 0;
+  const baseStageWidth = fixedColumnsWidth + baseFlexibleWidth;
+  const heightScale = Math.min(1, availableHeight / Math.max(1, stageHeight));
+
+  // Tall brackets shrink vertically; stretch the horizontal gutters so round 1 still hugs the TV edges.
+  const targetStageWidth = sideRounds > 0 && baseFlexibleWidth > 0
+    ? Math.max(baseStageWidth, availableWidth / Math.max(0.001, heightScale))
+    : baseStageWidth;
+  const flexibleWidth = Math.max(baseFlexibleWidth, targetStageWidth - fixedColumnsWidth);
+  const horizontalGapMultiplier = baseFlexibleWidth > 0 ? flexibleWidth / baseFlexibleWidth : 1;
+  const horizontalGapX = sideRounds > 1 ? profile.gapX * horizontalGapMultiplier : profile.gapX;
+  const horizontalCenterGap = sideRounds > 0 ? profile.centerGap * horizontalGapMultiplier : profile.centerGap;
+
+  const leftWidth = sideRounds > 0 ? sideRounds * profile.matchWidth + Math.max(0, sideRounds - 1) * horizontalGapX : 0;
+  const rightWidth = leftWidth;
+  const stageWidth = sideRounds > 0
+    ? profile.sidePad + leftWidth + horizontalCenterGap + profile.matchWidth + horizontalCenterGap + rightWidth + profile.sidePad
+    : profile.sidePad * 2 + profile.matchWidth;
+
+  const finalX = sideRounds > 0
+    ? profile.sidePad + leftWidth + horizontalCenterGap
+    : (stageWidth - profile.matchWidth) / 2;
+  const finalCenterY = centers[centers.length - 1]?.[0] ?? (profile.topPad + profile.matchHeight / 2);
+
+  const placements: Record<string, Placement> = {};
+  const labels: LayoutData['labels'] = [];
+
+  for (let roundIndex = 0; roundIndex < sideRounds; roundIndex += 1) {
+    const round = effectiveRounds[roundIndex] || [];
+    const leftRound = round.slice(0, round.length / 2);
+    const rightRound = round.slice(round.length / 2);
+    const leftX = profile.sidePad + roundIndex * (profile.matchWidth + horizontalGapX);
+    const rightX = finalX + profile.matchWidth + horizontalCenterGap + (sideRounds - 1 - roundIndex) * (profile.matchWidth + horizontalGapX);
+    const originalRoundIndex = round[0]?.roundIndex ?? roundIndex;
+    const roundText = roundLabelFromMatch(round[0]?.raw, `Turno ${originalRoundIndex + 1}`);
+
+    labels.push({ key: `${labelPrefix}-left-${roundIndex}`, x: leftX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'left', roundIndex: originalRoundIndex });
+    labels.push({ key: `${labelPrefix}-right-${roundIndex}`, x: rightX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'right', roundIndex: originalRoundIndex });
+
+    leftRound.forEach((match, matchIndex) => {
+      const centerY = centers[roundIndex]?.[matchIndex];
+      if (typeof centerY !== 'number') return;
+      placements[match.uid] = { x: leftX, y: centerY - profile.matchHeight / 2, centerY, side: 'left' };
+    });
+
+    rightRound.forEach((match, matchIndex) => {
+      const centerY = centers[roundIndex]?.[matchIndex];
+      if (typeof centerY !== 'number') return;
+      placements[match.uid] = { x: rightX, y: centerY - profile.matchHeight / 2, centerY, side: 'right' };
+    });
+  }
+
+  const finalMatch = effectiveRounds[totalRounds - 1]?.[0];
+  if (finalMatch) {
+    placements[finalMatch.uid] = { x: finalX, y: finalCenterY - profile.matchHeight / 2, centerY: finalCenterY, side: 'center' };
+    labels.push({ key: `${labelPrefix}-final`, x: finalX + profile.matchWidth / 2, y: profile.labelY, text: finalLabel, side: 'center', roundIndex: finalMatch.roundIndex });
+  }
+
+  const scale = quantizeScaleForTv(Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight));
+  const offsetX = snapToDevicePixel((viewportSize.width - stageWidth * scale) / 2);
+  const offsetY = snapToDevicePixel((viewportSize.height - stageHeight * scale) / 2);
+
+  return {
+    profile,
+    stageWidth,
+    stageHeight,
+    scale,
+    offsetX,
+    offsetY,
+    labels,
+    placements,
+  };
 };
 
 const getWinnerId = (m?: Match) => {
@@ -596,113 +671,13 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   const veryDenseLayout = activeProfile.matchHeight <= 44;
 
   const layout = React.useMemo<LayoutData | null>(() => {
-    if (!resolvedRounds.length || !viewportSize.width || !viewportSize.height) return null;
-
-    let firstVisibleRound = 0;
-    for (let i = 0; i < resolvedRounds.length - 1; i++) {
-      if (resolvedRounds[i].some(m => m.visible)) {
-        firstVisibleRound = i;
-        break;
-      }
-      if (i === resolvedRounds.length - 2) {
-        firstVisibleRound = i;
-      }
-    }
-
-    const effectiveRounds = resolvedRounds.slice(firstVisibleRound);
-    const profile = activeProfile;
-    const totalRounds = effectiveRounds.length;
-    const sideRounds = Math.max(0, totalRounds - 1);
-    const firstRoundPerSide = sideRounds > 0
-      ? Math.max(1, Math.floor((effectiveRounds[0]?.length || 0) / 2))
-      : 1;
-
-    const centers = computeRoundCenters(firstRoundPerSide, profile.topPad, profile.matchHeight, profile.gapY);
-    const stageHeight = profile.topPad
-      + firstRoundPerSide * profile.matchHeight
-      + Math.max(0, firstRoundPerSide - 1) * profile.gapY
-      + profile.bottomPad;
-
-    const availableWidth = Math.max(1, viewportSize.width - 12);
-    const availableHeight = Math.max(1, viewportSize.height - 12);
-    const fixedColumnsWidth = sideRounds > 0
-      ? profile.sidePad * 2 + (sideRounds * 2 + 1) * profile.matchWidth
-      : profile.sidePad * 2 + profile.matchWidth;
-    const baseFlexibleWidth = sideRounds > 0
-      ? Math.max(0, sideRounds - 1) * 2 * profile.gapX + 2 * profile.centerGap
-      : 0;
-    const baseStageWidth = fixedColumnsWidth + baseFlexibleWidth;
-    const heightScale = Math.min(1, availableHeight / Math.max(1, stageHeight));
-    const widthScale = Math.min(1, availableWidth / Math.max(1, baseStageWidth));
-
-    // Tall brackets shrink vertically; stretch the horizontal gutters so round 1 still hugs the TV edges.
-    const targetStageWidth = sideRounds > 0 && baseFlexibleWidth > 0
-      ? Math.max(baseStageWidth, availableWidth / Math.max(0.001, heightScale))
-      : baseStageWidth;
-    const flexibleWidth = Math.max(baseFlexibleWidth, targetStageWidth - fixedColumnsWidth);
-    const horizontalGapMultiplier = baseFlexibleWidth > 0 ? flexibleWidth / baseFlexibleWidth : 1;
-    const horizontalGapX = sideRounds > 1 ? profile.gapX * horizontalGapMultiplier : profile.gapX;
-    const horizontalCenterGap = sideRounds > 0 ? profile.centerGap * horizontalGapMultiplier : profile.centerGap;
-
-    const leftWidth = sideRounds > 0 ? sideRounds * profile.matchWidth + Math.max(0, sideRounds - 1) * horizontalGapX : 0;
-    const rightWidth = leftWidth;
-    const stageWidth = sideRounds > 0
-      ? profile.sidePad + leftWidth + horizontalCenterGap + profile.matchWidth + horizontalCenterGap + rightWidth + profile.sidePad
-      : profile.sidePad * 2 + profile.matchWidth;
-
-    const finalX = sideRounds > 0
-      ? profile.sidePad + leftWidth + horizontalCenterGap
-      : (stageWidth - profile.matchWidth) / 2;
-    const finalCenterY = centers[centers.length - 1]?.[0] ?? (profile.topPad + profile.matchHeight / 2);
-
-    const placements: Record<string, Placement> = {};
-    const labels: LayoutData['labels'] = [];
-
-    for (let roundIndex = 0; roundIndex < sideRounds; roundIndex += 1) {
-      const round = effectiveRounds[roundIndex] || [];
-      const leftRound = round.slice(0, round.length / 2);
-      const rightRound = round.slice(round.length / 2);
-      const leftX = profile.sidePad + roundIndex * (profile.matchWidth + horizontalGapX);
-      const rightX = finalX + profile.matchWidth + horizontalCenterGap + (sideRounds - 1 - roundIndex) * (profile.matchWidth + horizontalGapX);
-      const originalRoundIndex = roundIndex + firstVisibleRound;
-      const roundText = roundLabelFromMatch(round[0]?.raw, `Turno ${originalRoundIndex + 1}`);
-
-      labels.push({ key: `left-${roundIndex}`, x: leftX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'left', roundIndex: originalRoundIndex });
-      labels.push({ key: `right-${roundIndex}`, x: rightX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'right', roundIndex: originalRoundIndex });
-
-      leftRound.forEach((match, matchIndex) => {
-        const centerY = centers[roundIndex]?.[matchIndex];
-        if (typeof centerY !== 'number') return;
-        placements[match.uid] = { x: leftX, y: centerY - profile.matchHeight / 2, centerY, side: 'left' };
-      });
-
-      rightRound.forEach((match, matchIndex) => {
-        const centerY = centers[roundIndex]?.[matchIndex];
-        if (typeof centerY !== 'number') return;
-        placements[match.uid] = { x: rightX, y: centerY - profile.matchHeight / 2, centerY, side: 'right' };
-      });
-    }
-
-    const finalMatch = effectiveRounds[totalRounds - 1]?.[0];
-    if (finalMatch) {
-      placements[finalMatch.uid] = { x: finalX, y: finalCenterY - profile.matchHeight / 2, centerY: finalCenterY, side: 'center' };
-      labels.push({ key: 'final', x: finalX + profile.matchWidth / 2, y: profile.labelY, text: 'FINALE', side: 'center', roundIndex: resolvedRounds.length - 1 });
-    }
-
-    const scale = quantizeScaleForTv(Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight));
-    const offsetX = snapToDevicePixel((viewportSize.width - stageWidth * scale) / 2);
-    const offsetY = snapToDevicePixel((viewportSize.height - stageHeight * scale) / 2);
-
-    return {
-      profile,
-      stageWidth,
-      stageHeight,
-      scale,
-      offsetX,
-      offsetY,
-      labels,
-      placements,
-    };
+    return buildLayoutData({
+      rounds: resolvedRounds,
+      profile: activeProfile,
+      viewportSize,
+      finalLabel: 'FINALE',
+      labelPrefix: 'full',
+    });
   }, [activeProfile, resolvedRounds, viewportSize.height, viewportSize.width]);
 
   const visibleMatches = React.useMemo(() => resolvedRounds.flat().filter((match) => match.visible), [resolvedRounds]);
@@ -729,68 +704,92 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   const densePanel = DENSE_BRACKET_PANELS[densePanelIndex % DENSE_BRACKET_PANELS.length];
   const finalsStartRound = Math.max(0, resolvedRounds.length - 4);
 
-  const renderedMatches = React.useMemo(() => {
-    if (!isDensePagedBracket || !layout) return visibleMatches;
+  const densePanelRounds = React.useMemo<ResolvedStageMatch[][] | null>(() => {
+    if (!isDensePagedBracket) return null;
     if (densePanel === 'finals') {
-      return visibleMatches.filter((match) => match.roundIndex >= finalsStartRound);
+      return resolvedRounds.slice(finalsStartRound);
     }
-    return visibleMatches.filter((match) => layout.placements[match.uid]?.side === densePanel);
-  }, [densePanel, finalsStartRound, isDensePagedBracket, layout, visibleMatches]);
+
+    const branchSide = densePanel === 'sideA' ? 'left' : 'right';
+    return resolvedRounds
+      .slice(0, -1)
+      .map((round) => {
+        const mid = Math.floor(round.length / 2);
+        return branchSide === 'left' ? round.slice(0, mid) : round.slice(mid);
+      })
+      .filter((round) => round.length > 0);
+  }, [densePanel, finalsStartRound, isDensePagedBracket, resolvedRounds]);
+
+  const densePanelLayout = React.useMemo<LayoutData | null>(() => {
+    if (!isDensePagedBracket || !densePanelRounds?.length) return null;
+    const firstRoundMatches = densePanelRounds[0]?.length || 1;
+    const panelBracketSize = Math.max(2, firstRoundMatches * 2);
+    const finalLabel = densePanel === 'sideA'
+      ? 'SEMIFINALE A'
+      : densePanel === 'sideB'
+        ? 'SEMIFINALE B'
+        : 'FINALE';
+
+    return buildLayoutData({
+      rounds: densePanelRounds,
+      profile: getProfile(panelBracketSize, compact),
+      viewportSize,
+      finalLabel,
+      labelPrefix: `dense-${densePanel}`,
+    });
+  }, [compact, densePanel, densePanelRounds, isDensePagedBracket, viewportSize.height, viewportSize.width]);
+
+  const displayLayout = densePanelLayout || layout;
+
+  const renderedMatches = React.useMemo(() => {
+    if (!isDensePagedBracket || !densePanelRounds) return visibleMatches;
+    return densePanelRounds.flat().filter((match) => match.visible);
+  }, [densePanelRounds, isDensePagedBracket, visibleMatches]);
 
   const renderedLabels = React.useMemo(() => {
-    if (!isDensePagedBracket || !layout) return layout?.labels || [];
-    if (densePanel === 'finals') {
-      return layout.labels.filter((label) => label.side === 'center' || (label.roundIndex ?? -1) >= finalsStartRound);
-    }
-    return layout.labels.filter((label) => label.side === densePanel);
-  }, [densePanel, finalsStartRound, isDensePagedBracket, layout]);
-
-  const densePanelCrop = React.useMemo(() => {
-    if (!isDensePagedBracket || !layout) return null;
-    const placements = renderedMatches
-      .map((match) => layout.placements[match.uid])
-      .filter(Boolean) as Placement[];
-    return getCropFromPlacements(layout, placements, densePanel !== 'finals');
-  }, [densePanel, isDensePagedBracket, layout, renderedMatches]);
+    return displayLayout?.labels || [];
+  }, [displayLayout]);
 
   const renderedMatchUidSet = React.useMemo(() => new Set(renderedMatches.map((match) => match.uid)), [renderedMatches]);
 
   const lines = React.useMemo(() => {
-    if (!layout) return [] as React.ReactNode[];
+    if (!displayLayout) return [] as React.ReactNode[];
     const rendered: React.ReactNode[] = [];
-    const finalUid = resolvedRounds[resolvedRounds.length - 1]?.[0]?.uid;
+    const finalUid = isDensePagedBracket && densePanelRounds?.length
+      ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
+      : resolvedRounds[resolvedRounds.length - 1]?.[0]?.uid;
 
     for (const match of renderedMatches) {
-      const target = layout.placements[match.uid];
+      const target = displayLayout.placements[match.uid];
       if (!target) continue;
       for (const sourceUid of match.sourceUids) {
         if (isDensePagedBracket && !renderedMatchUidSet.has(sourceUid)) continue;
         const sourceMatch = resolvedMatchByUid.get(sourceUid);
         if (!sourceMatch?.visible) continue;
-        const source = layout.placements[sourceUid];
+        const source = displayLayout.placements[sourceUid];
         if (!source) continue;
-        rendered.push(pathForConnector(source, target, layout.profile, compact, match.uid === finalUid));
+        rendered.push(pathForConnector(source, target, displayLayout.profile, compact, match.uid === finalUid));
       }
     }
 
     return rendered;
-  }, [compact, isDensePagedBracket, layout, renderedMatches, renderedMatchUidSet, resolvedMatchByUid, resolvedRounds]);
+  }, [compact, densePanelRounds, displayLayout, isDensePagedBracket, renderedMatches, renderedMatchUidSet, resolvedMatchByUid, resolvedRounds]);
 
   const renderedStageStyle = React.useMemo(() => {
-    if (!layout) return undefined;
-    return densePanelCrop
-      ? getStagePanelRenderStyle(layout, viewportSize, densePanelCrop)
-      : getStageRenderStyle(layout);
-  }, [densePanelCrop, layout, viewportSize.height, viewportSize.width]);
+    if (!displayLayout) return undefined;
+    return getStageRenderStyle(displayLayout);
+  }, [displayLayout]);
 
-  const densePanelTitle = densePanel === 'left'
-    ? 'LATO SINISTRO'
-    : densePanel === 'right'
-      ? 'LATO DESTRO'
+  const densePanelTitle = densePanel === 'sideA'
+    ? 'LATO A'
+    : densePanel === 'sideB'
+      ? 'LATO B'
       : 'FASE FINALE';
   const densePanelSubtitle = densePanel === 'finals'
-    ? 'Dagli ottavi al centro'
-    : 'Ramo del tabellone';
+    ? 'Dagli ottavi alla finale'
+    : densePanel === 'sideA'
+      ? 'Chiusura con semifinale A'
+      : 'Chiusura con semifinale B';
 
   if (!resolvedRounds.length) {
     return (
@@ -911,19 +910,19 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     return (
       <div className="relative h-full w-full overflow-hidden text-slate-50">
         <div ref={viewportRef} className={viewportClassName}>
-          {layout && (
+          {displayLayout && (
             <div
               className="absolute left-0 top-0"
               style={renderedStageStyle}
             >
-              <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`} aria-hidden="true">
+              <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${displayLayout.stageWidth} ${displayLayout.stageHeight}`} aria-hidden="true">
                 {lines}
               </svg>
 
               {renderedLabels.map((label) => {
                 const displayText = localizeRoundLabel(label.text, compact);
-                const labelStyle = getLabelStyle(displayText, layout.profile.labelSize, compact, label.side, layout.profile);
-                const labelClassName = getLabelClassName(label.side, compact, layout.profile);
+                const labelStyle = getLabelStyle(displayText, displayLayout.profile.labelSize, compact, label.side, displayLayout.profile);
+                const labelClassName = getLabelClassName(label.side, compact, displayLayout.profile);
 
                 return (
                   <div
@@ -938,10 +937,17 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               })}
 
               {renderedMatches.map((match) => {
-                const placement = layout.placements[match.uid];
+                const placement = displayLayout.placements[match.uid];
                 if (!placement) return null;
 
-                const isFinal = match.roundIndex === resolvedRounds.length - 1;
+                const panelFinalMatchUid = isDensePagedBracket && densePanelRounds?.length
+                  ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
+                  : null;
+                const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
+                const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
+                const finalBadgeText = isDenseSidePanelFinal
+                  ? (densePanel === 'sideA' ? 'SEMIFINALE A' : 'SEMIFINALE B')
+                  : t('finale');
                 const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
                 const isWinnerA = match.raw.status === 'finished' && match.raw.scoreA > match.raw.scoreB;
                 const isWinnerB = match.raw.status === 'finished' && match.raw.scoreB > match.raw.scoreA;
@@ -949,23 +955,23 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 const bottomIsPlaceholder = isPlaceholderTeamName(match.bottom);
                 const isPendingMatch = match.raw.status !== 'finished';
                 const isUndecidedMatch = topIsPlaceholder || bottomIsPlaceholder;
-                const rowPaddingClass = getRowPaddingClass(layout.profile, compact);
-                const cardRadiusClass = getCardRadiusClass(layout.profile, compact);
-                const finalCardVisuals = getFinalCardVisuals(layout.profile, compact, match.raw.status === 'finished');
+                const rowPaddingClass = getRowPaddingClass(displayLayout.profile, compact);
+                const cardRadiusClass = getCardRadiusClass(displayLayout.profile, compact);
+                const finalCardVisuals = getFinalCardVisuals(displayLayout.profile, compact, match.raw.status === 'finished');
                 const finalWinnerRailClass = placement.side === 'right' ? 'right-0' : 'left-0';
 
                 return (
                   <div
                     key={match.uid}
                     className={`absolute overflow-hidden ${cardRadiusClass} border transition-opacity ${placement.side === 'right' ? 'text-right' : 'text-left'} ${isFinal ? `${finalCardVisuals.frameClass} bg-[linear-gradient(180deg,rgba(68,52,13,0.9),rgba(15,21,35,0.98))]` : 'border-white/10 bg-[linear-gradient(180deg,rgba(19,34,61,0.94),rgba(10,19,36,0.96))] shadow-[0_12px_30px_rgba(0,0,0,0.26)]'} ${isUndecidedMatch && isPendingMatch ? 'opacity-[0.88]' : 'opacity-100'}`}
-                    style={{ left: `${placement.x}px`, top: `${placement.y}px`, width: `${layout.profile.matchWidth}px`, height: `${layout.profile.matchHeight}px` }}
+                    style={{ left: `${placement.x}px`, top: `${placement.y}px`, width: `${displayLayout.profile.matchWidth}px`, height: `${displayLayout.profile.matchHeight}px` }}
                   >
                     <div className={`absolute inset-0 ${isUndecidedMatch ? 'bg-[linear-gradient(120deg,rgba(148,163,184,0.08),transparent_55%,rgba(148,163,184,0.06))]' : 'bg-[linear-gradient(120deg,rgba(97,230,255,0.08),transparent_55%,rgba(139,92,246,0.08))]'}`} />
                     {isFinal && <div className={`absolute inset-0 ${finalCardVisuals.glowClass}`} />}
                     {isFinal && finalCardVisuals.badgeVisible && (
                       <div className={`absolute z-10 inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-slate-950/70 font-black uppercase tracking-[0.18em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur-md ${finalCardVisuals.badgeClass}`}>
                         <Trophy className="h-3 w-3" />
-                        <span>{t('finale')}</span>
+                        <span>{finalBadgeText}</span>
                       </div>
                     )}
                     {isFinal && (isWinnerA || isWinnerB) && (
@@ -977,7 +983,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                         name={match.top}
                         score={getTeamOutcomeLabel(match.raw, 'A')}
                         placementSide={placement.side}
-                        profile={layout.profile}
+                        profile={displayLayout.profile}
                         compact={compact}
                         winner={isWinnerA}
                         pendingAriaLabel={t('to_be_defined')}
@@ -990,7 +996,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                         name={match.bottom}
                         score={getTeamOutcomeLabel(match.raw, 'B')}
                         placementSide={placement.side}
-                        profile={layout.profile}
+                        profile={displayLayout.profile}
                         compact={compact}
                         winner={isWinnerB}
                         pendingAriaLabel={t('to_be_defined')}
@@ -1085,19 +1091,19 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
       )}
 
       <div ref={viewportRef} className={viewportClassName}>
-        {layout && (
+        {displayLayout && (
           <div
             className="absolute left-0 top-0"
             style={renderedStageStyle}
           >
-            <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`} aria-hidden="true">
+            <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${displayLayout.stageWidth} ${displayLayout.stageHeight}`} aria-hidden="true">
               {lines}
             </svg>
 
             {renderedLabels.map((label) => {
               const displayText = localizeRoundLabel(label.text, compact);
-              const labelStyle = getLabelStyle(displayText, layout.profile.labelSize, compact, label.side, layout.profile);
-              const labelClassName = getLabelClassName(label.side, compact, layout.profile);
+              const labelStyle = getLabelStyle(displayText, displayLayout.profile.labelSize, compact, label.side, displayLayout.profile);
+              const labelClassName = getLabelClassName(label.side, compact, displayLayout.profile);
 
               return (
                 <div
@@ -1112,10 +1118,17 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
             })}
 
             {renderedMatches.map((match) => {
-              const placement = layout.placements[match.uid];
+              const placement = displayLayout.placements[match.uid];
               if (!placement) return null;
 
-              const isFinal = match.roundIndex === resolvedRounds.length - 1;
+              const panelFinalMatchUid = isDensePagedBracket && densePanelRounds?.length
+                ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
+                : null;
+              const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
+              const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
+              const finalBadgeText = isDenseSidePanelFinal
+                ? (densePanel === 'sideA' ? 'SEMIFINALE A' : 'SEMIFINALE B')
+                : t('finale');
               const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
               const isWinnerA = match.raw.status === 'finished' && match.raw.scoreA > match.raw.scoreB;
               const isWinnerB = match.raw.status === 'finished' && match.raw.scoreB > match.raw.scoreA;
@@ -1123,23 +1136,23 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               const bottomIsPlaceholder = isPlaceholderTeamName(match.bottom);
               const isPendingMatch = match.raw.status !== 'finished';
               const isUndecidedMatch = topIsPlaceholder || bottomIsPlaceholder;
-              const rowPaddingClass = getRowPaddingClass(layout.profile, compact);
-              const cardRadiusClass = getCardRadiusClass(layout.profile, compact);
-              const finalCardVisuals = getFinalCardVisuals(layout.profile, compact, match.raw.status === 'finished');
+              const rowPaddingClass = getRowPaddingClass(displayLayout.profile, compact);
+              const cardRadiusClass = getCardRadiusClass(displayLayout.profile, compact);
+              const finalCardVisuals = getFinalCardVisuals(displayLayout.profile, compact, match.raw.status === 'finished');
               const finalWinnerRailClass = placement.side === 'right' ? 'right-0' : 'left-0';
 
               return (
                 <div
                   key={match.uid}
                   className={`absolute overflow-hidden ${cardRadiusClass} border transition-opacity ${placement.side === 'right' ? 'text-right' : 'text-left'} ${isFinal ? `${finalCardVisuals.frameClass} bg-[linear-gradient(180deg,rgba(68,52,13,0.9),rgba(15,21,35,0.98))]` : 'border-white/10 bg-[linear-gradient(180deg,rgba(19,34,61,0.94),rgba(10,19,36,0.96))] shadow-[0_12px_30px_rgba(0,0,0,0.26)]'} ${isUndecidedMatch && isPendingMatch ? 'opacity-[0.88]' : 'opacity-100'}`}
-                  style={{ left: `${placement.x}px`, top: `${placement.y}px`, width: `${layout.profile.matchWidth}px`, height: `${layout.profile.matchHeight}px` }}
+                  style={{ left: `${placement.x}px`, top: `${placement.y}px`, width: `${displayLayout.profile.matchWidth}px`, height: `${displayLayout.profile.matchHeight}px` }}
                 >
                   <div className={`absolute inset-0 ${isUndecidedMatch ? 'bg-[linear-gradient(120deg,rgba(148,163,184,0.08),transparent_55%,rgba(148,163,184,0.06))]' : 'bg-[linear-gradient(120deg,rgba(97,230,255,0.08),transparent_55%,rgba(139,92,246,0.08))]'}`} />
                   {isFinal && <div className={`absolute inset-0 ${finalCardVisuals.glowClass}`} />}
                   {isFinal && finalCardVisuals.badgeVisible && (
                     <div className={`absolute z-10 inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-slate-950/70 font-black uppercase tracking-[0.18em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur-md ${finalCardVisuals.badgeClass}`}>
                       <Trophy className="h-3 w-3" />
-                      <span>{t('finale')}</span>
+                      <span>{finalBadgeText}</span>
                     </div>
                   )}
                   {isFinal && (isWinnerA || isWinnerB) && (
@@ -1151,7 +1164,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                       name={match.top}
                       score={getTeamOutcomeLabel(match.raw, 'A')}
                       placementSide={placement.side}
-                      profile={layout.profile}
+                      profile={displayLayout.profile}
                       compact={compact}
                       winner={isWinnerA}
                       pendingAriaLabel={t('to_be_defined')}
@@ -1164,7 +1177,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                       name={match.bottom}
                       score={getTeamOutcomeLabel(match.raw, 'B')}
                       placementSide={placement.side}
-                      profile={layout.profile}
+                      profile={displayLayout.profile}
                       compact={compact}
                       winner={isWinnerB}
                       pendingAriaLabel={t('to_be_defined')}
