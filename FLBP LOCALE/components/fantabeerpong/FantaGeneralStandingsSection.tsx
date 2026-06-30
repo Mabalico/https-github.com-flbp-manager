@@ -147,7 +147,55 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm">
+      {loading && (
+        <div className="flex flex-col items-center justify-center rounded-[22px] border border-slate-200 bg-white py-14 md:hidden">
+          <Loader2 className="h-8 w-8 animate-spin text-beer-500" />
+          <p className="mt-4 text-sm font-bold text-slate-500">{t('fanta_standings_syncing')}</p>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="space-y-3 md:hidden">
+          {filteredRows.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onOpenTeamDetail?.(row.id)}
+              className={`w-full rounded-[22px] border p-4 text-left shadow-sm transition active:scale-[0.99] ${row.isMine ? 'border-beer-200 bg-beer-50/70' : 'border-slate-200 bg-white'}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-black ${row.rank === 1 ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>#{row.rank}</span>
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-black text-slate-950">{row.teamName}</div>
+                      <div className="truncate text-[11px] font-bold uppercase tracking-tight text-slate-500">{row.ownerLabel}</div>
+                    </div>
+                  </div>
+                  {row.isMine && <span className="mt-3 inline-flex rounded-md border border-beer-200 bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</span>}
+                </div>
+                <div className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_standings_points')}</div>
+                  <div className="mt-0.5 text-2xl font-black text-slate-950">{row.totalPoints}</div>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+                <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_live')}</div><div className="text-sm font-black text-slate-950">{row.playersInGame}/4</div></div>
+                <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="text-sm font-black text-slate-950">{row.goals}</div></div>
+                <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{row.wins}</div></div>
+                <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{row.bonusScia}</div></div>
+              </div>
+            </button>
+          ))}
+          {filteredRows.length === 0 && (
+            <div className="rounded-[22px] border border-dashed border-slate-200 bg-white px-5 py-12 text-center text-sm font-bold italic text-slate-400">
+              {t('fanta_players_not_found')}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="hidden overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm md:block">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-beer-500" />

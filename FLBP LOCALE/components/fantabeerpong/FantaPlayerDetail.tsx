@@ -85,20 +85,20 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-7">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+      <div className="rounded-[24px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 shadow-sm md:rounded-[30px] md:p-7">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-blue-700"><UserRound className="h-3.5 w-3.5" />{t('fanta_player_detail_badge')}</div>
-            <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl uppercase font-mono">{data.playerName}</h1>
-            <div className="mt-1 flex items-center gap-2">
+            <h1 className="mt-3 truncate text-2xl font-black uppercase tracking-tight text-slate-950 sm:text-3xl">{data.playerName}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
                <span className="text-sm font-bold text-slate-600">{data.realTeamName} · {data.roleLabel}</span>
                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${statusBadgeClass(data.status)}`}>{statusLabel(t, data.status)}</span>
             </div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.note}</div>
           </div>
-          <div className="flex gap-2">
-            {onOpenMyTeam && <button type="button" onClick={onOpenMyTeam} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 transition">{t('fanta_shell_my_team')}</button>}
-            <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 transition"><ArrowLeft className="h-4 w-4" />{t('back')}</button>
+          <div className="grid gap-2 sm:grid-cols-2 md:flex">
+            {onOpenMyTeam && <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">{t('fanta_shell_my_team')}</button>}
+            <button type="button" onClick={onBack} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"><ArrowLeft className="h-4 w-4" />{t('back')}</button>
           </div>
         </div>
       </div>
@@ -108,7 +108,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
         <div className="mt-4 space-y-3">
           {data.contributionRows.map((row: any) => (
             <div key={row.id} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 hover:bg-white hover:shadow-md transition-all">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <Trophy className="h-3.5 w-3.5 text-slate-400" />
@@ -116,7 +116,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
                   </div>
                   <div className="mt-1 text-xs font-bold leading-6 text-slate-500 uppercase tracking-tight">{row.helper}</div>
                 </div>
-                <div className="text-xl font-black text-slate-950 tabular-nums">{row.valueLabel}</div>
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-center text-lg font-black tabular-nums text-slate-950 shadow-sm sm:text-xl">{row.valueLabel}</div>
               </div>
             </div>
           ))}

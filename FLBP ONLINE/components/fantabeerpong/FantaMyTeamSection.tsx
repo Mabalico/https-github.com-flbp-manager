@@ -206,17 +206,17 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-6 shadow-sm">
+      <div className="rounded-[24px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 shadow-sm md:rounded-[30px] md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-3xl">
+          <div className="min-w-0 max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700">
               <Shield className="h-3.5 w-3.5" />
               {data.editionLabel}
             </div>
-            <div className="mt-4 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">{data.teamName}</div>
+            <div className="mt-3 truncate text-2xl font-black tracking-tight text-slate-950 sm:text-3xl md:mt-4 md:text-4xl">{data.teamName}</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.lockHint}</div>
           </div>
-          {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="inline-flex min-h-[50px] items-center justify-center gap-2 rounded-2xl bg-beer-500 px-6 py-3 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 focus:outline-none focus:ring-2 focus:ring-beer-500/40">{t('fanta_edit_team')}</button>}
+          {onOpenTeamBuilder && <button type="button" onClick={onOpenTeamBuilder} className="inline-flex min-h-[50px] w-full items-center justify-center gap-2 rounded-2xl bg-beer-500 px-6 py-3 text-sm font-black uppercase tracking-widest text-slate-950 shadow-md transition hover:bg-beer-600 focus:outline-none focus:ring-2 focus:ring-beer-500/40 lg:w-auto">{t('fanta_edit_team')}</button>}
         </div>
       </div>
 
