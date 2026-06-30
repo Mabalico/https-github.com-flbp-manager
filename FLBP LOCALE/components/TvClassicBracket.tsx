@@ -46,9 +46,15 @@ type LayoutData = {
   scale: number;
   offsetX: number;
   offsetY: number;
-  labels: Array<{ key: string; x: number; y: number; text: string; side: 'left' | 'right' | 'center' }>;
+  labels: Array<{ key: string; x: number; y: number; text: string; side: 'left' | 'right' | 'center'; roundIndex?: number }>;
   placements: Record<string, Placement>;
 };
+
+type DenseBracketPanel = 'left' | 'finals' | 'right';
+type StageCrop = { x: number; y: number; width: number; height: number };
+
+const DENSE_BRACKET_PANELS: DenseBracketPanel[] = ['left', 'finals', 'right'];
+const DENSE_BRACKET_PANEL_MS = 14000;
 
 const getDevicePixelRatioSafe = () => {
   if (typeof window === 'undefined') return 1;
@@ -78,6 +84,50 @@ const getStageRenderStyle = (layout: LayoutData): React.CSSProperties => ({
   textRendering: 'geometricPrecision',
   willChange: 'transform',
 });
+
+const getStagePanelRenderStyle = (
+  layout: LayoutData,
+  viewportSize: { width: number; height: number },
+  crop: StageCrop,
+): React.CSSProperties => {
+  const viewportWidth = Math.max(1, viewportSize.width);
+  const viewportHeight = Math.max(1, viewportSize.height);
+  const scale = quantizeScaleForTv(Math.min(
+    viewportWidth / Math.max(1, crop.width),
+    viewportHeight / Math.max(1, crop.height),
+  ));
+  const offsetX = snapToDevicePixel((viewportWidth - crop.width * scale) / 2 - crop.x * scale);
+  const offsetY = snapToDevicePixel((viewportHeight - crop.height * scale) / 2 - crop.y * scale);
+
+  return {
+    ...getStageRenderStyle(layout),
+    transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${scale})`,
+  };
+};
+
+const getCropFromPlacements = (
+  layout: LayoutData,
+  placements: Placement[],
+  includeFullHeight = false,
+): StageCrop => {
+  if (!placements.length) return { x: 0, y: 0, width: layout.stageWidth, height: layout.stageHeight };
+
+  const padX = layout.profile.matchWidth * 0.45;
+  const padY = layout.profile.matchHeight * 1.25;
+  const minX = Math.max(0, Math.min(...placements.map((p) => p.x)) - padX);
+  const maxX = Math.min(layout.stageWidth, Math.max(...placements.map((p) => p.x + layout.profile.matchWidth)) + padX);
+  const minY = includeFullHeight ? 0 : Math.max(0, Math.min(...placements.map((p) => p.y)) - padY - layout.profile.labelY);
+  const maxY = includeFullHeight
+    ? layout.stageHeight
+    : Math.min(layout.stageHeight, Math.max(...placements.map((p) => p.y + layout.profile.matchHeight)) + padY);
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(layout.profile.matchWidth, maxX - minX),
+    height: Math.max(layout.profile.matchHeight, maxY - minY),
+  };
+};
 
 interface TvClassicBracketProps {
   teams: Team[];
@@ -617,8 +667,8 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
       const originalRoundIndex = roundIndex + firstVisibleRound;
       const roundText = roundLabelFromMatch(round[0]?.raw, `Turno ${originalRoundIndex + 1}`);
 
-      labels.push({ key: `left-${roundIndex}`, x: leftX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'left' });
-      labels.push({ key: `right-${roundIndex}`, x: rightX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'right' });
+      labels.push({ key: `left-${roundIndex}`, x: leftX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'left', roundIndex: originalRoundIndex });
+      labels.push({ key: `right-${roundIndex}`, x: rightX + profile.matchWidth / 2, y: profile.labelY, text: roundText, side: 'right', roundIndex: originalRoundIndex });
 
       leftRound.forEach((match, matchIndex) => {
         const centerY = centers[roundIndex]?.[matchIndex];
@@ -636,7 +686,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     const finalMatch = effectiveRounds[totalRounds - 1]?.[0];
     if (finalMatch) {
       placements[finalMatch.uid] = { x: finalX, y: finalCenterY - profile.matchHeight / 2, centerY: finalCenterY, side: 'center' };
-      labels.push({ key: 'final', x: finalX + profile.matchWidth / 2, y: profile.labelY, text: 'FINALE', side: 'center' });
+      labels.push({ key: 'final', x: finalX + profile.matchWidth / 2, y: profile.labelY, text: 'FINALE', side: 'center', roundIndex: resolvedRounds.length - 1 });
     }
 
     const scale = quantizeScaleForTv(Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight));
@@ -656,18 +706,67 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   }, [activeProfile, resolvedRounds, viewportSize.height, viewportSize.width]);
 
   const visibleMatches = React.useMemo(() => resolvedRounds.flat().filter((match) => match.visible), [resolvedRounds]);
+  const resolvedMatchByUid = React.useMemo(() => {
+    const map = new Map<string, ResolvedStageMatch>();
+    for (const match of resolvedRounds.flat()) map.set(match.uid, match);
+    return map;
+  }, [resolvedRounds]);
+
+  const isDensePagedBracket = minimalChrome && classicLayoutSupported && bracketSize >= 64;
+  const [densePanelIndex, setDensePanelIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!isDensePagedBracket) {
+      setDensePanelIndex(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
+    }, DENSE_BRACKET_PANEL_MS);
+    return () => window.clearInterval(timer);
+  }, [isDensePagedBracket]);
+
+  const densePanel = DENSE_BRACKET_PANELS[densePanelIndex % DENSE_BRACKET_PANELS.length];
+  const finalsStartRound = Math.max(0, resolvedRounds.length - 4);
+
+  const renderedMatches = React.useMemo(() => {
+    if (!isDensePagedBracket || !layout) return visibleMatches;
+    if (densePanel === 'finals') {
+      return visibleMatches.filter((match) => match.roundIndex >= finalsStartRound);
+    }
+    return visibleMatches.filter((match) => layout.placements[match.uid]?.side === densePanel);
+  }, [densePanel, finalsStartRound, isDensePagedBracket, layout, visibleMatches]);
+
+  const renderedLabels = React.useMemo(() => {
+    if (!isDensePagedBracket || !layout) return layout?.labels || [];
+    if (densePanel === 'finals') {
+      return layout.labels.filter((label) => label.side === 'center' || (label.roundIndex ?? -1) >= finalsStartRound);
+    }
+    return layout.labels.filter((label) => label.side === densePanel);
+  }, [densePanel, finalsStartRound, isDensePagedBracket, layout]);
+
+  const densePanelCrop = React.useMemo(() => {
+    if (!isDensePagedBracket || !layout) return null;
+    const placements = renderedMatches
+      .map((match) => layout.placements[match.uid])
+      .filter(Boolean) as Placement[];
+    return getCropFromPlacements(layout, placements, densePanel !== 'finals');
+  }, [densePanel, isDensePagedBracket, layout, renderedMatches]);
+
+  const renderedMatchUidSet = React.useMemo(() => new Set(renderedMatches.map((match) => match.uid)), [renderedMatches]);
 
   const lines = React.useMemo(() => {
     if (!layout) return [] as React.ReactNode[];
     const rendered: React.ReactNode[] = [];
     const finalUid = resolvedRounds[resolvedRounds.length - 1]?.[0]?.uid;
 
-    for (const match of visibleMatches) {
+    for (const match of renderedMatches) {
       const target = layout.placements[match.uid];
       if (!target) continue;
       for (const sourceUid of match.sourceUids) {
-        const sourceMatch = resolvedRounds.flat().find((item) => item.uid === sourceUid && item.visible);
-        if (!sourceMatch) continue;
+        if (isDensePagedBracket && !renderedMatchUidSet.has(sourceUid)) continue;
+        const sourceMatch = resolvedMatchByUid.get(sourceUid);
+        if (!sourceMatch?.visible) continue;
         const source = layout.placements[sourceUid];
         if (!source) continue;
         rendered.push(pathForConnector(source, target, layout.profile, compact, match.uid === finalUid));
@@ -675,7 +774,23 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     }
 
     return rendered;
-  }, [layout, resolvedRounds, visibleMatches]);
+  }, [compact, isDensePagedBracket, layout, renderedMatches, renderedMatchUidSet, resolvedMatchByUid, resolvedRounds]);
+
+  const renderedStageStyle = React.useMemo(() => {
+    if (!layout) return undefined;
+    return densePanelCrop
+      ? getStagePanelRenderStyle(layout, viewportSize, densePanelCrop)
+      : getStageRenderStyle(layout);
+  }, [densePanelCrop, layout, viewportSize.height, viewportSize.width]);
+
+  const densePanelTitle = densePanel === 'left'
+    ? 'LATO SINISTRO'
+    : densePanel === 'right'
+      ? 'LATO DESTRO'
+      : 'FASE FINALE';
+  const densePanelSubtitle = densePanel === 'finals'
+    ? 'Dagli ottavi al centro'
+    : 'Ramo del tabellone';
 
   if (!resolvedRounds.length) {
     return (
@@ -799,13 +914,13 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
           {layout && (
             <div
               className="absolute left-0 top-0"
-              style={getStageRenderStyle(layout)}
+              style={renderedStageStyle}
             >
               <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`} aria-hidden="true">
                 {lines}
               </svg>
 
-              {layout.labels.map((label) => {
+              {renderedLabels.map((label) => {
                 const displayText = localizeRoundLabel(label.text, compact);
                 const labelStyle = getLabelStyle(displayText, layout.profile.labelSize, compact, label.side, layout.profile);
                 const labelClassName = getLabelClassName(label.side, compact, layout.profile);
@@ -822,7 +937,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 );
               })}
 
-              {visibleMatches.map((match) => {
+              {renderedMatches.map((match) => {
                 const placement = layout.placements[match.uid];
                 if (!placement) return null;
 
@@ -888,6 +1003,22 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
             </div>
           )}
         </div>
+        {isDensePagedBracket && (
+          <div className="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-3 rounded-2xl border border-white/12 bg-slate-950/76 px-4 py-2 text-white shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-md">
+            <div>
+              <div className="text-[12px] font-black uppercase tracking-[0.2em] text-cyan-100">{densePanelTitle}</div>
+              <div className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300">{densePanelSubtitle}</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {DENSE_BRACKET_PANELS.map((panel, index) => (
+                <span
+                  key={panel}
+                  className={`h-2 rounded-full transition-all ${index === densePanelIndex % DENSE_BRACKET_PANELS.length ? 'w-7 bg-cyan-300' : 'w-2 bg-white/28'}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -957,13 +1088,13 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
         {layout && (
           <div
             className="absolute left-0 top-0"
-            style={getStageRenderStyle(layout)}
+            style={renderedStageStyle}
           >
             <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`} aria-hidden="true">
               {lines}
             </svg>
 
-            {layout.labels.map((label) => {
+            {renderedLabels.map((label) => {
               const displayText = localizeRoundLabel(label.text, compact);
               const labelStyle = getLabelStyle(displayText, layout.profile.labelSize, compact, label.side, layout.profile);
               const labelClassName = getLabelClassName(label.side, compact, layout.profile);
@@ -980,7 +1111,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               );
             })}
 
-            {visibleMatches.map((match) => {
+            {renderedMatches.map((match) => {
               const placement = layout.placements[match.uid];
               if (!placement) return null;
 
