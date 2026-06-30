@@ -50,6 +50,35 @@ type LayoutData = {
   placements: Record<string, Placement>;
 };
 
+const getDevicePixelRatioSafe = () => {
+  if (typeof window === 'undefined') return 1;
+  const value = Number(window.devicePixelRatio || 1);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+};
+
+const snapToDevicePixel = (value: number) => {
+  const ratio = getDevicePixelRatioSafe();
+  return Math.round(value * ratio) / ratio;
+};
+
+const quantizeScaleForTv = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  // Avoid compositing on very noisy fractional values when the TV view is
+  // projected/mirrored. Rounding down keeps the bracket inside the viewport.
+  return Math.max(0.01, Math.min(1, Math.floor(value * 1000) / 1000));
+};
+
+const getStageRenderStyle = (layout: LayoutData): React.CSSProperties => ({
+  width: `${layout.stageWidth}px`,
+  height: `${layout.stageHeight}px`,
+  transform: `translate3d(${layout.offsetX}px, ${layout.offsetY}px, 0) scale(${layout.scale})`,
+  transformOrigin: 'top left',
+  backfaceVisibility: 'hidden',
+  WebkitFontSmoothing: 'antialiased',
+  textRendering: 'geometricPrecision',
+  willChange: 'transform',
+});
+
 interface TvClassicBracketProps {
   teams: Team[];
   matches: Match[];
@@ -609,9 +638,9 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
       labels.push({ key: 'final', x: finalX + profile.matchWidth / 2, y: profile.labelY, text: 'FINALE', side: 'center' });
     }
 
-    const scale = Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight);
-    const offsetX = (viewportSize.width - stageWidth * scale) / 2;
-    const offsetY = (viewportSize.height - stageHeight * scale) / 2;
+    const scale = quantizeScaleForTv(Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight));
+    const offsetX = snapToDevicePixel((viewportSize.width - stageWidth * scale) / 2);
+    const offsetY = snapToDevicePixel((viewportSize.height - stageHeight * scale) / 2);
 
     return {
       profile,
@@ -769,12 +798,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
           {layout && (
             <div
               className="absolute left-0 top-0"
-              style={{
-                width: `${layout.stageWidth}px`,
-                height: `${layout.stageHeight}px`,
-                transform: `translate(${layout.offsetX}px, ${layout.offsetY}px) scale(${layout.scale})`,
-                transformOrigin: 'top left',
-              }}
+              style={getStageRenderStyle(layout)}
             >
               <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`} aria-hidden="true">
                 {lines}
@@ -932,12 +956,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
         {layout && (
           <div
             className="absolute left-0 top-0"
-            style={{
-              width: `${layout.stageWidth}px`,
-              height: `${layout.stageHeight}px`,
-              transform: `translate(${layout.offsetX}px, ${layout.offsetY}px) scale(${layout.scale})`,
-              transformOrigin: 'top left',
-            }}
+            style={getStageRenderStyle(layout)}
           >
             <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${layout.stageWidth} ${layout.stageHeight}`} aria-hidden="true">
               {lines}
