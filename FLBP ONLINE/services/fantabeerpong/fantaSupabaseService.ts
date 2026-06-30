@@ -144,6 +144,14 @@ const buildHeaders = (cfg: { anonKey: string }, token?: string | null) => {
 
 const encode = (value: string) => encodeURIComponent(value);
 const publicTournamentsSelect = 'id,name,status,start_date,updated_at,config';
+const FANTA_CONFIG_CACHE_MS = 5_000;
+const FANTA_COMPUTED_FALLBACK_CACHE_MS = 3_000;
+
+let fantaConfigCache: {
+  key: string;
+  expiresAt: number;
+  promise: Promise<FantaConfig | null>;
+} | null = null;
 
 const hasResultsOnlyConfig = (config?: Record<string, unknown> | null): boolean =>
   Boolean(config && typeof config === 'object' && config.resultsOnly === true);
@@ -206,10 +214,9 @@ const fetchTournamentStarted = async (
   return !!rows?.length;
 };
 
-export const fetchFantaConfig = async (): Promise<FantaConfig | null> => {
-  const cfg = getSupabaseConfig();
-  if (!cfg) return null;
-
+const fetchFantaConfigFresh = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+): Promise<FantaConfig | null> => {
   const rows = await fetchJson<SupabaseFantaConfig[]>(
     `${restUrl(cfg, 'fanta_config')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=*`,
     buildHeaders(cfg),
@@ -239,6 +246,24 @@ export const fetchFantaConfig = async (): Promise<FantaConfig | null> => {
     lockReason: activeTournamentResultsOnly ? 'results_only_tournament' : tournamentStarted ? 'first_match_started' : null,
     updatedAt: configured?.updated_at,
   };
+};
+
+export const fetchFantaConfig = async (): Promise<FantaConfig | null> => {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return null;
+
+  const key = `${cfg.url}::${cfg.workspaceId}`;
+  const now = Date.now();
+  if (fantaConfigCache?.key === key && fantaConfigCache.expiresAt > now) {
+    return fantaConfigCache.promise;
+  }
+
+  const promise = fetchFantaConfigFresh(cfg).catch((error) => {
+    if (fantaConfigCache?.promise === promise) fantaConfigCache = null;
+    throw error;
+  });
+  fantaConfigCache = { key, expiresAt: now + FANTA_CONFIG_CACHE_MS, promise };
+  return promise;
 };
 
 export const fetchFantaTournamentTeams = async (
@@ -635,7 +660,13 @@ type FantaComputedFallback = {
   hasLiveProgress: boolean;
 };
 
-const fetchComputedFantaFallback = async (
+let computedFantaFallbackCache: {
+  key: string;
+  expiresAt: number;
+  promise: Promise<FantaComputedFallback>;
+} | null = null;
+
+const fetchComputedFantaFallbackFresh = async (
   cfg: { url: string; anonKey: string; workspaceId: string },
   tournamentId: string,
 ): Promise<FantaComputedFallback> => {
@@ -847,6 +878,24 @@ const fetchComputedFantaFallback = async (
   const hasLiveProgress = winnerRows.length > 0 || Array.from(statsByTeamPlayer.values()).some((row) => row.goals > 0 || row.blows > 0);
 
   return { standings, players, rosterRows: computedRosterRows, hasLiveProgress };
+};
+
+const fetchComputedFantaFallback = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  tournamentId: string,
+): Promise<FantaComputedFallback> => {
+  const key = `${cfg.url}::${cfg.workspaceId}::${tournamentId}`;
+  const now = Date.now();
+  if (computedFantaFallbackCache?.key === key && computedFantaFallbackCache.expiresAt > now) {
+    return computedFantaFallbackCache.promise;
+  }
+
+  const promise = fetchComputedFantaFallbackFresh(cfg, tournamentId).catch((error) => {
+    if (computedFantaFallbackCache?.promise === promise) computedFantaFallbackCache = null;
+    throw error;
+  });
+  computedFantaFallbackCache = { key, expiresAt: now + FANTA_COMPUTED_FALLBACK_CACHE_MS, promise };
+  return promise;
 };
 
 const hasMeaningfulFantaStandings = (rows: SupabaseFantaStanding[]): boolean =>
