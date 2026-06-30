@@ -591,6 +591,7 @@ const App: React.FC = () => {
             return () => window.clearTimeout(timeoutId);
         }
 
+        if (!getSupabaseAccessToken()) return;
         refreshWorkspace();
         window.addEventListener(PLAYER_APP_CHANGE_EVENT, refreshWorkspace as EventListener);
         return () => {
@@ -916,7 +917,7 @@ const App: React.FC = () => {
         // Public views always refresh once on enter; continuous polling stays only where it adds value.
         // PlayerArea uses the remote repository refresh for full alias/history data, so avoid
         // doubling it with a public mirror pull on the same route transition.
-        const playerAreaUsesRemoteRefresh = view === 'player_area' && repo.source === 'remote';
+        const playerAreaUsesRemoteRefresh = view === 'player_area' && repo.source === 'remote' && !!getSupabaseAccessToken();
         const shouldLoad = tvMode != null || (view !== 'admin' && !playerAreaUsesRemoteRefresh);
         if (!shouldLoad) return;
 
