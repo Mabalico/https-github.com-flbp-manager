@@ -545,8 +545,10 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     if (normalized === 'SEMIFINALE' || normalized === 'SEMIFINALI' || normalized === 'SEMIFINAL' || normalized === 'SEMIFINALS') return t('semi');
     if (normalized === 'QUARTI DI FINALE' || normalized === 'QUARTERFINAL' || normalized === 'QUARTERFINALS') return t('quarti');
     if (normalized === 'OTTAVI DI FINALE' || normalized === 'ROUND OF 16') return t('ottavi');
-    if (normalized === 'SEDICESIMI DI FINALE' || normalized === 'ROUND OF 32') return '1/16';
-    if (normalized === 'TRENTADUESIMI DI FINALE' || normalized === 'ROUND OF 64') return '1/32';
+    if (normalized === 'SEDICESIMI DI FINALE' || normalized === 'ROUND OF 32') return '16simi';
+    if (normalized === 'TRENTADUESIMI DI FINALE' || normalized === 'ROUND OF 64') return '32simi';
+    if (normalized === 'SESSANTAQUATTRESIMI DI FINALE' || normalized === 'ROUND OF 128') return '64simi';
+    if (normalized === 'CENTOVENTOTTESIMI DI FINALE' || normalized === 'ROUND OF 256') return '128simi';
 
     const roundMatch = normalized.match(/^(?:TURNO|ROUND)\s+(\d+)$/);
     if (roundMatch) return compactMode ? `R${roundMatch[1]}` : `${t('round_word')} ${roundMatch[1]}`;
