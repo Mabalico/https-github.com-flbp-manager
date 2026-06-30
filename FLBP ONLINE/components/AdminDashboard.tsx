@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -1657,6 +1657,19 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         return setTournamentMvps(base, base.tournament.id, base.tournament.name, payload);
     };
 
+    const snapshotFantaBeforeArchive = async (tournamentId?: string | null) => {
+        const resolvedTournamentId = String(tournamentId || '').trim();
+        if (!resolvedTournamentId) return;
+        try {
+            await archiveFantaTournamentEdition(resolvedTournamentId);
+        } catch (error) {
+            // Do not block the real tournament archive if the additive Fanta archive RPC
+            // is missing or temporarily unavailable. The SQL migration also backfills
+            // archived editions from existing standings when applied.
+            console.warn('[FantaBeerpong] Archivio Fanta non aggiornato prima della chiusura torneo.', error);
+        }
+    };
+
     const handleArchive = () => {
         if (!state.tournament) {
             alert(t('alert_no_live_active'));
@@ -2589,7 +2602,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         }
     };
 
-    const handleStartLive = () => {
+    const handleStartLive = async () => {
         if (!draft) return;
         
         if (state.tournament) {
@@ -2618,6 +2631,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         
         let newState = { ...state };
         if (newState.tournament) {
+            await snapshotFantaBeforeArchive(newState.tournament.id);
             closeLiveCallsForTournament(newState.tournament.id);
             newState = archiveTournamentV2(newState);
         }
@@ -4492,16 +4506,17 @@ while (guard < 5000) {
         searchPlaceholder={t('search')}
         t={t}
         onClose={() => { setMvpModalOpen(false); setMvpModalForArchive(false); setArchiveIncludeU25Awards(true); }}
-        onArchiveWithoutMvp={() => {
+        onArchiveWithoutMvp={async () => {
             // Archivia anche senza MVP (premi automatici = campioni + classifica marcatori).
             prepareRefereeCounterEmailDraft(state);
+            await snapshotFantaBeforeArchive(state.tournament?.id);
             closeLiveCallsForTournament(state.tournament?.id);
             const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
             setState(next);
             setMvpModalOpen(false);
             setMvpModalForArchive(false);
         }}
-        onSave={() => {
+        onSave={async () => {
             if (!state.tournament) {
                 setMvpModalOpen(false);
                 setMvpModalForArchive(false);
@@ -4510,6 +4525,7 @@ while (guard < 5000) {
             if (mvpModalForArchive) {
                 let next = applyMvpsToState(state, mvpSelectedIds);
                 prepareRefereeCounterEmailDraft(next);
+                await snapshotFantaBeforeArchive(next.tournament?.id || state.tournament?.id);
                 closeLiveCallsForTournament(next.tournament?.id || state.tournament?.id);
                 next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
                 setState(next);

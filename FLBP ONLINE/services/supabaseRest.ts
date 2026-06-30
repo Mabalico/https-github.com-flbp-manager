@@ -3003,6 +3003,40 @@ export const pushPublicWorkspaceState = async (state: AppState): Promise<Supabas
 
 const rpcUrl = (cfg: SupabaseConfig, fnName: string) => restUrl(cfg, `rpc/${fnName}`);
 
+export type ArchiveFantaTournamentEditionResult = {
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string | null;
+    tournament_id?: string | null;
+    teams_count?: number | null;
+    players_count?: number | null;
+};
+
+export const archiveFantaTournamentEdition = async (tournamentId: string): Promise<ArchiveFantaTournamentEditionResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const resolvedTournamentId = String(tournamentId || '').trim();
+    if (!resolvedTournamentId) {
+        return { ok: true, skipped: true, reason: 'missing_tournament_id' };
+    }
+    const res = await fetchWithTimeout(
+        rpcUrl(cfg, 'flbp_archive_fanta_tournament'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                p_workspace_id: cfg.workspaceId,
+                p_tournament_id: resolvedTournamentId,
+            }),
+        },
+        8000,
+        { source: 'archiveFantaTournamentEdition', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as ArchiveFantaTournamentEditionResult;
+};
+
 type RefereeAuthCheckResult = {
     ok: boolean;
     reason?: string | null;

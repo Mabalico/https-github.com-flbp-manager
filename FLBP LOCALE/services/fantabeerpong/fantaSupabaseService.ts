@@ -115,6 +115,48 @@ interface SupabaseFantaPlayerStanding {
   eliminated_by_team_name?: string | null;
 }
 
+interface SupabaseFantaArchivedEditionRow {
+  workspace_id: string;
+  tournament_id: string;
+  tournament_name: string;
+  start_date?: string | null;
+  archived_at?: string | null;
+  winner_team_id?: string | null;
+  winner_team_name?: string | null;
+  winner_points?: number | null;
+  teams_count?: number | null;
+  updated_at?: string | null;
+}
+
+interface SupabaseFantaArchivedStandingRow {
+  workspace_id: string;
+  tournament_id: string;
+  team_id: string;
+  user_id?: string | null;
+  rank?: number | null;
+  team_name?: string | null;
+  total_points?: number | null;
+  points_from_goals?: number | null;
+  points_from_blows?: number | null;
+  points_from_wins?: number | null;
+  bonus_scia?: number | null;
+  players_in_game?: number | null;
+}
+
+interface SupabaseFantaArchivedPlayerRow {
+  workspace_id: string;
+  tournament_id: string;
+  player_id: string;
+  rank?: number | null;
+  player_name?: string | null;
+  real_team_name?: string | null;
+  total_points?: number | null;
+  points_from_goals?: number | null;
+  points_from_blows?: number | null;
+  points_from_wins?: number | null;
+  bonus_scia?: number | null;
+}
+
 export type FantaSaveTeamErrorCode =
   | 'not_authenticated'
   | 'no_live_tournament'
@@ -339,10 +381,35 @@ const buildArchivedEdition = (
   };
 };
 
-export const fetchFantaArchivedEditions = async (): Promise<FantaArchivedEdition[]> => {
+const buildArchivedEditionFromSnapshot = (row: SupabaseFantaArchivedEditionRow): FantaArchivedEdition | null => {
+  if (!row?.tournament_id) return null;
+  return {
+    tournamentId: row.tournament_id,
+    tournamentName: row.tournament_name || 'FantaBeerpong',
+    dateLabel: formatFantaDate(row.start_date || row.archived_at || row.updated_at),
+    winnerTeamName: row.winner_team_name || 'N/D',
+    winnerPoints: row.winner_points || 0,
+    teamsCount: row.teams_count || 0,
+    updatedAt: row.updated_at || row.archived_at || undefined,
+  };
+};
+
+const fetchFantaArchivedEditionsSnapshot = async (): Promise<FantaArchivedEdition[]> => {
   const cfg = getSupabaseConfig();
   if (!cfg) return [];
+  const rows = await fetchJson<SupabaseFantaArchivedEditionRow[]>(
+    `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=*&order=start_date.desc,archived_at.desc`,
+    buildHeaders(cfg),
+    'fetchFantaArchivedEditionSnapshots',
+  );
+  return (rows || [])
+    .map(buildArchivedEditionFromSnapshot)
+    .filter((edition): edition is FantaArchivedEdition => Boolean(edition));
+};
 
+const fetchFantaArchivedEditionsLegacy = async (): Promise<FantaArchivedEdition[]> => {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return [];
   const [tournaments, standings] = await Promise.all([
     fetchJson<SupabaseTournamentSummary[]>(
       `${restUrl(cfg, 'public_tournaments')}?workspace_id=eq.${encode(cfg.workspaceId)}&status=eq.archived&select=${publicTournamentsSelect}&order=start_date.desc`,
@@ -366,6 +433,20 @@ export const fetchFantaArchivedEditions = async (): Promise<FantaArchivedEdition
   return (tournaments || [])
     .map((tournament) => buildArchivedEdition(tournament, standingsByTournament.get(tournament.id) || []))
     .filter((edition): edition is FantaArchivedEdition => Boolean(edition));
+};
+
+export const fetchFantaArchivedEditions = async (): Promise<FantaArchivedEdition[]> => {
+  const [snapshotRows, legacyRows] = await Promise.all([
+    fetchFantaArchivedEditionsSnapshot(),
+    fetchFantaArchivedEditionsLegacy(),
+  ]);
+
+  const byTournament = new Map<string, FantaArchivedEdition>();
+  legacyRows.forEach((row) => byTournament.set(row.tournamentId, row));
+  snapshotRows.forEach((row) => byTournament.set(row.tournamentId, row));
+  return [...byTournament.values()].sort((left, right) =>
+    String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))
+  );
 };
 
 const fetchFantaStandingsForTournament = async (
@@ -456,6 +537,54 @@ export const fetchFantaArchivedEditionDetail = async (
 ): Promise<FantaArchivedEditionDetail | null> => {
   const cfg = getSupabaseConfig();
   if (!cfg || !tournamentId) return null;
+
+  const [snapshotEditionRows, snapshotStandingsRows, snapshotPlayerRows] = await Promise.all([
+    fetchJson<SupabaseFantaArchivedEditionRow[]>(
+      `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&limit=1`,
+      buildHeaders(cfg),
+      'fetchFantaArchivedEditionSnapshotDetail',
+    ),
+    fetchJson<SupabaseFantaArchivedStandingRow[]>(
+      `${restUrl(cfg, 'fanta_archived_standings')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc`,
+      buildHeaders(cfg),
+      'fetchFantaArchivedStandingSnapshotDetail',
+    ),
+    fetchJson<SupabaseFantaArchivedPlayerRow[]>(
+      `${restUrl(cfg, 'fanta_archived_players')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc&limit=10`,
+      buildHeaders(cfg),
+      'fetchFantaArchivedPlayerSnapshotDetail',
+    ),
+  ]);
+
+  const snapshotEdition = snapshotEditionRows?.[0] ? buildArchivedEditionFromSnapshot(snapshotEditionRows[0]) : null;
+  if (snapshotEdition && snapshotStandingsRows?.length) {
+    return {
+      edition: snapshotEdition,
+      standings: snapshotStandingsRows.map((row, index) => ({
+        teamId: row.team_id,
+        userId: row.user_id || null,
+        rank: row.rank || index + 1,
+        teamName: row.team_name || 'N/D',
+        totalPoints: row.total_points || 0,
+        goals: row.points_from_goals || 0,
+        blows: row.points_from_blows || 0,
+        wins: row.points_from_wins || 0,
+        bonusScia: row.bonus_scia || 0,
+        playersInGame: row.players_in_game || 0,
+      })),
+      topPlayers: (snapshotPlayerRows || []).map((row, index) => ({
+        playerId: row.player_id,
+        rank: row.rank || index + 1,
+        playerName: row.player_name || 'N/D',
+        realTeamName: row.real_team_name || 'N/D',
+        totalPoints: row.total_points || 0,
+        goals: row.points_from_goals || 0,
+        blows: row.points_from_blows || 0,
+        wins: row.points_from_wins || 0,
+        bonusScia: row.bonus_scia || 0,
+      })),
+    };
+  }
 
   const [tournament, standingsRows, playerRows] = await Promise.all([
     fetchTournamentSummary(cfg, tournamentId),
