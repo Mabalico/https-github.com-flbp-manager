@@ -771,12 +771,13 @@ const App: React.FC = () => {
         };
     }, [publicDbState, publicDbUpdatedAt, state]);
 
+    const hasAdminSnapshotSession = !!getSupabaseAccessToken();
     const stateForPlayerArea = React.useMemo<AppState>(() => (
-        // PlayerArea derives historical stats and alias-linked profiles from the
-        // complete workspace state. The public mirror can lag or be sanitized, so
-        // in remote mode prefer the repository state that is refreshed on entry.
-        repo.source === 'remote' ? state : stateForPublicViews
-    ), [repo.source, state, stateForPublicViews]);
+        // Admin sessions can use the full workspace state. Normal player/public
+        // sessions should use the public mirror instead of attempting admin-only
+        // snapshot reads, which are slower and can be denied by RLS.
+        repo.source === 'remote' && hasAdminSnapshotSession ? state : stateForPublicViews
+    ), [hasAdminSnapshotSession, repo.source, state, stateForPublicViews]);
 
     // Lightweight, informative banner for ops (non-blocking).
     const dbPrimaryActive = repo.source === 'remote';
@@ -808,6 +809,12 @@ const App: React.FC = () => {
 
         const cfg = getSupabaseConfig();
         if (!cfg) return;
+        if (!getSupabaseAccessToken()) {
+            remoteBootstrapRanRef.current = true;
+            remoteBootstrapActiveRef.current = false;
+            setRemoteBootstrapStatus('ready');
+            return;
+        }
 
         if (hasRemoteDraftCache()) {
             remoteBootstrapRanRef.current = true;
