@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowDown, ArrowUpDown, BarChart3, Search, Trophy, X, Loader2 } from 'lucide-react';
 import { useTranslation } from '../../App';
-import { fetchFantaStandings } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaStandings, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import type { FantaGeneralStandingsRow } from '../../services/fantabeerpong/types';
 import { panelClass } from './_shared';
@@ -32,16 +32,21 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
   const [reloadKey, setReloadKey] = React.useState(0);
 
   React.useEffect(() => {
-    const refresh = () => setReloadKey((key) => key + 1);
+    const refresh = () => {
+      invalidateFantaConfigCache();
+      setReloadKey((key) => key + 1);
+    };
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refresh();
     };
     window.addEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
     window.addEventListener('flbp:live-state-committed', refresh as EventListener);
+    window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       window.removeEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
       window.removeEventListener('flbp:live-state-committed', refresh as EventListener);
+      window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);

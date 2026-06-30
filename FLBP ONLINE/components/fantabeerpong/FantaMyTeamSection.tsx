@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from '../../App';
 import { AlertCircle, ArrowRight, CheckCircle2, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
-import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { loadState } from '../../services/storageService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
@@ -36,16 +36,26 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
 
   React.useEffect(() => {
     const refresh = () => {
+      invalidateFantaConfigCache();
       setSession(readPlayerPresenceSnapshot());
       setRefreshKey((current) => current + 1);
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
     };
     window.addEventListener('storage', refresh);
     window.addEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
     window.addEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+    window.addEventListener('flbp:live-state-committed', refresh as EventListener);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       window.removeEventListener('storage', refresh);
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
       window.removeEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+      window.removeEventListener('flbp:live-state-committed', refresh as EventListener);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 

@@ -153,6 +153,10 @@ let fantaConfigCache: {
   promise: Promise<FantaConfig | null>;
 } | null = null;
 
+export const invalidateFantaConfigCache = () => {
+  fantaConfigCache = null;
+};
+
 const hasResultsOnlyConfig = (config?: Record<string, unknown> | null): boolean =>
   Boolean(config && typeof config === 'object' && config.resultsOnly === true);
 
@@ -248,13 +252,13 @@ const fetchFantaConfigFresh = async (
   };
 };
 
-export const fetchFantaConfig = async (): Promise<FantaConfig | null> => {
+export const fetchFantaConfig = async (opts?: { force?: boolean }): Promise<FantaConfig | null> => {
   const cfg = getSupabaseConfig();
   if (!cfg) return null;
 
   const key = `${cfg.url}::${cfg.workspaceId}`;
   const now = Date.now();
-  if (fantaConfigCache?.key === key && fantaConfigCache.expiresAt > now) {
+  if (!opts?.force && fantaConfigCache?.key === key && fantaConfigCache.expiresAt > now) {
     return fantaConfigCache.promise;
   }
 

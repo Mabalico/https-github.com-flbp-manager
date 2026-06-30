@@ -3,7 +3,8 @@ import { ArrowLeft, Trophy } from 'lucide-react';
 import { useTranslation } from '../App';
 import { PublicBrandStack } from './PublicBrandStack';
 import type { FantaConfig, FantaShellSectionKey } from '../services/fantabeerpong/types';
-import { fetchFantaConfig } from '../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaConfig, invalidateFantaConfigCache } from '../services/fantabeerpong/fantaSupabaseService';
+import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT } from '../services/playerAppService';
 import { FANTA_SHELL_SECTIONS } from './fantabeerpong/fantaShellSections';
 import { FantaOverviewSection } from './fantabeerpong/FantaOverviewSection';
 import { FantaMyTeamSection } from './fantabeerpong/FantaMyTeamSection';
@@ -33,24 +34,44 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
 
   React.useEffect(() => {
     let active = true;
-    setShellConfigLoaded(false);
 
-    fetchFantaConfig()
-      .then((config) => {
+    const loadShellConfig = async (opts?: { force?: boolean; showLoading?: boolean }) => {
+      if (opts?.showLoading) setShellConfigLoaded(false);
+      if (opts?.force) invalidateFantaConfigCache();
+      try {
+        const config = await fetchFantaConfig({ force: opts?.force });
         if (!active) return;
         setShellConfig(config);
-      })
-      .catch(() => {
+      } catch {
         if (!active) return;
         setShellConfig(null);
-      })
-      .finally(() => {
+      } finally {
         if (!active) return;
         setShellConfigLoaded(true);
-      });
+      }
+    };
+
+    const refreshShellConfig = () => {
+      void loadShellConfig({ force: true });
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshShellConfig();
+    };
+
+    void loadShellConfig({ force: true, showLoading: true });
+    window.addEventListener(FANTA_APP_CHANGE_EVENT, refreshShellConfig as EventListener);
+    window.addEventListener(PLAYER_APP_CHANGE_EVENT, refreshShellConfig as EventListener);
+    window.addEventListener('flbp:live-state-committed', refreshShellConfig as EventListener);
+    window.addEventListener('focus', refreshShellConfig);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
       active = false;
+      window.removeEventListener(FANTA_APP_CHANGE_EVENT, refreshShellConfig as EventListener);
+      window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refreshShellConfig as EventListener);
+      window.removeEventListener('flbp:live-state-committed', refreshShellConfig as EventListener);
+      window.removeEventListener('focus', refreshShellConfig);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 

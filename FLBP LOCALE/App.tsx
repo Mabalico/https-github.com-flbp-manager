@@ -273,20 +273,31 @@ const GlobalPlayerCallNotice: React.FC<{
             if (!isVisible()) return;
             void refresh();
         };
-        refreshNow();
-        const intervalId = window.setInterval(refreshNow, 12000);
-        const onVisible = () => {
-            if (document.visibilityState === 'visible') refreshNow();
+        let intervalId: number | null = null;
+        const stopPolling = () => {
+            if (intervalId === null) return;
+            window.clearInterval(intervalId);
+            intervalId = null;
         };
+        const startPolling = () => {
+            if (intervalId !== null || !isVisible()) return;
+            refreshNow();
+            intervalId = window.setInterval(refreshNow, 12000);
+        };
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') startPolling();
+            else stopPolling();
+        };
+        startPolling();
         document.addEventListener('visibilitychange', onVisible);
-        window.addEventListener('focus', refreshNow);
+        window.addEventListener('focus', startPolling);
         window.addEventListener(PLAYER_APP_CHANGE_EVENT, refreshNow as EventListener);
 
         return () => {
             cancelled = true;
-            window.clearInterval(intervalId);
+            stopPolling();
             document.removeEventListener('visibilitychange', onVisible);
-            window.removeEventListener('focus', refreshNow);
+            window.removeEventListener('focus', startPolling);
             window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refreshNow as EventListener);
         };
     }, [playerPresence?.accountId, playerPresence?.mode]);
@@ -924,8 +935,11 @@ const App: React.FC = () => {
         // Public views always refresh once on enter; continuous polling stays only where it adds value.
         // PlayerArea uses the remote repository refresh for full alias/history data, so avoid
         // doubling it with a public mirror pull on the same route transition.
+        // FantaBeerpong reads its own normalized/public Fanta tables directly; pulling the whole
+        // public workspace snapshot here only duplicates load and can briefly show stale live state.
         const playerAreaUsesRemoteRefresh = view === 'player_area' && repo.source === 'remote' && !!getSupabaseAccessToken();
-        const shouldLoad = tvMode != null || (view !== 'admin' && !playerAreaUsesRemoteRefresh);
+        const fantaUsesDedicatedReads = view === 'fantabeerpong';
+        const shouldLoad = tvMode != null || (view !== 'admin' && !playerAreaUsesRemoteRefresh && !fantaUsesDedicatedReads);
         if (!shouldLoad) return;
 
         let cancelled = false;

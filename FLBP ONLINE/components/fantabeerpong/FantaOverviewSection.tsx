@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowRight, BarChart3, Clock3, History, Shield, Trophy, Users, Loader2 } from 'lucide-react';
-import { fetchFantaConfig, fetchFantaStandings, fetchFantaPlayerStandings, fetchUserFantaTeam, fetchFantaArchivedEditions } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaConfig, fetchFantaStandings, fetchFantaPlayerStandings, fetchUserFantaTeam, fetchFantaArchivedEditions, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import type { FantaOverviewQuickAction, FantaConfig, FantaArchivedEdition } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
@@ -40,16 +40,26 @@ export const FantaOverviewSection: React.FC<Props> = ({
 
   React.useEffect(() => {
     const refresh = () => {
+      invalidateFantaConfigCache();
       setSession(readPlayerPresenceSnapshot());
       setRefreshKey((current) => current + 1);
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
     };
     window.addEventListener('storage', refresh);
     window.addEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
     window.addEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+    window.addEventListener('flbp:live-state-committed', refresh as EventListener);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       window.removeEventListener('storage', refresh);
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
       window.removeEventListener(FANTA_APP_CHANGE_EVENT, refresh as EventListener);
+      window.removeEventListener('flbp:live-state-committed', refresh as EventListener);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
 
@@ -67,18 +77,27 @@ export const FantaOverviewSection: React.FC<Props> = ({
     async function load() {
       setLoading(true);
       try {
-        const [cfg, stds, plyrs, team, archived] = await Promise.all([
-          fetchFantaConfig(),
-          fetchFantaStandings(),
-          fetchFantaPlayerStandings(),
-          session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null),
-          fetchFantaArchivedEditions()
-        ]);
+        const cfg = await fetchFantaConfig({ force: refreshKey > 0 });
         if (cancelled) return;
         setConfig(cfg);
+
+        const hasPlayableTournament = Boolean(cfg?.activeTournamentId && !cfg?.activeTournamentResultsOnly);
+        const [stds, team] = await Promise.all([
+          hasPlayableTournament ? fetchFantaStandings() : Promise.resolve([]),
+          hasPlayableTournament && session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
         setStandings(stds || []);
-        setPlayers(plyrs || []);
         setUserTeam(team);
+        setPlayers([]);
+        setLoading(false);
+
+        const [plyrs, archived] = await Promise.all([
+          hasPlayableTournament ? fetchFantaPlayerStandings() : Promise.resolve([]),
+          fetchFantaArchivedEditions(),
+        ]);
+        if (cancelled) return;
+        setPlayers(plyrs || []);
         setArchivedEditions(archived || []);
       } catch (err) {
         if (!cancelled) console.error('Error loading fanta overview:', err);

@@ -1154,11 +1154,36 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
         return true;
       }
     };
-    const timer = window.setInterval(() => {
+    let timer: number | null = null;
+    const stopPolling = () => {
+      if (timer === null) return;
+      window.clearInterval(timer);
+      timer = null;
+    };
+    const tick = () => {
       if (!isVisible()) return;
       setLiveCallRefreshNonce((value) => value + 1);
-    }, 12000);
-    return () => window.clearInterval(timer);
+    };
+    const startPolling = () => {
+      if (timer !== null || !isVisible()) return;
+      timer = window.setInterval(tick, 12000);
+    };
+    const onVisible = () => {
+      if (isVisible()) {
+        tick();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    startPolling();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
   }, [liveAuthFlow, liveBackendEnabled, liveRuntimeArmed, liveSession?.accessToken]);
 
   const liveRuntimeSession = React.useMemo(
