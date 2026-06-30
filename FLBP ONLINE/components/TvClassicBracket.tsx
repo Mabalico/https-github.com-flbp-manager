@@ -155,14 +155,14 @@ const getProfile = (bracketSize: number, compact: boolean): LayoutProfile => {
     if (bracketSize <= 16) return { matchWidth: 206, matchHeight: 68, gapX: 34, gapY: 22, centerGap: 46, topPad: 82, bottomPad: 36, sidePad: 28, labelY: 26, fontSize: 14, labelSize: 11 };
     if (bracketSize <= 32) return { matchWidth: 188, matchHeight: 60, gapX: 26, gapY: 14, centerGap: 36, topPad: 78, bottomPad: 30, sidePad: 24, labelY: 24, fontSize: 12, labelSize: 10 };
     if (bracketSize <= 64) return { matchWidth: 168, matchHeight: 52, gapX: 20, gapY: 10, centerGap: 28, topPad: 72, bottomPad: 24, sidePad: 20, labelY: 22, fontSize: 11, labelSize: 9 };
-    return { matchWidth: 148, matchHeight: 44, gapX: 14, gapY: 6, centerGap: 22, topPad: 66, bottomPad: 20, sidePad: 16, labelY: 20, fontSize: 10, labelSize: 8 };
+    return { matchWidth: 185, matchHeight: 44, gapX: 9, gapY: 6, centerGap: 14, topPad: 66, bottomPad: 20, sidePad: 14, labelY: 20, fontSize: 12, labelSize: 8 };
   }
 
   if (bracketSize <= 8) return { matchWidth: 260, matchHeight: 84, gapX: 54, gapY: 34, centerGap: 70, topPad: 98, bottomPad: 48, sidePad: 38, labelY: 30, fontSize: 17, labelSize: 13 };
   if (bracketSize <= 16) return { matchWidth: 234, matchHeight: 74, gapX: 40, gapY: 24, centerGap: 54, topPad: 92, bottomPad: 40, sidePad: 34, labelY: 28, fontSize: 15, labelSize: 12 };
   if (bracketSize <= 32) return { matchWidth: 214, matchHeight: 64, gapX: 30, gapY: 16, centerGap: 42, topPad: 86, bottomPad: 34, sidePad: 28, labelY: 26, fontSize: 13, labelSize: 11 };
   if (bracketSize <= 64) return { matchWidth: 188, matchHeight: 56, gapX: 24, gapY: 10, centerGap: 34, topPad: 80, bottomPad: 28, sidePad: 24, labelY: 24, fontSize: 11, labelSize: 10 };
-  return { matchWidth: 168, matchHeight: 48, gapX: 18, gapY: 6, centerGap: 28, topPad: 74, bottomPad: 22, sidePad: 20, labelY: 22, fontSize: 10, labelSize: 9 };
+  return { matchWidth: 210, matchHeight: 48, gapX: 10, gapY: 6, centerGap: 16, topPad: 74, bottomPad: 22, sidePad: 16, labelY: 22, fontSize: 12, labelSize: 9 };
 };
 
 const getWinnerId = (m?: Match) => {
@@ -185,11 +185,11 @@ const getTeamTextFontSize = (name: string, baseFontSize: number, compact: boolea
   const len = normalized.length;
   let size = baseFontSize;
 
-  if (len >= 30) size -= compact ? 3.2 : 3;
-  else if (len >= 24) size -= compact ? 2.4 : 2.2;
-  else if (len >= 18) size -= compact ? 1.4 : 1.1;
+  if (len >= 34) size -= compact ? 2.2 : 2;
+  else if (len >= 28) size -= compact ? 1.6 : 1.4;
+  else if (len >= 22) size -= compact ? 1 : 0.8;
 
-  return Math.max(compact ? 8.5 : 9.5, Number(size.toFixed(1)));
+  return Math.max(compact ? 10 : 10.5, Number(size.toFixed(1)));
 };
 
 const scoreTextClass = (profile: LayoutProfile, compact: boolean) => {
@@ -237,6 +237,7 @@ const TeamLine: React.FC<{
   const textFontSize = getTeamTextFontSize(name, profile.fontSize, compact);
   const scoreClass = scoreTextClass(profile, compact);
   const isPlaceholder = isPlaceholderTeamName(name);
+  const displayName = isPlaceholder ? name : String(name || '').trim().toUpperCase();
   const isPendingScore = score === '-';
   const scoreNode = score === '' ? null : (
     <span
@@ -248,7 +249,7 @@ const TeamLine: React.FC<{
   );
   const nameNode = (
     <span
-      className={`min-w-0 flex-1 overflow-hidden whitespace-normal leading-[1.04] ${isPlaceholder ? 'uppercase tracking-[0.16em] text-slate-300/75' : winner ? 'text-amber-50' : 'text-slate-50'} ${winner ? 'font-black' : 'font-bold'}`}
+      className={`min-w-0 flex-1 overflow-hidden whitespace-normal leading-[1.02] ${isPlaceholder ? 'uppercase tracking-[0.08em] text-slate-300/75' : winner ? 'text-amber-50' : 'text-slate-50'} ${winner ? 'font-black' : 'font-extrabold'}`}
       style={{
         fontSize: `${textFontSize}px`,
         display: '-webkit-box',
@@ -259,7 +260,7 @@ const TeamLine: React.FC<{
       }}
       title={name}
     >
-      {name}
+      {displayName}
     </span>
   );
 
