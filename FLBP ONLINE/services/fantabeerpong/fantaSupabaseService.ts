@@ -394,6 +394,9 @@ const buildArchivedEditionFromSnapshot = (row: SupabaseFantaArchivedEditionRow):
   };
 };
 
+const hasMeaningfulArchivedEdition = (edition: FantaArchivedEdition | null | undefined): boolean =>
+  Boolean(edition && (edition.winnerPoints > 0 || edition.teamsCount > 0));
+
 const fetchFantaArchivedEditionsSnapshot = async (): Promise<FantaArchivedEdition[]> => {
   const cfg = getSupabaseConfig();
   if (!cfg) return [];
@@ -430,9 +433,16 @@ const fetchFantaArchivedEditionsLegacy = async (): Promise<FantaArchivedEdition[
     standingsByTournament.set(row.tournament_id, rows);
   });
 
-  return (tournaments || [])
-    .map((tournament) => buildArchivedEdition(tournament, standingsByTournament.get(tournament.id) || []))
-    .filter((edition): edition is FantaArchivedEdition => Boolean(edition));
+  const editions = await Promise.all((tournaments || []).map(async (tournament) => {
+    const fromSqlView = buildArchivedEdition(tournament, standingsByTournament.get(tournament.id) || []);
+    if (fromSqlView && fromSqlView.winnerPoints > 0) return fromSqlView;
+
+    const fallback = await fetchComputedFantaFallback(cfg, tournament.id);
+    if (!fallback.standings.length) return fromSqlView;
+    return buildArchivedEdition(tournament, fallback.standings) || fromSqlView;
+  }));
+
+  return editions.filter((edition): edition is FantaArchivedEdition => Boolean(edition));
 };
 
 export const fetchFantaArchivedEditions = async (): Promise<FantaArchivedEdition[]> => {
@@ -443,7 +453,12 @@ export const fetchFantaArchivedEditions = async (): Promise<FantaArchivedEdition
 
   const byTournament = new Map<string, FantaArchivedEdition>();
   legacyRows.forEach((row) => byTournament.set(row.tournamentId, row));
-  snapshotRows.forEach((row) => byTournament.set(row.tournamentId, row));
+  snapshotRows.forEach((row) => {
+    const current = byTournament.get(row.tournamentId);
+    if (!current || hasMeaningfulArchivedEdition(row) || !hasMeaningfulArchivedEdition(current)) {
+      byTournament.set(row.tournamentId, row);
+    }
+  });
   return [...byTournament.values()].sort((left, right) =>
     String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))
   );
@@ -532,6 +547,26 @@ const fantaSaveFailureFromResponse = async (res: Response): Promise<FantaSaveTea
   return fantaSaveFailure('backend_error');
 };
 
+const hasMeaningfulArchivedStandings = (rows: SupabaseFantaArchivedStandingRow[]): boolean =>
+  rows.some((row) =>
+    Number(row.total_points || 0) > 0
+    || Number(row.live_points || 0) > 0
+    || Number(row.points_from_goals || 0) > 0
+    || Number(row.points_from_blows || 0) > 0
+    || Number(row.points_from_wins || 0) > 0
+    || Number(row.bonus_scia || 0) > 0
+  );
+
+const hasMeaningfulArchivedPlayers = (rows: SupabaseFantaArchivedPlayerRow[]): boolean =>
+  rows.some((row) =>
+    Number(row.total_points || 0) > 0
+    || Number(row.live_points || 0) > 0
+    || Number(row.points_from_goals || 0) > 0
+    || Number(row.points_from_blows || 0) > 0
+    || Number(row.points_from_wins || 0) > 0
+    || Number(row.bonus_scia || 0) > 0
+  );
+
 export const fetchFantaArchivedEditionDetail = async (
   tournamentId: string,
 ): Promise<FantaArchivedEditionDetail | null> => {
@@ -557,10 +592,16 @@ export const fetchFantaArchivedEditionDetail = async (
   ]);
 
   const snapshotEdition = snapshotEditionRows?.[0] ? buildArchivedEditionFromSnapshot(snapshotEditionRows[0]) : null;
-  if (snapshotEdition && snapshotStandingsRows?.length) {
+  const snapshotStandings = snapshotStandingsRows || [];
+  const snapshotPlayers = snapshotPlayerRows || [];
+  const snapshotHasUsefulScores = Boolean(
+    snapshotStandings.length
+    && (hasMeaningfulArchivedStandings(snapshotStandings) || hasMeaningfulArchivedPlayers(snapshotPlayers))
+  );
+  if (snapshotEdition && snapshotStandings.length && snapshotHasUsefulScores) {
     return {
       edition: snapshotEdition,
-      standings: snapshotStandingsRows.map((row, index) => ({
+      standings: snapshotStandings.map((row, index) => ({
         teamId: row.team_id,
         userId: row.user_id || null,
         rank: row.rank || index + 1,
@@ -572,7 +613,7 @@ export const fetchFantaArchivedEditionDetail = async (
         bonusScia: row.bonus_scia || 0,
         playersInGame: row.players_in_game || 0,
       })),
-      topPlayers: (snapshotPlayerRows || []).map((row, index) => ({
+      topPlayers: snapshotPlayers.map((row, index) => ({
         playerId: row.player_id,
         rank: row.rank || index + 1,
         playerName: row.player_name || 'N/D',
@@ -592,12 +633,24 @@ export const fetchFantaArchivedEditionDetail = async (
     fetchFantaPlayersForTournament(cfg, tournamentId),
   ]);
 
-  if (!tournament || standingsRows.length === 0) return null;
+  if (!tournament) return null;
 
-  const edition = buildArchivedEdition(tournament, standingsRows);
+  let resolvedStandingsRows = standingsRows;
+  let resolvedPlayerRows = playerRows;
+  if (!standingsRows.length || !hasMeaningfulFantaStandings(standingsRows)) {
+    const fallback = await fetchComputedFantaFallback(cfg, tournamentId);
+    if (fallback.standings.length && (!standingsRows.length || fallback.hasLiveProgress)) {
+      resolvedStandingsRows = fallback.standings;
+      resolvedPlayerRows = fallback.players;
+    }
+  }
+
+  if (resolvedStandingsRows.length === 0) return null;
+
+  const edition = buildArchivedEdition(tournament, resolvedStandingsRows);
   if (!edition) return null;
 
-  const standings: FantaArchivedStandingRow[] = [...standingsRows]
+  const standings: FantaArchivedStandingRow[] = [...resolvedStandingsRows]
     .sort(compareFantaStandings)
     .map((row, index) => ({
       teamId: row.team_id,
@@ -612,7 +665,7 @@ export const fetchFantaArchivedEditionDetail = async (
       playersInGame: row.players_in_game || 0,
     }));
 
-  const topPlayers: FantaArchivedPlayerRow[] = [...playerRows]
+  const topPlayers: FantaArchivedPlayerRow[] = [...resolvedPlayerRows]
     .sort((left, right) => {
       if ((right.total_points || 0) !== (left.total_points || 0)) return (right.total_points || 0) - (left.total_points || 0);
       if ((right.points_from_wins || 0) !== (left.points_from_wins || 0)) return (right.points_from_wins || 0) - (left.points_from_wins || 0);
