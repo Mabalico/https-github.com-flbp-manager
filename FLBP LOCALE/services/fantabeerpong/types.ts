@@ -10,7 +10,7 @@ export type FantaTrend = 'up' | 'down' | 'steady';
 export type FantaPlayerAvailability = 'live' | 'waiting' | 'eliminated';
 export type FantaTeamBuildStatus = 'draft' | 'ready' | 'locked';
 export type FantaRosterRole = 'captain' | 'defender' | 'starter';
-export type FantaQuickHelpTopic = 'roles' | 'scoring' | 'bonus_scia';
+export type FantaQuickHelpTopic = 'roles' | 'scoring' | 'bonus_scia' | 'replacements';
 
 export interface FantaConfig {
   activeTournamentId: string;

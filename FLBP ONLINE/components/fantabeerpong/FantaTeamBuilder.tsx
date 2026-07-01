@@ -415,7 +415,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
             )}
           </div>
 
-          <FantaQuickHelp topics={['roles', 'scoring']} onOpenRules={onOpenRules} compact title={t('fanta_help_builder')} />
+          <FantaQuickHelp topics={['roles', 'scoring', 'replacements']} onOpenRules={onOpenRules} compact title={t('fanta_help_builder')} />
         </div>
 
         <div className="order-1 space-y-4 text-pretty xl:order-2 xl:sticky xl:top-5 xl:self-start">

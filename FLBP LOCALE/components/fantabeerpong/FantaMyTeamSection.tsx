@@ -352,7 +352,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
         </div>
       </div>
 
-      <FantaQuickHelp topics={['roles', 'scoring']} onOpenRules={onOpenRules} compact title={t('fanta_need_help')} />
+      <FantaQuickHelp topics={['roles', 'scoring', 'replacements']} onOpenRules={onOpenRules} compact title={t('fanta_need_help')} />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, ChevronDown, ChevronUp, ScrollText, Shield, Sparkles, Trophy } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronUp, RefreshCw, ScrollText, Shield, Sparkles, Trophy } from 'lucide-react';
 import { useTranslation } from '../../App';
 import { FANTA_RULES_MOCK } from '../../services/fantabeerpong/mockData';
 import { panelClass } from './_shared';
@@ -49,6 +49,22 @@ export const FantaRulesSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandin
                 <div className="text-sm font-black uppercase tracking-wide text-sky-900">{t('fanta_rules_defender_title')}</div>
                 <div className="mt-1 text-lg font-black text-slate-950">{t('fanta_rules_defender_desc')}</div>
                 <div className="mt-2 text-sm font-semibold leading-6 text-slate-700">{t('fanta_rules_defender_helper')}</div>
+              </div>
+            </div>
+          </div>
+          <div className={panelClass}>
+            <div className="flex items-center gap-3"><RefreshCw className="h-5 w-5 text-emerald-600" /><div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_rules_replacements_title')}</div></div>
+            <div className="mt-4 rounded-[22px] border border-emerald-100 bg-emerald-50/30 p-5">
+              <div className="text-sm font-semibold leading-7 text-slate-700">
+                {t('fanta_rules_replacements_desc')}
+                <ul className="mt-2 list-inside list-disc space-y-1">
+                  <li>{t('fanta_rules_replacements_list_item_1')}</li>
+                  <li>{t('fanta_rules_replacements_list_item_2')}</li>
+                  <li>{t('fanta_rules_replacements_list_item_3')}</li>
+                </ul>
+                <div className="mt-4 rounded-xl bg-white p-4 text-sm font-medium italic text-slate-600 shadow-sm ring-1 ring-slate-100">
+                  {t('fanta_rules_replacements_note')}
+                </div>
               </div>
             </div>
           </div>

@@ -302,7 +302,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
         </div>
       </div>
 
-      <FantaQuickHelp topics={['roles', 'scoring', 'bonus_scia']} onOpenRules={onOpenRules} compact title={t('fanta_quick_help_overview')} />
+      <FantaQuickHelp topics={['roles', 'scoring', 'bonus_scia', 'replacements']} onOpenRules={onOpenRules} compact title={t('fanta_quick_help_overview')} />
     </div>
   );
 };

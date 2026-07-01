@@ -125,7 +125,8 @@ export const FANTA_RULES_MOCK: FantaRulesData = {
   ],
   faqs: [
     { id: 'faq_1', question: "Cosa succede se il mio giocatore viene eliminato?", answer: "Smetti di prendere i suoi punti live, ma attivi il Bonus Scia (5pt per ogni vittoria futura della squadra che lo ha battuto) finché quella squadra non perde." },
-      { id: 'faq_2', question: "Posso cambiare i ruoli durante il torneo?", answer: "No, i ruoli (Capitano e Difensori) sono bloccati insieme alla rosa all'inizio della prima partita." },
+    { id: 'faq_replacements', question: "Cosa succede se cambia un giocatore prima del torneo?", answer: "In pretorneo la tua rosa segue gli slot delle squadre reali: se il giocatore viene sostituito entra il nuovo nome; se la squadra viene rimossa, il sistema assegna casualmente un sostituto tra i giocatori disponibili e te lo segnala al primo accesso." },
+    { id: 'faq_2', question: "Posso cambiare i ruoli durante il torneo?", answer: "No, i ruoli (Capitano e Difensori) sono bloccati insieme alla rosa all'inizio della prima partita." },
     { id: 'faq_3', question: "Chi vince in caso di parità?", answer: "Conta prima chi ha più giocatori ancora in gioco, poi i punti da vittorie, infine i canestri." },
   ],
 };

@@ -16,6 +16,7 @@ const useCopyMap = () => {
     roles:      { id: 'roles',      title: t('fanta_help_roles_title'),  body: t('fanta_help_roles_body') },
     scoring:    { id: 'scoring',    title: t('fanta_help_scoring_title'), body: t('fanta_help_scoring_body') },
     bonus_scia: { id: 'bonus_scia', title: t('fanta_help_scia_title'),  body: t('fanta_help_scia_body') },
+    replacements: { id: 'replacements', title: t('fanta_help_replacements_title'), body: t('fanta_help_replacements_body') },
   } as Record<FantaQuickHelpTopic, FantaQuickHelpItem>;
 };
 
