@@ -20,7 +20,6 @@ import { generateSimPoolTeams } from '../services/simPool';
 import { getXLSX, type XLSXRuntime } from '../services/lazyXlsx';
 import { buildUnifiedBackupJsonExport, inspectBackupJsonState, mergeBackupJsonState, parseBackupJsonState } from '../services/backupJsonService';
 import { describeTeamImportLayout, detectTeamImportLayout, isTeamImportCoherentWithProfile, loadTeamImportProfile, normalizeTeamImportHeader, saveTeamImportProfile, type TeamImportLayout } from '../services/teamImportProfile';
-import { updatePlayerProfileIdentity } from '../services/playerProfileAdmin';
 
 import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { MvpModal } from './admin/modals/MvpModal';
@@ -1830,50 +1829,18 @@ if (conflicts.length > 0) {
 
 
         const teams = [...(state.teams || [])];
-        let nextState = state;
         const idx = teams.findIndex(t => t.id === next.id);
         const currentTeam = idx >= 0 ? teams[idx] : null;
-        if (currentTeam) {
-            const playerCorrections = [
-                {
-                    previousName: String(currentTeam.player1 || '').trim(),
-                    previousBirthDate: normalizeBirthDateInput((currentTeam as any).player1BirthDate) || undefined,
-                    previousYoB: currentTeam.player1YoB,
-                    nextName: next.player1,
-                    nextBirthDate: next.player1BirthDate,
-                },
-                {
-                    previousName: String(currentTeam.player2 || '').trim(),
-                    previousBirthDate: normalizeBirthDateInput((currentTeam as any).player2BirthDate) || undefined,
-                    previousYoB: currentTeam.player2YoB,
-                    nextName: next.player2 || '',
-                    nextBirthDate: next.player2BirthDate,
-                },
-            ].filter((row) => {
-                if (!row.previousName || !row.nextName) return false;
-                return row.previousName !== row.nextName || (row.previousBirthDate || '') !== (row.nextBirthDate || '');
-            });
-
-            playerCorrections.forEach((row) => {
-                const currentPlayerId = resolvePlayerKey(
-                    nextState,
-                    getPlayerKey(row.previousName, pickPlayerIdentityValue(row.previousBirthDate, row.previousYoB))
-                );
-                nextState = updatePlayerProfileIdentity(nextState, {
-                    currentPlayerId,
-                    nextPlayerName: row.nextName,
-                    nextBirthDate: row.nextBirthDate,
-                });
-            });
-        }
-
-        const nextTeams = [...(nextState.teams || [])];
+        // Editing a team row must not rename the historical player profile.
+        // A changed player name here represents a different tournament participant.
+        // Global profile corrections stay available only through the explicit profile editor.
+        const nextTeams = [...(state.teams || [])];
         const nextIdx = nextTeams.findIndex(t => t.id === next.id);
         if (nextIdx >= 0) nextTeams[nextIdx] = { ...nextTeams[nextIdx], ...next };
         else nextTeams.push(next);
 
-        const nextTournament = mergeIntoLiveTournamentTeams(nextState.tournament, nextTeams);
-        setState({ ...nextState, teams: nextTeams, tournament: nextTournament });
+        const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, nextTeams);
+        setState({ ...state, teams: nextTeams, tournament: nextTournament });
         syncFantaPretournamentTeamsBestEffort(nextTeams, 'save-team', { previousTeams: currentTeam ? [currentTeam] : undefined });
         resetForm();
     };
