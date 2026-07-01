@@ -3720,12 +3720,14 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
     await restDeleteWhere(cfg, 'tournament_groups', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     await restDeleteWhere(cfg, 'tournament_teams', `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}`);
     const currentLiveTournamentId = String(state.tournament?.id || '').trim();
+    const protectedLiveTournamentFilters = ['id=neq.__pre_tournament__'];
+    if (currentLiveTournamentId) {
+        protectedLiveTournamentFilters.push(`id=neq.${encodeURIComponent(currentLiveTournamentId)}`);
+    }
     await restDeleteWhere(
         cfg,
         'tournaments',
-        currentLiveTournamentId
-            ? `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&status=eq.live&id=neq.${encodeURIComponent(currentLiveTournamentId)}`
-            : `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&status=eq.live`
+        `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&status=eq.live&${protectedLiveTournamentFilters.join('&')}`
     );
 
     // Public tables (safe read)
