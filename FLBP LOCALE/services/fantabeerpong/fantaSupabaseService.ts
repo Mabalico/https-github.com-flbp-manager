@@ -385,7 +385,6 @@ const fetchFantaConfigFresh = async (
   const activeTournamentId = activeTournament?.id || '';
   if (!activeTournamentId) {
     const preTournamentPlayersCount = countFantaGroupPlayers(preTournamentSnapshot.teams);
-    if (!preTournamentPlayersCount) return null;
     return {
       activeTournamentId: FANTA_PRE_TOURNAMENT_ID,
       activeTournamentName: FANTA_PRE_TOURNAMENT_NAME,
@@ -822,6 +821,31 @@ export const fetchFantaArchivedEditionDetail = async (
   return { edition, standings, topPlayers };
 };
 
+const fetchUserFantaTeamForTournament = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  token: string,
+  userId: string,
+  tournamentId: string,
+  source: string,
+): Promise<{ team: SupabaseFantaTeam; roster: SupabaseFantaRoster[] } | null> => {
+  if (!tournamentId) return null;
+  const teams = await fetchJson<SupabaseFantaTeam[]>(
+    `${restUrl(cfg, 'fanta_teams')}?user_id=eq.${encode(userId)}&workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&limit=1`,
+    buildHeaders(cfg, token),
+    source,
+  );
+  const team = teams?.[0];
+  if (!team) return null;
+
+  const roster = await fetchJson<SupabaseFantaRoster[]>(
+    `${restUrl(cfg, 'fanta_rosters')}?team_id=eq.${encode(team.id)}&select=*&order=created_at.asc`,
+    buildHeaders(cfg, token),
+    `${source}Roster`,
+  );
+
+  return { team, roster: roster || [] };
+};
+
 export const fetchUserFantaTeam = async (
   userId: string,
 ): Promise<{ team: SupabaseFantaTeam; roster: SupabaseFantaRoster[] } | null> => {
@@ -830,23 +854,19 @@ export const fetchUserFantaTeam = async (
   if (!cfg || !token) return null;
 
   const config = await fetchFantaConfig();
-  if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return null;
+  if (config?.fantaEnabled === false || config?.activeTournamentResultsOnly) return null;
 
-  const teams = await fetchJson<SupabaseFantaTeam[]>(
-    `${restUrl(cfg, 'fanta_teams')}?user_id=eq.${encode(userId)}&workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(config.activeTournamentId)}&select=*&limit=1`,
-    buildHeaders(cfg, token),
-    'fetchUserFantaTeam',
-  );
-  const team = teams?.[0];
-  if (!team) return null;
+  const candidateTournamentIds = [
+    config?.activeTournamentId || '',
+    (!config?.activeTournamentId || config?.isPreTournament) ? FANTA_PRE_TOURNAMENT_ID : '',
+  ].filter((id, index, ids) => id && ids.indexOf(id) === index);
 
-  const roster = await fetchJson<SupabaseFantaRoster[]>(
-    `${restUrl(cfg, 'fanta_rosters')}?team_id=eq.${encode(team.id)}&select=*&order=created_at.asc`,
-    buildHeaders(cfg, token),
-    'fetchUserFantaRoster',
-  );
+  for (const tournamentId of candidateTournamentIds) {
+    const team = await fetchUserFantaTeamForTournament(cfg, token, userId, tournamentId, 'fetchUserFantaTeam');
+    if (team) return team;
+  }
 
-  return { team, roster: roster || [] };
+  return null;
 };
 
 export const fetchFantaTeamById = async (
