@@ -3020,12 +3020,16 @@ export type FantaPretournamentSyncResult = {
     reason?: string | null;
 };
 
-const buildFantaPretournamentTeamPayload = (teams: Team[]) =>
-    (teams || [])
+const buildFantaPretournamentTeamPayload = (teams: Team[], previousTeams?: Team[]) => {
+    const previousById = new Map((previousTeams || []).map((team) => [String(team.id || '').trim(), team]));
+    return (teams || [])
         .filter((team) => !team.hidden && !team.isBye)
         .map((team) => {
             const player1Name = String(team.player1 || '').trim();
             const player2Name = String(team.player2 || '').trim();
+            const previous = previousById.get(String(team.id || '').trim());
+            const previousPlayer1Name = String(previous?.player1 || '').trim();
+            const previousPlayer2Name = String(previous?.player2 || '').trim();
             return {
                 team_id: String(team.id || '').trim(),
                 team_name: String(team.name || '').trim(),
@@ -3033,13 +3037,21 @@ const buildFantaPretournamentTeamPayload = (teams: Team[]) =>
                 player1_name: player1Name || null,
                 player2_id: player2Name ? getPlayerKey(player2Name, 'ND') : null,
                 player2_name: player2Name || null,
+                previous_player1_id: previousPlayer1Name ? getPlayerKey(previousPlayer1Name, 'ND') : null,
+                previous_player1_name: previousPlayer1Name || null,
+                previous_player2_id: previousPlayer2Name ? getPlayerKey(previousPlayer2Name, 'ND') : null,
+                previous_player2_name: previousPlayer2Name || null,
                 hidden: !!team.hidden,
                 is_bye: !!team.isBye,
             };
         })
         .filter((team) => team.team_id && team.team_name);
+};
 
-export const syncFantaPretournamentRosters = async (teams: Team[]): Promise<FantaPretournamentSyncResult> => {
+export const syncFantaPretournamentRosters = async (
+    teams: Team[],
+    options?: { previousTeams?: Team[] },
+): Promise<FantaPretournamentSyncResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const session = await requireSupabaseWriteSession();
@@ -3050,7 +3062,7 @@ export const syncFantaPretournamentRosters = async (teams: Team[]): Promise<Fant
             headers: buildHeaders(cfg, session.accessToken),
             body: JSON.stringify({
                 p_workspace_id: cfg.workspaceId,
-                p_teams: buildFantaPretournamentTeamPayload(teams),
+                p_teams: buildFantaPretournamentTeamPayload(teams, options?.previousTeams),
             }),
         },
         8000,

@@ -998,6 +998,7 @@ const [aliasModalOpen, setAliasModalOpen] = useState<boolean>(false);
 const [aliasModalTitle, setAliasModalTitle] = useState<string>('');
 const [aliasModalConflicts, setAliasModalConflicts] = useState<AliasConflict[]>([]);
 const [pendingTeamSave, setPendingTeamSave] = useState<Team | null>(null);
+const [pendingTeamSavePreviousTeam, setPendingTeamSavePreviousTeam] = useState<Team | null>(null);
 const [pendingScorersImport, setPendingScorersImport] = useState<{ entries: IntegrationScorerEntry[]; warnings: string[] } | null>(null);
 const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } | null>(null);
 
@@ -1711,10 +1712,10 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         alert(t('admin_delete_live_tournament_done').replace('{name}', tournamentName));
     };
 
-    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string, options?: { force?: boolean }) => {
+    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string, options?: { force?: boolean; previousTeams?: Team[] }) => {
         if (!options?.force && !fantaPretournamentEnabled) return;
         setFantaSyncFeedback({ tone: 'info', message: 'Sincronizzazione Fanta in corso...' });
-        void syncFantaPretournamentRosters(teams)
+        void syncFantaPretournamentRosters(teams, { previousTeams: options?.previousTeams })
             .then((result) => {
                 setFantaSyncFeedback({
                     tone: 'success',
@@ -1820,6 +1821,7 @@ if (conflicts.length > 0) {
     setAliasModalTitle(`${t('possible_homonyms_birthdate')} â€” ${t('teams')}`);
     setAliasModalConflicts(conflicts);
     setPendingTeamSave(next);
+    setPendingTeamSavePreviousTeam((state.teams || []).find((team) => team.id === next.id) || null);
     setPendingScorersImport(null);
     setPendingTeamsImport(null);
     setAliasModalOpen(true);
@@ -1872,7 +1874,7 @@ if (conflicts.length > 0) {
 
         const nextTournament = mergeIntoLiveTournamentTeams(nextState.tournament, nextTeams);
         setState({ ...nextState, teams: nextTeams, tournament: nextTournament });
-        syncFantaPretournamentTeamsBestEffort(nextTeams, 'save-team');
+        syncFantaPretournamentTeamsBestEffort(nextTeams, 'save-team', { previousTeams: currentTeam ? [currentTeam] : undefined });
         resetForm();
     };
 
@@ -1881,6 +1883,7 @@ const closeAliasModal = () => {
     setAliasModalOpen(false);
     setAliasModalConflicts([]);
     setPendingTeamSave(null);
+    setPendingTeamSavePreviousTeam(null);
     setPendingScorersImport(null);
     setPendingTeamsImport(null);
 };
@@ -1902,7 +1905,7 @@ const confirmAliasModal = () => {
         if (idx >= 0) teams[idx] = { ...teams[idx], ...pendingTeamSave };
         else teams.push(pendingTeamSave);
         nextState = { ...nextState, teams };
-        syncFantaPretournamentTeamsBestEffort(teams, 'confirm-team-save');
+        syncFantaPretournamentTeamsBestEffort(teams, 'confirm-team-save', { previousTeams: pendingTeamSavePreviousTeam ? [pendingTeamSavePreviousTeam] : undefined });
         resetForm();
     }
 
