@@ -82,9 +82,9 @@ export const FantaOverviewSection: React.FC<Props> = ({
         setConfig(cfg);
 
         const hasPlayableTournament = Boolean(cfg?.activeTournamentId && !cfg?.activeTournamentResultsOnly);
-        const shouldLoadLiveScores = hasPlayableTournament && !cfg?.isPreTournament;
+        const shouldLoadFantaScores = hasPlayableTournament;
         const [stds, team] = await Promise.all([
-          shouldLoadLiveScores ? fetchFantaStandings() : Promise.resolve([]),
+          shouldLoadFantaScores ? fetchFantaStandings() : Promise.resolve([]),
           hasPlayableTournament && session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null),
         ]);
         if (cancelled) return;
@@ -94,7 +94,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
         setLoading(false);
 
         const [plyrs, archived] = await Promise.all([
-          shouldLoadLiveScores ? fetchFantaPlayerStandings() : Promise.resolve([]),
+          shouldLoadFantaScores ? fetchFantaPlayerStandings() : Promise.resolve([]),
           fetchFantaArchivedEditions(),
         ]);
         if (cancelled) return;
