@@ -1522,6 +1522,97 @@ export const dispatchPlayerAliasAlert = async (input: {
     return await res.json() as DispatchPlayerAliasAlertResult;
 };
 
+export type FullDatabaseBackupPayload = {
+    exportType: 'flbp_application_database_backup';
+    schemaVersion: 1;
+    workspaceId: string;
+    exportedAt: string;
+    tables: Record<string, { rows: Array<Record<string, unknown>>; rowCount: number }>;
+    warnings?: string[];
+};
+
+export type FullDatabaseBackupRestoreResult = {
+    ok: boolean;
+    workspaceId?: string;
+    summary?: Record<string, { deleted: number; inserted: number }>;
+    warnings?: string[];
+    reason?: string;
+};
+
+const callDatabaseBackupAdmin = async (
+    body: Record<string, unknown>,
+    timeoutMs: number,
+    source: string
+): Promise<unknown> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+
+    const postBackupAdmin = (accessToken: string) => fetchWithTimeout(
+        functionsUrl(cfg, 'database-backup-admin'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, accessToken),
+            body: JSON.stringify({
+                workspaceId: cfg.workspaceId,
+                ...body,
+            }),
+        },
+        timeoutMs,
+        { source, kind: 'admin' }
+    );
+
+    let session = await requireSupabaseWriteSession();
+    let res = await postBackupAdmin(session.accessToken);
+    if (!res.ok) {
+        const errorBody = await readErrorBody(res);
+        if (isRejectedAdminEdgeSession(res.status, errorBody)) {
+            const retrySession = await recoverRejectedAdminWriteSession();
+            if (retrySession?.accessToken) {
+                session = retrySession;
+                res = await postBackupAdmin(session.accessToken);
+            } else {
+                throw new Error(errorBody);
+            }
+        } else {
+            throw new Error(errorBody);
+        }
+    }
+
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json();
+};
+
+export const exportFullDatabaseBackup = async (): Promise<FullDatabaseBackupPayload> => {
+    const payload = await callDatabaseBackupAdmin(
+        { action: 'export' },
+        45000,
+        'exportFullDatabaseBackup'
+    ) as { ok?: boolean; backup?: FullDatabaseBackupPayload; reason?: string };
+
+    if (!payload.ok || !payload.backup) {
+        throw new Error(payload.reason || 'Backup DB completo non restituito dal backend.');
+    }
+    return payload.backup;
+};
+
+export const restoreFullDatabaseBackup = async (
+    backup: FullDatabaseBackupPayload
+): Promise<FullDatabaseBackupRestoreResult> => {
+    if (backup?.exportType !== 'flbp_application_database_backup') {
+        throw new Error('File backup DB applicativo non valido.');
+    }
+    const payload = await callDatabaseBackupAdmin(
+        { action: 'restore', backup },
+        90000,
+        'restoreFullDatabaseBackup'
+    ) as FullDatabaseBackupRestoreResult;
+
+    if (!payload.ok) {
+        throw new Error(payload.reason || 'Ripristino DB completo non riuscito.');
+    }
+    return payload;
+};
+
 export const pullPlayerOwnAccountMergeRequests = async (input?: {
     accessToken?: string | null;
     workspaceId?: string | null;

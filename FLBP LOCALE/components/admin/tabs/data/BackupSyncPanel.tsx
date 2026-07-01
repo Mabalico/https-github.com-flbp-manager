@@ -1,15 +1,18 @@
 import React from 'react';
-import { Download, Upload, GitMerge } from 'lucide-react';
+import { Database, Download, Upload, GitMerge } from 'lucide-react';
 import { useTranslation } from '../../../../App';
 
 export const BackupSyncPanel: React.FC<{
     exportBackupJson: () => void | Promise<void>;
     restoreBackupJson: (file: File) => void | Promise<void>;
     mergeBackupJson: (file: File) => void | Promise<void>;
-}> = ({ exportBackupJson, restoreBackupJson, mergeBackupJson }) => {
+    exportFullDatabaseBackup: () => void | Promise<void>;
+    restoreFullDatabaseBackup: (file: File) => void | Promise<void>;
+}> = ({ exportBackupJson, restoreBackupJson, mergeBackupJson, exportFullDatabaseBackup, restoreFullDatabaseBackup }) => {
     const { t } = useTranslation();
     const restoreRef = React.useRef<HTMLInputElement | null>(null);
     const mergeRef = React.useRef<HTMLInputElement | null>(null);
+    const restoreFullDbRef = React.useRef<HTMLInputElement | null>(null);
 
     return (
         <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4">
@@ -44,6 +47,17 @@ export const BackupSyncPanel: React.FC<{
                 onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) void mergeBackupJson(file);
+                    e.currentTarget.value = '';
+                }}
+            />
+            <input
+                ref={restoreFullDbRef}
+                type="file"
+                className="hidden"
+                accept="application/json,.json"
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void restoreFullDatabaseBackup(file);
                     e.currentTarget.value = '';
                 }}
             />
@@ -88,6 +102,42 @@ export const BackupSyncPanel: React.FC<{
 
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
                 {t('backup_export_accounts_note')}
+            </div>
+
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                        <div className="inline-flex items-center gap-2 text-sm font-black text-red-950">
+                            <Database className="w-4 h-4" />
+                            {t('backup_full_db_title')}
+                        </div>
+                        <div className="text-xs text-red-900/80 font-bold mt-1 max-w-3xl">
+                            {t('backup_full_db_desc')}
+                        </div>
+                    </div>
+                    <div className="px-2.5 py-1 rounded-full text-[11px] font-black border border-red-200 bg-white text-red-800">
+                        {t('backup_full_db_admin_only')}
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={() => void exportFullDatabaseBackup()}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-red-700 bg-red-700 text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+                    >
+                        <Download className="w-4 h-4" />
+                        {t('backup_full_db_download')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => restoreFullDbRef.current?.click()}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-red-300 bg-white text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+                    >
+                        <Upload className="w-4 h-4" />
+                        {t('backup_full_db_restore')}
+                    </button>
+                </div>
             </div>
         </div>
     );

@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -2104,6 +2104,54 @@ const confirmAliasModal = () => {
         }
     };
 
+    const exportFullDatabaseBackupJson = async () => {
+        try {
+            const backup = await exportFullDatabaseBackup();
+            const rowCount = Object.values(backup.tables || {}).reduce((sum, table) => sum + (table.rowCount || 0), 0);
+            const payload = JSON.stringify(backup, null, 2);
+            const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+            downloadBlob(blob, `flbp_database_backup_${new Date().toISOString().slice(0, 10)}.json`);
+            if (backup.warnings?.length) {
+                alert(`${t('backup_full_db_downloaded')}\n\n${t('backup_full_db_rows')}: ${rowCount}\n\n${t('admin_notes')}:\n- ${backup.warnings.join('\n- ')}`);
+            }
+        } catch (error: any) {
+            alert(`${t('backup_full_db_export_fail')}\n\n${String(error?.message || error || '')}`);
+        }
+    };
+
+    const restoreFullDatabaseBackupJson = async (file: File) => {
+        try {
+            const txt = await file.text();
+            const parsed = JSON.parse(txt);
+            if (parsed?.exportType !== 'flbp_application_database_backup' || parsed?.schemaVersion !== 1 || !parsed?.tables) {
+                alert(t('backup_full_db_invalid'));
+                return;
+            }
+            const tableCount = Object.keys(parsed.tables || {}).length;
+            const rowCount = Object.values(parsed.tables || {}).reduce(
+                (sum: number, table: any) => sum + (Number(table?.rowCount) || (Array.isArray(table?.rows) ? table.rows.length : 0)),
+                0
+            );
+            const exportedAt = String(parsed.exportedAt || '').trim();
+            const summaryText =
+                `${t('backup_full_db_tables')}: ${tableCount}\n` +
+                `${t('backup_full_db_rows')}: ${rowCount}` +
+                (exportedAt ? `\n${t('backup_full_db_exported_at')}: ${exportedAt}` : '');
+
+            if (!confirm(`${t('backup_full_db_restore_confirm')}\n\n${summaryText}`)) return;
+            if (!confirm(t('backup_full_db_restore_second_confirm'))) return;
+
+            const result = await restoreFullDatabaseBackup(parsed);
+            const restoredTables = Object.keys(result.summary || {}).length;
+            const warnings = result.warnings?.length
+                ? `\n\n${t('admin_notes')}:\n- ${result.warnings.join('\n- ')}`
+                : '';
+            alert(`${t('backup_full_db_restored')}\n\n${t('backup_full_db_tables')}: ${restoredTables}${warnings}`);
+        } catch (error: any) {
+            alert(`${t('backup_full_db_restore_fail')}\n\n${String(error?.message || error || '')}`);
+        }
+    };
+
     const openPrintWindow = (title: string, bodyHtml: string) => {
         // No popups: print via hidden iframe to avoid browser popup blockers.
         try {
@@ -3903,6 +3951,8 @@ while (guard < 5000) {
         exportBackupJson,
         restoreBackupJson,
         mergeBackupJson,
+        exportFullDatabaseBackupJson,
+        restoreFullDatabaseBackupJson,
         dataSubTab,
         setDataSubTab,
         integrationsSubTab,

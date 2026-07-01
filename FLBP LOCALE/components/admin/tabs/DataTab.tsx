@@ -15,6 +15,8 @@ export interface DataTabProps {
     exportBackupJson: () => void;
     restoreBackupJson: (file: File) => void;
     mergeBackupJson: (file: File) => void;
+    exportFullDatabaseBackupJson: () => void;
+    restoreFullDatabaseBackupJson: (file: File) => void;
 
     dataSubTab: 'archive' | 'integrations';
     setDataSubTab: (v: 'archive' | 'integrations') => void;
@@ -524,6 +526,8 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         exportBackupJson={props.exportBackupJson}
                         restoreBackupJson={props.restoreBackupJson}
                         mergeBackupJson={props.mergeBackupJson}
+                        exportFullDatabaseBackup={props.exportFullDatabaseBackupJson}
+                        restoreFullDatabaseBackup={props.restoreFullDatabaseBackupJson}
                     />
                     <DbSyncPanel state={props.state} setState={props.setState} />
                 </div>
