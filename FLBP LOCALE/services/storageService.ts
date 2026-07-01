@@ -71,6 +71,10 @@ export interface AppState {
     integrationsScorers: IntegrationScorerEntry[];
     playerAliases: Record<string, string>;
     playerAccountAliasIgnores?: Record<string, number>;
+    fantaSettings?: {
+        enabled?: boolean;
+        updatedAt?: string;
+    };
 }
 
 // Increment only when the persisted snapshot shape requires a migration.

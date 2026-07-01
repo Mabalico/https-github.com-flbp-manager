@@ -88,11 +88,14 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const selectedPlayers = React.useMemo(() => flatPlayers.filter((p) => selectedIds.includes(p.id)), [flatPlayers, selectedIds]);
   const canAddMore = selectedIds.length < 4;
   const hasActiveTournament = Boolean(config?.activeTournamentId);
+  const fantaDisabled = config?.fantaEnabled === false || config?.lockReason === 'fanta_disabled';
   const resultsOnlyTournament = Boolean(config?.activeTournamentResultsOnly);
-  const registrationOpen = hasActiveTournament && !resultsOnlyTournament && Boolean(config?.registrationOpen);
-  const isReadOnly = !hasActiveTournament || !registrationOpen;
-  const activeTournamentName = config?.activeTournamentName || t('fanta_no_live_tournament');
-  const lockMessage = !config?.activeTournamentId
+  const registrationOpen = !fantaDisabled && hasActiveTournament && !resultsOnlyTournament && Boolean(config?.registrationOpen);
+  const isReadOnly = fantaDisabled || !hasActiveTournament || !registrationOpen;
+  const activeTournamentName = fantaDisabled ? 'FantaBeerpong disattivato' : config?.activeTournamentName || t('fanta_no_live_tournament');
+  const lockMessage = fantaDisabled
+    ? 'FantaBeerpong non è stato attivato dagli organizzatori.'
+    : !config?.activeTournamentId
     ? t('fanta_builder_lock_no_tournament')
     : resultsOnlyTournament
       ? t('fanta_builder_lock_results_only')
@@ -216,7 +219,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                   <div className="text-sm font-black uppercase tracking-wide text-beer-700">{t('fanta_builder_tournament_label')}</div>
                   <div className="mt-1 text-lg font-black text-slate-950">{activeTournamentName}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-500">
-                    {!hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_registration_open') : config?.isPreTournament ? 'Pretorneo in preparazione' : t('fanta_tournament_running')}
+                    {fantaDisabled ? 'Fanta disattivato' : !hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_registration_open') : config?.isPreTournament ? 'Pretorneo in preparazione' : t('fanta_tournament_running')}
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">

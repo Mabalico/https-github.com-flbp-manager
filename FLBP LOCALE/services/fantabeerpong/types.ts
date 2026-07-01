@@ -15,6 +15,7 @@ export type FantaQuickHelpTopic = 'roles' | 'scoring' | 'bonus_scia';
 export interface FantaConfig {
   activeTournamentId: string;
   activeTournamentName?: string;
+  fantaEnabled?: boolean;
   isPreTournament?: boolean;
   preTournamentTeamsCount?: number;
   preTournamentPlayersCount?: number;
@@ -24,7 +25,7 @@ export interface FantaConfig {
   registrationOpenFlag?: boolean;
   manualLockActive?: boolean;
   tournamentStarted?: boolean;
-  lockReason?: 'no_live_tournament' | 'first_match_started' | 'results_only_tournament' | null;
+  lockReason?: 'no_live_tournament' | 'first_match_started' | 'results_only_tournament' | 'fanta_disabled' | null;
   updatedAt?: string;
 }
 

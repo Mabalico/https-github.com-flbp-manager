@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Upload, Download, Trash2, Plus, MoreHorizontal, ChevronDown, FileText, Pencil } from 'lucide-react';
+import { Users, Upload, Download, Trash2, Plus, MoreHorizontal, ChevronDown, FileText, Pencil, Trophy, RefreshCw } from 'lucide-react';
 import type { Team } from '../../../types';
 import { isTesterMode } from '../../../config/appMode';
 import { BirthDateInput } from '../BirthDateInput';
@@ -54,6 +54,10 @@ export interface TeamsTabProps {
     deleteTeam: (id: string) => void;
     state: AppState;
     setState: (next: AppState) => void;
+    fantaEnabled: boolean;
+    onToggleFantaEnabled: () => void;
+    onSyncFantaPretournament: () => void;
+    fantaSyncStatus?: { tone: 'success' | 'error' | 'info'; message: string } | null;
 }
 
 export const TeamsTab: React.FC<TeamsTabProps> = ({
@@ -92,6 +96,10 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     deleteTeam,
     state,
     setState,
+    fantaEnabled,
+    onToggleFantaEnabled,
+    onSyncFantaPretournament,
+    fantaSyncStatus,
 }) => {
     const [query, setQuery] = React.useState('');
     const [p1FirstName, setP1FirstName] = React.useState('');
@@ -539,6 +547,46 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         {visibleCount}/{totalCount}
                     </div>
                 ) : null}
+            </div>
+        </div>
+
+        <div className={`rounded-2xl border p-4 ${fantaEnabled ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-amber-800">
+                        <Trophy className="h-3.5 w-3.5" />
+                        FantaBeerpong
+                    </div>
+                    <div className="mt-2 text-lg font-black text-slate-950">
+                        {fantaEnabled ? 'Fanta attivo per Pretorneo e torneo live' : 'Fanta non attivo'}
+                    </div>
+                    <div className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+                        {fantaEnabled
+                            ? 'I giocatori presenti in Squadre sono eleggibili. Se cambi una squadra, il Fanta prova ad aggiornare le rose collegate.'
+                            : 'Attivalo solo se vuoi aprire il FantaBeerpong prima o durante il torneo.'}
+                    </div>
+                    {fantaSyncStatus ? (
+                        <div className={`mt-3 rounded-xl border px-3 py-2 text-sm font-bold ${
+                            fantaSyncStatus.tone === 'success'
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : fantaSyncStatus.tone === 'error'
+                                    ? 'border-rose-200 bg-rose-50 text-rose-800'
+                                    : 'border-sky-200 bg-sky-50 text-sky-800'
+                        }`}>
+                            {fantaSyncStatus.message}
+                        </div>
+                    ) : null}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row lg:shrink-0">
+                    <button type="button" onClick={onToggleFantaEnabled} className={fantaEnabled ? btnDanger : btnPrimary}>
+                        <Trophy className="w-4 h-4" />
+                        {fantaEnabled ? 'Disattiva Fanta' : 'Attiva Fanta'}
+                    </button>
+                    <button type="button" onClick={onSyncFantaPretournament} disabled={!fantaEnabled} className={btnSecondary}>
+                        <RefreshCw className="w-4 h-4" />
+                        Sincronizza Fanta
+                    </button>
+                </div>
             </div>
         </div>
 

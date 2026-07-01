@@ -57,6 +57,9 @@ interface SupabasePublicWorkspaceStateRow {
   workspace_id: string;
   state?: {
     teams?: SupabasePublicTournamentTeam[] | null;
+    fantaSettings?: {
+      enabled?: boolean | null;
+    } | null;
   } | null;
   updated_at?: string | null;
 }
@@ -265,6 +268,13 @@ const mapAdminTeamsToFantaGroups = (
 const fetchPretournamentTeamGroups = async (
   cfg: { url: string; anonKey: string; workspaceId: string },
 ): Promise<{ teams: FantaBuilderTeamGroup[]; updatedAt?: string | null }> => {
+  const snapshot = await fetchPretournamentWorkspaceSnapshot(cfg);
+  return { teams: snapshot.teams, updatedAt: snapshot.updatedAt };
+};
+
+const fetchPretournamentWorkspaceSnapshot = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+): Promise<{ teams: FantaBuilderTeamGroup[]; updatedAt?: string | null; fantaEnabled: boolean }> => {
   const rows = await fetchJson<SupabasePublicWorkspaceStateRow[]>(
     `${restUrl(cfg, 'public_workspace_state')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`,
     buildHeaders(cfg),
@@ -272,7 +282,11 @@ const fetchPretournamentTeamGroups = async (
   );
   const row = rows?.[0] || null;
   const stateTeams = Array.isArray(row?.state?.teams) ? row.state!.teams! : [];
-  return { teams: mapAdminTeamsToFantaGroups(stateTeams), updatedAt: row?.updated_at || null };
+  return {
+    teams: mapAdminTeamsToFantaGroups(stateTeams),
+    updatedAt: row?.updated_at || null,
+    fantaEnabled: row?.state?.fantaSettings?.enabled === true,
+  };
 };
 
 const countFantaGroupPlayers = (teams: FantaBuilderTeamGroup[]): number =>
@@ -346,6 +360,23 @@ const fetchFantaConfigFresh = async (
   );
 
   const configured = rows?.[0] || null;
+  const preTournamentSnapshot = await fetchPretournamentWorkspaceSnapshot(cfg);
+  if (!preTournamentSnapshot.fantaEnabled) {
+    return {
+      activeTournamentId: '',
+      activeTournamentName: 'FantaBeerpong disattivato',
+      fantaEnabled: false,
+      activeTournamentResultsOnly: false,
+      isLockActive: true,
+      registrationOpen: false,
+      registrationOpenFlag: false,
+      manualLockActive: true,
+      tournamentStarted: false,
+      lockReason: 'fanta_disabled',
+      updatedAt: preTournamentSnapshot.updatedAt || configured?.updated_at,
+    };
+  }
+
   const [configuredTournament, liveTournament] = await Promise.all([
     configured?.active_tournament_id ? fetchTournamentSummary(cfg, configured.active_tournament_id) : Promise.resolve(null),
     fetchLatestLiveTournament(cfg),
@@ -353,14 +384,14 @@ const fetchFantaConfigFresh = async (
   const activeTournament = configuredTournament?.status === 'live' ? configuredTournament : liveTournament;
   const activeTournamentId = activeTournament?.id || '';
   if (!activeTournamentId) {
-    const preTournament = await fetchPretournamentTeamGroups(cfg);
-    const preTournamentPlayersCount = countFantaGroupPlayers(preTournament.teams);
+    const preTournamentPlayersCount = countFantaGroupPlayers(preTournamentSnapshot.teams);
     if (!preTournamentPlayersCount) return null;
     return {
       activeTournamentId: FANTA_PRE_TOURNAMENT_ID,
       activeTournamentName: FANTA_PRE_TOURNAMENT_NAME,
+      fantaEnabled: true,
       isPreTournament: true,
-      preTournamentTeamsCount: preTournament.teams.length,
+      preTournamentTeamsCount: preTournamentSnapshot.teams.length,
       preTournamentPlayersCount,
       activeTournamentResultsOnly: false,
       isLockActive: false,
@@ -369,7 +400,7 @@ const fetchFantaConfigFresh = async (
       manualLockActive: false,
       tournamentStarted: false,
       lockReason: null,
-      updatedAt: preTournament.updatedAt || configured?.updated_at,
+      updatedAt: preTournamentSnapshot.updatedAt || configured?.updated_at,
     };
   }
 
@@ -378,6 +409,7 @@ const fetchFantaConfigFresh = async (
   return {
     activeTournamentId,
     activeTournamentName: activeTournament?.name,
+    fantaEnabled: true,
     activeTournamentResultsOnly,
     isLockActive: activeTournamentResultsOnly || tournamentStarted,
     registrationOpen: !activeTournamentResultsOnly && !tournamentStarted,

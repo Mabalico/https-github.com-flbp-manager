@@ -3113,6 +3113,83 @@ export const archiveFantaTournamentEdition = async (tournamentId: string): Promi
     return await res.json() as ArchiveFantaTournamentEditionResult;
 };
 
+export type DeleteFantaTournamentDataResult = {
+    ok: boolean;
+    tournamentId: string;
+    removed: {
+        archivedPlayers: number;
+        archivedStandings: number;
+        archivedEditions: number;
+        fantaTeams: number;
+    };
+};
+
+const deleteFantaRows = async (
+    cfg: SupabaseConfig,
+    accessToken: string,
+    path: string,
+    source: string,
+): Promise<number> => {
+    const res = await fetchWithTimeout(
+        restUrl(cfg, path),
+        {
+            method: 'DELETE',
+            headers: {
+                ...buildHeaders(cfg, accessToken),
+                Prefer: 'return=representation',
+            },
+        },
+        8000,
+        { source, kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) ? rows.length : 0;
+};
+
+export const deleteFantaTournamentData = async (tournamentId: string): Promise<DeleteFantaTournamentDataResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const resolvedTournamentId = String(tournamentId || '').trim();
+    if (!resolvedTournamentId) throw new Error('ID torneo Fanta mancante.');
+
+    const workspace = encodeURIComponent(cfg.workspaceId);
+    const tournament = encodeURIComponent(resolvedTournamentId);
+    const baseFilter = `workspace_id=eq.${workspace}&tournament_id=eq.${tournament}`;
+
+    const archivedPlayers = await deleteFantaRows(
+        cfg,
+        session.accessToken,
+        `fanta_archived_players?${baseFilter}`,
+        'deleteFantaArchivedPlayers'
+    );
+    const archivedStandings = await deleteFantaRows(
+        cfg,
+        session.accessToken,
+        `fanta_archived_standings?${baseFilter}`,
+        'deleteFantaArchivedStandings'
+    );
+    const archivedEditions = await deleteFantaRows(
+        cfg,
+        session.accessToken,
+        `fanta_archived_editions?${baseFilter}`,
+        'deleteFantaArchivedEditions'
+    );
+    const fantaTeams = await deleteFantaRows(
+        cfg,
+        session.accessToken,
+        `fanta_teams?${baseFilter}`,
+        'deleteFantaTeams'
+    );
+
+    return {
+        ok: true,
+        tournamentId: resolvedTournamentId,
+        removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams },
+    };
+};
+
 type RefereeAuthCheckResult = {
     ok: boolean;
     reason?: string | null;

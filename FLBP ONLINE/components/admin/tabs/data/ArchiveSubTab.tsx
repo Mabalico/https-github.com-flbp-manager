@@ -14,6 +14,8 @@ import { AdminDataConfirmModal } from './AdminDataConfirmModal';
 import { BirthDateInput } from '../../BirthDateInput';
 import { formatBirthDateDisplay } from '../../../../services/playerIdentity';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../../services/formInputUX';
+import { deleteFantaTournamentData } from '../../../../services/supabaseRest';
+import { FANTA_APP_CHANGE_EVENT } from '../../../../services/playerAppService';
 
 export const ArchiveSubTab: React.FC<DataTabProps> = ({
     state,
@@ -133,6 +135,11 @@ export const ArchiveSubTab: React.FC<DataTabProps> = ({
         tournamentName: string;
         tournamentDate: string;
         summary: ArchivedTournamentDeleteSummary;
+    }>(null);
+    const [fantaDeleteTarget, setFantaDeleteTarget] = useState<null | {
+        tournamentId: string;
+        tournamentName: string;
+        tournamentDate: string;
     }>(null);
 
     // Initialize per-player stats editor when selecting a match
@@ -533,27 +540,44 @@ export const ArchiveSubTab: React.FC<DataTabProps> = ({
                             <div className="flex items-center justify-between gap-2">
                                 <div className="font-black text-slate-700">{t('archive_select_tournament')}</div>
                                 {dataSelectedTournamentId ? (
-                                    <button type="button"
-                                        onClick={() => {
-                                            const tsel = selectedArchivedTournament;
-                                            if (!tsel) return;
-                                            try {
-                                                const summary = getArchivedTournamentDeleteImpact(state, tsel.id);
-                                                setArchiveDeleteTarget({
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                        <button type="button"
+                                            onClick={() => {
+                                                const tsel = selectedArchivedTournament;
+                                                if (!tsel) return;
+                                                setFantaDeleteTarget({
                                                     tournamentId: tsel.id,
                                                     tournamentName: tsel.name,
                                                     tournamentDate: tsel.startDate,
-                                                    summary,
                                                 });
-                                            } catch (error: any) {
-                                                setSnackbar({ tone: 'error', message: error?.message || t('archive_delete_error') });
-                                            }
-                                        }}
-                                        className={btnSmDanger}
-                                        title={t('archive_delete_tournament')}
-                                    >
-                                        <Trash2 className="w-4 h-4" /> {t('archive_delete_tournament')}
-                                    </button>
+                                            }}
+                                            className={btnSmDanger}
+                                            title="Elimina solo i dati Fanta collegati a questo torneo"
+                                        >
+                                            <Trash2 className="w-4 h-4" /> Elimina Fanta
+                                        </button>
+                                        <button type="button"
+                                            onClick={() => {
+                                                const tsel = selectedArchivedTournament;
+                                                if (!tsel) return;
+                                                try {
+                                                    const summary = getArchivedTournamentDeleteImpact(state, tsel.id);
+                                                    setArchiveDeleteTarget({
+                                                        tournamentId: tsel.id,
+                                                        tournamentName: tsel.name,
+                                                        tournamentDate: tsel.startDate,
+                                                        summary,
+                                                    });
+                                                } catch (error: any) {
+                                                    setSnackbar({ tone: 'error', message: error?.message || t('archive_delete_error') });
+                                                }
+                                            }}
+                                            className={btnSmDanger}
+                                            title={t('archive_delete_tournament')}
+                                        >
+                                            <Trash2 className="w-4 h-4" /> {t('archive_delete_tournament')}
+                                        </button>
+                                    </div>
                                 ) : null}
                             </div>
                             <select
@@ -1063,6 +1087,42 @@ export const ArchiveSubTab: React.FC<DataTabProps> = ({
                                 {t('archive_deep_delete_explainer')}
                             </p>
                         </div>
+                    </AdminDataConfirmModal>
+                    <AdminDataConfirmModal
+                        open={!!fantaDeleteTarget}
+                        tone="warning"
+                        title="Eliminare i dati Fanta?"
+                        description="Cancella solo squadre, classifiche e archivio Fanta collegati a questo torneo. Non elimina il torneo reale, referti, storico o Albo d'Oro."
+                        confirmLabel="Elimina Fanta"
+                        onClose={() => setFantaDeleteTarget(null)}
+                        onConfirm={() => {
+                            const target = fantaDeleteTarget;
+                            if (!target) return;
+                            void (async () => {
+                                try {
+                                    const result = await deleteFantaTournamentData(target.tournamentId);
+                                    setFantaDeleteTarget(null);
+                                    window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+                                    setSnackbar({
+                                        tone: 'success',
+                                        message: `Fanta eliminato per ${target.tournamentName}: ${result.removed.archivedEditions} edizioni archivio, ${result.removed.fantaTeams} squadre.`,
+                                    });
+                                } catch (error: any) {
+                                    setFantaDeleteTarget(null);
+                                    setSnackbar({ tone: 'error', message: error?.message || 'Eliminazione Fanta non riuscita.' });
+                                }
+                            })();
+                        }}
+                        summaryItems={
+                            fantaDeleteTarget ? [
+                                { label: 'Torneo', value: fantaDeleteTarget.tournamentName },
+                                { label: 'Data', value: new Date(fantaDeleteTarget.tournamentDate).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) },
+                            ] : []
+                        }
+                    >
+                        <p>
+                            Usa questa azione quando un torneo reale è stato eliminato o corretto ma sono rimasti dati Fanta collegati.
+                        </p>
                     </AdminDataConfirmModal>
                     {snackbar ? (
                         <div className="fixed bottom-5 right-5 z-50">

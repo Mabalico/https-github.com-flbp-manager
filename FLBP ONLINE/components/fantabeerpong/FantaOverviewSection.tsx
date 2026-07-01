@@ -136,11 +136,14 @@ export const FantaOverviewSection: React.FC<Props> = ({
   // Top players
   const topPlayers = [...players].sort((a,b) => (b.total_points || 0) - (a.total_points || 0)).slice(0, 3);
   const hasActiveTournament = Boolean(config?.activeTournamentId);
+  const fantaDisabled = config?.fantaEnabled === false || config?.lockReason === 'fanta_disabled';
   const resultsOnlyTournament = Boolean(config?.activeTournamentResultsOnly);
   const isPreTournament = Boolean(config?.isPreTournament);
-  const hasFantaTournament = hasActiveTournament && !resultsOnlyTournament;
+  const hasFantaTournament = !fantaDisabled && hasActiveTournament && !resultsOnlyTournament;
   const registrationOpen = hasFantaTournament && Boolean(config?.registrationOpen);
-  const statusLabel = !hasActiveTournament
+  const statusLabel = fantaDisabled
+    ? 'Fanta disattivato'
+    : !hasActiveTournament
     ? t('fanta_no_live_tournament')
     : resultsOnlyTournament
       ? t('fanta_live_results_only_tournament')
@@ -149,7 +152,9 @@ export const FantaOverviewSection: React.FC<Props> = ({
     : registrationOpen
       ? t('fanta_registration_open')
       : t('fanta_tournament_running');
-  const statusDescription = !hasActiveTournament
+  const statusDescription = fantaDisabled
+    ? 'Gli organizzatori non hanno attivato il FantaBeerpong per questa fase.'
+    : !hasActiveTournament
     ? t('fanta_waiting_desc')
     : resultsOnlyTournament
       ? t('fanta_results_only_desc')
@@ -176,7 +181,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
               {statusLabel}
             </div>
             <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">FantaBeerpong</div>
-            <div className="mt-1 text-lg font-black tracking-tight text-slate-800">{hasActiveTournament ? config?.activeTournamentName || t('fanta_live_edition') : t('fanta_waiting_next_tournament')}</div>
+            <div className="mt-1 text-lg font-black tracking-tight text-slate-800">{fantaDisabled ? 'Modulo non attivo' : hasActiveTournament ? config?.activeTournamentName || t('fanta_live_edition') : t('fanta_waiting_next_tournament')}</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
               {statusDescription}
             </div>
