@@ -82,8 +82,9 @@ export const FantaOverviewSection: React.FC<Props> = ({
         setConfig(cfg);
 
         const hasPlayableTournament = Boolean(cfg?.activeTournamentId && !cfg?.activeTournamentResultsOnly);
+        const shouldLoadLiveScores = hasPlayableTournament && !cfg?.isPreTournament;
         const [stds, team] = await Promise.all([
-          hasPlayableTournament ? fetchFantaStandings() : Promise.resolve([]),
+          shouldLoadLiveScores ? fetchFantaStandings() : Promise.resolve([]),
           hasPlayableTournament && session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null),
         ]);
         if (cancelled) return;
@@ -93,7 +94,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
         setLoading(false);
 
         const [plyrs, archived] = await Promise.all([
-          hasPlayableTournament ? fetchFantaPlayerStandings() : Promise.resolve([]),
+          shouldLoadLiveScores ? fetchFantaPlayerStandings() : Promise.resolve([]),
           fetchFantaArchivedEditions(),
         ]);
         if (cancelled) return;
@@ -136,8 +137,27 @@ export const FantaOverviewSection: React.FC<Props> = ({
   const topPlayers = [...players].sort((a,b) => (b.total_points || 0) - (a.total_points || 0)).slice(0, 3);
   const hasActiveTournament = Boolean(config?.activeTournamentId);
   const resultsOnlyTournament = Boolean(config?.activeTournamentResultsOnly);
+  const isPreTournament = Boolean(config?.isPreTournament);
   const hasFantaTournament = hasActiveTournament && !resultsOnlyTournament;
   const registrationOpen = hasFantaTournament && Boolean(config?.registrationOpen);
+  const statusLabel = !hasActiveTournament
+    ? t('fanta_no_live_tournament')
+    : resultsOnlyTournament
+      ? t('fanta_live_results_only_tournament')
+    : isPreTournament
+      ? 'Pretorneo'
+    : registrationOpen
+      ? t('fanta_registration_open')
+      : t('fanta_tournament_running');
+  const statusDescription = !hasActiveTournament
+    ? t('fanta_waiting_desc')
+    : resultsOnlyTournament
+      ? t('fanta_results_only_desc')
+    : isPreTournament
+      ? 'Puoi costruire la squadra Fanta con i giocatori già inseriti in Area Admin. Il nome diventerà quello del torneo quando verrà generato il tabellone.'
+    : registrationOpen
+      ? t('fanta_create_before_start')
+      : t('fanta_market_closed_desc');
 
   const quickActions: FantaOverviewQuickAction[] = [
     { id: 'qa1', title: t('fanta_shell_my_team'), description: t('fanta_shell_my_team_helper'), target: 'my_team' },
@@ -153,18 +173,12 @@ export const FantaOverviewSection: React.FC<Props> = ({
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-emerald-700">
               <Clock3 className="h-3.5 w-3.5" />
-              {!hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_registration_open') : t('fanta_tournament_running')}
+              {statusLabel}
             </div>
             <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">FantaBeerpong</div>
             <div className="mt-1 text-lg font-black tracking-tight text-slate-800">{hasActiveTournament ? config?.activeTournamentName || t('fanta_live_edition') : t('fanta_waiting_next_tournament')}</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-              {!hasActiveTournament
-                ? t('fanta_waiting_desc')
-                : resultsOnlyTournament
-                  ? t('fanta_results_only_desc')
-                  : registrationOpen
-                  ? t('fanta_create_before_start')
-                  : t('fanta_market_closed_desc')}
+              {statusDescription}
             </div>
           </div>
           <button type="button" onClick={hasFantaTournament ? onOpenTeamBuilder : onOpenHistory} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2">
@@ -177,7 +191,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label={t('fanta_registered_teams')} value={uniqueTeamsCount.toString()} hint={t('fanta_total_fanta_teams')} />
         <MetricCard label={t('fanta_total_points_metric')} value={totalPoints.toString()} hint={t('fanta_points_gen_desc')} />
-        <MetricCard label={t('fanta_market_metric')} value={!hasFantaTournament ? t('fanta_not_active') : registrationOpen ? t('fanta_open') : t('fanta_closed')} hint={!hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_roster') : t('admin_sync_ok')} />
+        <MetricCard label={t('fanta_market_metric')} value={!hasFantaTournament ? t('fanta_not_active') : registrationOpen ? t('fanta_open') : t('fanta_closed')} hint={isPreTournament ? 'Fase Pretorneo' : !hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_roster') : t('admin_sync_ok')} />
         <MetricCard label={t('fanta_prizes_metric')} value="TOP 3" hint={t('fanta_prizes_desc')} />
       </div>
 
@@ -186,7 +200,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
           <div className={panelClass}>
             <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_team_state')}</div>
             <div className="mt-1 text-sm font-semibold text-slate-600">
-              {!hasActiveTournament ? t('fanta_waiting_desc') : resultsOnlyTournament ? t('fanta_results_only_desc') : userTeam ? t('fanta_roster_ready') : t('fanta_no_team_created')}
+              {!hasActiveTournament ? t('fanta_waiting_desc') : resultsOnlyTournament ? t('fanta_results_only_desc') : isPreTournament && !userTeam ? 'Pretorneo attivo: scegli la tua rosa prima che venga generato il tabellone.' : userTeam ? t('fanta_roster_ready') : t('fanta_no_team_created')}
             </div>
             {userTeam ? (
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">

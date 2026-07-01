@@ -3012,6 +3012,82 @@ export type ArchiveFantaTournamentEditionResult = {
     players_count?: number | null;
 };
 
+export type FantaPretournamentSyncResult = {
+    ok: boolean;
+    updated?: number | null;
+    deferred?: number | null;
+    eligibleTeams?: number | null;
+    reason?: string | null;
+};
+
+const buildFantaPretournamentTeamPayload = (teams: Team[]) =>
+    (teams || [])
+        .filter((team) => !team.hidden && !team.isBye)
+        .map((team) => {
+            const player1Name = String(team.player1 || '').trim();
+            const player2Name = String(team.player2 || '').trim();
+            return {
+                team_id: String(team.id || '').trim(),
+                team_name: String(team.name || '').trim(),
+                player1_id: player1Name ? getPlayerKey(player1Name, 'ND') : null,
+                player1_name: player1Name || null,
+                player2_id: player2Name ? getPlayerKey(player2Name, 'ND') : null,
+                player2_name: player2Name || null,
+                hidden: !!team.hidden,
+                is_bye: !!team.isBye,
+            };
+        })
+        .filter((team) => team.team_id && team.team_name);
+
+export const syncFantaPretournamentRosters = async (teams: Team[]): Promise<FantaPretournamentSyncResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const res = await fetchWithTimeout(
+        rpcUrl(cfg, 'fanta_sync_pretournament_rosters'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                p_workspace_id: cfg.workspaceId,
+                p_teams: buildFantaPretournamentTeamPayload(teams),
+            }),
+        },
+        8000,
+        { source: 'syncFantaPretournamentRosters', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as FantaPretournamentSyncResult;
+};
+
+export const promoteFantaPretournamentToTournament = async (
+    tournamentId: string,
+    tournament?: Pick<TournamentData, 'name' | 'config'> | null,
+): Promise<FantaPretournamentSyncResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const resolvedTournamentId = String(tournamentId || '').trim();
+    if (!resolvedTournamentId) return { ok: false, reason: 'missing_tournament_id' };
+    const res = await fetchWithTimeout(
+        rpcUrl(cfg, 'fanta_promote_pretournament'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                p_workspace_id: cfg.workspaceId,
+                p_tournament_id: resolvedTournamentId,
+                p_tournament_name: String(tournament?.name || '').trim() || null,
+                p_tournament_config: tournament?.config || {},
+            }),
+        },
+        8000,
+        { source: 'promoteFantaPretournamentToTournament', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json() as FantaPretournamentSyncResult;
+};
+
 export const archiveFantaTournamentEdition = async (tournamentId: string): Promise<ArchiveFantaTournamentEditionResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');

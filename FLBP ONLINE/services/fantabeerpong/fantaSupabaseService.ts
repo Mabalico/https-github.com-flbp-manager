@@ -7,6 +7,7 @@ import type {
   FantaConfig,
   FantaLineupSlot,
   FantaPlayer,
+  FantaRosterChangeNotice,
 } from './types';
 import { ensureFreshPlayerSupabaseSession, getSupabaseConfig } from '../supabaseRest';
 import { fetchWithDevRequestPerf } from '../devRequestPerf';
@@ -44,6 +45,20 @@ interface SupabasePublicTournamentTeam {
   name: string;
   player1?: string | null;
   player2?: string | null;
+  hidden?: boolean | null;
+  isBye?: boolean | null;
+  player1BirthDate?: string | null;
+  player2BirthDate?: string | null;
+  player1YoB?: number | null;
+  player2YoB?: number | null;
+}
+
+interface SupabasePublicWorkspaceStateRow {
+  workspace_id: string;
+  state?: {
+    teams?: SupabasePublicTournamentTeam[] | null;
+  } | null;
+  updated_at?: string | null;
 }
 
 interface SupabasePublicTournamentMatch {
@@ -78,7 +93,16 @@ interface SupabaseFantaRoster {
   player_name?: string | null;
   real_team_id?: string | null;
   real_team_name?: string | null;
+  real_team_slot?: 'player1' | 'player2' | null;
   role: FantaLineupSlot['role'];
+}
+
+interface SupabaseFantaRosterChangeNotice {
+  id: string;
+  old_player_name?: string | null;
+  new_player_name?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
 }
 
 interface SupabaseFantaStanding {
@@ -186,6 +210,8 @@ const buildHeaders = (cfg: { anonKey: string }, token?: string | null) => {
 
 const encode = (value: string) => encodeURIComponent(value);
 const publicTournamentsSelect = 'id,name,status,start_date,updated_at,config';
+export const FANTA_PRE_TOURNAMENT_ID = '__pre_tournament__';
+export const FANTA_PRE_TOURNAMENT_NAME = 'Pretorneo';
 const FANTA_CONFIG_CACHE_MS = 5_000;
 const FANTA_COMPUTED_FALLBACK_CACHE_MS = 3_000;
 
@@ -201,6 +227,56 @@ export const invalidateFantaConfigCache = () => {
 
 const hasResultsOnlyConfig = (config?: Record<string, unknown> | null): boolean =>
   Boolean(config && typeof config === 'object' && config.resultsOnly === true);
+
+const isUsableAdminTeam = (team: SupabasePublicTournamentTeam): boolean => {
+  if (!team || team.hidden || team.isBye) return false;
+  return Boolean(String(team.player1 || '').trim() || String(team.player2 || '').trim());
+};
+
+const mapAdminTeamsToFantaGroups = (
+  teams: SupabasePublicTournamentTeam[],
+): FantaBuilderTeamGroup[] => {
+  return (teams || [])
+    .filter(isUsableAdminTeam)
+    .map((team) => {
+      const slots: Array<'player1' | 'player2'> = ['player1', 'player2'];
+      const players = slots
+        .map((slot) => {
+          const playerName = String(team[slot] || '').trim();
+          if (!playerName) return null;
+          return {
+            id: getPlayerKey(playerName, 'ND'),
+            playerName,
+            realTeamId: team.id,
+            realTeamSlot: slot,
+            realTeamName: team.name,
+            status: 'waiting' as const,
+            trend: 'steady' as const,
+            note: 'Disponibile nella lista squadre pretorneo.',
+          };
+        })
+        .filter(Boolean) as FantaBuilderTeamGroup['players'];
+
+      return { id: team.id, teamName: team.name, players };
+    })
+    .filter((team) => team.players.length > 0);
+};
+
+const fetchPretournamentTeamGroups = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+): Promise<{ teams: FantaBuilderTeamGroup[]; updatedAt?: string | null }> => {
+  const rows = await fetchJson<SupabasePublicWorkspaceStateRow[]>(
+    `${restUrl(cfg, 'public_workspace_state')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`,
+    buildHeaders(cfg),
+    'fetchFantaPretournamentTeams',
+  );
+  const row = rows?.[0] || null;
+  const stateTeams = Array.isArray(row?.state?.teams) ? row.state!.teams! : [];
+  return { teams: mapAdminTeamsToFantaGroups(stateTeams), updatedAt: row?.updated_at || null };
+};
+
+const countFantaGroupPlayers = (teams: FantaBuilderTeamGroup[]): number =>
+  teams.reduce((total, team) => total + team.players.length, 0);
 
 const fetchJson = async <T>(
   url: string,
@@ -276,7 +352,26 @@ const fetchFantaConfigFresh = async (
   ]);
   const activeTournament = configuredTournament?.status === 'live' ? configuredTournament : liveTournament;
   const activeTournamentId = activeTournament?.id || '';
-  if (!activeTournamentId) return null;
+  if (!activeTournamentId) {
+    const preTournament = await fetchPretournamentTeamGroups(cfg);
+    const preTournamentPlayersCount = countFantaGroupPlayers(preTournament.teams);
+    if (!preTournamentPlayersCount) return null;
+    return {
+      activeTournamentId: FANTA_PRE_TOURNAMENT_ID,
+      activeTournamentName: FANTA_PRE_TOURNAMENT_NAME,
+      isPreTournament: true,
+      preTournamentTeamsCount: preTournament.teams.length,
+      preTournamentPlayersCount,
+      activeTournamentResultsOnly: false,
+      isLockActive: false,
+      registrationOpen: preTournamentPlayersCount >= 4,
+      registrationOpenFlag: true,
+      manualLockActive: false,
+      tournamentStarted: false,
+      lockReason: null,
+      updatedAt: preTournament.updatedAt || configured?.updated_at,
+    };
+  }
 
   const tournamentStarted = await fetchTournamentStarted(cfg, activeTournamentId);
   const activeTournamentResultsOnly = hasResultsOnlyConfig(activeTournament?.config);
@@ -323,6 +418,9 @@ export const fetchFantaTournamentTeams = async (
 
   const activeTournamentId = tournamentId || config?.activeTournamentId || '';
   if (!activeTournamentId) return [];
+  if (activeTournamentId === FANTA_PRE_TOURNAMENT_ID) {
+    return (await fetchPretournamentTeamGroups(cfg)).teams;
+  }
 
   const rows = await fetchJson<SupabasePublicTournamentTeam[]>(
     `${restUrl(cfg, 'public_tournament_teams')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(activeTournamentId)}&select=id,name,player1,player2&order=created_at.asc`,
@@ -331,13 +429,17 @@ export const fetchFantaTournamentTeams = async (
   );
 
   return (rows || []).map((team) => {
-    const players = [team.player1, team.player2]
-      .map((playerName) => String(playerName || '').trim())
-      .filter(Boolean)
-      .map((playerName) => ({
+    const players = ([
+      ['player1', team.player1],
+      ['player2', team.player2],
+    ] as const)
+      .map(([slot, value]) => ({ slot, playerName: String(value || '').trim() }))
+      .filter((entry) => Boolean(entry.playerName))
+      .map(({ slot, playerName }) => ({
         id: getPlayerKey(playerName, 'ND'),
         playerName,
         realTeamId: team.id,
+        realTeamSlot: slot,
         realTeamName: team.name,
         status: 'live' as const,
         trend: 'steady' as const,
@@ -786,6 +888,7 @@ export const saveFantaTeamWithResult = async (
       player_name: item.player.playerName,
       real_team_id: item.player.realTeamId || null,
       real_team_name: item.player.realTeamName,
+      real_team_slot: item.player.realTeamSlot || null,
       role: item.role,
     }));
 
@@ -803,6 +906,48 @@ export const saveFantaTeamWithResult = async (
     return await fantaSaveFailureFromResponse(res);
   } catch {
     return fantaSaveFailure('backend_error');
+  }
+};
+
+export const fetchPendingFantaRosterChangeNotices = async (): Promise<FantaRosterChangeNotice[]> => {
+  const cfg = getSupabaseConfig();
+  const token = (await ensureFreshPlayerSupabaseSession())?.accessToken || null;
+  if (!cfg || !token) return [];
+
+  const rows = await fetchJson<SupabaseFantaRosterChangeNotice[]>(
+    `${restUrl(cfg, 'fanta_roster_change_notices')}?workspace_id=eq.${encode(cfg.workspaceId)}&seen_at=is.null&select=id,old_player_name,new_player_name,reason,created_at&order=created_at.asc&limit=10`,
+    buildHeaders(cfg, token),
+    'fetchPendingFantaRosterChangeNotices',
+  );
+
+  return (rows || []).map((row) => ({
+    id: row.id,
+    oldPlayerName: row.old_player_name || 'Giocatore precedente',
+    newPlayerName: row.new_player_name || 'Nuovo giocatore',
+    reason: row.reason || null,
+    createdAt: row.created_at || null,
+  }));
+};
+
+export const markFantaRosterChangeNoticesSeen = async (ids: string[]): Promise<boolean> => {
+  const cfg = getSupabaseConfig();
+  const token = (await ensureFreshPlayerSupabaseSession())?.accessToken || null;
+  const safeIds = (ids || []).map((id) => String(id || '').trim()).filter(Boolean);
+  if (!cfg || !token || !safeIds.length) return false;
+
+  try {
+    const res = await fetchWithDevRequestPerf(
+      `${restUrl(cfg, 'fanta_roster_change_notices')}?workspace_id=eq.${encode(cfg.workspaceId)}&id=in.(${safeIds.map(encode).join(',')})`,
+      {
+        method: 'PATCH',
+        headers: buildHeaders(cfg, token),
+        body: JSON.stringify({ seen_at: new Date().toISOString() }),
+      },
+      { source: 'markFantaRosterChangeNoticesSeen' },
+    );
+    return res.ok;
+  } catch {
+    return false;
   }
 };
 

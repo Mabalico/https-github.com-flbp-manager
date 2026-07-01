@@ -96,6 +96,8 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
     ? t('fanta_builder_lock_no_tournament')
     : resultsOnlyTournament
       ? t('fanta_builder_lock_results_only')
+    : config.isPreTournament && !registrationOpen
+      ? 'Pretorneo attivo: servono almeno 4 giocatori eleggibili nella lista squadre per confermare una rosa Fanta.'
     : config.tournamentStarted
       ? t('fanta_builder_lock_started')
       : t('fanta_builder_lock_open');
@@ -214,7 +216,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
                   <div className="text-sm font-black uppercase tracking-wide text-beer-700">{t('fanta_builder_tournament_label')}</div>
                   <div className="mt-1 text-lg font-black text-slate-950">{activeTournamentName}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-500">
-                    {!hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_registration_open') : t('fanta_tournament_running')}
+                    {!hasActiveTournament ? t('fanta_no_live_tournament') : resultsOnlyTournament ? t('fanta_live_results_only_tournament') : registrationOpen ? t('fanta_registration_open') : config?.isPreTournament ? 'Pretorneo in preparazione' : t('fanta_tournament_running')}
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">

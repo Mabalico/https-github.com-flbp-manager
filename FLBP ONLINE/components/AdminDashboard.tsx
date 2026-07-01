@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -1709,6 +1709,12 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         alert(t('admin_delete_live_tournament_done').replace('{name}', tournamentName));
     };
 
+    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string) => {
+        void syncFantaPretournamentRosters(teams).catch((error) => {
+            console.warn(`Fanta pretorneo sync non completata (${source})`, error);
+        });
+    };
+
     const saveTeam = () => {
         if (!teamName.trim() || !p1.trim() || !p2.trim()) {
             alert(t('alert_fill_teamname_players'));
@@ -1822,6 +1828,7 @@ if (conflicts.length > 0) {
 
         const nextTournament = mergeIntoLiveTournamentTeams(nextState.tournament, nextTeams);
         setState({ ...nextState, teams: nextTeams, tournament: nextTournament });
+        syncFantaPretournamentTeamsBestEffort(nextTeams, 'save-team');
         resetForm();
     };
 
@@ -1851,6 +1858,7 @@ const confirmAliasModal = () => {
         if (idx >= 0) teams[idx] = { ...teams[idx], ...pendingTeamSave };
         else teams.push(pendingTeamSave);
         nextState = { ...nextState, teams };
+        syncFantaPretournamentTeamsBestEffort(teams, 'confirm-team-save');
         resetForm();
     }
 
@@ -1870,6 +1878,7 @@ const confirmAliasModal = () => {
             teams: imported.teams,
             tournament: imported.tournament
         };
+        syncFantaPretournamentTeamsBestEffort(imported.teams, 'confirm-team-import');
         importCompletedMessage = `${t('admin_import_completed')}: ${pendingTeamsImport.teams.length} Â· ${t('admin_total_label')}: ${imported.teams.length}`;
     }
 
@@ -1898,12 +1907,15 @@ const confirmAliasModal = () => {
         const team = (state.teams || []).find(x => x.id === id);
         if (!team) return;
         if (!confirm(`${t('admin_delete_team_confirm_prefix')} "${team.name}"?`)) return;
-        setState({ ...state, teams: (state.teams || []).filter(x => x.id !== id) });
+        const nextTeams = (state.teams || []).filter(x => x.id !== id);
+        setState({ ...state, teams: nextTeams });
+        syncFantaPretournamentTeamsBestEffort(nextTeams, 'delete-team');
     };
 
     const clearTeams = () => {
         if (!confirm(t('admin_clear_teams_confirm'))) return;
         setState({ ...state, teams: [] });
+        syncFantaPretournamentTeamsBestEffort([], 'clear-teams');
     };
 
     const exportTeamsXlsx = async () => {
@@ -2433,6 +2445,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             const merged = imported.teams;
             const nextTournament = imported.tournament;
             setState({ ...state, teams: merged, tournament: nextTournament });
+            syncFantaPretournamentTeamsBestEffort(merged, 'import-teams-file');
             alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_total_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
@@ -2527,6 +2540,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         const merged = [...(state.teams || []), ...teams];
         const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
         setState({ ...state, teams: merged, tournament: nextTournament });
+        syncFantaPretournamentTeamsBestEffort(merged, 'generate-simulation-pool');
     };
 
     const addHomonyms = () => {
@@ -2575,6 +2589,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         const merged = [...(state.teams || []), ...homonymTeams];
         const nextTournament = mergeIntoLiveTournamentTeams(state.tournament, merged);
         setState({ ...state, teams: merged, tournament: nextTournament });
+        syncFantaPretournamentTeamsBestEffort(merged, 'add-homonyms');
         alert(t('alert_added_duplicate_test'));
     };
 
@@ -2642,6 +2657,9 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         newState.tournamentMatches = draft.m;
         
         setState(newState);
+        void promoteFantaPretournamentToTournament(newState.tournament.id, newState.tournament).catch((error) => {
+            console.warn('Promozione Fanta pretorneo non completata', error);
+        });
         setDraft(null);
         setTab('codes');
         alert(t('alert_live_started'));

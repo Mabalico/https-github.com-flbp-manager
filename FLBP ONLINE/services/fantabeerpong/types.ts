@@ -15,6 +15,9 @@ export type FantaQuickHelpTopic = 'roles' | 'scoring' | 'bonus_scia';
 export interface FantaConfig {
   activeTournamentId: string;
   activeTournamentName?: string;
+  isPreTournament?: boolean;
+  preTournamentTeamsCount?: number;
+  preTournamentPlayersCount?: number;
   isLockActive: boolean;
   registrationOpen: boolean;
   activeTournamentResultsOnly?: boolean;
@@ -30,6 +33,7 @@ export interface FantaPlayer {
   playerName: string;
   realTeamName: string;
   realTeamId?: string;
+  realTeamSlot?: 'player1' | 'player2';
   status?: FantaPlayerAvailability;
   trend?: FantaTrend;
   note?: string;
@@ -167,7 +171,7 @@ export interface FantaArchivedEditionDetail {
   topPlayers: FantaArchivedPlayerRow[];
 }
 
-export interface FantaBuilderPlayerOption { id: string; playerName: string; realTeamName: string; realTeamId?: string; status: FantaPlayerAvailability; trend: FantaTrend; note: string; }
+export interface FantaBuilderPlayerOption { id: string; playerName: string; realTeamName: string; realTeamId?: string; realTeamSlot?: 'player1' | 'player2'; status: FantaPlayerAvailability; trend: FantaTrend; note: string; }
 export interface FantaBuilderTeamGroup { id: string; teamName: string; players: FantaBuilderPlayerOption[]; }
 export interface FantaTeamBuilderData {
   editionLabel: string; buildWindowLabel: string; buildWindowHint: string; isReadOnly: boolean;
@@ -176,3 +180,11 @@ export interface FantaTeamBuilderData {
 }
 
 export interface FantaQuickHelpItem { id: FantaQuickHelpTopic; title: string; body: string; }
+
+export interface FantaRosterChangeNotice {
+  id: string;
+  oldPlayerName: string;
+  newPlayerName: string;
+  reason?: 'team_player_changed' | 'team_removed' | 'pool_rebuilt' | string | null;
+  createdAt?: string | null;
+}

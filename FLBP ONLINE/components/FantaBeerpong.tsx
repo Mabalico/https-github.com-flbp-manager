@@ -3,8 +3,8 @@ import { ArrowLeft, Trophy } from 'lucide-react';
 import { useTranslation } from '../App';
 import { PublicBrandStack } from './PublicBrandStack';
 import type { FantaConfig, FantaShellSectionKey } from '../services/fantabeerpong/types';
-import { fetchFantaConfig, invalidateFantaConfigCache } from '../services/fantabeerpong/fantaSupabaseService';
-import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT } from '../services/playerAppService';
+import { fetchFantaConfig, fetchPendingFantaRosterChangeNotices, invalidateFantaConfigCache, markFantaRosterChangeNoticesSeen } from '../services/fantabeerpong/fantaSupabaseService';
+import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../services/playerAppService';
 import { FANTA_SHELL_SECTIONS } from './fantabeerpong/fantaShellSections';
 import { FantaOverviewSection } from './fantabeerpong/FantaOverviewSection';
 import { FantaMyTeamSection } from './fantabeerpong/FantaMyTeamSection';
@@ -17,6 +17,7 @@ import { FantaPlayerDetail } from './fantabeerpong/FantaPlayerDetail';
 import { FantaHistoryEditionDetail } from './fantabeerpong/FantaHistoryEditionDetail';
 import { FantaTeamBuilder } from './fantabeerpong/FantaTeamBuilder';
 import { panelClass } from './fantabeerpong/_shared';
+import type { FantaRosterChangeNotice } from '../services/fantabeerpong/types';
 
 interface Props { onBack: () => void; }
 
@@ -29,9 +30,12 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
   const [teamBuilderOpen, setTeamBuilderOpen] = React.useState(false);
   const [shellConfig, setShellConfig] = React.useState<FantaConfig | null>(null);
   const [shellConfigLoaded, setShellConfigLoaded] = React.useState(false);
+  const [preTournamentInfoOpen, setPreTournamentInfoOpen] = React.useState(false);
+  const [rosterChangeNotices, setRosterChangeNotices] = React.useState<FantaRosterChangeNotice[]>([]);
 
   const openPlayerDetail = (playerId: string) => setSelectedFantasyPlayerId(playerId);
   const shellResultsOnly = Boolean(shellConfig?.activeTournamentResultsOnly);
+  const shellPreTournament = Boolean(shellConfig?.isPreTournament);
 
   React.useEffect(() => {
     let active = true;
@@ -76,6 +80,60 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!shellConfigLoaded || !shellPreTournament) return;
+    try {
+      if (localStorage.getItem('flbp_fanta_pretournament_info_seen_v1') === '1') return;
+    } catch {
+      // If storage is unavailable, still show the explanation once for this session.
+    }
+    setPreTournamentInfoOpen(true);
+  }, [shellConfigLoaded, shellPreTournament]);
+
+  React.useEffect(() => {
+    let active = true;
+    const loadNotices = async () => {
+      const session = readPlayerPresenceSnapshot();
+      if (!session?.accountId) {
+        if (active) setRosterChangeNotices([]);
+        return;
+      }
+      const notices = await fetchPendingFantaRosterChangeNotices();
+      if (active) setRosterChangeNotices(notices);
+    };
+
+    void loadNotices();
+    const loadWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadNotices();
+    };
+    window.addEventListener(FANTA_APP_CHANGE_EVENT, loadNotices as EventListener);
+    window.addEventListener(PLAYER_APP_CHANGE_EVENT, loadNotices as EventListener);
+    window.addEventListener('focus', loadNotices);
+    document.addEventListener('visibilitychange', loadWhenVisible);
+    return () => {
+      active = false;
+      window.removeEventListener(FANTA_APP_CHANGE_EVENT, loadNotices as EventListener);
+      window.removeEventListener(PLAYER_APP_CHANGE_EVENT, loadNotices as EventListener);
+      window.removeEventListener('focus', loadNotices);
+      document.removeEventListener('visibilitychange', loadWhenVisible);
+    };
+  }, []);
+
+  const closePreTournamentInfo = () => {
+    try {
+      localStorage.setItem('flbp_fanta_pretournament_info_seen_v1', '1');
+    } catch {
+      // ignore
+    }
+    setPreTournamentInfoOpen(false);
+  };
+
+  const acknowledgeRosterChangeNotices = async () => {
+    const ids = rosterChangeNotices.map((notice) => notice.id);
+    setRosterChangeNotices([]);
+    await markFantaRosterChangeNoticesSeen(ids);
+  };
+
   const renderShellHero = () => (
     <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-slate-900 p-4 text-white shadow-xl md:rounded-[30px] md:p-7">
       <div className="pointer-events-none absolute inset-0">
@@ -96,6 +154,11 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
             {shellResultsOnly && (
               <p className="mt-3 max-w-2xl rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm font-black leading-6 text-amber-50">
                 {t('fanta_results_only_desc')}
+              </p>
+            )}
+            {shellPreTournament && (
+              <p className="mt-3 max-w-2xl rounded-2xl border border-beer-300/25 bg-beer-300/10 px-4 py-3 text-sm font-black leading-6 text-beer-50">
+                Fase Pretorneo: puoi creare la squadra Fanta usando i giocatori già inseriti in Area Admin. Quando verrà generato il tabellone, questa edizione prenderà il nome del torneo reale.
               </p>
             )}
           </div>
@@ -190,6 +253,45 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
   return (
     <div className="space-y-6 animate-fade-in">
       {renderShellHero()}
+
+      {preTournamentInfoOpen && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/60 px-4 py-6">
+          <div className="w-full max-w-lg rounded-[28px] border border-white/20 bg-white p-6 shadow-2xl shadow-slate-950/30">
+            <div className="inline-flex rounded-full border border-beer-200 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-800">Pretorneo Fanta</div>
+            <h2 className="mt-4 text-2xl font-black tracking-tight text-slate-950">Puoi iniziare prima del tabellone</h2>
+            <p className="mt-3 text-sm font-bold leading-6 text-slate-600">
+              In questa fase scegli tra i giocatori già caricati in Area Admin. Se una squadra cambia giocatore, il nuovo giocatore prende quello slot. Se una squadra viene rimossa, il sistema assegna un sostituto casuale appena il pool è sufficiente.
+            </p>
+            <button type="button" onClick={closePreTournamentInfo} className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black uppercase tracking-wide text-white transition hover:bg-slate-800">
+              Ok, ho capito
+            </button>
+          </div>
+        </div>
+      )}
+
+      {rosterChangeNotices.length > 0 && (
+        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 px-4 py-6">
+          <div className="w-full max-w-lg rounded-[28px] border border-white/20 bg-white p-6 shadow-2xl shadow-slate-950/30">
+            <div className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-sky-800">Rosa aggiornata</div>
+            <h2 className="mt-4 text-2xl font-black tracking-tight text-slate-950">Abbiamo sostituito un giocatore</h2>
+            <div className="mt-4 space-y-3">
+              {rosterChangeNotices.map((notice) => (
+                <div key={notice.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="text-sm font-black text-slate-950">{notice.oldPlayerName}</div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-400">sostituito da</div>
+                  <div className="text-sm font-black text-emerald-700">{notice.newPlayerName}</div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-sm font-bold leading-6 text-slate-600">
+              La tua squadra Fanta resta valida: la sostituzione è stata registrata automaticamente.
+            </p>
+            <button type="button" onClick={() => void acknowledgeRosterChangeNotices()} className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black uppercase tracking-wide text-white transition hover:bg-slate-800">
+              Ok
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="sticky top-2 z-30 rounded-[22px] border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:rounded-[26px] md:p-3">
         <div className="flex max-w-full snap-x flex-nowrap gap-2 overflow-x-auto pb-1" role="toolbar" aria-label={t('fanta_shell_title')}>
