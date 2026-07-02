@@ -427,6 +427,23 @@ const fetchFantaConfigFresh = async (
     configured?.active_tournament_id ? fetchTournamentSummary(cfg, configured.active_tournament_id) : Promise.resolve(null),
     fetchLatestLiveTournament(cfg),
   ]);
+  const configuredTournamentId = String(configured?.active_tournament_id || '').trim();
+  const configuredConcreteTournament = configuredTournamentId && configuredTournamentId !== FANTA_PRE_TOURNAMENT_ID;
+  if (configuredConcreteTournament && !liveTournament && (configuredTournament?.status === 'archived' || !configuredTournament)) {
+    return {
+      activeTournamentId: configuredTournamentId,
+      activeTournamentName: configuredTournament?.name || 'Torneo concluso',
+      fantaEnabled: true,
+      activeTournamentResultsOnly: false,
+      isLockActive: true,
+      registrationOpen: false,
+      registrationOpenFlag: false,
+      manualLockActive: true,
+      tournamentStarted: true,
+      lockReason: 'tournament_archived',
+      updatedAt: configuredTournament?.updated_at || configured?.updated_at,
+    };
+  }
   const activeTournament = configuredTournament?.status === 'live' ? configuredTournament : liveTournament;
   const activeTournamentId = activeTournament?.id || '';
   if (!activeTournamentId) {

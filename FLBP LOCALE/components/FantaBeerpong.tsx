@@ -37,6 +37,7 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
   const shellResultsOnly = Boolean(shellConfig?.activeTournamentResultsOnly);
   const shellPreTournament = Boolean(shellConfig?.isPreTournament);
   const shellFantaDisabled = shellConfig?.fantaEnabled === false || shellConfig?.lockReason === 'fanta_disabled';
+  const shellTournamentArchived = shellConfig?.lockReason === 'tournament_archived';
 
   React.useEffect(() => {
     let active = true;
@@ -162,6 +163,11 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
                 FantaBeerpong non è attivo. Gli organizzatori possono abilitarlo dalla sezione Squadre in Area Admin.
               </p>
             )}
+            {shellTournamentArchived && (
+              <p className="mt-3 max-w-2xl rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-black leading-6 text-white/85">
+                Il torneo Fanta è concluso e la modifica delle squadre è bloccata. Puoi consultare classifiche e dettagli nello storico FantaBeerpong.
+              </p>
+            )}
             {shellPreTournament && (
               <p className="mt-3 max-w-2xl rounded-2xl border border-beer-300/25 bg-beer-300/10 px-4 py-3 text-sm font-black leading-6 text-beer-50">
                 Fase Pretorneo: puoi creare la squadra Fanta usando i giocatori già inseriti in Area Admin. Quando verrà generato il tabellone, questa edizione prenderà il nome del torneo reale.
@@ -177,12 +183,15 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
     </div>
   );
 
-  if (!shellConfigLoaded || shellResultsOnly || shellFantaDisabled) {
+  if (!shellConfigLoaded || shellResultsOnly || shellFantaDisabled || shellTournamentArchived) {
     return (
       <div className="space-y-6 animate-fade-in">
         {renderShellHero()}
 
-        <div className={`rounded-[30px] border p-5 shadow-sm md:p-7 ${shellResultsOnly ? 'border-amber-200 bg-amber-50 text-amber-950' : shellFantaDisabled ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-200 bg-white text-slate-700'}`}>
+        {shellTournamentArchived && selectedHistoryEditionId ? (
+          <FantaHistoryEditionDetail editionId={selectedHistoryEditionId} onBack={() => setSelectedHistoryEditionId(null)} />
+        ) : (
+        <div className={`rounded-[30px] border p-5 shadow-sm md:p-7 ${shellResultsOnly ? 'border-amber-200 bg-amber-50 text-amber-950' : shellFantaDisabled || shellTournamentArchived ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-200 bg-white text-slate-700'}`}>
           {shellResultsOnly ? (
             <>
               <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-emerald-700">
@@ -201,10 +210,24 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
                 Il FantaBeerpong viene aperto dagli organizzatori dalla sezione Squadre. Quando sarà attivo, qui compariranno iscrizione, rosa e classifiche.
               </p>
             </>
+          ) : shellTournamentArchived ? (
+            <>
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-slate-700">
+                Fanta bloccato
+              </div>
+              <h2 className="mt-4 text-2xl font-black tracking-tight text-slate-950">Torneo Fanta concluso</h2>
+              <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-slate-700">
+                La fase attiva è chiusa: non è più possibile creare o modificare squadre Fanta per questo torneo. Lo storico resta consultabile qui sotto.
+              </p>
+              <div className="mt-6">
+                <FantaHistorySection onOpenRules={() => setActiveSection('rules')} onOpenEditionDetail={(editionId) => setSelectedHistoryEditionId(editionId)} />
+              </div>
+            </>
           ) : (
             <div className="h-24 animate-pulse rounded-2xl bg-slate-100" aria-label="FantaBeerpong" />
           )}
         </div>
+        )}
       </div>
     );
   }
