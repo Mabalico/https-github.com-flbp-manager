@@ -3193,6 +3193,20 @@ export const promoteFantaPretournamentToTournament = async (
     return await res.json() as FantaPretournamentSyncResult;
 };
 
+export const hasFantaPretournamentTeams = async (): Promise<boolean> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return false;
+    const res = await fetchWithTimeout(
+        restUrl(cfg, `fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.__pre_tournament__&select=id&limit=1`),
+        { headers: buildHeaders(cfg) },
+        4000,
+        { source: 'hasFantaPretournamentTeams', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) && rows.length > 0;
+};
+
 export const archiveFantaTournamentEdition = async (tournamentId: string): Promise<ArchiveFantaTournamentEditionResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');

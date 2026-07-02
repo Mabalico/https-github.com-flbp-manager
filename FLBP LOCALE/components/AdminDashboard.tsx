@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -2720,7 +2720,15 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         newState.tournamentMatches = draft.m;
         
         setState(newState);
-        if (fantaPretournamentEnabled && !draftResultsOnly) {
+        let shouldPromoteFantaPretournament = fantaPretournamentEnabled && !draftResultsOnly;
+        if (!shouldPromoteFantaPretournament && !draftResultsOnly) {
+            try {
+                shouldPromoteFantaPretournament = await hasFantaPretournamentTeams();
+            } catch (error) {
+                console.warn('Controllo rose Fanta pretorneo non completato', error);
+            }
+        }
+        if (shouldPromoteFantaPretournament && !draftResultsOnly) {
             setFantaSyncFeedback({ tone: 'info', message: 'Collegamento rose Fanta al torneo live in corso...' });
             try {
                 await pushPublicWorkspaceState(newState);

@@ -286,25 +286,29 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
       )}
 
       {rosterChangeNotices.length > 0 && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/60 px-4 py-6">
-          <div className="w-full max-w-lg rounded-[28px] border border-white/20 bg-white p-6 shadow-2xl shadow-slate-950/30">
-            <div className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-sky-800">Rosa aggiornata</div>
-            <h2 className="mt-4 text-2xl font-black tracking-tight text-slate-950">Abbiamo sostituito un giocatore</h2>
-            <div className="mt-4 space-y-3">
-              {rosterChangeNotices.map((notice) => (
-                <div key={notice.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-sm font-black text-slate-950">{notice.oldPlayerName}</div>
-                  <div className="text-xs font-bold uppercase tracking-wide text-slate-400">sostituito da</div>
-                  <div className="text-sm font-black text-emerald-700">{notice.newPlayerName}</div>
-                </div>
-              ))}
+        <div className="fixed inset-0 z-[96] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-4 sm:items-center sm:py-6">
+          <div className="my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl shadow-slate-950/30">
+            <div className="min-h-0 overflow-y-auto p-6">
+              <div className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-sky-800">Rosa aggiornata</div>
+              <h2 className="mt-4 text-2xl font-black tracking-tight text-slate-950">Abbiamo sostituito un giocatore</h2>
+              <div className="mt-4 space-y-3">
+                {rosterChangeNotices.map((notice) => (
+                  <div key={notice.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-sm font-black text-slate-950">{notice.oldPlayerName}</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-400">sostituito da</div>
+                    <div className="text-sm font-black text-emerald-700">{notice.newPlayerName}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 text-sm font-bold leading-6 text-slate-600">
+                La tua squadra Fanta resta valida: la sostituzione è stata registrata automaticamente.
+              </p>
             </div>
-            <p className="mt-4 text-sm font-bold leading-6 text-slate-600">
-              La tua squadra Fanta resta valida: la sostituzione è stata registrata automaticamente.
-            </p>
-            <button type="button" onClick={() => void acknowledgeRosterChangeNotices()} className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black uppercase tracking-wide text-white transition hover:bg-slate-800">
-              Ok
-            </button>
+            <div className="border-t border-slate-200 bg-white p-4">
+              <button type="button" onClick={() => void acknowledgeRosterChangeNotices()} className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black uppercase tracking-wide text-white transition hover:bg-slate-800">
+                Ok
+              </button>
+            </div>
           </div>
         </div>
       )}
