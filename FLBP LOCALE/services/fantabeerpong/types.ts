@@ -166,10 +166,25 @@ export interface FantaArchivedPlayerRow {
   bonusScia: number;
 }
 
+export interface FantaArchivedTeamPlayerRow {
+  teamId: string;
+  playerId: string;
+  playerName: string;
+  realTeamName: string;
+  role: FantaRosterRole;
+  status?: string | null;
+  totalPoints: number;
+  goals: number;
+  blows: number;
+  wins: number;
+  bonusScia: number;
+}
+
 export interface FantaArchivedEditionDetail {
   edition: FantaArchivedEdition;
   standings: FantaArchivedStandingRow[];
   topPlayers: FantaArchivedPlayerRow[];
+  teamPlayers: FantaArchivedTeamPlayerRow[];
 }
 
 export interface FantaBuilderPlayerOption { id: string; playerName: string; realTeamName: string; realTeamId?: string; realTeamSlot?: 'player1' | 'player2'; status: FantaPlayerAvailability; trend: FantaTrend; note: string; }

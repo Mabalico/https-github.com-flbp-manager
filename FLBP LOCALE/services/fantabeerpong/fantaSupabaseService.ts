@@ -3,6 +3,7 @@ import type {
   FantaArchivedEditionDetail,
   FantaArchivedPlayerRow,
   FantaArchivedStandingRow,
+  FantaArchivedTeamPlayerRow,
   FantaBuilderTeamGroup,
   FantaConfig,
   FantaLineupSlot,
@@ -188,6 +189,29 @@ interface SupabaseFantaArchivedPlayerRow {
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
+  bonus_scia?: number | null;
+}
+
+interface SupabaseFantaRosterLiveRow {
+  workspace_id?: string | null;
+  tournament_id?: string | null;
+  team_id?: string | null;
+  team_name?: string | null;
+  user_id?: string | null;
+  player_id?: string | null;
+  player_name?: string | null;
+  real_team_id?: string | null;
+  real_team_name?: string | null;
+  role?: FantaLineupSlot['role'] | null;
+  raw_goals?: number | null;
+  raw_blows?: number | null;
+  raw_wins?: number | null;
+  status?: string | null;
+  total_points?: number | null;
+  points_from_goals?: number | null;
+  points_from_blows?: number | null;
+  points_from_wins?: number | null;
+  points_from_scia?: number | null;
   bonus_scia?: number | null;
 }
 
@@ -763,13 +787,33 @@ const hasMeaningfulArchivedPlayers = (rows: SupabaseFantaArchivedPlayerRow[]): b
     || Number(row.bonus_scia || 0) > 0
   );
 
+const mapArchivedTeamPlayerRow = (row: Partial<SupabaseFantaRosterLiveRow>): FantaArchivedTeamPlayerRow | null => {
+  const teamId = String(row.team_id || '').trim();
+  const playerName = String(row.player_name || '').trim();
+  if (!teamId || !playerName) return null;
+  const playerId = String(row.player_id || getPlayerKey(playerName, 'ND')).trim() || getPlayerKey(playerName, 'ND');
+  return {
+    teamId,
+    playerId,
+    playerName,
+    realTeamName: String(row.real_team_name || 'N/D').trim() || 'N/D',
+    role: row.role === 'captain' || row.role === 'defender' ? row.role : 'starter',
+    status: row.status || null,
+    totalPoints: row.total_points || 0,
+    goals: row.points_from_goals || 0,
+    blows: row.points_from_blows || 0,
+    wins: row.points_from_wins || 0,
+    bonusScia: row.points_from_scia || row.bonus_scia || 0,
+  };
+};
+
 export const fetchFantaArchivedEditionDetail = async (
   tournamentId: string,
 ): Promise<FantaArchivedEditionDetail | null> => {
   const cfg = getSupabaseConfig();
   if (!cfg || !tournamentId) return null;
 
-  const [snapshotEditionRows, snapshotStandingsRows, snapshotPlayerRows] = await Promise.all([
+  const [snapshotEditionRows, snapshotStandingsRows, snapshotPlayerRows, rosterRows] = await Promise.all([
     fetchJson<SupabaseFantaArchivedEditionRow[]>(
       `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&limit=1`,
       buildHeaders(cfg),
@@ -785,11 +829,19 @@ export const fetchFantaArchivedEditionDetail = async (
       buildHeaders(cfg),
       'fetchFantaArchivedPlayerSnapshotDetail',
     ),
+    fetchJson<SupabaseFantaRosterLiveRow[]>(
+      `${restUrl(cfg, 'fanta_roster_live_rows')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=team_name.asc,role.asc,player_name.asc`,
+      buildHeaders(cfg),
+      'fetchFantaArchivedRosterRowsDetail',
+    ),
   ]);
 
   const snapshotEdition = snapshotEditionRows?.[0] ? buildArchivedEditionFromSnapshot(snapshotEditionRows[0]) : null;
   const snapshotStandings = snapshotStandingsRows || [];
   const snapshotPlayers = snapshotPlayerRows || [];
+  const snapshotTeamPlayers = (rosterRows || [])
+    .map(mapArchivedTeamPlayerRow)
+    .filter((row): row is FantaArchivedTeamPlayerRow => Boolean(row));
   const snapshotHasUsefulScores = Boolean(
     snapshotStandings.length
     && (hasMeaningfulArchivedStandings(snapshotStandings) || hasMeaningfulArchivedPlayers(snapshotPlayers))
@@ -820,6 +872,7 @@ export const fetchFantaArchivedEditionDetail = async (
         wins: row.points_from_wins || 0,
         bonusScia: row.bonus_scia || 0,
       })),
+      teamPlayers: snapshotTeamPlayers,
     };
   }
 
@@ -833,11 +886,15 @@ export const fetchFantaArchivedEditionDetail = async (
 
   let resolvedStandingsRows = standingsRows;
   let resolvedPlayerRows = playerRows;
+  let resolvedTeamPlayers = snapshotTeamPlayers;
   if (!standingsRows.length || !hasMeaningfulFantaStandings(standingsRows)) {
     const fallback = await fetchComputedFantaFallback(cfg, tournamentId);
     if (fallback.standings.length && (!standingsRows.length || fallback.hasLiveProgress)) {
       resolvedStandingsRows = fallback.standings;
       resolvedPlayerRows = fallback.players;
+      resolvedTeamPlayers = fallback.rosterRows
+        .map(mapArchivedTeamPlayerRow)
+        .filter((row): row is FantaArchivedTeamPlayerRow => Boolean(row));
     }
   }
 
@@ -881,7 +938,7 @@ export const fetchFantaArchivedEditionDetail = async (
       bonusScia: row.bonus_scia || 0,
     }));
 
-  return { edition, standings, topPlayers };
+  return { edition, standings, topPlayers, teamPlayers: resolvedTeamPlayers };
 };
 
 const fetchUserFantaTeamForTournament = async (

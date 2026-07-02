@@ -63,6 +63,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const session = readPlayerPresenceSnapshot();
   const personalRow = session?.accountId ? data.standings.find((row) => row.userId === session.accountId) : null;
   const selectedTeam = selectedTeamId ? data.standings.find((row) => row.teamId === selectedTeamId) : null;
+  const selectedTeamPlayers = selectedTeamId ? data.teamPlayers.filter((row) => row.teamId === selectedTeamId) : [];
   const selectedPlayer = selectedPlayerId ? data.topPlayers.find((row) => row.playerId === selectedPlayerId) : null;
   const openTeamDetail = (teamId: string) => {
     setSelectedTeamId(teamId);
@@ -76,6 +77,13 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   };
 
   if (detailView === 'team' && selectedTeam) {
+    const roleLabel = (role: string) => {
+      if (role === 'captain') return 'Capitano';
+      if (role === 'defender') return 'Difensore';
+      return 'Giocatore';
+    };
+    const statusLabel = (status?: string | null) => status === 'eliminated' ? 'Eliminato' : 'In gioco';
+
     return (
       <div className="space-y-5 animate-fade-in">
         <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-7">
@@ -108,6 +116,53 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_standings_wins')}</div><div className="mt-1 text-2xl font-black text-slate-950">{selectedTeam.wins}</div></div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Giocatori in gioco</div><div className="mt-1 text-2xl font-black text-slate-950">{selectedTeam.playersInGame}</div></div>
           </div>
+        </div>
+
+        <div className={panelClass}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-xl font-black tracking-tight text-slate-950">Giocatori della squadra</div>
+              <p className="mt-1 text-sm font-bold leading-6 text-slate-500">Rosa archiviata con ruolo, squadra reale e punti finali.</p>
+            </div>
+            <div className="text-sm font-black uppercase tracking-wide text-slate-500">{selectedTeamPlayers.length}/4 giocatori</div>
+          </div>
+
+          {selectedTeamPlayers.length > 0 ? (
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              {selectedTeamPlayers.map((player) => (
+                <div key={`${player.teamId}-${player.playerId}`} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-black text-slate-950">{player.playerName}</div>
+                      <div className="mt-1 truncate text-xs font-bold uppercase tracking-tight text-slate-500">{player.realTeamName}</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${player.role === 'captain' ? 'border-amber-200 bg-amber-50 text-amber-700' : player.role === 'defender' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600'}`}>
+                          {roleLabel(player.role)}
+                        </span>
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${player.status === 'eliminated' ? 'border-slate-200 bg-white text-slate-500' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+                          {statusLabel(player.status)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_points_label')}</div>
+                      <div className="mt-1 text-2xl font-black text-slate-950">{player.totalPoints}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="text-sm font-black text-slate-950">{player.goals}</div></div>
+                    <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_blows')}</div><div className="text-sm font-black text-slate-950">{player.blows}</div></div>
+                    <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{player.wins}</div></div>
+                    <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{player.bonusScia}</div></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm font-bold text-slate-400">
+              La rosa archiviata non è disponibile per questa edizione.
+            </div>
+          )}
         </div>
       </div>
     );
