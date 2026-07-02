@@ -823,11 +823,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     });
 
     // Dentro "Integrazioni": Albo d'Oro (manuale) + Marcatori (import) + Alias (manutenzione)
-    const [integrationsSubTab, setIntegrationsSubTab] = useState<'hof'|'scorers'|'aliases'|'players'>(() => {
+    const [integrationsSubTab, setIntegrationsSubTab] = useState<'hof'|'scorers'|'aliases'|'players'|'fanta'>(() => {
         const raw = safeSessionGet('flbp_admin_integrations_subtab');
         if (raw === 'scorers') return 'scorers';
         if (raw === 'aliases') return 'aliases';
         if (raw === 'players') return 'players';
+        if (raw === 'fanta') return 'fanta';
         return 'hof';
     });
 

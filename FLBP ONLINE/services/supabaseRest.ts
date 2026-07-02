@@ -3229,6 +3229,133 @@ export type DeleteFantaTournamentDataResult = {
     };
 };
 
+export type FantaTournamentDataSummary = {
+    tournamentId: string;
+    tournamentName: string;
+    startDate?: string | null;
+    archivedEditions: number;
+    archivedStandings: number;
+    archivedPlayers: number;
+    fantaTeams: number;
+    publicTournamentExists: boolean;
+    totalRows: number;
+};
+
+const fetchFantaSummaryRows = async <T>(
+    cfg: SupabaseConfig,
+    path: string,
+    source: string,
+): Promise<T[]> => {
+    const res = await fetchWithTimeout(
+        restUrl(cfg, path),
+        { method: 'GET', headers: buildHeaders(cfg) },
+        8000,
+        { source, kind: 'sync' }
+    );
+    if (!res.ok) return [];
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) ? rows as T[] : [];
+};
+
+export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTournamentDataSummary[]> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return [];
+
+    const workspace = encodeURIComponent(cfg.workspaceId);
+    const [
+        editions,
+        standings,
+        players,
+        teams,
+        publicTournaments,
+    ] = await Promise.all([
+        fetchFantaSummaryRows<{ tournament_id?: string | null; tournament_name?: string | null; start_date?: string | null }>(
+            cfg,
+            `fanta_archived_editions?workspace_id=eq.${workspace}&select=tournament_id,tournament_name,start_date&limit=1000`,
+            'fetchFantaArchivedEditionSummaries'
+        ),
+        fetchFantaSummaryRows<{ tournament_id?: string | null }>(
+            cfg,
+            `fanta_archived_standings?workspace_id=eq.${workspace}&select=tournament_id&limit=5000`,
+            'fetchFantaArchivedStandingSummaries'
+        ),
+        fetchFantaSummaryRows<{ tournament_id?: string | null }>(
+            cfg,
+            `fanta_archived_players?workspace_id=eq.${workspace}&select=tournament_id&limit=5000`,
+            'fetchFantaArchivedPlayerSummaries'
+        ),
+        fetchFantaSummaryRows<{ tournament_id?: string | null; name?: string | null }>(
+            cfg,
+            `fanta_teams?workspace_id=eq.${workspace}&select=tournament_id,name&limit=5000`,
+            'fetchFantaTeamSummaries'
+        ),
+        fetchFantaSummaryRows<{ id?: string | null }>(
+            cfg,
+            `public_tournaments?workspace_id=eq.${workspace}&select=id&limit=5000`,
+            'fetchFantaPublicTournamentIds'
+        ),
+    ]);
+
+    const publicIds = new Set(publicTournaments.map((row) => String(row.id || '').trim()).filter(Boolean));
+    const byId = new Map<string, FantaTournamentDataSummary>();
+
+    const ensure = (rawId: unknown): FantaTournamentDataSummary | null => {
+        const tournamentId = String(rawId ?? '').trim();
+        if (!tournamentId) return null;
+        const current = byId.get(tournamentId) || {
+            tournamentId,
+            tournamentName: tournamentId === '__pre_tournament__' ? 'Pretorneo' : `Torneo ${tournamentId}`,
+            startDate: null,
+            archivedEditions: 0,
+            archivedStandings: 0,
+            archivedPlayers: 0,
+            fantaTeams: 0,
+            publicTournamentExists: publicIds.has(tournamentId),
+            totalRows: 0,
+        };
+        current.publicTournamentExists = publicIds.has(tournamentId);
+        byId.set(tournamentId, current);
+        return current;
+    };
+
+    editions.forEach((row) => {
+        const item = ensure(row.tournament_id);
+        if (!item) return;
+        item.archivedEditions += 1;
+        item.totalRows += 1;
+        const name = String(row.tournament_name || '').trim();
+        if (name) item.tournamentName = name;
+        if (row.start_date) item.startDate = row.start_date;
+    });
+    standings.forEach((row) => {
+        const item = ensure(row.tournament_id);
+        if (!item) return;
+        item.archivedStandings += 1;
+        item.totalRows += 1;
+    });
+    players.forEach((row) => {
+        const item = ensure(row.tournament_id);
+        if (!item) return;
+        item.archivedPlayers += 1;
+        item.totalRows += 1;
+    });
+    teams.forEach((row) => {
+        const item = ensure(row.tournament_id);
+        if (!item) return;
+        item.fantaTeams += 1;
+        item.totalRows += 1;
+    });
+
+    return Array.from(byId.values())
+        .filter((row) => row.totalRows > 0)
+        .sort((left, right) => {
+            const leftTime = left.startDate ? Date.parse(left.startDate) : 0;
+            const rightTime = right.startDate ? Date.parse(right.startDate) : 0;
+            if (rightTime !== leftTime) return rightTime - leftTime;
+            return left.tournamentName.localeCompare(right.tournamentName, 'it', { sensitivity: 'base' });
+        });
+};
+
 const deleteFantaRows = async (
     cfg: SupabaseConfig,
     accessToken: string,

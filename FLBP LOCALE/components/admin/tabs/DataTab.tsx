@@ -21,8 +21,8 @@ export interface DataTabProps {
     dataSubTab: 'archive' | 'integrations';
     setDataSubTab: (v: 'archive' | 'integrations') => void;
 
-    integrationsSubTab: 'hof' | 'scorers' | 'aliases' | 'players';
-    setIntegrationsSubTab: (v: 'hof' | 'scorers' | 'aliases' | 'players') => void;
+    integrationsSubTab: 'hof' | 'scorers' | 'aliases' | 'players' | 'fanta';
+    setIntegrationsSubTab: (v: 'hof' | 'scorers' | 'aliases' | 'players' | 'fanta') => void;
 
     // Alias globale
     aliasesSearch: string;

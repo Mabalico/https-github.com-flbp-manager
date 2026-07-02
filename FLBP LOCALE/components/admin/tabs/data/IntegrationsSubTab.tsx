@@ -5,6 +5,7 @@ import { IntegrationsHof } from './IntegrationsHof';
 import { IntegrationsScorers } from './IntegrationsScorers';
 import { IntegrationsAliases } from './IntegrationsAliases';
 import { PlayersSubTab } from './PlayersSubTab';
+import { IntegrationsFantaCleanup } from './IntegrationsFantaCleanup';
 
 export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
     const { integrationsSubTab, setIntegrationsSubTab, t } = props;
@@ -57,6 +58,16 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
                         </button>
                         <button type="button"
                             onClick={() => {
+                                setIntegrationsSubTab('fanta');
+                                try { sessionStorage.setItem('flbp_admin_integrations_subtab', 'fanta'); } catch {}
+                            }}
+                            className={`${tabBtnBase} ${integrationsSubTab === 'fanta' ? tabBtnActive : tabBtnInactive}`}
+                        >
+                            <Trophy className="w-4 h-4" />
+                            Fanta
+                        </button>
+                        <button type="button"
+                            onClick={() => {
                                 setIntegrationsSubTab('players');
                                 try { sessionStorage.setItem('flbp_admin_integrations_subtab', 'players'); } catch {}
                             }}
@@ -73,6 +84,8 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
                 <IntegrationsHof {...props} />
             ) : integrationsSubTab === 'scorers' ? (
                 <IntegrationsScorers {...props} />
+            ) : integrationsSubTab === 'fanta' ? (
+                <IntegrationsFantaCleanup {...props} />
             ) : integrationsSubTab === 'players' ? (
                 <PlayersSubTab {...props} />
             ) : (
