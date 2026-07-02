@@ -33,7 +33,7 @@ export const FantaQuickHelp: React.FC<Props> = ({ topics, onOpenRules, compact =
           {displayTitle}
         </div>
         <button type="button" onClick={onOpenRules} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2">
-          {t('admin_open_rules')}
+          {t('fanta_builder_open_rules')}
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
       </div>
