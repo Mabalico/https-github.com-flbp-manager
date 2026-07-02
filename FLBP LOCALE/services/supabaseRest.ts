@@ -3106,7 +3106,9 @@ export type ArchiveFantaTournamentEditionResult = {
 export type FantaPretournamentSyncResult = {
     ok: boolean;
     updated?: number | null;
+    promoted?: number | null;
     deferred?: number | null;
+    skipped?: number | boolean | null;
     eligibleTeams?: number | null;
     reason?: string | null;
 };

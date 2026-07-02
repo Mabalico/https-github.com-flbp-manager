@@ -2719,9 +2719,28 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         newState.tournamentMatches = draft.m;
         
         setState(newState);
-        void promoteFantaPretournamentToTournament(newState.tournament.id, newState.tournament).catch((error) => {
-            console.warn('Promozione Fanta pretorneo non completata', error);
-        });
+        if (fantaPretournamentEnabled && !draftResultsOnly) {
+            setFantaSyncFeedback({ tone: 'info', message: 'Collegamento rose Fanta al torneo live in corso...' });
+            try {
+                await pushPublicWorkspaceState(newState);
+            } catch (error) {
+                console.warn('Mirror pubblico non aggiornato prima della promozione Fanta', error);
+            }
+            try {
+                const result = await promoteFantaPretournamentToTournament(newState.tournament.id, newState.tournament);
+                const promoted = result.promoted ?? result.updated ?? 0;
+                setFantaSyncFeedback({
+                    tone: 'success',
+                    message: `Fanta collegato al torneo live: ${promoted} squadre promosse${result.skipped ? `, ${result.skipped} già presenti` : ''}.`,
+                });
+            } catch (error) {
+                console.warn('Promozione Fanta pretorneo non completata', error);
+                setFantaSyncFeedback({
+                    tone: 'error',
+                    message: 'Rose Fanta non collegate al torneo live. Riprova dal pulsante Fanta in Squadre prima di iniziare le partite.',
+                });
+            }
+        }
         setDraft(null);
         setTab('codes');
         alert(t('alert_live_started'));

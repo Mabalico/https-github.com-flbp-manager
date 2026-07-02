@@ -856,9 +856,14 @@ export const fetchUserFantaTeam = async (
   const config = await fetchFantaConfig();
   if (config?.fantaEnabled === false || config?.activeTournamentResultsOnly) return null;
 
+  const shouldFallbackToPretournament =
+    !!config
+    && !config.isPreTournament
+    && !config.activeTournamentResultsOnly
+    && !config.tournamentStarted;
   const candidateTournamentIds = [
     config?.activeTournamentId || '',
-    (!config?.activeTournamentId || config?.isPreTournament) ? FANTA_PRE_TOURNAMENT_ID : '',
+    (!config?.activeTournamentId || config?.isPreTournament || shouldFallbackToPretournament) ? FANTA_PRE_TOURNAMENT_ID : '',
   ].filter((id, index, ids) => id && ids.indexOf(id) === index);
 
   for (const tournamentId of candidateTournamentIds) {
