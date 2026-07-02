@@ -31,6 +31,12 @@ interface SupabaseFantaTeam {
   created_at: string;
 }
 
+interface SupabaseFantaTeamOwnerLabel {
+  team_id: string;
+  user_id?: string | null;
+  owner_name?: string | null;
+}
+
 interface SupabaseTournamentSummary {
   id: string;
   name: string;
@@ -113,6 +119,7 @@ interface SupabaseFantaStanding {
   team_id: string;
   team_name: string;
   user_id?: string | null;
+  owner_name?: string | null;
   live_points?: number | null;
   total_points?: number | null;
   points_from_goals?: number | null;
@@ -304,6 +311,45 @@ const fetchJson = async <T>(
   } catch {
     return null;
   }
+};
+
+const cleanFantaOwnerName = (value: unknown): string | null => {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  return text || null;
+};
+
+const fetchFantaOwnerLabelMap = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  teamIds: string[],
+): Promise<Map<string, string>> => {
+  const uniqueTeamIds = Array.from(new Set(teamIds.map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!uniqueTeamIds.length) return new Map();
+
+  const rows = await fetchJson<SupabaseFantaTeamOwnerLabel[]>(
+    `${restUrl(cfg, 'fanta_team_owner_labels')}?workspace_id=eq.${encode(cfg.workspaceId)}&team_id=in.(${uniqueTeamIds.map(encode).join(',')})&select=team_id,owner_name`,
+    buildHeaders(cfg),
+    'fetchFantaOwnerLabels',
+  ) || [];
+
+  const labels = new Map<string, string>();
+  rows.forEach((row) => {
+    const ownerName = cleanFantaOwnerName(row.owner_name);
+    if (row.team_id && ownerName) labels.set(row.team_id, ownerName);
+  });
+  return labels;
+};
+
+const withFantaOwnerLabels = async <T extends { team_id?: string | null; owner_name?: string | null }>(
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  rows: T[],
+): Promise<T[]> => {
+  if (!rows.length) return rows;
+  const labels = await fetchFantaOwnerLabelMap(cfg, rows.map((row) => row.team_id || ''));
+  if (!labels.size) return rows;
+  return rows.map((row) => {
+    const ownerName = cleanFantaOwnerName(row.owner_name) || labels.get(String(row.team_id || ''));
+    return ownerName ? { ...row, owner_name: ownerName } : row;
+  });
 };
 
 const readRpcStringResult = async (res: Response): Promise<string> => {
@@ -1200,6 +1246,7 @@ const fetchComputedFantaFallbackFresh = async (
         team_id: team.id,
         team_name: team.name,
         user_id: team.user_id,
+        owner_name: null,
         player_id: roster.player_id,
         player_name: playerName,
         real_team_id: realTeamId || null,
@@ -1249,6 +1296,7 @@ const fetchComputedFantaFallbackFresh = async (
       team_id: team.id,
       team_name: team.name,
       user_id: team.user_id,
+      owner_name: null,
       total_points: totalPoints,
       live_points: livePoints,
       points_from_goals: pointsFromGoals,
@@ -1330,13 +1378,13 @@ export const fetchFantaStandings = async (): Promise<any[]> => {
     'fetchFantaStandings',
   ) || [];
 
-  if (rows.length && hasMeaningfulFantaStandings(rows)) return rows;
+  if (rows.length && hasMeaningfulFantaStandings(rows)) return await withFantaOwnerLabels(cfg, rows);
 
   const fallback = await fetchComputedFantaFallback(cfg, config.activeTournamentId);
   if (fallback.standings.length && (!rows.length || fallback.hasLiveProgress)) {
-    return fallback.standings.sort(compareFantaStandings);
+    return await withFantaOwnerLabels(cfg, fallback.standings.sort(compareFantaStandings));
   }
-  return rows;
+  return await withFantaOwnerLabels(cfg, rows);
 };
 
 export const fetchFantaPlayerStandings = async (): Promise<any[]> => {
@@ -1375,7 +1423,7 @@ export const fetchFantaTeamDetail = async (teamId: string): Promise<any[]> => {
     'fetchFantaTeamDetail',
   ) || [];
 
-  if (rows.length && hasMeaningfulFantaRosterRows(rows)) return rows;
+  if (rows.length && hasMeaningfulFantaRosterRows(rows)) return await withFantaOwnerLabels(cfg, rows);
 
   const config = await fetchFantaConfig();
   if (!config?.activeTournamentId || config.activeTournamentResultsOnly) return rows;
@@ -1388,8 +1436,8 @@ export const fetchFantaTeamDetail = async (teamId: string): Promise<any[]> => {
       || String(left.player_name || '').localeCompare(String(right.player_name || ''), 'it', { sensitivity: 'base' })
     );
 
-  if (fallbackRows.length && (!rows.length || fallback.hasLiveProgress)) return fallbackRows;
-  return rows;
+  if (fallbackRows.length && (!rows.length || fallback.hasLiveProgress)) return await withFantaOwnerLabels(cfg, fallbackRows);
+  return await withFantaOwnerLabels(cfg, rows);
 };
 
 export const fetchFantaPlayerContributions = async (playerId: string): Promise<any[]> => {

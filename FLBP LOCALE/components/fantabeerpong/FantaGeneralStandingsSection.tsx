@@ -22,6 +22,14 @@ const trendBadgeClass = (trend: FantaGeneralStandingsRow['trend']) =>
 const trendLabel = (t: (k: string) => string, trend: FantaGeneralStandingsRow['trend']) =>
   trend === 'up' ? t('fanta_standings_trend_up') : trend === 'down' ? t('fanta_standings_trend_down') : t('fanta_standings_trend_steady');
 
+const formatOwnerLabel = (item: any, isMine: boolean) => {
+  const ownerName = String(item.owner_name || '').trim().replace(/\s+/g, ' ');
+  if (ownerName) return `Proprietario: ${ownerName}${isMine ? ' (tu)' : ''}`;
+  if (isMine) return 'Proprietario: tu';
+  const fallbackCode = String(item.user_id || '').trim().slice(0, 8).toUpperCase();
+  return fallbackCode ? `Proprietario: ${fallbackCode}` : 'Proprietario: non disponibile';
+};
+
 export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, onOpenPlayers, onOpenTeamDetail }) => {
   const { t } = useTranslation();
   const [rows, setRows] = React.useState<FantaGeneralStandingsRow[]>([]);
@@ -64,25 +72,28 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
           return (right.points_from_goals || 0) - (left.points_from_goals || 0);
         });
         const leaderPoints = ordered[0]?.total_points || 0;
-        const mapped: FantaGeneralStandingsRow[] = ordered.map((item, index) => ({
-          id: item.team_id,
-          rank: index + 1,
-          teamName: item.team_name,
-          ownerLabel: item.user_id === session?.accountId ? t('fanta_your_team') : (item.user_id?.slice(0, 8) || t('fanta_players_status_waiting')),
-          totalPoints: item.total_points || 0,
-          livePoints: item.live_points || item.total_points || 0,
-          gapFromLeader: Math.max(0, leaderPoints - (item.total_points || 0)),
-          goals: item.points_from_goals || 0,
-          blows: item.points_from_blows || 0,
-          wins: item.points_from_wins || 0,
-          bonusScia: item.bonus_scia || 0,
-          playersInGame: item.players_in_game || 0,
-          captainName: item.captain_name || 'N/D',
-          defendersCount: item.defenders_count || 0,
-          statusLabel: item.status_label || t('fanta_standings_live'),
-          trend: 'steady',
-          isMine: item.user_id === session?.accountId,
-        }));
+        const mapped: FantaGeneralStandingsRow[] = ordered.map((item, index) => {
+          const isMine = item.user_id === session?.accountId;
+          return {
+            id: item.team_id,
+            rank: index + 1,
+            teamName: item.team_name,
+            ownerLabel: formatOwnerLabel(item, isMine),
+            totalPoints: item.total_points || 0,
+            livePoints: item.live_points || item.total_points || 0,
+            gapFromLeader: Math.max(0, leaderPoints - (item.total_points || 0)),
+            goals: item.points_from_goals || 0,
+            blows: item.points_from_blows || 0,
+            wins: item.points_from_wins || 0,
+            bonusScia: item.bonus_scia || 0,
+            playersInGame: item.players_in_game || 0,
+            captainName: item.captain_name || 'N/D',
+            defendersCount: item.defenders_count || 0,
+            statusLabel: item.status_label || t('fanta_standings_live'),
+            trend: 'steady',
+            isMine,
+          };
+        });
         setRows(mapped);
       } finally {
         setLoading(false);
@@ -169,7 +180,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                     <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-black ${row.rank === 1 ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>#{row.rank}</span>
                     <div className="min-w-0">
                       <div className="truncate text-base font-black text-slate-950">{row.teamName}</div>
-                      <div className="truncate text-[11px] font-bold uppercase tracking-tight text-slate-500">{row.ownerLabel}</div>
+                      <div className="truncate text-[11px] font-extrabold text-slate-500">{row.ownerLabel}</div>
                     </div>
                   </div>
                   {row.isMine && <span className="mt-3 inline-flex rounded-md border border-beer-200 bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</span>}
@@ -225,7 +236,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                     <td className={tdPad}>
                       <button type="button" onClick={() => onOpenTeamDetail?.(row.id)} className="w-full rounded-xl text-left transition hover:text-beer-700">
                         <div className="flex items-center gap-2">
-                          <div className="min-w-0"><div className="truncate text-base font-black text-slate-950">{row.teamName}</div><div className="text-[11px] font-bold text-slate-500 uppercase tracking-tight">{row.ownerLabel}</div></div>
+                          <div className="min-w-0"><div className="truncate text-base font-black text-slate-950">{row.teamName}</div><div className="text-[11px] font-extrabold text-slate-500">{row.ownerLabel}</div></div>
                           {row.isMine && <span className="inline-flex rounded-md border border-beer-200 bg-beer-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</span>}
                         </div>
                       </button>

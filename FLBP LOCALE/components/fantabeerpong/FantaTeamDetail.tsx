@@ -11,6 +11,13 @@ const statusBadgeClass = (status: 'live' | 'eliminated' | 'waiting') =>
 const statusLabel = (t: (key: string) => string, status: 'live' | 'eliminated' | 'waiting') =>
   status === 'eliminated' ? t('fanta_players_status_eliminated') : t('fanta_players_status_live');
 
+const formatOwnerLabel = (row: any) => {
+  const ownerName = String(row?.owner_name || '').trim().replace(/\s+/g, ' ');
+  if (ownerName) return `Proprietario squadra: ${ownerName}`;
+  const fallbackCode = String(row?.user_id || '').trim().slice(0, 8).toUpperCase();
+  return fallbackCode ? `Proprietario squadra: ${fallbackCode}` : '';
+};
+
 interface Props {
   teamId: string;
   onBack: () => void;
@@ -41,6 +48,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
         
         setData({
           teamName,
+          ownerLabel: formatOwnerLabel(rows[0]),
           note: t('fanta_team_detail_note').replace('{name}', teamName),
           summaryCards: [
             { id: 'c1', label: t('fanta_players_label_points'), value: totalPoints.toString(), hint: t('fanta_team_detail_roles_hint') },
@@ -103,6 +111,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full border border-beer-100 bg-beer-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-beer-700"><Shield className="h-3.5 w-3.5" />{t('fanta_team_detail_badge')}</div>
             <h1 className="mt-3 truncate text-2xl font-black tracking-tight text-slate-950 sm:text-3xl md:max-w-xl md:text-4xl">{data.teamName}</h1>
+            {data.ownerLabel && <div className="mt-2 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">{data.ownerLabel}</div>}
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.note}</div>
           </div>
           <button type="button" onClick={onBack} className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 md:w-auto"><ArrowLeft className="h-4 w-4" />{t('back')}</button>
