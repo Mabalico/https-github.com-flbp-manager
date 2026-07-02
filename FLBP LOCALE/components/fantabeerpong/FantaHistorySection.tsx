@@ -1,16 +1,15 @@
 import React from 'react';
-import { ArrowRight, History, Loader2, Trophy } from 'lucide-react';
+import { ArrowRight, History, Loader2 } from 'lucide-react';
 import { useTranslation } from '../../App';
 import { fetchFantaArchivedEditions } from '../../services/fantabeerpong/fantaSupabaseService';
 import { panelClass } from './_shared';
 
 interface Props {
   onOpenRules: () => void;
-  onOpenStandings: () => void;
   onOpenEditionDetail?: (editionId: string) => void;
 }
 
-export const FantaHistorySection: React.FC<Props> = ({ onOpenRules, onOpenStandings, onOpenEditionDetail }) => {
+export const FantaHistorySection: React.FC<Props> = ({ onOpenRules, onOpenEditionDetail }) => {
   const { t } = useTranslation();
   const [editions, setEditions] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -47,10 +46,6 @@ export const FantaHistorySection: React.FC<Props> = ({ onOpenRules, onOpenStandi
               {t('fanta_history_subtitle')}
             </div>
           </div>
-          <button type="button" onClick={onOpenStandings} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600">
-            <Trophy className="h-4 w-4" />
-            {t('fanta_shell_standings_short')}
-          </button>
         </div>
       </div>
 
@@ -127,18 +122,11 @@ export const FantaHistorySection: React.FC<Props> = ({ onOpenRules, onOpenStandi
 
       <div className={panelClass}>
         <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_rules_destinations_title')}</div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 grid gap-3">
           <button type="button" onClick={onOpenRules} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left font-semibold transition-all hover:bg-white hover:shadow-md">
             <div>
               <div className="text-sm font-black text-slate-950">{t('fanta_history_dest_rules')}</div>
               <div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_history_dest_rules_desc')}</div>
-            </div>
-            <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-          <button type="button" onClick={onOpenStandings} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left font-semibold transition-all hover:bg-white hover:shadow-md">
-            <div>
-              <div className="text-sm font-black text-slate-950">{t('fanta_history_dest_standings')}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_history_dest_standings_desc')}</div>
             </div>
             <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
           </button>

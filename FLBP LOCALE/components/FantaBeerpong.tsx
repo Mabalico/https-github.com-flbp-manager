@@ -262,7 +262,7 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
         return <FantaRulesSection onOpenMyTeam={() => setActiveSection('my_team')} onOpenStandings={() => setActiveSection('general_standings')} onOpenHistory={() => setActiveSection('history')} />;
       case 'history':
       default:
-        return <FantaHistorySection onOpenRules={() => setActiveSection('rules')} onOpenStandings={() => setActiveSection('general_standings')} onOpenEditionDetail={(editionId) => setSelectedHistoryEditionId(editionId)} />;
+        return <FantaHistorySection onOpenRules={() => setActiveSection('rules')} onOpenEditionDetail={(editionId) => setSelectedHistoryEditionId(editionId)} />;
     }
   };
 
