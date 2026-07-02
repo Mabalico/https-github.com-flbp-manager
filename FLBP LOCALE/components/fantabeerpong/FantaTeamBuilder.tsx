@@ -431,7 +431,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
               </div>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[10px] font-black uppercase tracking-wide">
-              <div className={`rounded-xl border px-2 py-2 ${selectedIds.length === 4 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{t('fanta_players_count', { count: selectedIds.length })}</div>
+              <div className={`rounded-xl border px-2 py-2 ${selectedIds.length === 4 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{selectedIds.length}/4 {t('fanta_shell_players_short')}</div>
               <div className={`rounded-xl border px-2 py-2 ${captainId ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{t('fanta_role_captain')}</div>
               <div className={`rounded-xl border px-2 py-2 ${defenderIds.length === 2 ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>2 {t('fanta_role_defender')}</div>
             </div>

@@ -1365,6 +1365,14 @@ const hasMeaningfulFantaRosterRows = (rows: any[]): boolean =>
     || toNumber(row.bonus_scia) > 0
   );
 
+const shouldUsePretournamentReadFallback = (config: FantaConfig | null | undefined): boolean =>
+  Boolean(
+    config?.activeTournamentId
+    && config.activeTournamentId !== FANTA_PRE_TOURNAMENT_ID
+    && !config.activeTournamentResultsOnly
+    && !config.tournamentStarted
+  );
+
 export const fetchFantaStandings = async (): Promise<any[]> => {
   const cfg = getSupabaseConfig();
   if (!cfg) return [];
@@ -1384,6 +1392,14 @@ export const fetchFantaStandings = async (): Promise<any[]> => {
   if (fallback.standings.length && (!rows.length || fallback.hasLiveProgress)) {
     return await withFantaOwnerLabels(cfg, fallback.standings.sort(compareFantaStandings));
   }
+
+  if (!rows.length && shouldUsePretournamentReadFallback(config)) {
+    const preFallback = await fetchComputedFantaFallback(cfg, FANTA_PRE_TOURNAMENT_ID);
+    if (preFallback.standings.length) {
+      return await withFantaOwnerLabels(cfg, preFallback.standings.sort(compareFantaStandings));
+    }
+  }
+
   return await withFantaOwnerLabels(cfg, rows);
 };
 
@@ -1410,6 +1426,18 @@ export const fetchFantaPlayerStandings = async (): Promise<any[]> => {
       return toNumber(right.points_from_goals) - toNumber(left.points_from_goals);
     });
   }
+
+  if (!rows.length && shouldUsePretournamentReadFallback(config)) {
+    const preFallback = await fetchComputedFantaFallback(cfg, FANTA_PRE_TOURNAMENT_ID);
+    if (preFallback.players.length) {
+      return preFallback.players.sort((left, right) => {
+        if (toNumber(right.total_points) !== toNumber(left.total_points)) return toNumber(right.total_points) - toNumber(left.total_points);
+        if (toNumber(right.points_from_wins) !== toNumber(left.points_from_wins)) return toNumber(right.points_from_wins) - toNumber(left.points_from_wins);
+        return toNumber(right.points_from_goals) - toNumber(left.points_from_goals);
+      });
+    }
+  }
+
   return rows;
 };
 
