@@ -1794,6 +1794,7 @@ const App: React.FC = () => {
                                     >
                                         <Shield className="w-4 h-4" />
                                         <span>FantaBeerpong</span>
+                                        <span className="rounded-full border border-amber-300/60 bg-amber-100/90 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-800">Beta</span>
                                     </button>
                                 </nav>
                             ) : null}
@@ -2091,6 +2092,7 @@ const App: React.FC = () => {
                         >
                             <Shield className="w-4 h-4 text-slate-500" />
                             <span>FantaBeerpong</span>
+                            <span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-700">Beta</span>
                         </button>
 
                         <hr className="border-slate-100 my-2" />

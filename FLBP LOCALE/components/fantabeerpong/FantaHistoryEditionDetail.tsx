@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Loader2, Sparkles, Star, Target, Trophy, Wind, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader2, Sparkles, Star, Target, Trophy, Wind, Zap } from 'lucide-react';
 import { fetchFantaArchivedEditionDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import type { FantaArchivedEditionDetail } from '../../services/fantabeerpong/types';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
@@ -15,6 +15,15 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const { t } = useTranslation();
   const [data, setData] = React.useState<FantaArchivedEditionDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [detailView, setDetailView] = React.useState<'overview' | 'standings' | 'team' | 'player'>('overview');
+  const [selectedTeamId, setSelectedTeamId] = React.useState<string | null>(null);
+  const [selectedPlayerId, setSelectedPlayerId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setDetailView('overview');
+    setSelectedTeamId(null);
+    setSelectedPlayerId(null);
+  }, [editionId]);
 
   React.useEffect(() => {
     let alive = true;
@@ -53,6 +62,188 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const podium = data.standings.slice(0, 3);
   const session = readPlayerPresenceSnapshot();
   const personalRow = session?.accountId ? data.standings.find((row) => row.userId === session.accountId) : null;
+  const selectedTeam = selectedTeamId ? data.standings.find((row) => row.teamId === selectedTeamId) : null;
+  const selectedPlayer = selectedPlayerId ? data.topPlayers.find((row) => row.playerId === selectedPlayerId) : null;
+  const openTeamDetail = (teamId: string) => {
+    setSelectedTeamId(teamId);
+    setSelectedPlayerId(null);
+    setDetailView('team');
+  };
+  const openPlayerDetail = (playerId: string) => {
+    setSelectedPlayerId(playerId);
+    setSelectedTeamId(null);
+    setDetailView('player');
+  };
+
+  if (detailView === 'standings') {
+    return (
+      <div className="space-y-5 animate-fade-in">
+        <div className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-sm md:p-7">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-amber-700">
+                <Trophy className="h-3.5 w-3.5" />
+                Classifica archiviata
+              </div>
+              <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{data.edition.tournamentName}</h1>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Classifica finale Fanta salvata alla chiusura del torneo.</p>
+            </div>
+            <button type="button" onClick={() => setDetailView('overview')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">
+              <ArrowLeft className="h-4 w-4" />
+              Torna all'edizione
+            </button>
+          </div>
+        </div>
+
+        <div className={panelClass}>
+          <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_final_standings')}</div>
+          <div className="mt-4 space-y-3 md:hidden">
+            {data.standings.map((row) => {
+              const isMine = !!personalRow && row.teamId === personalRow.teamId;
+              return (
+                <button
+                  key={row.teamId}
+                  type="button"
+                  onClick={() => openTeamDetail(row.teamId)}
+                  className={`w-full rounded-[22px] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isMine ? 'border-beer-200 bg-beer-50/70' : 'border-slate-200 bg-white'}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-black ${row.rank === 1 ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>#{row.rank}</span>
+                        <div className="min-w-0">
+                          <div className="truncate text-base font-black text-slate-950">{row.teamName}</div>
+                          {isMine && <div className="mt-1 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</div>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_standings_points')}</div>
+                      <div className="mt-0.5 text-2xl font-black text-slate-950">{row.totalPoints}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="text-sm font-black text-slate-950">{row.goals}</div></div>
+                    <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_blows')}</div><div className="text-sm font-black text-slate-950">{row.blows}</div></div>
+                    <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{row.wins}</div></div>
+                    <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{row.bonusScia}</div></div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-slate-200 md:block">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 text-center">{t('pos')}</th>
+                  <th className="px-4 py-3">{t('fanta_standings_team')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_standings_points')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_standings_goals')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_standings_blows')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_standings_wins')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_standings_scia')}</th>
+                  <th className="px-4 py-3 text-right">Dettaglio</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.standings.map((row) => {
+                  const isMine = !!personalRow && row.teamId === personalRow.teamId;
+                  return (
+                    <tr
+                      key={row.teamId}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTeamDetail(row.teamId)}
+                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openTeamDetail(row.teamId); }}
+                      className={`cursor-pointer transition hover:bg-slate-50 ${isMine ? 'bg-beer-50/60' : 'bg-white'}`}
+                    >
+                      <td className="px-4 py-3 text-center font-black text-slate-700">#{row.rank}</td>
+                      <td className="px-4 py-3 font-black text-slate-950">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate">{row.teamName}</span>
+                          {isMine && <span className="inline-flex shrink-0 rounded-md border border-beer-200 bg-beer-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-beer-700">{t('fanta_standings_mine_badge')}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center text-lg font-black text-slate-950">{row.totalPoints}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
+                      <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
+                      <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
+                      <td className="px-4 py-3 text-right text-xs font-black uppercase tracking-wide text-beer-700">Apri</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (detailView === 'team' && selectedTeam) {
+    return (
+      <div className="space-y-5 animate-fade-in">
+        <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-7">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-amber-700">Dettaglio squadra archiviata</div>
+              <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{selectedTeam.teamName}</h1>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Rank #{selectedTeam.rank} · {selectedTeam.totalPoints} punti finali</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setDetailView('standings')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">
+                <ArrowLeft className="h-4 w-4" />
+                Classifica
+              </button>
+              <button type="button" onClick={() => setDetailView('overview')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">Edizione</button>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label={t('fanta_standings_points')} value={String(selectedTeam.totalPoints)} hint="Punti finali" />
+          <MetricCard label={t('fanta_standings_goals')} value={String(selectedTeam.goals)} hint="Punti da canestri" />
+          <MetricCard label={t('fanta_standings_blows')} value={String(selectedTeam.blows)} hint="Punti da soffi" />
+          <MetricCard label={t('fanta_standings_scia')} value={String(selectedTeam.bonusScia)} hint="Bonus Scia finale" />
+        </div>
+        <div className={panelClass}>
+          <div className="text-xl font-black tracking-tight text-slate-950">Breakdown finale</div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t('fanta_standings_wins')}</div><div className="mt-1 text-2xl font-black text-slate-950">{selectedTeam.wins}</div></div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Giocatori in gioco</div><div className="mt-1 text-2xl font-black text-slate-950">{selectedTeam.playersInGame}</div></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (detailView === 'player' && selectedPlayer) {
+    return (
+      <div className="space-y-5 animate-fade-in">
+        <div className="rounded-[30px] border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5 shadow-sm md:p-7">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-indigo-700">Dettaglio giocatore archiviato</div>
+              <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{selectedPlayer.playerName}</h1>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{selectedPlayer.realTeamName} · Rank #{selectedPlayer.rank}</p>
+            </div>
+            <button type="button" onClick={() => setDetailView('overview')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">
+              <ArrowLeft className="h-4 w-4" />
+              Torna all'edizione
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <MetricCard label={t('fanta_standings_points')} value={String(selectedPlayer.totalPoints)} hint="Punti Fanta finali" />
+          <MetricCard label={t('fanta_standings_goals')} value={String(selectedPlayer.goals)} hint="Canestri" />
+          <MetricCard label={t('fanta_standings_blows')} value={String(selectedPlayer.blows)} hint="Soffi" />
+          <MetricCard label={t('fanta_standings_wins')} value={String(selectedPlayer.wins)} hint="Vittorie" />
+          <MetricCard label={t('fanta_standings_scia')} value={String(selectedPlayer.bonusScia)} hint="Bonus Scia" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -106,14 +297,22 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
         <div className={panelClass}>
-          <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_final_standings')}</div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_final_standings')}</div>
+            <button type="button" onClick={() => setDetailView('standings')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-beer-200 bg-beer-50 px-4 py-2.5 text-xs font-black uppercase tracking-wide text-beer-800 transition hover:bg-beer-100">
+              Apri classifica
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
           <div className="mt-4 space-y-3 md:hidden">
             {data.standings.map((row) => {
               const isMine = !!personalRow && row.teamId === personalRow.teamId;
               return (
-                <div
+                <button
                   key={row.teamId}
-                  className={`rounded-[22px] border p-4 shadow-sm ${isMine ? 'border-beer-200 bg-beer-50/70' : 'border-slate-200 bg-white'}`}
+                  type="button"
+                  onClick={() => openTeamDetail(row.teamId)}
+                  className={`w-full rounded-[22px] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isMine ? 'border-beer-200 bg-beer-50/70' : 'border-slate-200 bg-white'}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -136,7 +335,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                     <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{row.wins}</div></div>
                     <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{row.bonusScia}</div></div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -157,7 +356,14 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                 {data.standings.map((row) => {
                   const isMine = !!personalRow && row.teamId === personalRow.teamId;
                   return (
-                    <tr key={row.teamId} className={isMine ? 'bg-beer-50/60' : 'bg-white'}>
+                    <tr
+                      key={row.teamId}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTeamDetail(row.teamId)}
+                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openTeamDetail(row.teamId); }}
+                      className={`cursor-pointer transition hover:bg-slate-50 ${isMine ? 'bg-beer-50/60' : 'bg-white'}`}
+                    >
                       <td className="px-4 py-3 text-center font-black text-slate-700">#{row.rank}</td>
                       <td className="px-4 py-3 font-black text-slate-950">
                         <div className="flex items-center gap-2">
@@ -182,7 +388,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
           <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_podium')}</div>
           <div className="mt-4 space-y-3">
             {podium.map((row) => (
-              <div key={row.teamId} className={`rounded-[22px] border px-4 py-4 ${row.rank === 1 ? 'border-amber-200 bg-amber-50/70' : 'border-slate-200 bg-slate-50'}`}>
+              <button key={row.teamId} type="button" onClick={() => openTeamDetail(row.teamId)} className={`w-full rounded-[22px] border px-4 py-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${row.rank === 1 ? 'border-amber-200 bg-amber-50/70' : 'border-slate-200 bg-slate-50'}`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-base font-black text-slate-950">#{row.rank} · {row.teamName}</div>
@@ -190,7 +396,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                   </div>
                   {row.rank === 1 ? <Trophy className="h-6 w-6 text-amber-500" /> : <Star className="h-5 w-5 text-slate-300" />}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -200,7 +406,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
         <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_top_players')}</div>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {data.topPlayers.map((row) => (
-            <div key={row.playerId} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm">
+            <button key={row.playerId} type="button" onClick={() => openPlayerDetail(row.playerId)} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-black text-slate-950">#{row.rank} · {row.playerName}</div>
@@ -217,7 +423,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                   <div className="mt-1 text-2xl font-black text-slate-950">{row.totalPoints}</div>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
           {data.topPlayers.length === 0 && (
             <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm font-bold text-slate-400">
