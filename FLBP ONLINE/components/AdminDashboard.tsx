@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -1709,13 +1709,37 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
             detail: { state: nextState, source: 'admin-delete-live-tournament' }
         }));
+        // The deleted tournament may still be referenced by fanta_config:
+        // point it back at the Pretorneo container so the public Fanta
+        // does not get stuck on "Torneo concluso" for a vanished id.
+        void resetFantaConfigToPretournament().catch((error) => {
+            console.warn('Reset fase Fanta dopo eliminazione torneo live non completato', error);
+        });
         alert(t('admin_delete_live_tournament_done').replace('{name}', tournamentName));
     };
 
-    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string, options?: { force?: boolean; previousTeams?: Team[] }) => {
-        if (!options?.force && !fantaPretournamentEnabled) return;
+    // Keeps fanta_config aligned with the current lifecycle phase:
+    // live tournament -> promote (config points at the live id);
+    // no tournament -> reset to the "__pre_tournament__" container so the
+    // public Fanta opens the Pretorneo instead of a stale "Torneo concluso".
+    const alignFantaConfigPhaseBestEffort = async (targetState: AppState): Promise<boolean> => {
+        try {
+            if (targetState.tournament?.id) {
+                await promoteFantaPretournamentToTournament(targetState.tournament.id, targetState.tournament);
+            } else {
+                await resetFantaConfigToPretournament();
+            }
+            return true;
+        } catch (error) {
+            console.warn('Allineamento fase Fanta (fanta_config) non completato', error);
+            return false;
+        }
+    };
+
+    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string, options?: { force?: boolean; previousTeams?: Team[] }): Promise<void> => {
+        if (!options?.force && !fantaPretournamentEnabled) return Promise.resolve();
         setFantaSyncFeedback({ tone: 'info', message: 'Sincronizzazione Fanta in corso...' });
-        void syncFantaPretournamentRosters(teams, { previousTeams: options?.previousTeams })
+        return syncFantaPretournamentRosters(teams, { previousTeams: options?.previousTeams })
             .then((result) => {
                 setFantaSyncFeedback({
                     tone: 'success',
@@ -1726,6 +1750,21 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 console.warn(`Fanta pretorneo sync non completata (${source})`, error);
                 setFantaSyncFeedback({ tone: 'error', message: 'Sincronizzazione Fanta non completata. Riprova dal pulsante in Squadre.' });
             });
+    };
+
+    // Runs phase alignment + roster sync in sequence and keeps the feedback
+    // honest: if fanta_config could not be aligned, the admin must NOT see a
+    // green "tutto ok" from the roster sync alone.
+    const runFantaPhaseAndRosterSync = (targetState: AppState, source: string) => {
+        void alignFantaConfigPhaseBestEffort(targetState).then(async (aligned) => {
+            await syncFantaPretournamentTeamsBestEffort(targetState.teams, source, { force: true });
+            if (!aligned) {
+                setFantaSyncFeedback({
+                    tone: 'error',
+                    message: 'Rose sincronizzate, ma la fase Fanta (fanta_config) non è stata allineata. Controlla la sessione admin e ripremi "Sincronizza Fanta".',
+                });
+            }
+        });
     };
 
     const toggleFantaPretournament = () => {
@@ -1752,12 +1791,12 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 : 'FantaBeerpong disattivato. Le squadre restano salvate, ma il modulo non sarà visibile agli utenti.',
         });
         if (nextEnabled) {
-            syncFantaPretournamentTeamsBestEffort(nextState.teams, 'toggle-fanta-on', { force: true });
+            runFantaPhaseAndRosterSync(nextState, 'toggle-fanta-on');
         }
     };
 
     const syncFantaPretournamentTeamsNow = () => {
-        syncFantaPretournamentTeamsBestEffort(state.teams, 'manual-sync', { force: true });
+        runFantaPhaseAndRosterSync(state, 'manual-sync');
     };
 
     const saveTeam = () => {

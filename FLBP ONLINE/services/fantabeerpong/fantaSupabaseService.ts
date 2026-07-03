@@ -420,6 +420,21 @@ const fetchTournamentStarted = async (
   return !!rows?.length;
 };
 
+const fetchFantaArchivedEditionName = async (
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  tournamentId: string,
+): Promise<string | null> => {
+  if (!tournamentId) return null;
+  const rows = await fetchJson<Array<{ tournament_id: string; tournament_name?: string | null }>>(
+    `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=tournament_id,tournament_name&limit=1`,
+    buildHeaders(cfg),
+    'fetchFantaArchivedEditionName',
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+  return String(row.tournament_name || '').trim() || 'Torneo concluso';
+};
+
 const fetchFantaConfigFresh = async (
   cfg: { url: string; anonKey: string; workspaceId: string },
 ): Promise<FantaConfig | null> => {
@@ -454,19 +469,28 @@ const fetchFantaConfigFresh = async (
   const configuredTournamentId = String(configured?.active_tournament_id || '').trim();
   const configuredConcreteTournament = configuredTournamentId && configuredTournamentId !== FANTA_PRE_TOURNAMENT_ID;
   if (configuredConcreteTournament && !liveTournament && (configuredTournament?.status === 'archived' || !configuredTournament)) {
-    return {
-      activeTournamentId: configuredTournamentId,
-      activeTournamentName: configuredTournament?.name || 'Torneo concluso',
-      fantaEnabled: true,
-      activeTournamentResultsOnly: false,
-      isLockActive: true,
-      registrationOpen: false,
-      registrationOpenFlag: false,
-      manualLockActive: true,
-      tournamentStarted: true,
-      lockReason: 'tournament_archived',
-      updatedAt: configuredTournament?.updated_at || configured?.updated_at,
-    };
+    // "Torneo concluso" only when the configured tournament really concluded:
+    // it still resolves as archived, or it left an archived Fanta edition.
+    // A dangling id with no archive evidence (e.g. live tournament deleted)
+    // is stale config: fall through to the pre-tournament resolution below.
+    const archivedEditionName = configuredTournament
+      ? null
+      : await fetchFantaArchivedEditionName(cfg, configuredTournamentId);
+    if (configuredTournament || archivedEditionName) {
+      return {
+        activeTournamentId: configuredTournamentId,
+        activeTournamentName: configuredTournament?.name || archivedEditionName || 'Torneo concluso',
+        fantaEnabled: true,
+        activeTournamentResultsOnly: false,
+        isLockActive: true,
+        registrationOpen: false,
+        registrationOpenFlag: false,
+        manualLockActive: true,
+        tournamentStarted: true,
+        lockReason: 'tournament_archived',
+        updatedAt: configuredTournament?.updated_at || configured?.updated_at,
+      };
+    }
   }
   const activeTournament = configuredTournament?.status === 'live' ? configuredTournament : liveTournament;
   const activeTournamentId = activeTournament?.id || '';

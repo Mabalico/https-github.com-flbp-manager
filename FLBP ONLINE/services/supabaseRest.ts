@@ -3193,6 +3193,32 @@ export const promoteFantaPretournamentToTournament = async (
     return await res.json() as FantaPretournamentSyncResult;
 };
 
+export const resetFantaConfigToPretournament = async (): Promise<void> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const res = await fetchWithTimeout(
+        restUrl(cfg, 'fanta_config?on_conflict=workspace_id'),
+        {
+            method: 'POST',
+            headers: {
+                ...buildHeaders(cfg, session.accessToken),
+                'Prefer': 'resolution=merge-duplicates,return=minimal'
+            },
+            body: JSON.stringify({
+                workspace_id: cfg.workspaceId,
+                active_tournament_id: '__pre_tournament__',
+                is_lock_active: false,
+                registration_open: true,
+                updated_at: new Date().toISOString()
+            }),
+        },
+        8000,
+        { source: 'resetFantaConfigToPretournament', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+};
+
 export const hasFantaPretournamentTeams = async (): Promise<boolean> => {
     const cfg = getSupabaseConfig();
     if (!cfg) return false;
@@ -3235,6 +3261,7 @@ export const archiveFantaTournamentEdition = async (tournamentId: string): Promi
 export type DeleteFantaTournamentDataResult = {
     ok: boolean;
     tournamentId: string;
+    configReset?: boolean;
     removed: {
         archivedPlayers: number;
         archivedStandings: number;
@@ -3429,9 +3456,33 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
         'deleteFantaTeams'
     );
 
+    // If fanta_config still references the deleted tournament, point it back at
+    // the Pretorneo container: otherwise the public Fanta stays stuck on
+    // "Torneo concluso" for a tournament that no longer exists anywhere.
+    let configReset = false;
+    try {
+        const configRes = await fetchWithTimeout(
+            restUrl(cfg, `fanta_config?workspace_id=eq.${workspace}&select=active_tournament_id&limit=1`),
+            { headers: buildHeaders(cfg, session.accessToken) },
+            4000,
+            { source: 'deleteFantaTournamentData.configCheck', kind: 'sync' }
+        );
+        if (configRes.ok) {
+            const rows = await configRes.json().catch(() => []);
+            const activeId = String(rows?.[0]?.active_tournament_id || '').trim();
+            if (activeId === resolvedTournamentId) {
+                await resetFantaConfigToPretournament();
+                configReset = true;
+            }
+        }
+    } catch (error) {
+        console.warn('Reset fanta_config dopo eliminazione dati Fanta non completato', error);
+    }
+
     return {
         ok: true,
         tournamentId: resolvedTournamentId,
+        configReset,
         removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams },
     };
 };
