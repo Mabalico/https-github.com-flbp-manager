@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -27,6 +27,12 @@ import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverr
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
+import {
+    advanceWinner as advanceBracketWinner,
+    autoResolveBracketByeMatch,
+    reconcileBracketAdvancements,
+    resolveWinnerTeamId as resolveBracketWinnerTeamId,
+} from '../services/tournamentStructureSelectors';
 
 
 const loadTeamsTabModule = () => import('./admin/tabs/TeamsTab');
@@ -1709,13 +1715,37 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
             detail: { state: nextState, source: 'admin-delete-live-tournament' }
         }));
+        // The deleted tournament may still be referenced by fanta_config:
+        // point it back at the Pretorneo container so the public Fanta
+        // does not get stuck on "Torneo concluso" for a vanished id.
+        void resetFantaConfigToPretournament().catch((error) => {
+            console.warn('Reset fase Fanta dopo eliminazione torneo live non completato', error);
+        });
         alert(t('admin_delete_live_tournament_done').replace('{name}', tournamentName));
     };
 
-    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string, options?: { force?: boolean; previousTeams?: Team[] }) => {
-        if (!options?.force && !fantaPretournamentEnabled) return;
+    // Keeps fanta_config aligned with the current lifecycle phase:
+    // live tournament -> promote (config points at the live id);
+    // no tournament -> reset to the "__pre_tournament__" container so the
+    // public Fanta opens the Pretorneo instead of a stale "Torneo concluso".
+    const alignFantaConfigPhaseBestEffort = async (targetState: AppState): Promise<boolean> => {
+        try {
+            if (targetState.tournament?.id) {
+                await promoteFantaPretournamentToTournament(targetState.tournament.id, targetState.tournament);
+            } else {
+                await resetFantaConfigToPretournament();
+            }
+            return true;
+        } catch (error) {
+            console.warn('Allineamento fase Fanta (fanta_config) non completato', error);
+            return false;
+        }
+    };
+
+    const syncFantaPretournamentTeamsBestEffort = (teams: Team[], source: string, options?: { force?: boolean; previousTeams?: Team[] }): Promise<void> => {
+        if (!options?.force && !fantaPretournamentEnabled) return Promise.resolve();
         setFantaSyncFeedback({ tone: 'info', message: 'Sincronizzazione Fanta in corso...' });
-        void syncFantaPretournamentRosters(teams, { previousTeams: options?.previousTeams })
+        return syncFantaPretournamentRosters(teams, { previousTeams: options?.previousTeams })
             .then((result) => {
                 setFantaSyncFeedback({
                     tone: 'success',
@@ -1726,6 +1756,21 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 console.warn(`Fanta pretorneo sync non completata (${source})`, error);
                 setFantaSyncFeedback({ tone: 'error', message: 'Sincronizzazione Fanta non completata. Riprova dal pulsante in Squadre.' });
             });
+    };
+
+    // Runs phase alignment + roster sync in sequence and keeps the feedback
+    // honest: if fanta_config could not be aligned, the admin must NOT see a
+    // green "tutto ok" from the roster sync alone.
+    const runFantaPhaseAndRosterSync = (targetState: AppState, source: string) => {
+        void alignFantaConfigPhaseBestEffort(targetState).then(async (aligned) => {
+            await syncFantaPretournamentTeamsBestEffort(targetState.teams, source, { force: true });
+            if (!aligned) {
+                setFantaSyncFeedback({
+                    tone: 'error',
+                    message: 'Rose sincronizzate, ma la fase Fanta (fanta_config) non è stata allineata. Controlla la sessione admin e ripremi "Sincronizza Fanta".',
+                });
+            }
+        });
     };
 
     const toggleFantaPretournament = () => {
@@ -1752,12 +1797,12 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 : 'FantaBeerpong disattivato. Le squadre restano salvate, ma il modulo non sarà visibile agli utenti.',
         });
         if (nextEnabled) {
-            syncFantaPretournamentTeamsBestEffort(nextState.teams, 'toggle-fanta-on', { force: true });
+            runFantaPhaseAndRosterSync(nextState, 'toggle-fanta-on');
         }
     };
 
     const syncFantaPretournamentTeamsNow = () => {
-        syncFantaPretournamentTeamsBestEffort(state.teams, 'manual-sync', { force: true });
+        runFantaPhaseAndRosterSync(state, 'manual-sync');
     };
 
     const saveTeam = () => {
@@ -2988,42 +3033,9 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return null;
     };
 
-    const resolveWinnerTeamId = (m: Match) => {
-        if (!m) return undefined;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE') {
-            if (String(m.teamBId).startsWith('TBD')) return undefined;
-            return m.teamBId;
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE') {
-            if (String(m.teamAId).startsWith('TBD')) return undefined;
-            return m.teamAId;
-        }
-        if (m.status !== 'finished') return undefined;
-        if (m.scoreA > m.scoreB) {
-            if (String(m.teamAId).startsWith('TBD')) return undefined;
-            return m.teamAId;
-        }
-        if (m.scoreB > m.scoreA) {
-            if (String(m.teamBId).startsWith('TBD')) return undefined;
-            return m.teamBId;
-        }
-        return undefined;
-    };
+    const resolveWinnerTeamId = (m: Match) => resolveBracketWinnerTeamId(m);
 
-    const applyByeAutoWin = (m: Match): Match => {
-        if (!m) return m;
-        if (m.status === 'finished') return m;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE' && !String(m.teamBId).startsWith('TBD')) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE' && !String(m.teamAId).startsWith('TBD')) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        if (m.teamAId === 'BYE' && m.teamBId === 'BYE') {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        return m;
-    };
+    const applyByeAutoWin = (m: Match): Match => autoResolveBracketByeMatch(m);
 
     // === RetroattivitÃ  su Archivio (editing risultati) ===
     const buildBracketRoundsFromMatches = (allMatches: Match[]): Match[][] => {
@@ -3040,121 +3052,13 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return rounds;
     };
 
-    const resolveWinnerTeamIdGeneric = (m: Match) => {
-        if (!m) return undefined;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE') return m.teamBId;
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE') return m.teamAId;
-        if (m.status !== 'finished') return undefined;
-        if (m.scoreA > m.scoreB) {
-            if (String(m.teamAId).startsWith('TBD')) return undefined;
-            return m.teamAId;
-        }
-        if (m.scoreB > m.scoreA) {
-            if (String(m.teamBId).startsWith('TBD')) return undefined;
-            return m.teamBId;
-        }
-        return undefined;
-    };
+    const resolveWinnerTeamIdGeneric = (m: Match) => resolveBracketWinnerTeamId(m);
 
-    const autoFixBracketFromResults = (matches: Match[]): Match[] => {
-        let out = matches.map(m => ({ ...m }));
-        const rounds = buildBracketRoundsFromMatches(out);
+    const autoFixBracketFromResults = (matches: Match[]): Match[] =>
+        autoResolveBracketByes(reconcileBracketAdvancements(matches, { resetFutureParticipants: true }));
 
-        // Reset participants for rounds > 1 (they will be re-filled from winners).
-        for (let r = 1; r < rounds.length; r++) {
-            const ids = new Set(rounds[r].map(m => m.id));
-            out = out.map(x => {
-                if (!ids.has(x.id)) return x;
-                const base: Match = { ...x };
-                delete (base as any).teamAId;
-                delete (base as any).teamBId;
-                return base;
-            });
-        }
-
-        const byId = new Map(out.map(m => [m.id, m]));
-        const upsert = (u: Match) => {
-            byId.set(u.id, u);
-            out = out.map(m => (m.id === u.id ? u : m));
-        };
-
-        for (let rIdx = 0; rIdx < rounds.length - 1; rIdx++) {
-            const round = rounds[rIdx] || [];
-            const nextRound = rounds[rIdx + 1] || [];
-            for (let mIdx = 0; mIdx < round.length; mIdx++) {
-                const cur = byId.get(round[mIdx].id) || round[mIdx];
-                const winner = resolveWinnerTeamIdGeneric(cur);
-                if (!winner || winner === 'BYE') continue;
-                const nextSkel = nextRound[Math.floor(mIdx / 2)];
-                if (!nextSkel) continue;
-                const next = byId.get(nextSkel.id) || nextSkel;
-                const slot: 'teamAId'|'teamBId' = (mIdx % 2 === 0) ? 'teamAId' : 'teamBId';
-                upsert(applyByeAutoWin({ ...next, [slot]: winner } as any));
-            }
-        }
-
-        // Reset finished matches whose participants changed due to retro-propagation
-        const recomputed = new Map(out.map(m => [m.id, m]));
-        out = out.map(m => {
-            if (m.phase !== 'bracket') return m;
-            if (m.status !== 'finished') return m;
-            const mm = recomputed.get(m.id)!;
-            if (mm.teamAId !== m.teamAId || mm.teamBId !== m.teamBId) {
-                return { ...mm, played: false, status: 'scheduled', scoreA: 0, scoreB: 0, stats: undefined };
-            }
-            return m;
-        });
-
-        return autoResolveBracketByes(out);
-    };
-
-    const propagateWinnerFromMatch = (finishedMatch: Match, matches: Match[]) => {
-        const rounds = buildBracketRounds(matches);
-        const pos = findMatchPositionInRounds(rounds, finishedMatch.id);
-        if (!pos) return matches;
-
-        let rIdx = pos.rIdx;
-        let mIdx = pos.mIdx;
-        let current = finishedMatch;
-
-        let out = [...matches];
-        const byId = new Map(out.map(m => [m.id, m]));
-        const upsert = (u: Match) => {
-            byId.set(u.id, u);
-            out = out.map(m => (m.id === u.id ? u : m));
-        };
-
-        while (true) {
-            const winner = resolveWinnerTeamId(current);
-            if (!winner || winner === 'BYE') break;
-
-            const nextRound = rounds[rIdx + 1];
-            if (!nextRound || nextRound.length === 0) break;
-
-            const nextSkel = nextRound[Math.floor(mIdx / 2)];
-            if (!nextSkel) break;
-
-            const next = byId.get(nextSkel.id) || nextSkel;
-            const slot: 'teamAId' | 'teamBId' = (mIdx % 2 === 0) ? 'teamAId' : 'teamBId';
-            if ((next as any)[slot]) break;
-
-            let nextUpdated: Match = { ...next, [slot]: winner } as any;
-            const beforeStatus = nextUpdated.status;
-            nextUpdated = applyByeAutoWin(nextUpdated);
-            upsert(nextUpdated);
-
-            // If the newly updated match auto-finished due to a BYE, continue propagating.
-            if (beforeStatus !== 'finished' && nextUpdated.status === 'finished') {
-                current = nextUpdated;
-                rIdx = rIdx + 1;
-                mIdx = Math.floor(mIdx / 2);
-                continue;
-            }
-            break;
-        }
-
-        return out;
-    };
+    const propagateWinnerFromMatch = (finishedMatch: Match, matches: Match[]) =>
+        advanceBracketWinner(matches, finishedMatch);
 
     const replaceMatch = (matches: Match[], updated: Match) => {
         return matches.map(m => (m.id === updated.id ? { ...m, ...updated } : m));
@@ -4497,6 +4401,9 @@ while (guard < 5000) {
                     onToggleFantaEnabled={toggleFantaPretournament}
                     onSyncFantaPretournament={syncFantaPretournamentTeamsNow}
                     fantaSyncStatus={fantaSyncFeedback}
+                    onFantaPretournamentTeamsChanged={(nextTeams, previousTeams) => {
+                        void syncFantaPretournamentTeamsBestEffort(nextTeams, 'player-substitution', { previousTeams });
+                    }}
                 />
             )}
 

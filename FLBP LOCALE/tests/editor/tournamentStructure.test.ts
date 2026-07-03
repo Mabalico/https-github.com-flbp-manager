@@ -7,6 +7,7 @@ import {
   undoTournamentStructureDraft,
 } from '../../services/tournamentStructureDraft';
 import { diffTournamentStructure } from '../../services/tournamentStructureDiff';
+import { generateTournamentStructure } from '../../services/tournamentEngine';
 import {
   canInsertTeamIntoBracketSlot,
   canReplaceBracketSlot,
@@ -14,7 +15,14 @@ import {
   validateDraftBeforeApply,
 } from '../../services/tournamentStructureEligibility';
 import { applyStructuralOperation } from '../../services/tournamentStructureOperations';
-import { buildTournamentStructureSnapshot, cloneSnapshot, getSlotValue } from '../../services/tournamentStructureSelectors';
+import {
+  advanceWinner,
+  buildTournamentStructureSnapshot,
+  cloneSnapshot,
+  findSuccessorMatch,
+  getSlotValue,
+  reconcileBracketAdvancements,
+} from '../../services/tournamentStructureSelectors';
 
 const makeTeam = (id: string, name = id): Team => ({
   id,
@@ -309,6 +317,114 @@ defineCase('adding a catalog team makes it immediately available for bracket ins
   assertEqual(canInsertTeamIntoBracketSlot(added.nextSnapshot!, 'C', 'r1m1|B').allowed, true);
 });
 
+defineCase('bracket insert into empty opposite slot auto-advances unless successor is locked', () => {
+  const a = makeTeam('A', 'Alpha');
+  const b = makeTeam('B', 'Bravo');
+  const c = makeTeam('C', 'Charlie');
+
+  const makeBracket = (successorLocked: boolean) => makeSnapshot(
+    makeTournament('insert-bye-advance', 'elimination', [a, b, c], [], []),
+    [
+      makeBracketMatch('r1m1', 1, undefined, undefined, { orderIndex: 0 }),
+      makeBracketMatch('r1m2', 1, 'B', 'C', {
+        orderIndex: 1,
+        played: true,
+        status: 'finished',
+        scoreA: 10,
+        scoreB: 5,
+      }),
+      makeBracketMatch('r2m1', 2, undefined, undefined, {
+        orderIndex: 0,
+        played: successorLocked,
+        status: successorLocked ? 'finished' : 'scheduled',
+        scoreA: successorLocked ? 10 : 0,
+        scoreB: successorLocked ? 5 : 0,
+      }),
+    ],
+    [a, b, c]
+  );
+
+  const lockedCheck = canInsertTeamIntoBracketSlot(makeBracket(true), 'A', 'r1m1|A');
+  assertEqual(lockedCheck.allowed, false);
+  assertEqual(lockedCheck.reasonCode, 'successor_locked');
+
+  const result = applyStructuralOperation(makeBracket(false), {
+    type: 'INSERT_TEAM_IN_BRACKET_SLOT',
+    teamId: 'A',
+    slotKey: 'r1m1|A',
+  });
+
+  assertEqual(result.ok, true);
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|A'), 'A');
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|B'), 'BYE');
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r2m1|A'), 'A');
+});
+
+defineCase('explicit successor link overrides legacy positional bracket advancement', () => {
+  const a = makeTeam('A', 'Alpha');
+  const b = makeTeam('B', 'Bravo');
+  const c = makeTeam('C', 'Charlie');
+  const d = makeTeam('D', 'Delta');
+
+  const matches = [
+    makeBracketMatch('r1m1', 1, 'A', 'BYE', {
+      orderIndex: 0,
+      played: true,
+      status: 'finished',
+      hidden: true,
+      isBye: true,
+      nextMatchId: 'r2m2',
+      nextSlot: 'B',
+    }),
+    makeBracketMatch('r1m2', 1, 'B', 'C', { orderIndex: 1 }),
+    makeBracketMatch('r1m3', 1, 'D', 'BYE', { orderIndex: 2, played: true, status: 'finished', hidden: true, isBye: true }),
+    makeBracketMatch('r2m1', 2, undefined, undefined, { orderIndex: 0 }),
+    makeBracketMatch('r2m2', 2, undefined, undefined, { orderIndex: 1 }),
+  ];
+
+  const reconciled = reconcileBracketAdvancements(matches);
+  const explicit = findSuccessorMatch(reconciled, 'r1m1');
+
+  assertEqual(explicit?.source, 'explicit');
+  assertEqual(explicit?.match.id, 'r2m2');
+  assertEqual(explicit?.slotName, 'B');
+  assertEqual((reconciled.find((match) => match.id === 'r2m1') as Match).teamAId, undefined);
+  assertEqual((reconciled.find((match) => match.id === 'r2m2') as Match).teamBId, 'A');
+});
+
+defineCase('legacy bracket without explicit links still advances positionally', () => {
+  const matches = [
+    makeBracketMatch('r1m1', 1, 'A', 'BYE', {
+      orderIndex: 0,
+      played: true,
+      status: 'finished',
+      hidden: true,
+      isBye: true,
+    }),
+    makeBracketMatch('r1m2', 1, 'B', 'C', { orderIndex: 1 }),
+    makeBracketMatch('r2m1', 2, undefined, undefined, { orderIndex: 0 }),
+  ];
+
+  const reconciled = reconcileBracketAdvancements(matches);
+  const successor = findSuccessorMatch(matches, 'r1m1');
+
+  assertEqual(successor?.source, 'positional');
+  assertEqual(successor?.match.id, 'r2m1');
+  assertEqual((reconciled.find((match) => match.id === 'r2m1') as Match).teamAId, 'A');
+});
+
+defineCase('generated non-power-of-two bracket stores successor links', () => {
+  const teams = ['A', 'B', 'C', 'D', 'E'].map((id) => makeTeam(id));
+  const generated = generateTournamentStructure(teams, { mode: 'elimination', tournamentName: 'Five teams' });
+  const bracket = generated.matches.filter((match) => match.phase === 'bracket');
+  const firstRound = bracket.filter((match) => (match.round || 1) === 1);
+  const secondRoundIds = new Set(bracket.filter((match) => (match.round || 1) === 2).map((match) => match.id));
+
+  assertOk(firstRound.length > 0);
+  assertOk(firstRound.every((match) => !!match.nextMatchId && (match.nextSlot === 'A' || match.nextSlot === 'B')));
+  assertOk(firstRound.every((match) => secondRoundIds.has(String(match.nextMatchId))));
+});
+
 defineCase('draft reducer supports apply, undo, redo and reset', () => {
   const a = makeTeam('A', 'Alpha');
   const b = makeTeam('B', 'Bravo');
@@ -343,6 +459,69 @@ defineCase('draft reducer supports apply, undo, redo and reset', () => {
   assertEqual(getSlotValue(draftState.present, 'r1m1|B'), 'TBD');
   assertEqual(draftState.past.length, 0);
   assertEqual(draftState.future.length, 0);
+});
+
+defineCase('score correction re-propagates the corrected winner to the next round', () => {
+  let matches: Match[] = [
+    makeBracketMatch('r1m1', 1, 'A', 'B', { played: true, status: 'finished', scoreA: 10, scoreB: 5 }),
+    makeBracketMatch('r1m2', 1, 'C', 'D'),
+    makeBracketMatch('r2m1', 2, undefined, undefined),
+  ];
+  matches = reconcileBracketAdvancements(matches, { resetFutureParticipants: true });
+  assertEqual(matches.find((m) => m.id === 'r2m1')?.teamAId, 'A', 'winner advances after first report');
+
+  // Correction: the report is fixed and B actually won.
+  matches = matches.map((m) => (m.id === 'r1m1' ? { ...m, scoreA: 4, scoreB: 10 } : m));
+  const corrected = matches.find((m) => m.id === 'r1m1')!;
+  matches = advanceWinner(matches, corrected);
+  assertEqual(matches.find((m) => m.id === 'r2m1')?.teamAId, 'B', 'corrected winner replaces the stale one');
+});
+
+defineCase('manually seeded team in a future round survives the realign reset', () => {
+  let matches: Match[] = [
+    makeBracketMatch('r1m1', 1, 'A', 'B', { played: true, status: 'finished', scoreA: 10, scoreB: 7 }),
+    makeBracketMatch('r1m2', 1, 'C', 'D'),
+    makeBracketMatch('r2m1', 2, undefined, 'X'),
+  ];
+  matches = reconcileBracketAdvancements(matches, { resetFutureParticipants: true });
+  const final = matches.find((m) => m.id === 'r2m1');
+  assertEqual(final?.teamBId, 'X', 'manual seed is not wiped by the reset');
+  assertEqual(final?.teamAId, 'A', 'derived winner still fills the feeder-fed slot');
+});
+
+defineCase('winner reaching an auto-resolved bye successor reopens and keeps propagating', () => {
+  let matches: Match[] = [
+    makeBracketMatch('r1m1', 1, 'A', 'B', { played: true, status: 'finished', scoreA: 10, scoreB: 2 }),
+    makeBracketMatch('r2m1', 2, undefined, 'BYE', { played: true, status: 'finished', hidden: true, isBye: true }),
+    makeBracketMatch('r3m1', 3, undefined, undefined),
+  ];
+  const finished = matches.find((m) => m.id === 'r1m1')!;
+  matches = advanceWinner(matches, finished);
+  const reopened = matches.find((m) => m.id === 'r2m1');
+  assertEqual(reopened?.teamAId, 'A', 'winner lands in the bye successor slot');
+  assertEqual(reopened?.status, 'finished', 'A vs BYE resolves again as a bye');
+  assertEqual(matches.find((m) => m.id === 'r3m1')?.teamAId, 'A', 'winner keeps propagating through the bye');
+});
+
+defineCase('insert into a future-round slot waits for the real opponent instead of fabricating a BYE', () => {
+  const teams = [makeTeam('A'), makeTeam('B'), makeTeam('C'), makeTeam('D'), makeTeam('X')];
+  const tournament = makeTournament('elim', 'elimination', teams, [], [
+    makeBracketMatch('r1m1', 1, 'A', 'B'),
+    makeBracketMatch('r1m2', 1, 'C', 'D', { played: true, status: 'finished', scoreA: 10, scoreB: 8 }),
+    makeBracketMatch('r2m1', 2, undefined, undefined),
+  ]);
+  const snapshot = makeSnapshot(tournament, tournament.matches || []);
+
+  const result = applyStructuralOperation(snapshot, {
+    type: 'INSERT_TEAM_IN_BRACKET_SLOT',
+    teamId: 'X',
+    slotKey: 'r2m1|A',
+  });
+  assertEqual(result.ok, true, 'insert into a free future slot is applied');
+  const final = (result.nextSnapshot!.matches || []).find((m) => m.id === 'r2m1');
+  assertEqual(final?.teamAId, 'X', 'inserted team survives the realign');
+  assertEqual(final?.teamBId, 'C', 'feeder-fed side keeps the advancing winner instead of a BYE');
+  assertEqual(final?.status, 'scheduled', 'the pairing stays playable');
 });
 
 let failed = 0;

@@ -107,6 +107,8 @@ export interface SupabasePublicTournamentMatchRow {
     order_index?: number | null;
     team_a_id?: string | null;
     team_b_id?: string | null;
+    next_match_id?: string | null;
+    next_slot?: 'A' | 'B' | null;
     score_a?: number | null;
     score_b?: number | null;
     played?: boolean | null;
@@ -393,7 +395,7 @@ export const pullPublicTournamentBundle = async (
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,name,player1,player2,player1_is_referee,player2_is_referee,is_referee,created_at&order=created_at.asc`), { headers: anonHeaders }, { source: `${requestSource}.teams`, kind: requestKind }),
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_groups?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,name,order_index&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.groups`, kind: requestKind }),
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_group_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=group_id,team_id,seed`), { headers: anonHeaders }, { source: `${requestSource}.groupTeams`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,score_a,score_b,played,status,is_bye,hidden&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.matches`, kind: requestKind }),
+        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,next_match_id,next_slot,score_a,score_b,played,status,is_bye,hidden&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.matches`, kind: requestKind }),
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_match_stats?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=match_id,team_id,player_name,canestri,soffi`), { headers: anonHeaders }, { source: `${requestSource}.stats`, kind: requestKind }),
     ]);
 
@@ -461,6 +463,8 @@ export const pullPublicTournamentBundle = async (
         orderIndex: typeof mr.order_index === 'number' ? mr.order_index : (mr.order_index ? parseInt(String(mr.order_index), 10) : undefined),
         teamAId: mr.team_a_id || undefined,
         teamBId: mr.team_b_id || undefined,
+        nextMatchId: mr.next_match_id || undefined,
+        nextSlot: mr.next_slot === 'A' || mr.next_slot === 'B' ? mr.next_slot : undefined,
         scoreA: typeof mr.score_a === 'number' ? mr.score_a : parseInt(String(mr.score_a || 0), 10) || 0,
         scoreB: typeof mr.score_b === 'number' ? mr.score_b : parseInt(String(mr.score_b || 0), 10) || 0,
         played: !!mr.played,

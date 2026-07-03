@@ -4,7 +4,11 @@ import { Match, Team, TournamentData, TournamentMatch } from '../types';
 import { Edit2, Save, X, Trophy, Lock } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
-import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
+import {
+    advanceWinner as advanceBracketWinner,
+    getPreferredBracketRounds,
+    resolveWinnerTeamId as resolveBracketWinnerTeamId,
+} from '../services/tournamentStructureSelectors';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 interface TournamentBracketProps {
@@ -182,65 +186,28 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         return null;
     };
 
-    const resolveWinnerTeamId = (m: Match) => {
-        if (!m) return undefined;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE') {
-            if (isTbdTeamId(m.teamBId)) return undefined;
-            return m.teamBId;
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE') {
-            if (isTbdTeamId(m.teamAId)) return undefined;
-            return m.teamAId;
-        }
-        if (m.status !== 'finished') return undefined;
-        if (m.scoreA > m.scoreB) {
-            if (isTbdTeamId(m.teamAId)) return undefined;
-            return m.teamAId;
-        }
-        if (m.scoreB > m.scoreA) {
-            if (isTbdTeamId(m.teamBId)) return undefined;
-            return m.teamBId;
-        }
-        return undefined;
-    };
+    const resolveWinnerTeamId = (m: Match) => resolveBracketWinnerTeamId(m);
 
-    const applyByeAutoWin = (m: Match): Match => {
-        if (!m) return m;
-        if (m.status === 'finished') return m;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE' && !isTbdTeamId(m.teamBId)) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE' && !isTbdTeamId(m.teamAId)) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        if (m.teamAId === 'BYE' && m.teamBId === 'BYE') {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        return m;
-    };
-
-    const tryPropagateWinner = (rIdx: number, mIdx: number, finishedMatch: Match) => {
+    const tryPropagateWinner = (_rIdx: number, _mIdx: number, finishedMatch: Match) => {
         if (!onUpdate) return;
-        const winner = resolveWinnerTeamId(finishedMatch);
-        if (!winner || winner === 'BYE') return;
-
-        const nextRound = rounds[rIdx + 1];
-        if (!nextRound || nextRound.length === 0) return;
-        const nextMatchSkeleton = nextRound[Math.floor(mIdx / 2)];
-        if (!nextMatchSkeleton) return;
-
-        const nextMatch = (getMatch(nextMatchSkeleton.id) || nextMatchSkeleton);
-        const slot: 'teamAId' | 'teamBId' = (mIdx % 2 === 0) ? 'teamAId' : 'teamBId';
-        if ((nextMatch as any)[slot]) return;
-
-        let nextUpdated: Match = { ...nextMatch, [slot]: winner } as any;
-        const beforeStatus = nextUpdated.status;
-        nextUpdated = applyByeAutoWin(nextUpdated);
-        onUpdate(nextUpdated);
-
-        // If it auto-finished due to a BYE, propagate further.
-        if (beforeStatus !== 'finished' && nextUpdated.status === 'finished') {
-            tryPropagateWinner(rIdx + 1, Math.floor(mIdx / 2), nextUpdated);
+        const sourceMatches = matches.map((match) => (match.id === finishedMatch.id ? finishedMatch : match));
+        const nextMatches = advanceBracketWinner(sourceMatches, finishedMatch);
+        for (const nextMatch of nextMatches) {
+            const before = sourceMatches.find((match) => match.id === nextMatch.id);
+            if (!before || before.id === finishedMatch.id) continue;
+            if (
+                before.teamAId === nextMatch.teamAId &&
+                before.teamBId === nextMatch.teamBId &&
+                before.status === nextMatch.status &&
+                before.played === nextMatch.played &&
+                before.scoreA === nextMatch.scoreA &&
+                before.scoreB === nextMatch.scoreB &&
+                before.hidden === nextMatch.hidden &&
+                before.isBye === nextMatch.isBye
+            ) {
+                continue;
+            }
+            onUpdate(nextMatch);
         }
     };
 

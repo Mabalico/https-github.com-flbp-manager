@@ -16,6 +16,11 @@ import { buildPlayerAreaSnapshot, findRefereeBypassNameForProfile, toPlayerRunti
 import { tryMergeRemoteStateConflict } from '../services/stateConflictMerge';
 import { withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
+import {
+    advanceWinner as advanceBracketWinner,
+    autoResolveBracketByeMatch,
+    resolveWinnerTeamId as resolveBracketWinnerTeamId,
+} from '../services/tournamentStructureSelectors';
 
 interface RefereesAreaProps {
     state: AppState;
@@ -681,93 +686,16 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         return null;
     };
 
-    const resolveWinnerTeamId = (m: Match) => {
-        if (!m) return undefined;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE') {
-            if (String(m.teamBId).startsWith('TBD')) return undefined;
-            return m.teamBId;
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE') {
-            if (String(m.teamAId).startsWith('TBD')) return undefined;
-            return m.teamAId;
-        }
-        if (m.status !== 'finished') return undefined;
-        if (m.scoreA > m.scoreB) {
-            if (String(m.teamAId).startsWith('TBD')) return undefined;
-            return m.teamAId;
-        }
-        if (m.scoreB > m.scoreA) {
-            if (String(m.teamBId).startsWith('TBD')) return undefined;
-            return m.teamBId;
-        }
-        return undefined;
-    };
+    const resolveWinnerTeamId = (m: Match) => resolveBracketWinnerTeamId(m);
 
-    const applyByeAutoWin = (m: Match): Match => {
-        if (!m) return m;
-        if (m.status === 'finished') return m;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE' && !String(m.teamBId).startsWith('TBD')) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE' && !String(m.teamAId).startsWith('TBD')) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        if (m.teamAId === 'BYE' && m.teamBId === 'BYE') {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
-        }
-        return m;
-    };
+    const applyByeAutoWin = (m: Match): Match => autoResolveBracketByeMatch(m);
 
     const replaceMatch = (matches: Match[], updated: Match) => {
         return matches.map(m => (m.id === updated.id ? { ...m, ...updated } : m));
     };
 
-    const propagateWinnerFromMatch = (finishedMatch: Match, matches: Match[]) => {
-        const rounds = buildBracketRounds(matches);
-        const pos = findMatchPositionInRounds(rounds, finishedMatch.id);
-        if (!pos) return matches;
-
-        let rIdx = pos.rIdx;
-        let mIdx = pos.mIdx;
-        let current = finishedMatch;
-
-        let out = [...matches];
-        const byId = new Map(out.map(m => [m.id, m]));
-        const upsert = (u: Match) => {
-            byId.set(u.id, u);
-            out = out.map(m => (m.id === u.id ? u : m));
-        };
-
-        while (true) {
-            const winner = resolveWinnerTeamId(current);
-            if (!winner || winner === 'BYE') break;
-
-            const nextRound = rounds[rIdx + 1];
-            if (!nextRound || nextRound.length === 0) break;
-
-            const nextSkel = nextRound[Math.floor(mIdx / 2)];
-            if (!nextSkel) break;
-
-            const next = byId.get(nextSkel.id) || nextSkel;
-            const slot: 'teamAId' | 'teamBId' = (mIdx % 2 === 0) ? 'teamAId' : 'teamBId';
-            if ((next as any)[slot]) break;
-
-            let nextUpdated: Match = { ...next, [slot]: winner } as any;
-            const beforeStatus = nextUpdated.status;
-            nextUpdated = applyByeAutoWin(nextUpdated);
-            upsert(nextUpdated);
-
-            if (beforeStatus !== 'finished' && nextUpdated.status === 'finished') {
-                current = nextUpdated;
-                rIdx = rIdx + 1;
-                mIdx = Math.floor(mIdx / 2);
-                continue;
-            }
-            break;
-        }
-
-        return out;
-    };
+    const propagateWinnerFromMatch = (finishedMatch: Match, matches: Match[]) =>
+        advanceBracketWinner(matches, finishedMatch);
 
     const autoResolveBracketByes = (matches: Match[]) => {
         let out = [...matches];

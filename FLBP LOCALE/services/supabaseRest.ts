@@ -295,6 +295,8 @@ export interface SupabasePublicTournamentMatchRow {
     order_index?: number | null;
     team_a_id?: string | null;
     team_b_id?: string | null;
+    next_match_id?: string | null;
+    next_slot?: 'A' | 'B' | null;
     score_a?: number | null;
     score_b?: number | null;
     played?: boolean | null;
@@ -2304,7 +2306,7 @@ const DB_SCHEMA_TABLE_REQUIREMENTS: DbHealthTableRequirement[] = [
     { flow: 'Public read', table: 'public_tournament_teams', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'name', 'player1', 'player2', 'player1_is_referee', 'player2_is_referee', 'is_referee', 'created_at'] },
     { flow: 'Public read', table: 'public_tournament_groups', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'name', 'order_index'] },
     { flow: 'Public read', table: 'public_tournament_group_teams', access: 'anon', columns: ['workspace_id', 'tournament_id', 'group_id', 'team_id', 'seed'] },
-    { flow: 'Public read', table: 'public_tournament_matches', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'code', 'phase', 'group_name', 'round', 'round_name', 'order_index', 'team_a_id', 'team_b_id', 'score_a', 'score_b', 'played', 'status', 'is_bye', 'hidden'] },
+    { flow: 'Public read', table: 'public_tournament_matches', access: 'anon', columns: ['workspace_id', 'tournament_id', 'id', 'code', 'phase', 'group_name', 'round', 'round_name', 'order_index', 'team_a_id', 'team_b_id', 'next_match_id', 'next_slot', 'score_a', 'score_b', 'played', 'status', 'is_bye', 'hidden'] },
     { flow: 'Public read', table: 'public_tournament_match_stats', access: 'anon', columns: ['workspace_id', 'tournament_id', 'match_id', 'team_id', 'player_name', 'canestri', 'soffi'] },
     { flow: 'Public read', table: 'public_hall_of_fame_entries', access: 'anon', columns: ['workspace_id', 'id', 'year', 'tournament_id', 'tournament_name', 'type', 'team_name', 'player_names', 'value', 'created_at'] },
     { flow: 'Public read', table: 'public_career_leaderboard', access: 'anon', columns: ['workspace_id', 'id', 'name', 'team_name', 'games_played', 'points', 'soffi', 'avg_points', 'avg_soffi', 'u25', 'yob_label'] },
@@ -2930,7 +2932,7 @@ export const pullPublicTournamentBundle = async (tournamentId: string, perf?: Re
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,name,player1,player2,player1_is_referee,player2_is_referee,is_referee,created_at&order=created_at.asc`), { headers: anonHeaders }, { source: `${requestSource}.teams`, kind: requestKind }),
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_groups?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,name,order_index&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.groups`, kind: requestKind }),
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_group_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=group_id,team_id,seed`), { headers: anonHeaders }, { source: `${requestSource}.groupTeams`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,score_a,score_b,played,status,is_bye,hidden&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.matches`, kind: requestKind }),
+        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,next_match_id,next_slot,score_a,score_b,played,status,is_bye,hidden&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.matches`, kind: requestKind }),
         fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_match_stats?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=match_id,team_id,player_name,canestri,soffi`), { headers: anonHeaders }, { source: `${requestSource}.stats`, kind: requestKind }),
     ]);
 
@@ -2998,6 +3000,8 @@ export const pullPublicTournamentBundle = async (tournamentId: string, perf?: Re
         orderIndex: typeof mr.order_index === 'number' ? mr.order_index : (mr.order_index ? parseInt(String(mr.order_index), 10) : undefined),
         teamAId: mr.team_a_id || undefined,
         teamBId: mr.team_b_id || undefined,
+        nextMatchId: mr.next_match_id || undefined,
+        nextSlot: mr.next_slot === 'A' || mr.next_slot === 'B' ? mr.next_slot : undefined,
         scoreA: typeof mr.score_a === 'number' ? mr.score_a : parseInt(String(mr.score_a || 0), 10) || 0,
         scoreB: typeof mr.score_b === 'number' ? mr.score_b : parseInt(String(mr.score_b || 0), 10) || 0,
         played: !!mr.played,
@@ -3193,6 +3197,32 @@ export const promoteFantaPretournamentToTournament = async (
     return await res.json() as FantaPretournamentSyncResult;
 };
 
+export const resetFantaConfigToPretournament = async (): Promise<void> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const res = await fetchWithTimeout(
+        restUrl(cfg, 'fanta_config?on_conflict=workspace_id'),
+        {
+            method: 'POST',
+            headers: {
+                ...buildHeaders(cfg, session.accessToken),
+                'Prefer': 'resolution=merge-duplicates,return=minimal'
+            },
+            body: JSON.stringify({
+                workspace_id: cfg.workspaceId,
+                active_tournament_id: '__pre_tournament__',
+                is_lock_active: false,
+                registration_open: true,
+                updated_at: new Date().toISOString()
+            }),
+        },
+        8000,
+        { source: 'resetFantaConfigToPretournament', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+};
+
 export const hasFantaPretournamentTeams = async (): Promise<boolean> => {
     const cfg = getSupabaseConfig();
     if (!cfg) return false;
@@ -3235,6 +3265,7 @@ export const archiveFantaTournamentEdition = async (tournamentId: string): Promi
 export type DeleteFantaTournamentDataResult = {
     ok: boolean;
     tournamentId: string;
+    configReset?: boolean;
     removed: {
         archivedPlayers: number;
         archivedStandings: number;
@@ -3429,9 +3460,33 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
         'deleteFantaTeams'
     );
 
+    // If fanta_config still references the deleted tournament, point it back at
+    // the Pretorneo container: otherwise the public Fanta stays stuck on
+    // "Torneo concluso" for a tournament that no longer exists anywhere.
+    let configReset = false;
+    try {
+        const configRes = await fetchWithTimeout(
+            restUrl(cfg, `fanta_config?workspace_id=eq.${workspace}&select=active_tournament_id&limit=1`),
+            { headers: buildHeaders(cfg, session.accessToken) },
+            4000,
+            { source: 'deleteFantaTournamentData.configCheck', kind: 'sync' }
+        );
+        if (configRes.ok) {
+            const rows = await configRes.json().catch(() => []);
+            const activeId = String(rows?.[0]?.active_tournament_id || '').trim();
+            if (activeId === resolvedTournamentId) {
+                await resetFantaConfigToPretournament();
+                configReset = true;
+            }
+        }
+    } catch (error) {
+        console.warn('Reset fanta_config dopo eliminazione dati Fanta non completato', error);
+    }
+
     return {
         ok: true,
         tournamentId: resolvedTournamentId,
+        configReset,
         removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams },
     };
 };
@@ -4197,6 +4252,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
                 score_b: m.scoreB ?? 0,
                 team_a_id: m.teamAId ?? null,
                 team_b_id: m.teamBId ?? null,
+                next_match_id: m.nextMatchId ?? null,
+                next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
                 round: m.round ?? null,
                 round_name: m.roundName ?? null,
                 group_name: m.groupName ?? null,
@@ -4218,6 +4275,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
                 score_b: m.scoreB ?? 0,
                 team_a_id: m.teamAId ?? null,
                 team_b_id: m.teamBId ?? null,
+                next_match_id: m.nextMatchId ?? null,
+                next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
                 round: m.round ?? null,
                 round_name: m.roundName ?? null,
                 group_name: m.groupName ?? null,
@@ -4446,7 +4505,7 @@ export const pullNormalizedState = async (): Promise<NormalizedPullResult> => {
             restGetJson<any[]>(cfg, `tournament_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tidEnc}&select=id,name,player1,player2,player1_yob,player1_birth_date,player2_yob,player2_birth_date,player1_is_referee,player2_is_referee,is_referee,created_at_ms&order=created_at_ms.asc`),
             restGetJson<any[]>(cfg, `tournament_groups?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tidEnc}&select=id,name,order_index&order=order_index.asc`),
             restGetJson<any[]>(cfg, `tournament_group_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tidEnc}&select=group_id,team_id&order=group_id.asc`),
-            restGetJson<any[]>(cfg, `tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tidEnc}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,score_a,score_b,played,status,is_bye,hidden,updated_at&order=order_index.asc`),
+            restGetJson<any[]>(cfg, `tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tidEnc}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,next_match_id,next_slot,score_a,score_b,played,status,is_bye,hidden,updated_at&order=order_index.asc`),
             restGetJson<any[]>(cfg, `tournament_match_stats?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tidEnc}&select=match_id,team_id,player_name,canestri,soffi,player_key`),
         ]);
 
@@ -4515,6 +4574,8 @@ export const pullNormalizedState = async (): Promise<NormalizedPullResult> => {
             orderIndex: r.order_index == null ? undefined : toInt(r.order_index, 0),
             teamAId: r.team_a_id == null ? undefined : String(r.team_a_id),
             teamBId: r.team_b_id == null ? undefined : String(r.team_b_id),
+            nextMatchId: r.next_match_id == null ? undefined : String(r.next_match_id),
+            nextSlot: r.next_slot === 'A' || r.next_slot === 'B' ? r.next_slot : undefined,
             scoreA: toInt(r.score_a, 0),
             scoreB: toInt(r.score_b, 0),
             played: toBool(r.played, false),

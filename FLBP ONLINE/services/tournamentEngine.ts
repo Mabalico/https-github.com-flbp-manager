@@ -1,6 +1,7 @@
 import { Team, Match, TournamentData, Group, FinalRoundRobinConfig } from '../types';
 import { computeGroupStandings } from './groupStandings';
 import { isFinalGroup } from './groupUtils';
+import { buildBracketRoundsFromMatches, reconcileBracketAdvancements } from './tournamentStructureSelectors';
 
 const uuid = () => Math.random().toString(36).substr(2, 9);
 
@@ -571,6 +572,10 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
         });
     }
 
+    const reconciledMatches = reconcileBracketAdvancements(allMatches);
+    allMatches.splice(0, allMatches.length, ...reconciledMatches);
+    rounds.splice(0, rounds.length, ...buildBracketRoundsFromMatches(allMatches));
+
     const tournament: TournamentData = {
         id: uuid(),
         name: config.tournamentName || `Torneo ${new Date().toLocaleDateString()}`,
@@ -714,7 +719,7 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
     ensureGroupTieBreak1v1();
 
     const round1 = round1From(out);
-    if (!round1.length) return out;
+    if (!round1.length) return reconcileBracketAdvancements(out);
 
     const targetSize = round1.length * 2;
     const allGroupsComplete = groups.length > 0 && groups.every(g => isGroupComplete(g, out));
@@ -833,7 +838,7 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
     };
 
     // If all groups are complete, we are done after applying Round1 pairs.
-    if (allGroupsComplete) return sanitizeBracketPlaceholders(out);
+    if (allGroupsComplete) return reconcileBracketAdvancements(sanitizeBracketPlaceholders(out));
 
     // Not all groups complete: resolve placeholders only for completed groups.
     const placeholderToTeamId: Record<string, string> = {};
@@ -861,15 +866,15 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
     }));
 
     const changed = nextRound1.some((m, i) => (m.teamAId !== baseRound1[i].teamAId) || (m.teamBId !== baseRound1[i].teamBId));
-    if (!changed) return sanitizeBracketPlaceholders(out);
+    if (!changed) return reconcileBracketAdvancements(sanitizeBracketPlaceholders(out));
 
-    return sanitizeBracketPlaceholders(out.map(m => {
+    return reconcileBracketAdvancements(sanitizeBracketPlaceholders(out.map(m => {
         if (m.phase === 'bracket' && (m.round || 1) === 1) {
             const i = nextRound1.findIndex(x => x.id === m.id);
             if (i >= 0) return { ...m, teamAId: nextRound1[i].teamAId, teamBId: nextRound1[i].teamBId };
         }
         return m;
-    }));
+    })));
 };
 
 
