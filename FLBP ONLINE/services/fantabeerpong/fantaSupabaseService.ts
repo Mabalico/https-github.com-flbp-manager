@@ -1124,7 +1124,7 @@ export const fetchPendingFantaRosterChangeNotices = async (): Promise<FantaRoste
   if (!cfg || !token) return [];
 
   const rows = await fetchJson<SupabaseFantaRosterChangeNotice[]>(
-    `${restUrl(cfg, 'fanta_roster_change_notices')}?workspace_id=eq.${encode(cfg.workspaceId)}&seen_at=is.null&select=id,old_player_name,new_player_name,reason,created_at&order=created_at.asc&limit=10`,
+    `${restUrl(cfg, 'fanta_roster_change_notices')}?workspace_id=eq.${encode(cfg.workspaceId)}&seen_at=is.null&select=id,old_player_name,new_player_name,reason,created_at&order=created_at.asc&limit=20`,
     buildHeaders(cfg, token),
     'fetchPendingFantaRosterChangeNotices',
   );
