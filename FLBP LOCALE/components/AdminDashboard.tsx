@@ -11,7 +11,9 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { flushAutoStructuredSync } from '../services/autoDbSync';
+import { FANTA_APP_CHANGE_EVENT } from '../services/playerAppService';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -1679,6 +1681,41 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         }
     };
 
+    // I titoli dell'albo d'oro (campioni, MVP, capocannoniere, miglior difensore)
+    // valgono punti Fanta (points_from_awards) calcolati lato DB da
+    // hall_of_fame_entries. Quelle righe arrivano su Supabase solo con lo
+    // structured sync DOPO l'archiviazione, quindi lo snapshot Fanta scattato
+    // prima resta senza punti-titoli: qui forziamo il push dell'albo e
+    // ri-eseguiamo lo snapshot (RPC idempotente) appena i premi sono nel DB.
+    const refreshFantaArchiveAfterAwards = async (archivedState: AppState, tournamentId?: string | null) => {
+        const resolvedTournamentId = String(tournamentId || '').trim();
+        if (!resolvedTournamentId) return;
+        try {
+            let awardsVisible = false;
+            for (let attempt = 0; attempt < 8 && !awardsVisible; attempt++) {
+                if (attempt === 0 || attempt === 4) {
+                    await flushAutoStructuredSync(archivedState, { force: true });
+                }
+                try {
+                    awardsVisible = await hasPublicHallOfFameFinalAwards(resolvedTournamentId);
+                } catch {
+                    awardsVisible = false;
+                }
+                if (!awardsVisible) {
+                    await new Promise((resolve) => window.setTimeout(resolve, 1500));
+                }
+            }
+            await archiveFantaTournamentEdition(resolvedTournamentId);
+            try {
+                window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+            } catch {
+                // best-effort: le viste fanta aperte si aggiornano comunque al focus
+            }
+        } catch (error) {
+            console.warn('[FantaBeerpong] Punti dei titoli non ancora propagati all\'archivio Fanta.', error);
+        }
+    };
+
     const handleArchive = () => {
         if (!state.tournament) {
             alert(t('alert_no_live_active'));
@@ -2753,18 +2790,22 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         try { safeSessionRemove('flbp_ref_authed_ver'); } catch { /* ignore */ }
         
         let newState = { ...state };
+        const implicitlyArchivedTournamentId = newState.tournament?.id;
         if (newState.tournament) {
             await snapshotFantaBeforeArchive(newState.tournament.id);
             closeLiveCallsForTournament(newState.tournament.id);
             newState = archiveTournamentV2(newState);
         }
-        
+
         newState.tournament = draftResultsOnly
             ? { ...draft.t, refereesPassword: undefined, refereesAuthVersion: undefined }
             : { ...draft.t, refereesPassword, refereesAuthVersion };
         newState.tournamentMatches = draft.m;
-        
+
         setState(newState);
+        if (implicitlyArchivedTournamentId) {
+            void refreshFantaArchiveAfterAwards(newState, implicitlyArchivedTournamentId);
+        }
         let shouldPromoteFantaPretournament = fantaPretournamentEnabled && !draftResultsOnly;
         if (!shouldPromoteFantaPretournament && !draftResultsOnly) {
             try {
@@ -4529,11 +4570,13 @@ while (guard < 5000) {
         onClose={() => { setMvpModalOpen(false); setMvpModalForArchive(false); setArchiveIncludeU25Awards(true); }}
         onArchiveWithoutMvp={async () => {
             // Archivia anche senza MVP (premi automatici = campioni + classifica marcatori).
+            const archivedTournamentId = state.tournament?.id;
             prepareRefereeCounterEmailDraft(state);
-            await snapshotFantaBeforeArchive(state.tournament?.id);
-            closeLiveCallsForTournament(state.tournament?.id);
+            await snapshotFantaBeforeArchive(archivedTournamentId);
+            closeLiveCallsForTournament(archivedTournamentId);
             const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
             setState(next);
+            void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
             setMvpModalOpen(false);
             setMvpModalForArchive(false);
         }}
@@ -4545,11 +4588,13 @@ while (guard < 5000) {
             }
             if (mvpModalForArchive) {
                 let next = applyMvpsToState(state, mvpSelectedIds);
+                const archivedTournamentId = next.tournament?.id || state.tournament?.id;
                 prepareRefereeCounterEmailDraft(next);
-                await snapshotFantaBeforeArchive(next.tournament?.id || state.tournament?.id);
-                closeLiveCallsForTournament(next.tournament?.id || state.tournament?.id);
+                await snapshotFantaBeforeArchive(archivedTournamentId);
+                closeLiveCallsForTournament(archivedTournamentId);
                 next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
                 setState(next);
+                void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
                 setMvpModalOpen(false);
                 setMvpModalForArchive(false);
                 alert(t('alert_tournament_ended'));

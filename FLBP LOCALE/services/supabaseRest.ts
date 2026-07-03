@@ -3262,6 +3262,24 @@ export const archiveFantaTournamentEdition = async (tournamentId: string): Promi
     return await res.json() as ArchiveFantaTournamentEditionResult;
 };
 
+// Anon probe: true when the DB already holds the final-award hall of fame rows
+// (winner/mvp/top_scorer/defender) for the tournament. Used to re-snapshot the
+// fanta archive only after the albo d'oro reached Supabase.
+export const hasPublicHallOfFameFinalAwards = async (tournamentId: string): Promise<boolean> => {
+    const cfg = getSupabaseConfig();
+    const resolvedTournamentId = String(tournamentId || '').trim();
+    if (!cfg || !resolvedTournamentId) return false;
+    const res = await fetchWithTimeout(
+        restUrl(cfg, `public_hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${encodeURIComponent(resolvedTournamentId)}&type=in.(winner,mvp,top_scorer,defender)&select=id&limit=1`),
+        { headers: buildAnonHeaders(cfg) },
+        4000,
+        { source: 'hasPublicHallOfFameFinalAwards', kind: 'sync' }
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) && rows.length > 0;
+};
+
 export type DeleteFantaTournamentDataResult = {
     ok: boolean;
     tournamentId: string;
