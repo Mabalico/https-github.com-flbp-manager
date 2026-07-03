@@ -4536,6 +4536,9 @@ while (guard < 5000) {
                     onToggleFantaEnabled={toggleFantaPretournament}
                     onSyncFantaPretournament={syncFantaPretournamentTeamsNow}
                     fantaSyncStatus={fantaSyncFeedback}
+                    onFantaPretournamentTeamsChanged={(nextTeams, previousTeams) => {
+                        void syncFantaPretournamentTeamsBestEffort(nextTeams, 'player-substitution', { previousTeams });
+                    }}
                 />
             )}
 

@@ -110,6 +110,86 @@ const rewriteHallOfFameEntry = (
   };
 };
 
+interface SubstituteTeamSlotPlayerInput {
+  teamId: string;
+  slot: 'G1' | 'G2';
+  nextPlayerName: string;
+  nextBirthDate?: string | null;
+}
+
+/**
+ * Sostituzione di un giocatore in uno slot squadra (Admin -> Squadre).
+ *
+ * A differenza di updatePlayerProfileIdentity (correzione globale a cascata),
+ * qui cambia SOLO il contesto del torneo in corso: lista iscritti, squadra nel
+ * torneo live e relative righe statistiche. Il profilo generale del giocatore
+ * uscente (storico squadre, statistiche carriera, titoli, alias) resta intatto.
+ * Il nome entrante si aggancia a un profilo esistente se nome+data coincidono,
+ * altrimenti diventa un nuovo profilo: esattamente come una nuova iscrizione.
+ */
+export const substituteTeamSlotPlayer = (state: AppState, input: SubstituteTeamSlotPlayerInput): AppState => {
+  const teamId = String(input.teamId || '').trim();
+  const nextPlayerName = String(input.nextPlayerName || '').trim();
+  if (!teamId) throw new Error('Squadra non valida.');
+  if (!nextPlayerName) throw new Error('Inserisci il nome del nuovo giocatore.');
+
+  const nextBirthDate = normalizeBirthDateInput(input.nextBirthDate || undefined);
+  if (input.nextBirthDate && !nextBirthDate) {
+    throw new Error('La data di nascita non è valida. Usa gg/mm/aaaa oppure il calendario.');
+  }
+  const nextYoB = deriveYoBFromBirthDate(nextBirthDate);
+  const slotIndex: 1 | 2 = input.slot === 'G1' ? 1 : 2;
+
+  const sourceTeam = (state.teams || []).find((team) => team.id === teamId)
+    || (state.tournament?.teams || []).find((team) => team.id === teamId);
+  if (!sourceTeam) throw new Error('Squadra non trovata tra le iscritte.');
+
+  const currentName = String((slotIndex === 1 ? sourceTeam.player1 : sourceTeam.player2) || '').trim();
+  if (!currentName) throw new Error('Slot giocatore vuoto: modifica la squadra invece di sostituire.');
+
+  const nameChanges = new Map<string, string>();
+  nameChanges.set(`${teamId}::${currentName}`, nextPlayerName);
+
+  const swapSlot = (team: Team): Team => {
+    if (team.id !== teamId) return team;
+    const nextTeam: Team = { ...team };
+    if (slotIndex === 1) {
+      nextTeam.player1 = nextPlayerName;
+      nextTeam.player1BirthDate = nextBirthDate;
+      nextTeam.player1YoB = nextYoB;
+    } else {
+      nextTeam.player2 = nextPlayerName;
+      nextTeam.player2BirthDate = nextBirthDate;
+      nextTeam.player2YoB = nextYoB;
+    }
+    return nextTeam;
+  };
+
+  const teams = (state.teams || []).map(swapSlot);
+  const tournamentMatches = rewriteMatches(state.tournamentMatches, nameChanges) || [];
+
+  const tournament = state.tournament
+    ? {
+        ...state.tournament,
+        teams: (state.tournament.teams || []).map(swapSlot),
+        matches: tournamentMatches,
+        rounds: Array.isArray(state.tournament.rounds)
+          ? state.tournament.rounds.map((round) => rewriteMatches(round, nameChanges) || round)
+          : state.tournament.rounds,
+        groups: Array.isArray((state.tournament as any).groups)
+          ? (state.tournament as any).groups.map((group: any) => ({
+              ...group,
+              teams: Array.isArray(group?.teams) ? group.teams.map(swapSlot) : group?.teams,
+            }))
+          : (state.tournament as any).groups,
+      }
+    : null;
+
+  // Volutamente NON toccati: tournamentHistory, hallOfFame, integrationsScorers,
+  // playerAliases. Il giocatore uscente conserva il proprio profilo generale.
+  return { ...state, teams, tournament, tournamentMatches };
+};
+
 export const updatePlayerProfileIdentity = (state: AppState, input: UpdatePlayerProfileIdentityInput): AppState => {
   const currentPlayerId = String(input.currentPlayerId || '').trim();
   const nextPlayerName = String(input.nextPlayerName || '').trim();

@@ -4,7 +4,7 @@ import type { Team } from '../../../types';
 import { isTesterMode } from '../../../config/appMode';
 import { BirthDateInput } from '../BirthDateInput';
 import { formatBirthDateDisplay, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../../services/playerIdentity';
-import { updatePlayerProfileIdentity } from '../../../services/playerProfileAdmin';
+import { substituteTeamSlotPlayer } from '../../../services/playerProfileAdmin';
 import { buildPlayerProfileSnapshot } from '../../../services/playerDataProvenance';
 import type { AppState } from '../../../services/storageService';
 import { buildCanonicalPlayerNameFromParts, splitCanonicalPlayerName } from '../../../services/textUtils';
@@ -58,6 +58,7 @@ export interface TeamsTabProps {
     onToggleFantaEnabled: () => void;
     onSyncFantaPretournament: () => void;
     fantaSyncStatus?: { tone: 'success' | 'error' | 'info'; message: string } | null;
+    onFantaPretournamentTeamsChanged?: (nextTeams: Team[], previousTeams: Team[]) => void;
 }
 
 export const TeamsTab: React.FC<TeamsTabProps> = ({
@@ -100,6 +101,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     onToggleFantaEnabled,
     onSyncFantaPretournament,
     fantaSyncStatus,
+    onFantaPretournamentTeamsChanged,
 }) => {
     const [query, setQuery] = React.useState('');
     const [p1FirstName, setP1FirstName] = React.useState('');
@@ -277,15 +279,24 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
             return;
         }
         try {
-            const nextState = updatePlayerProfileIdentity(state, {
-                currentPlayerId: profileEditDraft.currentPlayerId,
+            // Sostituzione (non correzione): cambia solo lista iscritti + torneo
+            // live per questa squadra/slot. Il profilo generale del giocatore
+            // uscente resta intatto; il nome entrante si aggancia a un profilo
+            // esistente o ne crea uno nuovo, come una nuova iscrizione.
+            const previousTeam = (state.teams || []).find((team) => team.id === profileEditDraft.teamId);
+            const nextState = substituteTeamSlotPlayer(state, {
+                teamId: profileEditDraft.teamId,
+                slot: profileEditDraft.slot,
                 nextPlayerName: nextName,
                 nextBirthDate,
             });
             setState(nextState);
+            // Il Fanta scambia lo slot (real_team_id + real_team_slot) nei roster
+            // pretorneo e avvisa i proprietari della sostituzione.
+            onFantaPretournamentTeamsChanged?.(nextState.teams || [], previousTeam ? [previousTeam] : []);
             setProfileFeedback({
                 tone: 'success',
-                message: t('players_snackbar_profile_updated'),
+                message: `Giocatore sostituito: ${profileEditDraft.currentName} → ${nextName} in ${profileEditDraft.teamName}.`,
             });
             setProfileEditDraft(null);
         } catch (error: any) {
@@ -294,7 +305,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 message: error?.message || t('players_snackbar_profile_update_error'),
             });
         }
-    }, [profileEditDraft, setState, state, t]);
+    }, [onFantaPretournamentTeamsChanged, profileEditDraft, setState, state, t]);
 
     const allTeamRows = React.useMemo(() => {
         return sortedTeams.map((team, index) => ({
@@ -741,13 +752,13 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
-                            <div className="text-sm font-black text-slate-950">{t('players_fix_profile_title')}</div>
+                            <div className="text-sm font-black text-slate-950">Sostituisci giocatore</div>
                             <div className="mt-1 text-xs font-bold text-slate-600">
                                 {profileEditDraft.teamName} · {profileEditDraft.slot} · {profileEditDraft.currentName}
                                 {profileEditDraft.currentBirthDate ? ` · ${profileEditDraft.currentBirthDate}` : ''}
                             </div>
                             <div className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                                La correzione aggiorna live, referti, classifica live, storico e dati derivati dello stesso profilo. Se nome e data coincidono con un profilo esistente, i dati si accorpano; se li differenzi, il profilo si separa.
+                                La sostituzione cambia il giocatore solo in questa squadra e nel torneo in corso. Lo storico, le statistiche carriera e i titoli di {profileEditDraft.currentName} restano intatti sul suo profilo. Il nuovo nome si aggancia a un profilo esistente se nome e data coincidono, altrimenti crea un nuovo profilo giocatore. Per correggere un errore di battitura sullo stesso profilo usa invece Gestione dati → Giocatori.
                             </div>
                         </div>
                         <button type="button" onClick={closeProfileEditor} className={btnSecondary}>
@@ -814,18 +825,18 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                                 </div>
                             ) : profileEditMeta.mergeTarget ? (
                                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs font-bold text-amber-900">
-                                    {t('teams_profile_merge_desc_prefix')} <span className="font-black">{profileEditMeta.targetLabel}</span>. {t('teams_profile_merge_desc_suffix')}
+                                    Il nuovo nome corrisponde al profilo esistente <span className="font-black">{profileEditMeta.targetLabel}</span>: lo slot si aggancia a quel profilo e le sue statistiche carriera proseguono lì. Il profilo di {profileEditDraft.currentName} non viene toccato.
                                 </div>
                             ) : (
                                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-bold text-emerald-900">
-                                    {t('teams_profile_keep_separate_desc')}
+                                    Nessun profilo esistente con questo nome e data: verrà creato un nuovo profilo giocatore per <span className="font-black">{profileEditMeta.nextName}{profileEditMeta.nextBirthDate ? ` · ${formatBirthDateDisplay(profileEditMeta.nextBirthDate)}` : ''}</span>. Il profilo di {profileEditDraft.currentName} non viene toccato. Controlla che la data di nascita sia quella del nuovo giocatore, non di quello sostituito.
                                 </div>
                             )}
                         </div>
                     ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                         <button type="button" onClick={applyProfileCorrection} disabled={!profileEditMeta?.nextName || !profileEditMeta?.hasChanges} className={btnPrimary}>
-                            {t('teams_profile_save_correction')}
+                            Conferma sostituzione
                         </button>
                         <button type="button" onClick={closeProfileEditor} className={btnSecondary}>
                             {t('editor_cancel_action')}
@@ -890,8 +901,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                                                             type="button"
                                                             onClick={() => openProfileEditor(team, player.slot)}
                                                             className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                                                            title={t('players_fix_profile_title')}
-                                                            aria-label={`${t('players_fix_profile_title')} ${player.name}`}
+                                                            title="Sostituisci giocatore"
+                                                            aria-label={`Sostituisci giocatore ${player.name}`}
                                                         >
                                                             <Pencil className="w-4 h-4"/>
                                                         </button>
@@ -924,8 +935,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => openProfileEditor(row.team, row.slot)}
-                                                title={t('players_fix_profile_title')}
-                                                aria-label={`${t('players_fix_profile_title')} ${row.playerName}`}
+                                                title="Sostituisci giocatore"
+                                                aria-label={`Sostituisci giocatore ${row.playerName}`}
                                                 className={`${btnIcon} bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 focus-visible:ring-blue-500`}
                                             >
                                                 <Pencil className="w-4 h-4"/>
@@ -986,8 +997,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                                                     type="button"
                                                     onClick={() => openProfileEditor(team, 'G1')}
                                                     className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                                                    title={t('players_fix_profile_title')}
-                                                    aria-label={`${t('players_fix_profile_title')} ${team.player1}`}
+                                                    title="Sostituisci giocatore"
+                                                    aria-label={`Sostituisci giocatore ${team.player1}`}
                                                 >
                                                     <Pencil className="w-3.5 h-3.5"/>
                                                 </button>
@@ -1003,8 +1014,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                                                     type="button"
                                                     onClick={() => openProfileEditor(team, 'G2')}
                                                     className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                                                    title={t('players_fix_profile_title')}
-                                                    aria-label={`${t('players_fix_profile_title')} ${team.player2}`}
+                                                    title="Sostituisci giocatore"
+                                                    aria-label={`Sostituisci giocatore ${team.player2}`}
                                                 >
                                                     <Pencil className="w-3.5 h-3.5"/>
                                                 </button>
@@ -1075,8 +1086,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => openProfileEditor(row.team, row.slot)}
-                                                title={t('players_fix_profile_title')}
-                                                aria-label={`${t('players_fix_profile_title')} ${row.playerName}`}
+                                                title="Sostituisci giocatore"
+                                                aria-label={`Sostituisci giocatore ${row.playerName}`}
                                                 className={`${btnIcon} bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 focus-visible:ring-blue-500`}
                                             >
                                                 <Pencil className="w-4 h-4"/>
