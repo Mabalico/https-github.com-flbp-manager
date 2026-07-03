@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, TriangleAlert, Users } from 'lucide-react';
+import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, Trash2, TriangleAlert, Users } from 'lucide-react';
 import type { Team, Match } from '../../../types';
 import type { AppState } from '../../../services/storageService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from '../../../services/dbDiagnostics';
@@ -461,6 +461,21 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         >
                             <PlusCircle className="w-4 h-4" />
                             {t('data_add')}
+                        </button>
+                        <button type="button"
+                            onClick={() => {
+                                setDataSubTab('integrations');
+                                props.setIntegrationsSubTab('fanta');
+                                try {
+                                    sessionStorage.setItem('flbp_admin_data_subtab', 'integrations');
+                                    sessionStorage.setItem('flbp_admin_integrations_subtab', 'fanta');
+                                } catch {}
+                            }}
+                            className={`${tabBtnBase} ${dataSubTab === 'integrations' && props.integrationsSubTab === 'fanta' ? 'bg-rose-700 text-white border-rose-700 hover:bg-rose-800' : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'}`}
+                            title="Apri la manutenzione dei dati Fanta rimasti senza torneo collegato"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Fanta orfani
                         </button>
                     </div>
 
