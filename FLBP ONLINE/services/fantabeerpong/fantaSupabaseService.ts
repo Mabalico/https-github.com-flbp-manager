@@ -825,7 +825,7 @@ export const fetchFantaArchivedEditionDetail = async (
       'fetchFantaArchivedStandingSnapshotDetail',
     ),
     fetchJson<SupabaseFantaArchivedPlayerRow[]>(
-      `${restUrl(cfg, 'fanta_archived_players')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc&limit=10`,
+      `${restUrl(cfg, 'fanta_archived_players')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc`,
       buildHeaders(cfg),
       'fetchFantaArchivedPlayerSnapshotDetail',
     ),
@@ -847,6 +847,17 @@ export const fetchFantaArchivedEditionDetail = async (
     && (hasMeaningfulArchivedStandings(snapshotStandings) || hasMeaningfulArchivedPlayers(snapshotPlayers))
   );
   if (snapshotEdition && snapshotStandings.length && snapshotHasUsefulScores) {
+    const allSnapshotPlayers = snapshotPlayers.map((row, index) => ({
+      playerId: row.player_id,
+      rank: row.rank || index + 1,
+      playerName: row.player_name || 'N/D',
+      realTeamName: row.real_team_name || 'N/D',
+      totalPoints: row.total_points || 0,
+      goals: row.points_from_goals || 0,
+      blows: row.points_from_blows || 0,
+      wins: row.points_from_wins || 0,
+      bonusScia: row.bonus_scia || 0,
+    }));
     return {
       edition: snapshotEdition,
       standings: snapshotStandings.map((row, index) => ({
@@ -861,17 +872,8 @@ export const fetchFantaArchivedEditionDetail = async (
         bonusScia: row.bonus_scia || 0,
         playersInGame: row.players_in_game || 0,
       })),
-      topPlayers: snapshotPlayers.map((row, index) => ({
-        playerId: row.player_id,
-        rank: row.rank || index + 1,
-        playerName: row.player_name || 'N/D',
-        realTeamName: row.real_team_name || 'N/D',
-        totalPoints: row.total_points || 0,
-        goals: row.points_from_goals || 0,
-        blows: row.points_from_blows || 0,
-        wins: row.points_from_wins || 0,
-        bonusScia: row.bonus_scia || 0,
-      })),
+      topPlayers: allSnapshotPlayers.slice(0, 10),
+      allPlayers: allSnapshotPlayers,
       teamPlayers: snapshotTeamPlayers,
     };
   }
@@ -918,14 +920,13 @@ export const fetchFantaArchivedEditionDetail = async (
       playersInGame: row.players_in_game || 0,
     }));
 
-  const topPlayers: FantaArchivedPlayerRow[] = [...resolvedPlayerRows]
+  const allPlayers: FantaArchivedPlayerRow[] = [...resolvedPlayerRows]
     .sort((left, right) => {
       if ((right.total_points || 0) !== (left.total_points || 0)) return (right.total_points || 0) - (left.total_points || 0);
       if ((right.points_from_wins || 0) !== (left.points_from_wins || 0)) return (right.points_from_wins || 0) - (left.points_from_wins || 0);
       if ((right.points_from_goals || 0) !== (left.points_from_goals || 0)) return (right.points_from_goals || 0) - (left.points_from_goals || 0);
       return String(left.player_name || '').localeCompare(String(right.player_name || ''), 'it', { sensitivity: 'base' });
     })
-    .slice(0, 10)
     .map((row, index) => ({
       playerId: row.player_key,
       rank: index + 1,
@@ -937,8 +938,9 @@ export const fetchFantaArchivedEditionDetail = async (
       wins: row.points_from_wins || 0,
       bonusScia: row.bonus_scia || 0,
     }));
+  const topPlayers = allPlayers.slice(0, 10);
 
-  return { edition, standings, topPlayers, teamPlayers: resolvedTeamPlayers };
+  return { edition, standings, topPlayers, allPlayers, teamPlayers: resolvedTeamPlayers };
 };
 
 const fetchUserFantaTeamForTournament = async (

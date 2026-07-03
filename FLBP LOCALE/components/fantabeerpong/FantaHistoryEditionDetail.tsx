@@ -18,11 +18,13 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const [detailView, setDetailView] = React.useState<'overview' | 'standings' | 'team' | 'player'>('overview');
   const [selectedTeamId, setSelectedTeamId] = React.useState<string | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = React.useState<string | null>(null);
+  const [playerListMode, setPlayerListMode] = React.useState<'top' | 'all'>('top');
 
   React.useEffect(() => {
     setDetailView('overview');
     setSelectedTeamId(null);
     setSelectedPlayerId(null);
+    setPlayerListMode('top');
   }, [editionId]);
 
   React.useEffect(() => {
@@ -64,8 +66,10 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const personalRow = session?.accountId ? data.standings.find((row) => row.userId === session.accountId) : null;
   const selectedTeam = selectedTeamId ? data.standings.find((row) => row.teamId === selectedTeamId) : null;
   const selectedTeamPlayers = selectedTeamId ? data.teamPlayers.filter((row) => row.teamId === selectedTeamId) : [];
+  const archivedPlayers = data.allPlayers?.length ? data.allPlayers : data.topPlayers;
+  const displayedPlayers = playerListMode === 'top' ? archivedPlayers.slice(0, 10) : archivedPlayers;
   const selectedRosterPlayer = selectedPlayerId ? data.teamPlayers.find((row) => row.playerId === selectedPlayerId) : null;
-  const selectedPlayer = selectedPlayerId ? data.topPlayers.find((row) => row.playerId === selectedPlayerId) || (selectedRosterPlayer ? {
+  const selectedPlayer = selectedPlayerId ? archivedPlayers.find((row) => row.playerId === selectedPlayerId) || (selectedRosterPlayer ? {
     playerId: selectedRosterPlayer.playerId,
     rank: 0,
     playerName: selectedRosterPlayer.playerName,
@@ -351,7 +355,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
         <MetricCard label={t('fanta_history_winner_label')} value={data.edition.winnerTeamName} hint={t('fanta_history_detail_winner_hint')} />
         <MetricCard label={t('fanta_history_detail_winning_score')} value={String(data.edition.winnerPoints)} hint={t('fanta_history_detail_final_points_hint')} />
         <MetricCard label={t('fanta_history_detail_registered_teams')} value={String(data.edition.teamsCount)} hint={t('fanta_history_detail_participants_hint')} />
-        <MetricCard label={t('fanta_history_detail_top_players')} value={String(data.topPlayers.length)} hint={t('fanta_history_detail_highlight_players_hint')} />
+        <MetricCard label={t('fanta_history_detail_top_players')} value={String(archivedPlayers.length)} hint={t('fanta_history_detail_highlight_players_hint')} />
       </div>
 
       {personalRow && (
@@ -483,10 +487,27 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
       </div>
 
       <div className={panelClass}>
-        <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_history_detail_top_players')}</div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          {data.topPlayers.map((row) => (
-            <button key={row.playerId} type="button" onClick={() => openPlayerDetail(row.playerId)} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xl font-black tracking-tight text-slate-950">Giocatori Fanta</div>
+            <div className="mt-1 text-sm font-semibold text-slate-500">
+              {playerListMode === 'top' ? 'I migliori giocatori della classifica archiviata.' : 'Classifica completa dei giocatori del torneo.'}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button type="button" onClick={() => setPlayerListMode('top')} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition ${playerListMode === 'top' ? 'border-slate-900 bg-slate-900 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>
+              <Trophy className="h-4 w-4" />
+              {t('fanta_history_detail_top_players')}
+            </button>
+            <button type="button" onClick={() => setPlayerListMode('all')} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition ${playerListMode === 'all' ? 'border-beer-500 bg-beer-500 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>
+              <Target className="h-4 w-4" />
+              Classifica giocatori
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 space-y-3 md:hidden">
+          {displayedPlayers.map((row) => (
+            <button key={row.playerId} type="button" onClick={() => openPlayerDetail(row.playerId)} className="w-full rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-black text-slate-950">#{row.rank} · {row.playerName}</div>
@@ -505,12 +526,49 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
               </div>
             </button>
           ))}
-          {data.topPlayers.length === 0 && (
-            <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm font-bold text-slate-400">
-              {t('fanta_history_detail_no_players')}
-            </div>
-          )}
         </div>
+        <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-slate-200 md:block">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3 text-center">{t('pos')}</th>
+                <th className="px-4 py-3">Giocatore</th>
+                <th className="px-4 py-3">Squadra reale</th>
+                <th className="px-4 py-3 text-center">{t('fanta_standings_points')}</th>
+                <th className="px-4 py-3 text-center">{t('fanta_standings_goals')}</th>
+                <th className="px-4 py-3 text-center">{t('fanta_standings_blows')}</th>
+                <th className="px-4 py-3 text-center">{t('fanta_standings_wins')}</th>
+                <th className="px-4 py-3 text-center">{t('fanta_standings_scia')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {displayedPlayers.map((row) => (
+                <tr
+                  key={row.playerId}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openPlayerDetail(row.playerId)}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openPlayerDetail(row.playerId); }}
+                  className="cursor-pointer bg-white transition hover:bg-slate-50"
+                >
+                  <td className="px-4 py-3 text-center font-black text-slate-700">#{row.rank}</td>
+                  <td className="px-4 py-3 font-black text-slate-950">{row.playerName}</td>
+                  <td className="px-4 py-3 font-bold text-slate-600">{row.realTeamName}</td>
+                  <td className="px-4 py-3 text-center text-lg font-black text-slate-950">{row.totalPoints}</td>
+                  <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
+                  <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
+                  <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
+                  <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {displayedPlayers.length === 0 && (
+          <div className="mt-4 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm font-bold text-slate-400">
+            {t('fanta_history_detail_no_players')}
+          </div>
+        )}
       </div>
     </div>
   );

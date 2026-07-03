@@ -184,6 +184,7 @@ export interface FantaArchivedEditionDetail {
   edition: FantaArchivedEdition;
   standings: FantaArchivedStandingRow[];
   topPlayers: FantaArchivedPlayerRow[];
+  allPlayers?: FantaArchivedPlayerRow[];
   teamPlayers: FantaArchivedTeamPlayerRow[];
 }
 
