@@ -96,6 +96,12 @@ interface SupabasePublicMatchStat {
   soffi?: number | null;
 }
 
+interface SupabasePublicHallOfFameEntry {
+  id: string;
+  type?: string | null;
+  player_names?: string[] | null;
+}
+
 interface SupabaseFantaRoster {
   id: string;
   team_id: string;
@@ -126,6 +132,7 @@ interface SupabaseFantaStanding {
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
+  points_from_awards?: number | null;
   bonus_scia?: number | null;
   players_in_game?: number | null;
   captain_name?: string | null;
@@ -144,6 +151,7 @@ interface SupabaseFantaPlayerStanding {
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
+  points_from_awards?: number | null;
   bonus_scia?: number | null;
   selected_by_teams?: number | null;
   status?: string | null;
@@ -174,6 +182,7 @@ interface SupabaseFantaArchivedStandingRow {
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
+  points_from_awards?: number | null;
   bonus_scia?: number | null;
   players_in_game?: number | null;
 }
@@ -189,6 +198,7 @@ interface SupabaseFantaArchivedPlayerRow {
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
+  points_from_awards?: number | null;
   bonus_scia?: number | null;
 }
 
@@ -212,6 +222,7 @@ interface SupabaseFantaRosterLiveRow {
   points_from_blows?: number | null;
   points_from_wins?: number | null;
   points_from_scia?: number | null;
+  points_from_awards?: number | null;
   bonus_scia?: number | null;
 }
 
@@ -798,6 +809,7 @@ const hasMeaningfulArchivedStandings = (rows: SupabaseFantaArchivedStandingRow[]
     || Number(row.points_from_goals || 0) > 0
     || Number(row.points_from_blows || 0) > 0
     || Number(row.points_from_wins || 0) > 0
+    || Number(row.points_from_awards || 0) > 0
     || Number(row.bonus_scia || 0) > 0
   );
 
@@ -808,6 +820,7 @@ const hasMeaningfulArchivedPlayers = (rows: SupabaseFantaArchivedPlayerRow[]): b
     || Number(row.points_from_goals || 0) > 0
     || Number(row.points_from_blows || 0) > 0
     || Number(row.points_from_wins || 0) > 0
+    || Number(row.points_from_awards || 0) > 0
     || Number(row.bonus_scia || 0) > 0
   );
 
@@ -827,6 +840,7 @@ const mapArchivedTeamPlayerRow = (row: Partial<SupabaseFantaRosterLiveRow>): Fan
     goals: row.points_from_goals || 0,
     blows: row.points_from_blows || 0,
     wins: row.points_from_wins || 0,
+    awardBonus: row.points_from_awards || 0,
     bonusScia: row.points_from_scia || row.bonus_scia || 0,
   };
 };
@@ -886,6 +900,7 @@ export const fetchFantaArchivedEditionDetail = async (
       goals: row.points_from_goals || 0,
       blows: row.points_from_blows || 0,
       wins: row.points_from_wins || 0,
+      awardBonus: row.points_from_awards || 0,
       bonusScia: row.bonus_scia || 0,
     }));
     return {
@@ -899,6 +914,7 @@ export const fetchFantaArchivedEditionDetail = async (
         goals: row.points_from_goals || 0,
         blows: row.points_from_blows || 0,
         wins: row.points_from_wins || 0,
+        awardBonus: row.points_from_awards || 0,
         bonusScia: row.bonus_scia || 0,
         playersInGame: row.players_in_game || 0,
       })),
@@ -946,6 +962,7 @@ export const fetchFantaArchivedEditionDetail = async (
       goals: row.points_from_goals || 0,
       blows: row.points_from_blows || 0,
       wins: row.points_from_wins || 0,
+      awardBonus: row.points_from_awards || 0,
       bonusScia: row.bonus_scia || 0,
       playersInGame: row.players_in_game || 0,
     }));
@@ -966,6 +983,7 @@ export const fetchFantaArchivedEditionDetail = async (
       goals: row.points_from_goals || 0,
       blows: row.points_from_blows || 0,
       wins: row.points_from_wins || 0,
+      awardBonus: row.points_from_awards || 0,
       bonusScia: row.bonus_scia || 0,
     }));
   const topPlayers = allPlayers.slice(0, 10);
@@ -1163,6 +1181,26 @@ export const markFantaRosterChangeNoticesSeen = async (ids: string[]): Promise<b
 const normalizeFantaNameKey = (value: unknown) =>
   String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
+const FANTA_FINAL_AWARD_TYPES = new Set(['winner', 'mvp', 'top_scorer', 'defender']);
+
+const buildFantaFinalAwardLookup = (rows: SupabasePublicHallOfFameEntry[]) => {
+  const awardTypesByPlayerName = new Map<string, Set<string>>();
+  (rows || []).forEach((row) => {
+    const awardType = String(row.type || '').trim();
+    if (!FANTA_FINAL_AWARD_TYPES.has(awardType)) return;
+    (row.player_names || []).forEach((name) => {
+      const key = normalizeFantaNameKey(name);
+      if (!key) return;
+      const types = awardTypesByPlayerName.get(key) || new Set<string>();
+      types.add(awardType);
+      awardTypesByPlayerName.set(key, types);
+    });
+  });
+
+  return (playerName: string): number =>
+    (awardTypesByPlayerName.get(normalizeFantaNameKey(playerName))?.size || 0) * 10;
+};
+
 const toNumber = (value: unknown): number => {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
@@ -1222,7 +1260,7 @@ const fetchComputedFantaFallbackFresh = async (
 
   const fantaTeamIds = fantaTeams.map((team) => team.id).filter(Boolean);
   const rosterFilter = fantaTeamIds.length ? `&team_id=in.(${fantaTeamIds.map(encode).join(',')})` : '';
-  const [rosters, publicTeams, matches, stats] = await Promise.all([
+  const [rosters, publicTeams, matches, stats, awards] = await Promise.all([
     fetchJson<SupabaseFantaRoster[]>(
       `${restUrl(cfg, 'fanta_rosters')}?select=*${rosterFilter}&order=created_at.asc`,
       buildHeaders(cfg),
@@ -1242,6 +1280,11 @@ const fetchComputedFantaFallbackFresh = async (
       `${restUrl(cfg, 'public_tournament_match_stats')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=match_id,team_id,player_name,canestri,soffi`,
       buildHeaders(cfg),
       'fetchComputedFantaFallbackStats',
+    ),
+    fetchJson<SupabasePublicHallOfFameEntry[]>(
+      `${restUrl(cfg, 'public_hall_of_fame_entries')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&type=in.(winner,mvp,top_scorer,defender)&select=id,type,player_names`,
+      buildHeaders(cfg),
+      'fetchComputedFantaFallbackAwards',
     ),
   ]);
 
@@ -1266,6 +1309,7 @@ const fetchComputedFantaFallbackFresh = async (
     if (stat.player_name) current.playerName = stat.player_name;
     statsByTeamPlayer.set(key, current);
   });
+  const getFinalAwardPoints = buildFantaFinalAwardLookup(awards || []);
 
   const winnerRows = (matches || [])
     .filter(isFinishedPublicMatch)
@@ -1313,6 +1357,7 @@ const fetchComputedFantaFallbackFresh = async (
     let pointsFromGoals = 0;
     let pointsFromBlows = 0;
     let pointsFromWins = 0;
+    let pointsFromAwards = 0;
     let bonusScia = 0;
     let livePoints = 0;
     let playersInGame = 0;
@@ -1327,6 +1372,7 @@ const fetchComputedFantaFallbackFresh = async (
       const rawBlows = stat.blows;
       const rawWins = winsByTeamId.get(realTeamId) || 0;
       const rawScia = sciaByTeamId.get(realTeamId) || 0;
+      const rawAwardPoints = getFinalAwardPoints(playerName);
       const eliminated = realTeamId ? firstLossByTeamId.has(realTeamId) : false;
 
       if (!eliminated) playersInGame += 1;
@@ -1335,14 +1381,17 @@ const fetchComputedFantaFallbackFresh = async (
 
       const goalsPoints = roster.role === 'captain' ? rawGoals * 2 : rawGoals;
       const blowsPoints = (roster.role === 'captain' || roster.role === 'defender') ? rawBlows * 4 : rawBlows * 2;
-      const winsPoints = roster.role === 'captain' ? rawWins * 14 : rawWins * 7;
-      const sciaPoints = roster.role === 'captain' ? rawScia * 2 : rawScia;
+      const winsPoints = rawWins * 7;
+      const sciaPoints = rawScia;
+      const awardPoints = rawAwardPoints;
+      const totalPlayerPoints = goalsPoints + blowsPoints + winsPoints + sciaPoints + awardPoints;
       const eliminatorTeamId = firstLossByTeamId.get(realTeamId)?.eliminatedByTeamId || null;
       const eliminatedByTeamName = eliminated && eliminatorTeamId ? realTeamNameById.get(eliminatorTeamId) || null : null;
 
       pointsFromGoals += goalsPoints;
       pointsFromBlows += blowsPoints;
       pointsFromWins += winsPoints;
+      pointsFromAwards += awardPoints;
       bonusScia += sciaPoints;
       livePoints += goalsPoints + blowsPoints + winsPoints;
 
@@ -1366,9 +1415,10 @@ const fetchComputedFantaFallbackFresh = async (
         points_from_blows: blowsPoints,
         points_from_wins: winsPoints,
         points_from_scia: sciaPoints,
+        points_from_awards: awardPoints,
         bonus_scia: sciaPoints,
         live_points: goalsPoints + blowsPoints + winsPoints,
-        total_points: goalsPoints + blowsPoints + winsPoints + sciaPoints,
+        total_points: totalPlayerPoints,
         status: eliminated ? 'eliminated' : 'live',
         eliminated_by_team_id: eliminatorTeamId,
         eliminated_by_team_name: eliminatedByTeamName,
@@ -1383,8 +1433,9 @@ const fetchComputedFantaFallbackFresh = async (
         points_from_goals: rawGoals,
         points_from_blows: rawBlows * 2,
         points_from_wins: rawWins * 7,
+        points_from_awards: rawAwardPoints,
         bonus_scia: rawScia,
-        total_points: rawGoals + (rawBlows * 2) + (rawWins * 7) + rawScia,
+        total_points: rawGoals + (rawBlows * 2) + (rawWins * 7) + rawScia + rawAwardPoints,
         live_points: rawGoals + (rawBlows * 2) + (rawWins * 7),
         status: eliminated ? 'eliminated' : 'live',
         eliminated_by_team_name: eliminated ? realTeamNameById.get(firstLossByTeamId.get(realTeamId)?.eliminatedByTeamId || '') || null : null,
@@ -1396,7 +1447,7 @@ const fetchComputedFantaFallbackFresh = async (
       playerRowsById.set(roster.player_id, existingPlayer);
     });
 
-    const totalPoints = pointsFromGoals + pointsFromBlows + pointsFromWins + bonusScia;
+    const totalPoints = pointsFromGoals + pointsFromBlows + pointsFromWins + bonusScia + pointsFromAwards;
     return {
       tournament_id: tournamentId,
       team_id: team.id,
@@ -1408,6 +1459,7 @@ const fetchComputedFantaFallbackFresh = async (
       points_from_goals: pointsFromGoals,
       points_from_blows: pointsFromBlows,
       points_from_wins: pointsFromWins,
+      points_from_awards: pointsFromAwards,
       bonus_scia: bonusScia,
       players_in_game: playersInGame,
       captain_name: captainName,
@@ -1447,6 +1499,7 @@ const hasMeaningfulFantaStandings = (rows: SupabaseFantaStanding[]): boolean =>
     || toNumber(row.points_from_goals) > 0
     || toNumber(row.points_from_blows) > 0
     || toNumber(row.points_from_wins) > 0
+    || toNumber(row.points_from_awards) > 0
     || toNumber(row.bonus_scia) > 0
   );
 
@@ -1457,6 +1510,7 @@ const hasMeaningfulFantaPlayers = (rows: SupabaseFantaPlayerStanding[]): boolean
     || toNumber(row.points_from_goals) > 0
     || toNumber(row.points_from_blows) > 0
     || toNumber(row.points_from_wins) > 0
+    || toNumber(row.points_from_awards) > 0
     || toNumber(row.bonus_scia) > 0
   );
 
@@ -1467,6 +1521,7 @@ const hasMeaningfulFantaRosterRows = (rows: any[]): boolean =>
     || toNumber(row.points_from_goals) > 0
     || toNumber(row.points_from_blows) > 0
     || toNumber(row.points_from_wins) > 0
+    || toNumber(row.points_from_awards) > 0
     || toNumber(row.points_from_scia) > 0
     || toNumber(row.bonus_scia) > 0
   );

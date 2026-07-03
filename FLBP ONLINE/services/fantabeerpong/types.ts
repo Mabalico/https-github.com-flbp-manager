@@ -72,14 +72,14 @@ export interface FantaOverviewData {
 
 export interface FantaMyTeamPlayer {
   id: string; playerName: string; realTeamName: string; fantasyPoints: number; role: FantaRosterRole; status: FantaPlayerAvailability; note: string;
-  goals: number; blows: number; wins: number; bonusScia: number;
+  goals: number; blows: number; wins: number; awardBonus: number; bonusScia: number;
 }
 export interface FantaMyTeamConstraint { id: string; label: string; satisfied: boolean; helper: string; }
 export interface FantaMyTeamData {
   id?: string;
   editionLabel: string; teamName: string; buildStatus: FantaTeamBuildStatus; buildStatusLabel: string; lockLabel: string; lockHint: string;
   summary: { selectedPlayers: number; captainName: string; defendersCount: number; currentRankLabel: string; totalPoints?: number; };
-  pointsBreakdown: { goals: number; blows: number; wins: number; bonusScia: number; };
+  pointsBreakdown: { goals: number; blows: number; wins: number; awardBonus: number; bonusScia: number; };
   teamsToFollow: Array<{ id: string; teamName: string; followingFor: string }>;
   players: FantaMyTeamPlayer[]; constraints: FantaMyTeamConstraint[]; notes: string[];
 }
@@ -111,11 +111,11 @@ export interface FantaHistoryEditionRow {
 }
 export interface FantaHistoryData { title: string; intro: string; featuredEditionId: string; totalEditionsLabel: string; bestScoreLabel: string; reigningChampionLabel: string; editions: FantaHistoryEditionRow[]; }
 
-export interface FantaTeamDetailLineupRow { id: string; playerId: string; playerName: string; roleLabel: string; realTeamName: string; fantasyPoints: number; status: FantaPlayerAvailability; note: string; goals: number; blows: number; wins: number; bonusScia: number; }
+export interface FantaTeamDetailLineupRow { id: string; playerId: string; playerName: string; roleLabel: string; realTeamName: string; fantasyPoints: number; status: FantaPlayerAvailability; note: string; goals: number; blows: number; wins: number; awardBonus: number; bonusScia: number; }
 export interface FantaTeamDetailData {
   id: string; teamName: string; ownerLabel: string; editionLabel: string; currentRankLabel: string; totalPointsLabel: string; livePointsLabel: string; gapLabel: string; note: string;
   lineup: FantaTeamDetailLineupRow[]; summaryCards: Array<{ id: string; label: string; value: string; hint?: string }>;
-  pointsBreakdown: { goals: number; blows: number; wins: number; bonusScia: number; };
+  pointsBreakdown: { goals: number; blows: number; wins: number; awardBonus: number; bonusScia: number; };
 }
 
 export interface FantaPlayerDetailContributionRow { id: string; label: string; valueLabel: string; helper: string; }
@@ -150,6 +150,7 @@ export interface FantaArchivedStandingRow {
   goals: number;
   blows: number;
   wins: number;
+  awardBonus: number;
   bonusScia: number;
   playersInGame: number;
 }
@@ -163,6 +164,7 @@ export interface FantaArchivedPlayerRow {
   goals: number;
   blows: number;
   wins: number;
+  awardBonus: number;
   bonusScia: number;
 }
 
@@ -177,6 +179,7 @@ export interface FantaArchivedTeamPlayerRow {
   goals: number;
   blows: number;
   wins: number;
+  awardBonus: number;
   bonusScia: number;
 }
 

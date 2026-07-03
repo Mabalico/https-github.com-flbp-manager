@@ -59,16 +59,16 @@ export const FANTA_MY_TEAM_MOCK: FantaMyTeamData = {
   lockLabel: 'Lock tra 02h 14m',
   lockHint: 'Puoi ancora modificare la squadra fino alla prima partita ufficiale del live.',
   summary: { selectedPlayers: 4, captainName: 'Luca Bianchi', defendersCount: 2, currentRankLabel: '#3 provvisorio' },
-  pointsBreakdown: { goals: 28, blows: 12, wins: 35, bonusScia: 11 },
+  pointsBreakdown: { goals: 28, blows: 12, wins: 35, awardBonus: 0, bonusScia: 11 },
   teamsToFollow: [
     { id: 't_wolves', teamName: 'Wolves', followingFor: 'Luca Bianchi (eliminato)' },
     { id: 't_reds', teamName: 'Red Cups', followingFor: 'Marco Rossi (eliminato)' },
   ],
   players: [
-    { id: 'fp_1', playerName: 'Luca Bianchi', realTeamName: 'Red Cups', fantasyPoints: 18, role: 'captain', status: 'live', note: 'Sta trascinando il punteggio live.', goals: 6, blows: 2, wins: 1, bonusScia: 0 },
-    { id: 'fp_2', playerName: 'Marco Rossi', realTeamName: 'Foam Brothers', fantasyPoints: 12, role: 'defender', status: 'live', note: 'Difensore attivo con buon impatto.', goals: 4, blows: 2, wins: 1, bonusScia: 0 },
-    { id: 'fp_4', playerName: 'Gio Neri', realTeamName: 'Foam Brothers', fantasyPoints: 6, role: 'defender', status: 'waiting', note: 'In attesa del prossimo blocco partite.', goals: 2, blows: 1, wins: 0, bonusScia: 2 },
-    { id: 'fp_5', playerName: 'Vale Blu', realTeamName: 'Plastic Storm', fantasyPoints: 9, role: 'starter', status: 'waiting', note: 'Titolare utile per stabilizzare la giornata.', goals: 3, blows: 1, wins: 0, bonusScia: 5 },
+    { id: 'fp_1', playerName: 'Luca Bianchi', realTeamName: 'Red Cups', fantasyPoints: 18, role: 'captain', status: 'live', note: 'Sta trascinando il punteggio live.', goals: 6, blows: 2, wins: 1, awardBonus: 0, bonusScia: 0 },
+    { id: 'fp_2', playerName: 'Marco Rossi', realTeamName: 'Foam Brothers', fantasyPoints: 12, role: 'defender', status: 'live', note: 'Difensore attivo con buon impatto.', goals: 4, blows: 2, wins: 1, awardBonus: 0, bonusScia: 0 },
+    { id: 'fp_4', playerName: 'Gio Neri', realTeamName: 'Foam Brothers', fantasyPoints: 6, role: 'defender', status: 'waiting', note: 'In attesa del prossimo blocco partite.', goals: 2, blows: 1, wins: 0, awardBonus: 0, bonusScia: 2 },
+    { id: 'fp_5', playerName: 'Vale Blu', realTeamName: 'Plastic Storm', fantasyPoints: 9, role: 'starter', status: 'waiting', note: 'Titolare utile per stabilizzare la giornata.', goals: 3, blows: 1, wins: 0, awardBonus: 0, bonusScia: 5 },
   ],
   constraints: [
     { id: 'c_1', label: '4 giocatori selezionati', satisfied: true, helper: 'La rosa è completa.' },
@@ -114,7 +114,7 @@ export const FANTA_RULES_MOCK: FantaRulesData = {
   ],
   constraints: [
     { id: 'constraint_roster', label: 'La rosa è composta da 4 giocatori.', helper: 'Scegli saggiamente i tuoi 4 slot.' },
-    { id: 'constraint_captain', label: '1 Capitano (Punti x2)', helper: 'Il Capitano raddoppia TUTTI i punti ottenuti dal giocatore.' },
+    { id: 'constraint_captain', label: '1 Capitano (Canestri e soffi x2)', helper: 'Il Capitano raddoppia solo canestri e soffi: vittorie, Bonus Scia e bonus finali restano fissi.' },
     { id: 'constraint_defenders', label: '2 Difensori obbligatori (Soffi x2)', helper: 'Il Difensore raddoppia solo il valore dei soffi.' },
     { id: 'constraint_roles', label: 'Ruoli separati', helper: 'Lo stesso giocatore non può essere sia Capitano che Difensore.' },
     { id: 'constraint_lock', label: 'Lock squadra', helper: 'Squadra bloccata dall\'inizio della prima partita del torneo.' },
@@ -156,7 +156,7 @@ export const FANTA_TEAM_DETAILS_BY_ID: Record<string, FantaTeamDetailData> = {
     livePointsLabel: '21',
     gapLabel: '-7 dalla vetta',
     note: 'Detail squadra Fanta con ritorno diretto al percorso FantaBeerpong.',
-    pointsBreakdown: { goals: 28, blows: 12, wins: 35, bonusScia: 11 },
+    pointsBreakdown: { goals: 28, blows: 12, wins: 35, awardBonus: 0, bonusScia: 11 },
     summaryCards: [
       { id: 'rank', label: 'Posizione', value: '#3', hint: 'Classifica generale Fanta' },
       { id: 'points', label: 'Punti totali', value: '86', hint: 'Snapshot attuale' },
@@ -164,10 +164,10 @@ export const FANTA_TEAM_DETAILS_BY_ID: Record<string, FantaTeamDetailData> = {
       { id: 'captain', label: 'Capitano', value: 'Luca Bianchi', hint: 'Ruolo bonus attivo' },
     ],
     lineup: [
-      { id: 'l1', playerId: 'fp_1', playerName: 'Luca Bianchi', roleLabel: 'Capitano', realTeamName: 'Red Cups', fantasyPoints: 18, status: 'live', note: 'Driver principale della giornata.', goals: 6, blows: 2, wins: 1, bonusScia: 0 },
-      { id: 'l2', playerId: 'fp_2', playerName: 'Marco Rossi', roleLabel: 'Difensore', realTeamName: 'Foam Brothers', fantasyPoints: 12, status: 'live', note: 'Buon impatto sul lato difensivo.', goals: 4, blows: 2, wins: 1, bonusScia: 0 },
-      { id: 'l3', playerId: 'fp_4', playerName: 'Gio Neri', roleLabel: 'Difensore', realTeamName: 'Foam Brothers', fantasyPoints: 6, status: 'waiting', note: 'Atteso nel prossimo blocco.', goals: 2, blows: 1, wins: 0, bonusScia: 2 },
-      { id: 'l4', playerId: 'fp_5', playerName: 'Vale Blu', roleLabel: 'Titolare', realTeamName: 'Plastic Storm', fantasyPoints: 9, status: 'waiting', note: 'Profilo di equilibrio della rosa.', goals: 3, blows: 1, wins: 0, bonusScia: 5 },
+      { id: 'l1', playerId: 'fp_1', playerName: 'Luca Bianchi', roleLabel: 'Capitano', realTeamName: 'Red Cups', fantasyPoints: 18, status: 'live', note: 'Driver principale della giornata.', goals: 6, blows: 2, wins: 1, awardBonus: 0, bonusScia: 0 },
+      { id: 'l2', playerId: 'fp_2', playerName: 'Marco Rossi', roleLabel: 'Difensore', realTeamName: 'Foam Brothers', fantasyPoints: 12, status: 'live', note: 'Buon impatto sul lato difensivo.', goals: 4, blows: 2, wins: 1, awardBonus: 0, bonusScia: 0 },
+      { id: 'l3', playerId: 'fp_4', playerName: 'Gio Neri', roleLabel: 'Difensore', realTeamName: 'Foam Brothers', fantasyPoints: 6, status: 'waiting', note: 'Atteso nel prossimo blocco.', goals: 2, blows: 1, wins: 0, awardBonus: 0, bonusScia: 2 },
+      { id: 'l4', playerId: 'fp_5', playerName: 'Vale Blu', roleLabel: 'Titolare', realTeamName: 'Plastic Storm', fantasyPoints: 9, status: 'waiting', note: 'Profilo di equilibrio della rosa.', goals: 3, blows: 1, wins: 0, awardBonus: 0, bonusScia: 5 },
     ],
   },
 };

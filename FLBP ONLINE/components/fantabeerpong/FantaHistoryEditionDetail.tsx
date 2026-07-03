@@ -78,6 +78,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
     goals: selectedRosterPlayer.goals,
     blows: selectedRosterPlayer.blows,
     wins: selectedRosterPlayer.wins,
+    awardBonus: selectedRosterPlayer.awardBonus,
     bonusScia: selectedRosterPlayer.bonusScia,
   } : null) : null;
   const openTeamDetail = (teamId: string) => {
@@ -123,10 +124,11 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
             </div>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard label={t('fanta_standings_points')} value={String(selectedTeam.totalPoints)} hint="Punti finali" />
           <MetricCard label={t('fanta_standings_goals')} value={String(selectedTeam.goals)} hint="Punti da canestri" />
           <MetricCard label={t('fanta_standings_blows')} value={String(selectedTeam.blows)} hint="Punti da soffi" />
+          <MetricCard label={t('fanta_final_awards')} value={String(selectedTeam.awardBonus)} hint="Premi finali del torneo" />
           <MetricCard label={t('fanta_standings_scia')} value={String(selectedTeam.bonusScia)} hint="Bonus Scia finale" />
         </div>
         <div className={panelClass}>
@@ -168,10 +170,11 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                       <div className="mt-1 text-2xl font-black text-slate-950">{player.totalPoints}</div>
                     </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
                     <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="text-sm font-black text-slate-950">{player.goals}</div></div>
                     <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_blows')}</div><div className="text-sm font-black text-slate-950">{player.blows}</div></div>
                     <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{player.wins}</div></div>
+                    <div className="rounded-xl bg-amber-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-amber-700">{t('fanta_final_awards')}</div><div className="text-sm font-black text-amber-800">{player.awardBonus}</div></div>
                     <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{player.bonusScia}</div></div>
                   </div>
                 </button>
@@ -203,11 +206,12 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
             </button>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <MetricCard label={t('fanta_standings_points')} value={String(selectedPlayer.totalPoints)} hint="Punti Fanta finali" />
           <MetricCard label={t('fanta_standings_goals')} value={String(selectedPlayer.goals)} hint="Canestri" />
           <MetricCard label={t('fanta_standings_blows')} value={String(selectedPlayer.blows)} hint="Soffi" />
           <MetricCard label={t('fanta_standings_wins')} value={String(selectedPlayer.wins)} hint="Vittorie" />
+          <MetricCard label={t('fanta_final_awards')} value={String(selectedPlayer.awardBonus)} hint="Premi del torneo" />
           <MetricCard label={t('fanta_standings_scia')} value={String(selectedPlayer.bonusScia)} hint="Bonus Scia" />
         </div>
       </div>

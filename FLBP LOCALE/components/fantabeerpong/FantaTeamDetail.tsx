@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, BarChart3, Shield, Target, Users, Wind, Trophy, Zap, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, Shield, Target, Users, Wind, Trophy, Zap, Loader2, Star } from 'lucide-react';
 import { fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { loadState } from '../../services/storageService';
@@ -41,6 +41,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
         const totalGoalPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_goals || 0), 0);
         const totalBlowPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_blows || 0), 0);
         const totalWinPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_wins || 0), 0);
+        const totalAwardPoints = rows.reduce((acc: number, r: any) => acc + (r.points_from_awards || 0), 0);
         const totalBonusScia = rows.reduce((acc: number, r: any) => acc + (r.bonus_scia || 0), 0);
         const totalPoints = rows.reduce((acc: number, r: any) => acc + (r.total_points || 0), 0);
         
@@ -56,7 +57,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
             { id: 'c3', label: t('fanta_standings_blows'), value: totalBlowPoints.toString(), hint: t('fanta_player_detail_blows_hint') },
             { id: 'c4', label: t('fanta_players_label_player'), value: rows.length.toString(), hint: t('fanta_team_detail_roster_hint') },
           ],
-          pointsBreakdown: { goals: totalGoalPoints, blows: totalBlowPoints, wins: totalWinPoints, bonusScia: totalBonusScia },
+          pointsBreakdown: { goals: totalGoalPoints, blows: totalBlowPoints, wins: totalWinPoints, awardBonus: totalAwardPoints, bonusScia: totalBonusScia },
           lineup: rows.map((r: any) => {
               const label = getPlayerKeyLabel(r.player_id);
               let realTeamName = r.real_team_name || t('fanta_status_live');
@@ -77,6 +78,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
                  goals: r.raw_goals || 0,
                  blows: r.raw_blows || 0,
                  wins: r.raw_wins || 0,
+                 awardBonus: r.points_from_awards || 0,
                  bonusScia: r.bonus_scia || 0,
                  fantasyPoints: r.total_points || 0
               };
@@ -122,7 +124,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
 
       <div className={panelClass}>
         <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_team_detail_breakdown')}</div>
-        <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-5">
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Target className="h-3 w-3" />{t('fanta_standings_goals')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.goals}</div>
@@ -134,6 +136,10 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500"><Trophy className="h-3 w-3" />{t('fanta_standings_wins')}</div>
             <div className="mt-1 text-2xl font-black text-slate-950">{data.pointsBreakdown.wins}</div>
+          </div>
+          <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-4">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-amber-700"><Star className="h-3 w-3" />{t('fanta_final_awards')}</div>
+            <div className="mt-1 text-2xl font-black text-amber-800">{data.pointsBreakdown.awardBonus}</div>
           </div>
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-indigo-600"><Zap className="h-3 w-3" />{t('fanta_bonus_scia')}</div>
@@ -184,6 +190,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
                     <div className="flex items-center gap-1.5"><Target className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{row.goals} <span className="text-slate-400 font-bold uppercase tracking-tighter">C</span></span></div>
                     <div className="flex items-center gap-1.5"><Wind className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{row.blows} <span className="text-slate-400 font-bold uppercase tracking-tighter">S</span></span></div>
                     <div className="flex items-center gap-1.5"><Trophy className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{row.wins} <span className="text-slate-400 font-bold uppercase tracking-tighter">W</span></span></div>
+                    <div className="flex items-center gap-1.5"><Star className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs font-black text-amber-700">{row.awardBonus} <span className="text-amber-400 font-bold uppercase tracking-tighter">P</span></span></div>
                     <div className="flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-indigo-500" /><span className="text-xs font-black text-indigo-700">{row.bonusScia} <span className="text-indigo-400 font-bold uppercase tracking-tighter">B</span></span></div>
                   </div>
                 </div>

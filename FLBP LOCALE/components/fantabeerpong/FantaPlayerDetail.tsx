@@ -32,6 +32,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       const totalBlows = playerStanding?.points_from_blows || contributions.reduce((acc, c) => acc + ((c.soffi || 0) * 2), 0);
       const totalWins = playerStanding?.points_from_wins || 0;
       const totalScia = playerStanding?.bonus_scia || 0;
+      const totalAwards = playerStanding?.points_from_awards || 0;
       const totalPoints = playerStanding?.total_points || 0;
 
       const label = getPlayerKeyLabel(playerId);
@@ -55,8 +56,9 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
           { id: 's2', label: t('fanta_standings_goals'), value: totalGoals.toString(), hint: t('fanta_player_detail_goals_hint') },
           { id: 's3', label: t('fanta_standings_blows'), value: totalBlows.toString(), hint: t('fanta_player_detail_blows_hint') },
           { id: 's4', label: t('fanta_standings_wins'), value: totalWins.toString(), hint: t('fanta_player_detail_wins_hint') },
-          { id: 's5', label: t('fanta_bonus_scia'), value: totalScia.toString(), hint: t('fanta_player_detail_scia_hint') },
-          { id: 's6', label: t('fanta_player_detail_reported_matches'), value: contributions.length.toString(), hint: t('fanta_player_detail_matches_hint') },
+          { id: 's5', label: t('fanta_final_awards'), value: totalAwards.toString(), hint: t('fanta_final_awards_desc') },
+          { id: 's6', label: t('fanta_bonus_scia'), value: totalScia.toString(), hint: t('fanta_player_detail_scia_hint') },
+          { id: 's7', label: t('fanta_player_detail_reported_matches'), value: contributions.length.toString(), hint: t('fanta_player_detail_matches_hint') },
         ],
         contributionRows: contributions.map((c: any) => ({
           id: c.id,
@@ -102,7 +104,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
           </div>
         </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{data.summaryCards.map((card: any) => <MetricCard key={card.id} label={card.label} value={card.value} hint={card.hint} />)}</div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">{data.summaryCards.map((card: any) => <MetricCard key={card.id} label={card.label} value={card.value} hint={card.hint} />)}</div>
       <div className={panelClass}>
         <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_player_detail_breakdown')}</div>
         <div className="mt-4 space-y-3">
