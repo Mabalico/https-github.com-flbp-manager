@@ -64,7 +64,18 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const personalRow = session?.accountId ? data.standings.find((row) => row.userId === session.accountId) : null;
   const selectedTeam = selectedTeamId ? data.standings.find((row) => row.teamId === selectedTeamId) : null;
   const selectedTeamPlayers = selectedTeamId ? data.teamPlayers.filter((row) => row.teamId === selectedTeamId) : [];
-  const selectedPlayer = selectedPlayerId ? data.topPlayers.find((row) => row.playerId === selectedPlayerId) : null;
+  const selectedRosterPlayer = selectedPlayerId ? data.teamPlayers.find((row) => row.playerId === selectedPlayerId) : null;
+  const selectedPlayer = selectedPlayerId ? data.topPlayers.find((row) => row.playerId === selectedPlayerId) || (selectedRosterPlayer ? {
+    playerId: selectedRosterPlayer.playerId,
+    rank: 0,
+    playerName: selectedRosterPlayer.playerName,
+    realTeamName: selectedRosterPlayer.realTeamName,
+    totalPoints: selectedRosterPlayer.totalPoints,
+    goals: selectedRosterPlayer.goals,
+    blows: selectedRosterPlayer.blows,
+    wins: selectedRosterPlayer.wins,
+    bonusScia: selectedRosterPlayer.bonusScia,
+  } : null) : null;
   const openTeamDetail = (teamId: string) => {
     setSelectedTeamId(teamId);
     setSelectedPlayerId(null);
@@ -73,6 +84,10 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const openPlayerDetail = (playerId: string) => {
     setSelectedPlayerId(playerId);
     setSelectedTeamId(null);
+    setDetailView('player');
+  };
+  const openTeamPlayerDetail = (playerId: string) => {
+    setSelectedPlayerId(playerId);
     setDetailView('player');
   };
 
@@ -130,7 +145,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
           {selectedTeamPlayers.length > 0 ? (
             <div className="mt-5 grid gap-3 lg:grid-cols-2">
               {selectedTeamPlayers.map((player) => (
-                <div key={`${player.teamId}-${player.playerId}`} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm">
+                <button key={`${player.teamId}-${player.playerId}`} type="button" onClick={() => openTeamPlayerDetail(player.playerId)} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-base font-black text-slate-950">{player.playerName}</div>
@@ -155,7 +170,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                     <div className="rounded-xl bg-white px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{player.wins}</div></div>
                     <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{player.bonusScia}</div></div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           ) : (
@@ -176,11 +191,11 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-indigo-700">Dettaglio giocatore archiviato</div>
               <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{selectedPlayer.playerName}</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{selectedPlayer.realTeamName} · Rank #{selectedPlayer.rank}</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{selectedPlayer.realTeamName}{selectedPlayer.rank > 0 ? ` · Rank #${selectedPlayer.rank}` : ''}</p>
             </div>
-            <button type="button" onClick={() => setDetailView('overview')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">
+            <button type="button" onClick={() => setDetailView(selectedTeamId ? 'team' : 'overview')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50">
               <ArrowLeft className="h-4 w-4" />
-              Torna all'edizione
+              {selectedTeamId ? 'Torna alla squadra' : "Torna all'edizione"}
             </button>
           </div>
         </div>
