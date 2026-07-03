@@ -64,7 +64,7 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
                             className={`${tabBtnBase} ${integrationsSubTab === 'fanta' ? tabBtnActive : tabBtnInactive}`}
                         >
                             <Trophy className="w-4 h-4" />
-                            Fanta
+                            Fanta / Orfani
                         </button>
                         <button type="button"
                             onClick={() => {

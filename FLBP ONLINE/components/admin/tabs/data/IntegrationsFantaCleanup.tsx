@@ -28,11 +28,11 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
         return ids;
     }, [state.tournament, state.tournamentHistory]);
 
-    const orphanRows = React.useMemo(() => rows.filter((row) =>
+    const cleanupRows = React.useMemo(() => rows.filter((row) =>
         row.tournamentId !== PRE_TOURNAMENT_ID
         && !knownTournamentIds.has(row.tournamentId)
-        && !row.publicTournamentExists
     ), [knownTournamentIds, rows]);
+    const strictOrphanRows = React.useMemo(() => cleanupRows.filter((row) => !row.publicTournamentExists), [cleanupRows]);
 
     const load = React.useCallback(async () => {
         setLoading(true);
@@ -60,9 +60,10 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
 
     const deleteOrphan = async (row: FantaTournamentDataSummary) => {
         const ok = window.confirm(
-            `Eliminare definitivamente i dati Fanta orfani di "${row.tournamentName}"?\n\n` +
+            `Eliminare definitivamente i dati Fanta non collegati allo storico locale di "${row.tournamentName}"?\n\n` +
             `Verranno cancellate ${row.archivedEditions} edizioni archivio, ${row.archivedStandings} righe classifica, ` +
             `${row.archivedPlayers} righe giocatori e ${row.fantaTeams} squadre Fanta.\n\n` +
+            `${row.publicTournamentExists ? 'Attenzione: il torneo risulta ancora nel mirror pubblico Supabase. Usa questa azione solo se il torneo reale è stato davvero eliminato.\n\n' : ''}` +
             'Il torneo reale, se esistesse ancora nello storico locale, non viene toccato.'
         );
         if (!ok) return;
@@ -99,9 +100,9 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
                             Manutenzione FantaBeerpong
                         </div>
                         <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-amber-950/80">
-                            Qui compaiono i dati Fanta collegati a tornei che non risultano più nello storico locale
-                            e nemmeno nello specchio pubblico Supabase. Sono i Fanta orfani che altrimenti restano visibili
-                            nell'archivio Fanta ma non sono raggiungibili dalla gestione torneo.
+                            Qui compaiono i dati Fanta collegati a tornei che non risultano più nello storico locale.
+                            Se un torneo reale è stato eliminato ma il relativo archivio Fanta è rimasto visibile,
+                            puoi cancellare solo i dati Fanta senza toccare referti, Albo d'Oro o altri tornei.
                         </p>
                     </div>
                     <button type="button" onClick={() => void load()} disabled={loading} className={btnSecondary}>
@@ -124,11 +125,11 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                     <div>
-                        <div className="text-sm font-black uppercase tracking-wide text-slate-500">Fanta orfani</div>
-                        <div className="mt-1 text-xl font-black text-slate-950">{orphanRows.length}</div>
+                        <div className="text-sm font-black uppercase tracking-wide text-slate-500">Fanta non collegati</div>
+                        <div className="mt-1 text-xl font-black text-slate-950">{cleanupRows.length}</div>
                     </div>
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black text-slate-600">
-                        {rows.length} Fanta totali letti
+                        {strictOrphanRows.length} orfani certi · {rows.length} Fanta totali letti
                     </span>
                 </div>
 
@@ -136,13 +137,13 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
                     <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">
                         Lettura dati Fanta in corso...
                     </div>
-                ) : orphanRows.length === 0 ? (
+                ) : cleanupRows.length === 0 ? (
                     <div className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50 px-4 py-8 text-center text-sm font-bold text-emerald-900">
-                        Nessun Fanta orfano rilevato.
+                        Nessun Fanta non collegato allo storico locale rilevato.
                     </div>
                 ) : (
                     <div className="mt-4 space-y-3">
-                        {orphanRows.map((row) => (
+                        {cleanupRows.map((row) => (
                             <div key={row.tournamentId} className="rounded-2xl border border-rose-200 bg-rose-50/50 p-4">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                     <div className="min-w-0">
@@ -153,6 +154,15 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
                                         <div className="mt-1 text-xs font-bold text-slate-600">
                                             {formatDate(row.startDate)} · ID: <span className="font-mono">{row.tournamentId}</span>
                                         </div>
+                                        {row.publicTournamentExists ? (
+                                            <div className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-amber-800">
+                                                Mirror pubblico ancora presente
+                                            </div>
+                                        ) : (
+                                            <div className="mt-2 inline-flex rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-rose-800">
+                                                Orfano certo
+                                            </div>
+                                        )}
                                         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-wide text-slate-700">
                                             <span className="rounded-full border border-white bg-white px-2.5 py-1">Edizioni: {row.archivedEditions}</span>
                                             <span className="rounded-full border border-white bg-white px-2.5 py-1">Classifiche: {row.archivedStandings}</span>
@@ -167,7 +177,7 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
                                         className={btnDanger}
                                     >
                                         <Trash2 className="h-4 w-4" />
-                                        {deletingId === row.tournamentId ? 'Elimino...' : 'Elimina Fanta orfano'}
+                                        {deletingId === row.tournamentId ? 'Elimino...' : 'Elimina dati Fanta'}
                                     </button>
                                 </div>
                             </div>
