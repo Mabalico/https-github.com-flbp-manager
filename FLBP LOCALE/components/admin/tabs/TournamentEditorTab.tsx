@@ -1589,6 +1589,26 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             </div>
           )}
 
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {[
+              { step: '1', title: t('editor_wizard_step_choose'), desc: t('editor_wizard_step_choose_desc') },
+              { step: '2', title: t('editor_wizard_step_insert'), desc: t('editor_wizard_step_insert_desc') },
+              { step: '3', title: t('editor_wizard_step_preview'), desc: t('editor_wizard_step_preview_desc') },
+            ].map((item) => (
+              <div key={item.step} className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-white/85 px-4 py-3 shadow-[0_12px_24px_-26px_rgba(15,23,42,0.22)]">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">
+                    {item.step}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-black text-[var(--editor-text-primary)]">{item.title}</div>
+                    <div className="mt-0.5 text-[11px] font-bold leading-4 text-[var(--editor-text-muted)]">{item.desc}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
         {liveOutOfSync ? (
           <div className="rounded-[18px] border border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)] px-4 py-3 shadow-[0_12px_24px_-24px_rgba(217,119,6,0.35)]">
             <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1614,8 +1634,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:gap-5 2xl:grid-cols-[320px_minmax(0,1fr)_360px] xl:grid-cols-[292px_minmax(0,1fr)_332px]">
-        <aside className={`${editorPanelClass} p-4 lg:p-4 xl:p-5 space-y-4 self-start`}>
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-5 2xl:grid-cols-[380px_minmax(0,1fr)]">
+        <aside className={`${editorPanelClass} self-start p-4 lg:p-4 xl:sticky xl:top-3 xl:p-5 space-y-4`}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-base font-bold text-[var(--editor-text-primary)]">{t('editor_pool_title')}</div>
@@ -2005,7 +2025,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
               </div>
             )
           ) : bracketAvailable ? (
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] px-4 py-3 text-sm font-medium text-[var(--editor-text-secondary)]">
                 {t('editor_bracket_editorial_round1')}
               </div>
@@ -2165,7 +2185,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 </div>
               </div>
 
-              <div className="rounded-[22px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
+              <div className="order-4 rounded-[22px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <div className="text-base font-black text-[var(--editor-text-primary)]">{t('editor_match_pair_view_title')}</div>
@@ -2196,7 +2216,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
               <div
                 id="editor-bracket-workspace"
                 ref={bracketWorkspaceRef}
-                className={`rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
+                className={`order-3 rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
                   isBracketFullscreen ? 'h-screen overflow-auto p-4' : 'overflow-auto p-2.5 lg:p-3'
                 }`}
               >
@@ -2354,7 +2374,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           )}
         </section>
 
-        <aside className={`${editorPanelClass} self-start space-y-4 p-4 lg:p-4 xl:p-5 xl:sticky xl:top-3`}>
+        <aside className={`${editorPanelClass} space-y-4 p-4 lg:p-4 xl:col-span-2 xl:p-5`}>
           <div ref={previewPanelRef} className="space-y-4">
             <div>
               <div className="text-base font-bold text-[var(--editor-text-primary)]">{t('editor_preview_integrity_title')}</div>
