@@ -964,12 +964,26 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     const value = String(getSlotValue(draft.state.present, slotKey) || '').trim();
     const isFree = !value || isPlaceholderTeamId(value);
     const team = !isFree ? (draft.state.present.catalogTeams || []).find((entry) => entry.id === value) : undefined;
-    const clearCheck = !isFree ? canClearBracketSlot(draft.state.present, slotKey) : null;
+    const removableSlot = !isFree
+      ? (draft.state.present.matches || [])
+        .filter((candidate) => candidate.phase === 'bracket')
+        .flatMap((candidate) => ([
+          { slotKey: `${candidate.id}|A`, teamId: String(candidate.teamAId || '').trim(), round: candidate.round || 1, orderIndex: candidate.orderIndex ?? 0 },
+          { slotKey: `${candidate.id}|B`, teamId: String(candidate.teamBId || '').trim(), round: candidate.round || 1, orderIndex: candidate.orderIndex ?? 0 },
+        ]))
+        .filter((candidate) => candidate.teamId === value)
+        .sort((a, b) => (a.round - b.round) || (a.orderIndex - b.orderIndex))[0]
+      : null;
+    const removeSlotKey = removableSlot?.slotKey || slotKey;
+    const clearCheck = !isFree ? canClearBracketSlot(draft.state.present, removeSlotKey) : null;
     return {
       slotKey,
+      teamId: value,
       isFree,
       teamName: team?.name || (!isFree ? value : ''),
       slotLabel: slotDisplayLabel(slotKey),
+      removeSlotKey,
+      removeSlotLabel: slotDisplayLabel(removeSlotKey),
       locked: isLockedBracketMatchForStructureEdit(match),
       clearCheck,
     };
@@ -1015,7 +1029,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       setInteractionMessage(selectedBracketSlot.clearCheck.humanMessage || t('editor_invalid_target'));
       return;
     }
-    applyOperation({ type: 'CLEAR_BRACKET_SLOT', slotKey: selectedBracketSlot.slotKey }, 'success');
+    applyOperation({ type: 'CLEAR_BRACKET_SLOT', slotKey: selectedBracketSlot.removeSlotKey }, 'success');
     setSlotPickerOpen(false);
     setSlotPickerQuery('');
     clearInteraction();
@@ -2259,15 +2273,17 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
                         <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{selectedBracketSlot.slotLabel}</div>
-                        <div className="truncate text-base font-black text-slate-950">
-                          {selectedBracketSlot.isFree ? 'Slot libero selezionato' : selectedBracketSlot.teamName}
+                          <div className="truncate text-base font-black text-slate-950">
+                            {selectedBracketSlot.isFree ? 'Slot libero selezionato' : selectedBracketSlot.teamName}
+                          </div>
+                          <div className="mt-0.5 text-xs font-bold text-slate-500">
+                            {selectedBracketSlot.isFree
+                              ? 'Inserisci una squadra iscritta in Squadre, oppure tocca un altro slot per spostare qui una squadra.'
+                              : selectedBracketSlot.removeSlotKey !== selectedBracketSlot.slotKey
+                                ? `Rimozione collegata allo slot origine: ${selectedBracketSlot.removeSlotLabel}.`
+                                : 'Tocca un altro slot per spostare o scambiare, oppure usa le azioni qui accanto.'}
+                          </div>
                         </div>
-                        <div className="mt-0.5 text-xs font-bold text-slate-500">
-                          {selectedBracketSlot.isFree
-                            ? 'Inserisci una squadra iscritta in Squadre, oppure tocca un altro slot per spostare qui una squadra.'
-                            : 'Tocca un altro slot per spostare o scambiare, oppure usa le azioni qui accanto.'}
-                        </div>
-                      </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
