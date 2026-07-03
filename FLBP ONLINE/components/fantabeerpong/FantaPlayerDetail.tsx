@@ -64,7 +64,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
           helper: t('fanta_player_detail_match_helper')
             .replace('{round}', c.tournament_matches?.round_name || c.tournament_matches?.round || 'N/D')
             .replace('{score}', `${c.tournament_matches?.score_a ?? 0}-${c.tournament_matches?.score_b ?? 0}`),
-          valueLabel: `+${c.canestri || 0} G / +${c.soffi || 0} S`
+          valueLabel: `+${c.canestri || 0} C / +${c.soffi || 0} S`
         }))
       });
       setLoading(false);

@@ -837,7 +837,7 @@ export const fetchFantaArchivedEditionDetail = async (
   const cfg = getSupabaseConfig();
   if (!cfg || !tournamentId) return null;
 
-  const [snapshotEditionRows, snapshotStandingsRows, snapshotPlayerRows, rosterRows] = await Promise.all([
+  const [snapshotEditionRows, snapshotStandingsRows, snapshotPlayerRows, archivedRosterRows, liveRosterRows] = await Promise.all([
     fetchJson<SupabaseFantaArchivedEditionRow[]>(
       `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&limit=1`,
       buildHeaders(cfg),
@@ -854,6 +854,11 @@ export const fetchFantaArchivedEditionDetail = async (
       'fetchFantaArchivedPlayerSnapshotDetail',
     ),
     fetchJson<SupabaseFantaRosterLiveRow[]>(
+      `${restUrl(cfg, 'fanta_archived_rosters')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=team_name.asc,role.asc,player_name.asc`,
+      buildHeaders(cfg),
+      'fetchFantaArchivedRosterSnapshotDetail',
+    ),
+    fetchJson<SupabaseFantaRosterLiveRow[]>(
       `${restUrl(cfg, 'fanta_roster_live_rows')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=team_name.asc,role.asc,player_name.asc`,
       buildHeaders(cfg),
       'fetchFantaArchivedRosterRowsDetail',
@@ -863,6 +868,7 @@ export const fetchFantaArchivedEditionDetail = async (
   const snapshotEdition = snapshotEditionRows?.[0] ? buildArchivedEditionFromSnapshot(snapshotEditionRows[0]) : null;
   const snapshotStandings = snapshotStandingsRows || [];
   const snapshotPlayers = snapshotPlayerRows || [];
+  const rosterRows = (archivedRosterRows && archivedRosterRows.length ? archivedRosterRows : liveRosterRows) || [];
   const snapshotTeamPlayers = (rosterRows || [])
     .map(mapArchivedTeamPlayerRow)
     .filter((row): row is FantaArchivedTeamPlayerRow => Boolean(row));

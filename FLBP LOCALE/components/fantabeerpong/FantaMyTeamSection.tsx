@@ -19,6 +19,11 @@ interface Props {
 
 export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPlayers, onOpenRules, onOpenPlayerDetail, onOpenTeamBuilder }) => {
   const { t } = useTranslation();
+  const tWithVars = (key: string, values: Record<string, string | number>) =>
+    Object.entries(values).reduce(
+      (label, [name, value]) => label.split(`{${name}}`).join(String(value)),
+      t(key)
+    );
 
   const roleMeta: Record<FantaRosterRole, { label: string; className: string; Icon: React.ComponentType<{ className?: string }> }> = {
     captain:  { label: t('fanta_role_captain'), className: 'border-amber-200 bg-amber-50 text-amber-800', Icon: Star },
@@ -116,7 +121,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
                 role: r.role as FantaRosterRole,
                 status: stat.status || 'waiting',
                 note: stat.status === 'eliminated' && stat.eliminated_by_team_name
-                  ? t('fanta_eliminated_by', { name: stat.eliminated_by_team_name })
+                  ? tWithVars('fanta_eliminated_by', { name: stat.eliminated_by_team_name })
                   : t('fanta_sync_note'),
                 goals,
                 blows,
@@ -154,9 +159,9 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
             players,
             teamsToFollow,
             constraints: [
-              { id: 'players', label: t('fanta_players_count', { count: 4 }), satisfied: players.length === 4, helper: t('fanta_players_count', { count: players.length }) },
+              { id: 'players', label: tWithVars('fanta_players_count', { count: 4 }), satisfied: players.length === 4, helper: tWithVars('fanta_players_count', { count: players.length }) },
               { id: 'captain', label: t('fanta_assign_roles'), satisfied: players.filter(p => p.role === 'captain').length === 1, helper: players.find(p => p.role === 'captain')?.playerName || t('fanta_role_captain') },
-              { id: 'defenders', label: t('fanta_defenders'), satisfied: players.filter(p => p.role === 'defender').length === 2, helper: t('fanta_players_count', { count: players.filter(p => p.role === 'defender').length }) },
+              { id: 'defenders', label: t('fanta_defenders'), satisfied: players.filter(p => p.role === 'defender').length === 2, helper: tWithVars('fanta_players_count', { count: players.filter(p => p.role === 'defender').length }) },
             ],
             notes: [t('fanta_sync_note')]
           };
@@ -285,7 +290,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
           <div className={panelClass}>
             <div className="flex items-center justify-between gap-3">
               <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_roster_fanta')}</div>
-              <div className="text-xs font-black uppercase tracking-widest text-slate-500">{t('fanta_players_count', { count: data.players.length })}</div>
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">{tWithVars('fanta_players_count', { count: data.players.length })}</div>
             </div>
 
             <div className="mt-6 space-y-4">
@@ -303,7 +308,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
                         </div>
                         <div className="mt-0.5 text-sm font-bold text-slate-500 uppercase tracking-tight">{player.realTeamName}</div>
                         <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
-                          <div className="flex items-center gap-1.5"><Target className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{player.goals} <span className="text-slate-400 font-bold uppercase tracking-tighter">G</span></span></div>
+                          <div className="flex items-center gap-1.5"><Target className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{player.goals} <span className="text-slate-400 font-bold uppercase tracking-tighter">C</span></span></div>
                           <div className="flex items-center gap-1.5"><Wind className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{player.blows} <span className="text-slate-400 font-bold uppercase tracking-tighter">S</span></span></div>
                           <div className="flex items-center gap-1.5"><Trophy className="h-3.5 w-3.5 text-slate-400" /><span className="text-xs font-black text-slate-700">{player.wins} <span className="text-slate-400 font-bold uppercase tracking-tighter">W</span></span></div>
                           {player.status === 'eliminated' && <div className="flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-indigo-500" /><span className="text-xs font-black text-indigo-700">{player.bonusScia} <span className="text-indigo-400 font-bold uppercase tracking-tighter">B</span></span></div>}
@@ -329,7 +334,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
               {data.teamsToFollow.map((teamToFollow) => (
                 <div key={teamToFollow.id} className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 shadow-sm">
                   <div className="text-sm font-black text-indigo-950">{teamToFollow.teamName}</div>
-                  <div className="mt-1 text-xs font-bold text-indigo-700 uppercase tracking-tighter">{t('fanta_bonus_reason', { name: teamToFollow.followingFor })}</div>
+                  <div className="mt-1 text-xs font-bold text-indigo-700 uppercase tracking-tighter">{tWithVars('fanta_bonus_reason', { name: teamToFollow.followingFor })}</div>
                 </div>
               ))}
               {data.teamsToFollow.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs font-bold text-slate-400 italic">{t('fanta_no_bonus_active')}</div>}

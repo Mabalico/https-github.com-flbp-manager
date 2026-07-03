@@ -4212,9 +4212,39 @@ create table if not exists public.fanta_archived_players (
     on delete cascade
 );
 
+create table if not exists public.fanta_archived_rosters (
+  workspace_id text not null,
+  tournament_id text not null,
+  team_id uuid not null,
+  user_id uuid,
+  team_name text not null,
+  player_id text not null,
+  player_name text not null,
+  real_team_id text,
+  real_team_name text,
+  role text not null default 'starter',
+  status text,
+  total_points integer not null default 0,
+  live_points integer not null default 0,
+  raw_goals integer not null default 0,
+  raw_blows integer not null default 0,
+  raw_wins integer not null default 0,
+  points_from_goals integer not null default 0,
+  points_from_blows integer not null default 0,
+  points_from_wins integer not null default 0,
+  points_from_scia integer not null default 0,
+  bonus_scia integer not null default 0,
+  created_at timestamptz not null default now(),
+  primary key (workspace_id, tournament_id, team_id, player_id),
+  foreign key (workspace_id, tournament_id)
+    references public.fanta_archived_editions(workspace_id, tournament_id)
+    on delete cascade
+);
+
 alter table public.fanta_archived_editions enable row level security;
 alter table public.fanta_archived_standings enable row level security;
 alter table public.fanta_archived_players enable row level security;
+alter table public.fanta_archived_rosters enable row level security;
 
 drop policy if exists "public_read" on public.fanta_archived_editions;
 create policy "public_read" on public.fanta_archived_editions
@@ -4226,6 +4256,10 @@ create policy "public_read" on public.fanta_archived_standings
 
 drop policy if exists "public_read" on public.fanta_archived_players;
 create policy "public_read" on public.fanta_archived_players
+  for select using (true);
+
+drop policy if exists "public_read" on public.fanta_archived_rosters;
+create policy "public_read" on public.fanta_archived_rosters
   for select using (true);
 
 drop policy if exists "admin_all" on public.fanta_archived_editions;
@@ -4240,9 +4274,14 @@ drop policy if exists "admin_all" on public.fanta_archived_players;
 create policy "admin_all" on public.fanta_archived_players
   for all using (public.flbp_is_admin()) with check (public.flbp_is_admin());
 
+drop policy if exists "admin_all" on public.fanta_archived_rosters;
+create policy "admin_all" on public.fanta_archived_rosters
+  for all using (public.flbp_is_admin()) with check (public.flbp_is_admin());
+
 grant select on public.fanta_archived_editions to anon, authenticated;
 grant select on public.fanta_archived_standings to anon, authenticated;
 grant select on public.fanta_archived_players to anon, authenticated;
+grant select on public.fanta_archived_rosters to anon, authenticated;
 
 create or replace function public.flbp_archive_fanta_tournament_internal(
   p_workspace_id text,
@@ -4260,6 +4299,7 @@ declare
   v_start_date timestamptz;
   v_team_count integer := 0;
   v_player_count integer := 0;
+  v_roster_count integer := 0;
   v_winner record;
 begin
   if v_tournament_id is null then
@@ -4297,6 +4337,15 @@ begin
     limit 1;
   end if;
 
+  if v_tournament_name is null then
+    select e.tournament_name, e.start_date
+    into v_tournament_name, v_start_date
+    from public.fanta_archived_editions e
+    where e.workspace_id = v_workspace_id
+      and e.tournament_id = v_tournament_id
+    limit 1;
+  end if;
+
   v_tournament_name := coalesce(nullif(v_tournament_name, ''), 'FantaBeerpong');
 
   insert into public.fanta_archived_editions (
@@ -4323,6 +4372,10 @@ begin
       archived_at = excluded.archived_at,
       teams_count = excluded.teams_count,
       updated_at = excluded.updated_at;
+
+  delete from public.fanta_archived_rosters
+  where workspace_id = v_workspace_id
+    and tournament_id = v_tournament_id;
 
   delete from public.fanta_archived_players
   where workspace_id = v_workspace_id
@@ -4366,6 +4419,57 @@ begin
   from public.fanta_live_standings
   where workspace_id = v_workspace_id
     and tournament_id = v_tournament_id;
+
+  insert into public.fanta_archived_rosters (
+    workspace_id,
+    tournament_id,
+    team_id,
+    user_id,
+    team_name,
+    player_id,
+    player_name,
+    real_team_id,
+    real_team_name,
+    role,
+    status,
+    total_points,
+    live_points,
+    raw_goals,
+    raw_blows,
+    raw_wins,
+    points_from_goals,
+    points_from_blows,
+    points_from_wins,
+    points_from_scia,
+    bonus_scia
+  )
+  select
+    workspace_id,
+    tournament_id,
+    team_id,
+    user_id,
+    coalesce(nullif(team_name, ''), 'N/D') as team_name,
+    coalesce(nullif(player_id, ''), md5(coalesce(player_name, '') || ':' || coalesce(real_team_id, ''))) as player_id,
+    coalesce(nullif(player_name, ''), 'N/D') as player_name,
+    real_team_id,
+    real_team_name,
+    coalesce(nullif(role, ''), 'starter') as role,
+    status,
+    coalesce(total_points, 0)::integer,
+    coalesce(live_points, total_points, 0)::integer,
+    coalesce(raw_goals, 0)::integer,
+    coalesce(raw_blows, 0)::integer,
+    coalesce(raw_wins, 0)::integer,
+    coalesce(points_from_goals, 0)::integer,
+    coalesce(points_from_blows, 0)::integer,
+    coalesce(points_from_wins, 0)::integer,
+    coalesce(points_from_scia, 0)::integer,
+    coalesce(bonus_scia, points_from_scia, 0)::integer
+  from public.fanta_roster_live_rows
+  where workspace_id = v_workspace_id
+    and tournament_id = v_tournament_id;
+
+  get diagnostics v_roster_count = row_count;
 
   insert into public.fanta_archived_players (
     workspace_id,
@@ -4430,7 +4534,8 @@ begin
     'skipped', false,
     'tournament_id', v_tournament_id,
     'teams_count', v_team_count,
-    'players_count', v_player_count
+    'players_count', v_player_count,
+    'roster_count', v_roster_count
   );
 end;
 $$;
@@ -4462,6 +4567,9 @@ declare
   r record;
 begin
   for r in
+    select distinct workspace_id, tournament_id
+    from public.fanta_archived_editions
+    union
     select distinct s.workspace_id, s.tournament_id
     from public.fanta_live_standings s
     join public.tournaments t
