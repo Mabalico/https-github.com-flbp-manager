@@ -2619,4 +2619,7 @@ export const dictionary: TranslationDictionary = {
   "editor_fullscreen_open": "Schermo intero",
   "editor_drag_pool_team": "Trascina {name} su un target valido.",
   "editor_tap_to_place_hint": "Tocca uno slot valido, oppure annulla.",
+  "editor_add_to_bracket_bar": "Aggiungi al tabellone",
+  "editor_add_to_bracket_hint": "Trascina questa barra su uno slot, oppure fai doppio clic sul lato del match dove vuoi inserirla.",
+  "editor_fullscreen_select_team_first": "Seleziona prima una squadra dal pool, poi trascinala o fai doppio clic su uno slot del tabellone.",
 };

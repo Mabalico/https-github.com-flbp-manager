@@ -37,6 +37,8 @@ interface TournamentBracketProps {
     participantSelectionMode?: boolean;
     /** Called when a participant row is clicked (useful for manual bracket edits). */
     onParticipantClick?: (args: { matchId: string; side: 'A' | 'B'; teamId?: string; match: Match }) => void;
+    /** Called when a participant row is double-clicked (same payload as click, useful for explicit add/place flows). */
+    onParticipantDoubleClick?: (args: { matchId: string; side: 'A' | 'B'; teamId?: string; match: Match }) => void;
     /** Optional: highlight selected participant slots (format: `${matchId}|A` / `${matchId}|B`). */
     highlightedSlotKeys?: string[];
     /** Optional: mark invalid participant slots (duplicates / empty) in red during admin edits. */
@@ -72,7 +74,7 @@ interface TournamentBracketProps {
     showConnectors?: boolean;
 }
 
-export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, highlightedSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
+export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, onParticipantDoubleClick, highlightedSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
     const { t } = useTranslation();
     const resultsOnly = isResultsOnlyTournament(data);
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -643,6 +645,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
 
                                 <div
                                     onClick={selectableSlotA ? (e) => { e.stopPropagation(); e.preventDefault(); onParticipantClick?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match }); } : (canOpenTeamA ? (e) => { e.stopPropagation(); e.preventDefault(); onTeamClick?.(t1!, { teamId: teamAId!, side: 'A', match }); } : undefined)}
+                                    onDoubleClick={selectableSlotA ? (e) => { e.stopPropagation(); e.preventDefault(); (onParticipantDoubleClick || onParticipantClick)?.({ matchId: match.id, side: 'A', teamId: match.teamAId, match }); } : undefined}
                                     draggable={selectableSlotA}
                                     onDragStart={selectableSlotA ? (e) => {
                                         e.stopPropagation();
@@ -730,6 +733,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
 
                                 <div
                                     onClick={selectableSlotB ? (e) => { e.stopPropagation(); e.preventDefault(); onParticipantClick?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match }); } : (canOpenTeamB ? (e) => { e.stopPropagation(); e.preventDefault(); onTeamClick?.(t2!, { teamId: teamBId!, side: 'B', match }); } : undefined)}
+                                    onDoubleClick={selectableSlotB ? (e) => { e.stopPropagation(); e.preventDefault(); (onParticipantDoubleClick || onParticipantClick)?.({ matchId: match.id, side: 'B', teamId: match.teamBId, match }); } : undefined}
                                     draggable={selectableSlotB}
                                     onDragStart={selectableSlotB ? (e) => {
                                         e.stopPropagation();
