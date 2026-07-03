@@ -308,7 +308,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
             </div>
           </div>
 
-          <div className="order-1 space-y-6 lg:order-2 lg:sticky lg:top-5 lg:self-start">
+          <div className="order-1 space-y-6 lg:order-2 lg:sticky lg:top-5 lg:max-h-[calc(100dvh-7rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pb-4 lg:pr-1">
             <div className={panelClass}>
               <div className="text-lg font-black text-slate-950">{t('fanta_builder_validity_check')}</div>
               <div className="mt-4 space-y-3">
@@ -418,7 +418,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
           <FantaQuickHelp topics={['roles', 'scoring', 'replacements']} onOpenRules={onOpenRules} compact title={t('fanta_help_builder')} />
         </div>
 
-        <div className="order-1 space-y-4 text-pretty xl:order-2 xl:sticky xl:top-5 xl:self-start">
+        <div className="order-1 space-y-4 text-pretty xl:order-2 xl:sticky xl:top-5 xl:max-h-[calc(100dvh-7rem)] xl:self-start xl:overflow-y-auto xl:overscroll-contain xl:pb-4 xl:pr-1">
           <div className={panelClass}>
             <div className="flex items-start justify-between gap-3">
               <div>
