@@ -6,7 +6,15 @@ import { TournamentBracket } from '../../TournamentBracket';
 import { isTesterMode } from '../../../config/appMode';
 import { getMatchParticipantIds, formatMatchScoreLabel, isByeTeamId, isTbdTeamId } from '../../../services/matchUtils';
 import { generateTournamentStructure, getFinalRoundRobinActivationStatus } from '../../../services/tournamentEngine';
-import { buildTournamentStructureSnapshot, getSlotValue as getStructureSlotValue, parseSlotKey as parseStructureSlotKey } from '../../../services/tournamentStructureSelectors';
+import {
+    advanceWinner as advanceBracketWinner,
+    autoResolveBracketByeMatch,
+    buildTournamentStructureSnapshot,
+    getSlotValue as getStructureSlotValue,
+    parseSlotKey as parseStructureSlotKey,
+    reconcileBracketAdvancements,
+    resolveWinnerTeamId as resolveBracketWinnerTeamId,
+} from '../../../services/tournamentStructureSelectors';
 import { applyStructuralOperation } from '../../../services/tournamentStructureOperations';
 import { buildTournamentStructureIntegritySummary } from '../../../services/tournamentStructureIntegrity';
 import { useTranslation } from '../../../App';
@@ -509,31 +517,10 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
 
     const rebuildFutureBracketFromCurrentState = React.useCallback((seedMatches: Match[]) => {
         const matches = seedMatches.map(m => ({ ...m } as Match));
-        const bracketRoundsMap = new Map<number, Match[]>();
-        for (const match of matches) {
-            if (match.phase !== 'bracket') continue;
-            const round = match.round || 1;
-            if (!bracketRoundsMap.has(round)) bracketRoundsMap.set(round, []);
-            bracketRoundsMap.get(round)!.push(match);
-        }
-
-        const roundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
-        const rounds = roundNumbers.map(round => (bracketRoundsMap.get(round) || []).slice().sort(sortByOrderIndexSafe));
-        const byId = new Map(matches.map(m => [m.id, m]));
 
         const isRealTeamId = (id?: string) => {
             const raw = String(id || '').trim();
             return !!raw && !isPlaceholderTeamId(raw);
-        };
-
-        const resolveWinner = (match?: Match) => {
-            if (!match) return undefined;
-            if (isByeTeamId(match.teamAId) && match.teamBId && !isByeTeamId(match.teamBId) && !isTbdTeamId(match.teamBId)) return match.teamBId;
-            if (isByeTeamId(match.teamBId) && match.teamAId && !isByeTeamId(match.teamAId) && !isTbdTeamId(match.teamAId)) return match.teamAId;
-            if (match.status !== 'finished') return undefined;
-            if ((match.scoreA || 0) > (match.scoreB || 0)) return isTbdTeamId(match.teamAId) ? undefined : match.teamAId;
-            if ((match.scoreB || 0) > (match.scoreA || 0)) return isTbdTeamId(match.teamBId) ? undefined : match.teamBId;
-            return undefined;
         };
 
         const normalizeFutureMatch = (match: Match) => {
@@ -596,52 +583,10 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
             return next;
         };
 
-        for (const match of matches) {
-            if (match.phase !== 'bracket') continue;
-            if ((match.round || 1) <= 1) continue;
-            if (match.status === 'playing' || (match.status === 'finished' && !match.isBye && !match.hidden)) continue;
-            byId.set(match.id, {
-                ...match,
-                teamAId: undefined,
-                teamBId: undefined,
-                scoreA: 0,
-                scoreB: 0,
-                played: false,
-                status: 'scheduled',
-                hidden: false,
-                isBye: false,
-                stats: undefined,
-            } as Match);
-        }
-
-        for (let rIdx = 0; rIdx < rounds.length - 1; rIdx++) {
-            const currentRound = rounds[rIdx] || [];
-            const nextRound = rounds[rIdx + 1] || [];
-
-            for (let mIdx = 0; mIdx < currentRound.length; mIdx++) {
-                const current = byId.get(currentRound[mIdx].id) || currentRound[mIdx];
-                const targetSkeleton = nextRound[Math.floor(mIdx / 2)];
-                if (!targetSkeleton) continue;
-
-                const target = byId.get(targetSkeleton.id) || targetSkeleton;
-                if (target.status === 'playing' || (target.status === 'finished' && !target.isBye && !target.hidden)) continue;
-
-                const slot: 'teamAId' | 'teamBId' = (mIdx % 2 === 0) ? 'teamAId' : 'teamBId';
-                const winner = resolveWinner(current);
-                const updatedTarget = normalizeFutureMatch({
-                    ...target,
-                    [slot]: winner,
-                } as Match);
-                byId.set(updatedTarget.id, updatedTarget);
-            }
-        }
-
-        return matches.map(match => {
-            const next = byId.get(match.id) || match;
-            if (next.phase !== 'bracket') return next;
-            return normalizeFutureMatch(next);
-        });
-    }, [isPlaceholderTeamId, sortByOrderIndexSafe]);
+        return reconcileBracketAdvancements(matches, { resetFutureParticipants: true }).map(match =>
+            match.phase === 'bracket' ? normalizeFutureMatch(match) : match
+        );
+    }, [isPlaceholderTeamId]);
 
     const commitBracketMatches = React.useCallback((seedMatches: Match[], successMessage: string) => {
         if (!state.tournament) return;
@@ -877,43 +822,9 @@ const handleSwapSlots = React.useCallback(() => {
         return up === 'TBD' || up.startsWith('TBD-');
     };
 
-    const applyByeAutoWin = (m: Match): Match => {
-        if (!m) return m;
-        if (m.status === 'finished') return m;
-        // IMPORTANT: never auto-advance TBD placeholders.
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE' && !isTbdTeamId(m.teamBId)) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true } as any;
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE' && !isTbdTeamId(m.teamAId)) {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true } as any;
-        }
-        if (m.teamAId === 'BYE' && m.teamBId === 'BYE') {
-            return { ...m, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true } as any;
-        }
-        return m;
-    };
+    const applyByeAutoWin = (m: Match): Match => autoResolveBracketByeMatch(m);
 
-    const resolveWinnerTeamId = (m: Match) => {
-        if (!m) return undefined;
-        if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE') {
-            if (isTbdTeamId(m.teamBId)) return undefined;
-            return m.teamBId;
-        }
-        if (m.teamBId === 'BYE' && m.teamAId && m.teamAId !== 'BYE') {
-            if (isTbdTeamId(m.teamAId)) return undefined;
-            return m.teamAId;
-        }
-        if (m.status !== 'finished') return undefined;
-        if (m.scoreA > m.scoreB) {
-            if (isTbdTeamId(m.teamAId)) return undefined;
-            return m.teamAId;
-        }
-        if (m.scoreB > m.scoreA) {
-            if (isTbdTeamId(m.teamBId)) return undefined;
-            return m.teamBId;
-        }
-        return undefined;
-    };
+    const resolveWinnerTeamId = (m: Match) => resolveBracketWinnerTeamId(m);
 
     const buildBracketRounds = (matches: Match[]): Match[][] => {
         const map = new Map<number, Match[]>();
@@ -938,53 +849,8 @@ const handleSwapSlots = React.useCallback(() => {
         return null;
     };
 
-    const propagateWinnerFromMatch = (finishedMatch: Match, matches: Match[]): Match[] => {
-        const rounds = buildBracketRounds(matches);
-        const pos = findMatchPositionInRounds(rounds, finishedMatch.id);
-        if (!pos) return matches;
-
-        let rIdx = pos.rIdx;
-        let mIdx = pos.mIdx;
-        let current = finishedMatch;
-
-        let out = [...matches];
-        const byId = new Map(out.map(m => [m.id, m]));
-        const upsert = (u: Match) => {
-            byId.set(u.id, u);
-            out = out.map(m => (m.id === u.id ? u : m));
-        };
-
-        while (true) {
-            const winner = resolveWinnerTeamId(current);
-            if (!winner || winner === 'BYE') break;
-
-            const nextRound = rounds[rIdx + 1];
-            if (!nextRound || nextRound.length === 0) break;
-
-            const nextSkel = nextRound[Math.floor(mIdx / 2)];
-            if (!nextSkel) break;
-
-            const next = byId.get(nextSkel.id) || nextSkel;
-            const slot: 'teamAId' | 'teamBId' = (mIdx % 2 === 0) ? 'teamAId' : 'teamBId';
-            if ((next as any)[slot]) break;
-
-            let nextUpdated: Match = { ...next, [slot]: winner } as any;
-            const beforeStatus = nextUpdated.status;
-            nextUpdated = applyByeAutoWin(nextUpdated);
-            upsert(nextUpdated);
-
-            // If the newly updated match auto-finished due to a BYE, continue propagating.
-            if (beforeStatus !== 'finished' && nextUpdated.status === 'finished') {
-                current = nextUpdated;
-                rIdx = rIdx + 1;
-                mIdx = Math.floor(mIdx / 2);
-                continue;
-            }
-            break;
-        }
-
-        return out;
-    };
+    const propagateWinnerFromMatch = (finishedMatch: Match, matches: Match[]): Match[] =>
+        advanceBracketWinner(matches, finishedMatch);
 
     const autoResolveBracketByes = (matches: Match[]): Match[] => {
         let out = [...matches];

@@ -38,6 +38,10 @@ export interface Match {
     groupName?: string;
     roundName?: string;
     orderIndex?: number;
+    /** Explicit bracket successor link. Legacy matches may omit it and use positional fallback. */
+    nextMatchId?: string | null;
+    /** Slot in the successor match where this match winner must advance. */
+    nextSlot?: 'A' | 'B' | null;
     hidden?: boolean;
     /** True when the match exists only to represent a BYE auto-advance. */
     isBye?: boolean;

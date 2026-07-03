@@ -75,6 +75,74 @@ export const buildBracketRoundsFromMatches = (matches: Match[]): Match[][] => {
     );
 };
 
+export const findSuccessorMatch = (
+  matches: Match[],
+  matchId: string
+): { match: Match; slot: 'teamAId' | 'teamBId'; slotName: 'A' | 'B'; source: 'explicit' | 'positional' } | null => {
+  const sourceMatch = (matches || []).find((match) => match.id === matchId);
+  const explicitTargetId = String(sourceMatch?.nextMatchId || '').trim();
+  const explicitSlot = sourceMatch?.nextSlot === 'A' || sourceMatch?.nextSlot === 'B' ? sourceMatch.nextSlot : null;
+  if (explicitTargetId && explicitSlot) {
+    const explicitTarget = (matches || []).find((match) => match.id === explicitTargetId);
+    if (explicitTarget) {
+      return {
+        match: explicitTarget,
+        slot: explicitSlot === 'A' ? 'teamAId' : 'teamBId',
+        slotName: explicitSlot,
+        source: 'explicit',
+      };
+    }
+  }
+
+  const rounds = buildBracketRoundsFromMatches(matches || []);
+  for (let rIdx = 0; rIdx < rounds.length - 1; rIdx += 1) {
+    const currentRound = rounds[rIdx] || [];
+    const mIdx = currentRound.findIndex((match) => match.id === matchId);
+    if (mIdx < 0) continue;
+    const successor = (rounds[rIdx + 1] || [])[Math.floor(mIdx / 2)];
+    if (!successor) return null;
+    const slotName = mIdx % 2 === 0 ? 'A' : 'B';
+    return {
+      match: successor,
+      slot: slotName === 'A' ? 'teamAId' : 'teamBId',
+      slotName,
+      source: 'positional',
+    };
+  }
+  return null;
+};
+
+export const deriveBracketSuccessorLinks = (
+  matches: Match[],
+  options: { overwrite?: boolean } = {}
+): Match[] => {
+  const next = cloneMatches(matches || []);
+  const byId = new Map(next.map((match) => [match.id, match]));
+  const rounds = buildBracketRoundsFromMatches(next);
+
+  for (let rIdx = 0; rIdx < rounds.length; rIdx += 1) {
+    const currentRound = rounds[rIdx] || [];
+    const nextRound = rounds[rIdx + 1] || [];
+    for (let mIdx = 0; mIdx < currentRound.length; mIdx += 1) {
+      const current = byId.get(currentRound[mIdx].id);
+      if (!current || current.phase !== 'bracket') continue;
+      const successor = nextRound[Math.floor(mIdx / 2)];
+      if (!successor) {
+        if (options.overwrite) {
+          current.nextMatchId = null;
+          current.nextSlot = null;
+        }
+        continue;
+      }
+      if (!options.overwrite && current.nextMatchId && current.nextSlot) continue;
+      current.nextMatchId = successor.id;
+      current.nextSlot = mIdx % 2 === 0 ? 'A' : 'B';
+    }
+  }
+
+  return next;
+};
+
 const getBracketRoundsShapeScore = (rounds: Match[][]) => {
   const normalized = (rounds || []).filter((round) => Array.isArray(round) && round.length > 0);
   return {
@@ -151,6 +219,213 @@ export const isLockedBracketMatchForStructureEdit = (match?: Match): boolean => 
   if (match.phase !== 'bracket') return true;
   if (match.status === 'playing') return true;
   return !!match.played && !match.isBye && !match.hidden;
+};
+
+export const autoResolveBracketByeMatch = (match: Match): Match => {
+  if (!match || match.phase !== 'bracket') return match;
+  if (match.status === 'finished') return match;
+  const a = String(match.teamAId || '').trim();
+  const b = String(match.teamBId || '').trim();
+
+  if (isByeTeamId(a) && b && !isByeTeamId(b) && !isTbdTeamId(b)) {
+    return { ...match, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
+  }
+  if (isByeTeamId(b) && a && !isByeTeamId(a) && !isTbdTeamId(a)) {
+    return { ...match, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
+  }
+  if (isByeTeamId(a) && isByeTeamId(b)) {
+    return { ...match, played: true, status: 'finished', scoreA: 0, scoreB: 0, hidden: true, isBye: true };
+  }
+  return match;
+};
+
+const sameMatchProgression = (a: Match, b: Match) => (
+  a.teamAId === b.teamAId &&
+  a.teamBId === b.teamBId &&
+  a.status === b.status &&
+  a.played === b.played &&
+  a.scoreA === b.scoreA &&
+  a.scoreB === b.scoreB &&
+  a.hidden === b.hidden &&
+  a.isBye === b.isBye &&
+  a.nextMatchId === b.nextMatchId &&
+  a.nextSlot === b.nextSlot
+);
+
+const replaceMatchInList = (matches: Match[], updated: Match) =>
+  matches.map((match) => (match.id === updated.id ? updated : match));
+
+// Reverse index of the successor links: `${targetMatchId}|${slotName}` -> feeder match ids.
+const buildFeederMap = (matches: Match[]): Map<string, string[]> => {
+  const map = new Map<string, string[]>();
+  for (const match of matches || []) {
+    if (match.phase !== 'bracket') continue;
+    const targetId = String(match.nextMatchId || '').trim();
+    const slotName = match.nextSlot === 'A' || match.nextSlot === 'B' ? match.nextSlot : null;
+    if (!targetId || !slotName) continue;
+    const key = `${targetId}|${slotName}`;
+    map.set(key, [...(map.get(key) || []), match.id]);
+  }
+  return map;
+};
+
+// Real team ids that can reach `matchId` from below (its feeder subtree, inclusive).
+// Used to tell a value DERIVED from advancement (safe to rewrite/clear) apart
+// from a team seeded manually into a slot (must survive realignments).
+const collectFeederSubtreeTeamIds = (
+  matches: Match[],
+  feederMap: Map<string, string[]>,
+  matchId: string,
+  cache?: Map<string, Set<string>>
+): Set<string> => {
+  const cached = cache?.get(matchId);
+  if (cached) return cached;
+
+  const byId = new Map((matches || []).map((match) => [match.id, match]));
+  const ids = new Set<string>();
+  const visited = new Set<string>();
+  const stack = [matchId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const match = byId.get(id);
+    if (!match) continue;
+    for (const raw of [match.teamAId, match.teamBId]) {
+      const teamId = String(raw || '').trim();
+      if (teamId && !isPlaceholderTeamId(teamId)) ids.add(teamId);
+    }
+    for (const slotName of ['A', 'B'] as const) {
+      for (const feederId of feederMap.get(`${id}|${slotName}`) || []) stack.push(feederId);
+    }
+  }
+
+  cache?.set(matchId, ids);
+  return ids;
+};
+
+export const advanceWinner = (matches: Match[], finishedMatch: Match): Match[] => {
+  let out = deriveBracketSuccessorLinks(matches || []);
+  const feederMap = buildFeederMap(out);
+  let current = { ...finishedMatch };
+  let guard = 0;
+
+  while (guard < 256) {
+    guard += 1;
+    const winner = resolveWinnerTeamId(current);
+    if (!winner || isPlaceholderTeamId(winner)) break;
+
+    const successor = findSuccessorMatch(out, current.id);
+    if (!successor) break;
+
+    const target = out.find((match) => match.id === successor.match.id) || successor.match;
+
+    // Never rewrite a successor that was really played or is being played.
+    if (isLockedBracketMatchForStructureEdit(target)) break;
+
+    const currentValue = String((target as any)[successor.slot] || '').trim();
+    if (currentValue && !isPlaceholderTeamId(currentValue) && currentValue !== winner) {
+      // A stale occupant that advanced from this same branch (e.g. after a score
+      // correction flipped the winner) gets replaced. A team seeded manually
+      // into the slot is foreign to the branch and is never clobbered.
+      const derivedFromBranch = collectFeederSubtreeTeamIds(out, feederMap, current.id).has(currentValue);
+      if (!derivedFromBranch) break;
+    }
+
+    const participantsChanged = currentValue !== winner;
+    let nextTarget: Match = { ...target, [successor.slot]: winner } as Match;
+
+    if (participantsChanged) {
+      // The pairing changed: reopen the (unlocked) successor so the new pairing
+      // is actually playable. This also un-resolves a structural BYE auto-win
+      // that would otherwise absorb the incoming winner into a finished 0-0.
+      nextTarget = {
+        ...nextTarget,
+        played: false,
+        status: 'scheduled',
+        scoreA: 0,
+        scoreB: 0,
+        stats: undefined,
+        hidden: false,
+        isBye: false,
+      };
+    }
+
+    nextTarget = autoResolveBracketByeMatch(nextTarget);
+
+    if (sameMatchProgression(target, nextTarget)) break;
+    out = replaceMatchInList(out, nextTarget);
+
+    if (nextTarget.status === 'finished') {
+      current = nextTarget;
+      continue;
+    }
+    break;
+  }
+
+  return out;
+};
+
+export const reconcileBracketAdvancements = (
+  matches: Match[],
+  options: { resetFutureParticipants?: boolean } = {}
+): Match[] => {
+  let out = deriveBracketSuccessorLinks(matches || []);
+
+  if (options.resetFutureParticipants) {
+    // Feeder-aware reset: clear only slot values that advancement itself can
+    // re-derive (the occupant appears in the slot's feeder subtree). Slots with
+    // no feeder (Round 1 / preliminary seeds) and manually seeded teams are
+    // left untouched, so a structural edit never erases an admin's insert.
+    const feederMap = buildFeederMap(out);
+    const subtreeCache = new Map<string, Set<string>>();
+    out = out.map((match) => {
+      if (match.phase !== 'bracket') return match;
+      if (isLockedBracketMatchForStructureEdit(match)) return match;
+
+      let nextMatch: Match | null = null;
+      (['A', 'B'] as const).forEach((slotName) => {
+        const slotField = slotName === 'A' ? 'teamAId' : 'teamBId';
+        const feeders = feederMap.get(`${match.id}|${slotName}`) || [];
+        if (!feeders.length) return;
+        const occupant = String(((nextMatch || match) as any)[slotField] || '').trim();
+        if (!occupant || isPlaceholderTeamId(occupant)) return;
+        const derived = feeders.some((feederId) =>
+          collectFeederSubtreeTeamIds(out, feederMap, feederId, subtreeCache).has(occupant)
+        );
+        if (!derived) return;
+        nextMatch = nextMatch || { ...match };
+        delete (nextMatch as any)[slotField];
+      });
+
+      if (!nextMatch) return match;
+      const reopened: Match = nextMatch;
+      reopened.scoreA = 0;
+      reopened.scoreB = 0;
+      reopened.played = false;
+      reopened.status = 'scheduled';
+      reopened.hidden = false;
+      reopened.isBye = false;
+      reopened.stats = undefined;
+      return reopened;
+    });
+  }
+
+  const orderedBracket = out
+    .filter((match) => match.phase === 'bracket')
+    .slice()
+    .sort((a, b) => (a.round || 1) - (b.round || 1) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+
+  for (const skeleton of orderedBracket) {
+    const current = out.find((match) => match.id === skeleton.id) || skeleton;
+    const autoResolved = autoResolveBracketByeMatch(current);
+    if (!sameMatchProgression(current, autoResolved)) {
+      out = replaceMatchInList(out, autoResolved);
+    }
+    out = advanceWinner(out, autoResolved);
+  }
+
+  return out;
 };
 
 export const getGroupById = (snapshot: TournamentStructureSnapshot, groupId: string) => {

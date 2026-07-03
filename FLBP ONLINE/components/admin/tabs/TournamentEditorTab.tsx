@@ -24,7 +24,9 @@ import type { Match, Team, TournamentData } from '../../../types';
 import type { AppState } from '../../../services/storageService';
 import { setRemoteBaseUpdatedAt } from '../../../services/supabaseRest';
 import {
+  buildBracketRoundsFromMatches,
   buildTournamentStructureSnapshot,
+  findSuccessorMatch,
   findTeamStartedInPhase,
   getBracketMatches,
   getCatalogTeam,
@@ -33,6 +35,7 @@ import {
   getSlotValue,
   hasRealBracketStarted,
   isLockedBracketMatchForStructureEdit,
+  resolveWinnerTeamId,
 } from '../../../services/tournamentStructureSelectors';
 import {
   canInsertTeamIntoBracketSlot,
@@ -109,6 +112,12 @@ interface DuplicateRemediationSection {
   teamId: string;
   teamName: string;
   occurrences: DuplicateOccurrence[];
+}
+
+interface BlockedAdvancementPreview {
+  sourceLabel: string;
+  winnerLabel: string;
+  targetLabel: string;
 }
 
 const EMPTY_TOURNAMENT: TournamentData = {
@@ -403,6 +412,9 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const [reloadBusy, setReloadBusy] = React.useState(false);
   const [conflictState, setConflictState] = React.useState<TournamentStructureConflictResult | null>(null);
   const [pendingApplyLocal, setPendingApplyLocal] = React.useState<ReturnType<typeof prepareTournamentStructureApply> | null>(null);
+  const [pendingLiveApply, setPendingLiveApply] = React.useState<ReturnType<typeof prepareTournamentStructureApply> | null>(null);
+  const [pendingDuplicateDelete, setPendingDuplicateDelete] = React.useState<DuplicateOccurrence | null>(null);
+  const [wizardQuery, setWizardQuery] = React.useState('');
   const [liveOutOfSync, setLiveOutOfSync] = React.useState(false);
   const previewPanelRef = React.useRef<HTMLDivElement | null>(null);
   const bracketWorkspaceRef = React.useRef<HTMLDivElement | null>(null);
@@ -687,7 +699,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           .replace('{target}', view === 'groups' ? t('editor_target_groups') : t('editor_target_bracket'))
       );
     },
-    [poolEntries, view]
+    [poolEntries, t, view]
   );
 
   const applyOperation = React.useCallback(
@@ -710,16 +722,11 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       }
       return false;
     },
-    [clearInteraction, draft]
+    [clearInteraction, draft, t]
   );
 
-  const handleDeleteDuplicateOccurrence = React.useCallback(
+  const applyDeleteDuplicateOccurrence = React.useCallback(
     (occurrence: DuplicateOccurrence) => {
-      const confirmed = window.confirm(
-        `Eliminare questa occorrenza di ${occurrence.teamName} da ${occurrence.location}?`
-      );
-      if (!confirmed) return;
-
       if (occurrence.phase === 'groups' && occurrence.groupId) {
         applyOperation({ type: 'REMOVE_GROUP_TEAM', teamId: occurrence.teamId, groupId: occurrence.groupId }, 'success');
         return;
@@ -731,6 +738,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     },
     [applyOperation]
   );
+
+  const handleDeleteDuplicateOccurrence = React.useCallback((occurrence: DuplicateOccurrence) => {
+    setPendingDuplicateDelete(occurrence);
+  }, []);
 
 
   const handleAddNewTeamToPool = React.useCallback(() => {
@@ -948,9 +959,9 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
         await node.requestFullscreen();
       }
     } catch {
-      setInteractionMessage('Non sono riuscito ad attivare lo schermo intero per il tabellone.');
+      setInteractionMessage(t('editor_fullscreen_failed'));
     }
-  }, []);
+  }, [t]);
 
   const bracketActiveCheckMap = React.useMemo(() => {
     const valid = new Set<string>();
@@ -1007,6 +1018,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       setInteractionMessage('');
       setConflictState(null);
       setPendingApplyLocal(null);
+      setPendingLiveApply(null);
       setSnackbar({ tone: 'success', message: snackbarMessage });
     },
     [clearInteraction, draft, setState, state]
@@ -1032,9 +1044,15 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       return;
     }
 
+    if (hasLiveTournament) {
+      setPendingLiveApply(prepared);
+      setApplyBusy(false);
+      return;
+    }
+
     applyPreparedSnapshot(prepared, t('editor_applied_to_live'));
     setApplyBusy(false);
-  }, [applyPreparedSnapshot, draft.state.original, draft.state.present, hasEditorChanges]);
+  }, [applyPreparedSnapshot, draft.state.original, draft.state.present, hasEditorChanges, hasLiveTournament, t]);
 
   const handleReloadRemoteState = React.useCallback(async () => {
     setReloadBusy(true);
@@ -1069,19 +1087,21 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     clearInteraction();
     setConflictState(null);
     setPendingApplyLocal(null);
+    setPendingLiveApply(null);
     setLiveOutOfSync(false);
-    setInteractionMessage('Bozza scartata. Editor riportato allo snapshot iniziale.');
-    setSnackbar({ tone: 'info', message: 'Bozza ripristinata.' });
-  }, [clearInteraction, draft]);
+    setInteractionMessage(t('editor_discarded_message'));
+    setSnackbar({ tone: 'info', message: t('editor_draft_restored') });
+  }, [clearInteraction, draft, t]);
 
   const handleRefreshFromCurrentLive = React.useCallback(() => {
     draft.rebase(sourceSnapshot);
     rebasedSignatureRef.current = sourceSignature;
     clearInteraction();
     setLiveOutOfSync(false);
-    setInteractionMessage('Editor riallineato allo stato live corrente.');
-    setSnackbar({ tone: 'info', message: 'Editor riallineato al live corrente.' });
-  }, [clearInteraction, draft, sourceSignature, sourceSnapshot]);
+    setPendingLiveApply(null);
+    setInteractionMessage(t('editor_rebased_live_message'));
+    setSnackbar({ tone: 'info', message: t('editor_rebased_live_snackbar') });
+  }, [clearInteraction, draft, sourceSignature, sourceSnapshot, t]);
 
   const validationTone = toneForValidation(draft.validation.blockingErrors.length, draft.validation.warnings.length);
   const openPersistenceTools = React.useCallback(() => {
@@ -1096,6 +1116,59 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     },
     [draft.state.present, t]
   );
+
+  const bracketPairRounds = React.useMemo(
+    () => buildBracketRoundsFromMatches(draft.state.present.matches || []),
+    [draft.state.present.matches]
+  );
+
+  const selectedActionLabel = React.useMemo(() => {
+    const activeSource = dragSource || selection;
+    if (!activeSource) return '';
+    if (activeSource.kind === 'pool-team') return getCatalogTeam(draft.state.present, activeSource.teamId)?.name || activeSource.teamId;
+    if (activeSource.kind === 'group-team') return getCatalogTeam(draft.state.present, activeSource.teamId)?.name || activeSource.teamId;
+    return teamLabel(activeSource.teamId) || slotDisplayLabel(activeSource.slotKey);
+  }, [dragSource, draft.state.present, selection, slotDisplayLabel, teamLabel]);
+
+  const blockedAdvancementItems = React.useMemo<BlockedAdvancementPreview[]>(() => {
+    const snapshot = draft.state.present;
+    return getBracketMatches(snapshot)
+      .map((match) => {
+        const winner = resolveWinnerTeamId(match);
+        if (!winner || isPlaceholderTeamId(winner)) return null;
+        const successor = findSuccessorMatch(snapshot.matches || [], match.id);
+        if (!successor || !isLockedBracketMatchForStructureEdit(successor.match)) return null;
+        const targetValue = String((successor.match as any)[successor.slot] || '').trim();
+        if (targetValue === winner) return null;
+        const successorSide = successor.slot === 'teamAId' ? 'A' : 'B';
+        return {
+          sourceLabel: match.code || match.roundName || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('bracket_word')),
+          winnerLabel: teamLabel(winner),
+          targetLabel: slotDisplayLabel(`${successor.match.id}|${successorSide}`),
+        };
+      })
+      .filter(Boolean) as BlockedAdvancementPreview[];
+  }, [draft.state.present, slotDisplayLabel, t, teamLabel]);
+
+  const freeRound1PairMatches = React.useMemo(
+    () =>
+      round1Matches.filter((match) => {
+        if (isLockedBracketMatchForStructureEdit(match)) return false;
+        const teamA = String(match.teamAId || '').trim();
+        const teamB = String(match.teamBId || '').trim();
+        return (!teamA || isPlaceholderTeamId(teamA)) && (!teamB || isPlaceholderTeamId(teamB));
+      }),
+    [round1Matches]
+  );
+
+  const selectedWizardTeamId = selection?.kind === 'pool-team' ? selection.teamId : null;
+  const selectedWizardTeam = selectedWizardTeamId ? getCatalogTeam(draft.state.present, selectedWizardTeamId) : null;
+  const firstFreeRound1Pair = freeRound1PairMatches[0] || null;
+
+  const handleWizardInsertSelectedTeam = React.useCallback(() => {
+    if (!selectedWizardTeamId || !firstFreeRound1Pair) return;
+    handleBracketSlotAction(`${firstFreeRound1Pair.id}|A`);
+  }, [firstFreeRound1Pair, handleBracketSlotAction, selectedWizardTeamId]);
 
   const placementLabel = React.useCallback((placement?: CurrentPlacement) => {
     if (!placement) return t('editor_not_assigned_lower');
@@ -1186,6 +1259,156 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     },
     [clearInteraction, draft.state.present]
   );
+
+  const renderBracketPairSlot = (match: Match, side: 'A' | 'B') => {
+    const field = side === 'A' ? 'teamAId' : 'teamBId';
+    const slotKey = `${match.id}|${side}`;
+    const value = String((match as any)[field] || '').trim();
+    const isPlaceholder = !value || isPlaceholderTeamId(value);
+    const check = bracketTargetCheck(slotKey);
+    const selected = selection?.kind === 'bracket-slot' && selection.slotKey === slotKey;
+    const changed = changedBracketSlots.includes(slotKey);
+    const locked = isLockedBracketMatchForStructureEdit(match);
+    const canDragSlot = !!value && !isPlaceholder && !locked;
+    const slotTone = check
+      ? check.allowed
+        ? 'border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] text-[var(--editor-success-700)]'
+        : 'border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] text-[var(--editor-danger-700)]'
+      : selected
+        ? 'border-[color:var(--editor-border-brand)] bg-[var(--editor-bg-selected)] text-[var(--editor-brand-700)]'
+        : changed
+          ? 'border-violet-200 bg-[var(--editor-bg-changed)] text-[var(--editor-draft-700)]'
+          : isPlaceholder
+            ? 'border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] text-[var(--editor-danger-700)] border-dashed'
+            : locked
+              ? 'border-[color:var(--editor-locked-border)] bg-[var(--editor-locked-bg)] text-[var(--editor-locked-text)]'
+              : 'border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] text-[var(--editor-text-primary)] hover:border-[color:var(--editor-border-brand)] hover:bg-[var(--editor-bg-hover)]';
+
+    return (
+      <div key={slotKey} className="space-y-1.5">
+        <button
+          type="button"
+          draggable={canDragSlot}
+          onDragStart={() => {
+            if (!canDragSlot) return;
+            setDragSource({ kind: 'bracket-slot', slotKey, teamId: value });
+            setSelection({ kind: 'bracket-slot', slotKey, teamId: value });
+            setInteractionMessage(t('editor_drag_slot_round1'));
+          }}
+          onDragEnd={() => {
+            setDragSource(null);
+            setHoverSlotKey('');
+          }}
+          onDragOver={(event) => {
+            if (check?.allowed) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (!check?.allowed) {
+              setInteractionMessage(check?.humanMessage || t('editor_invalid_target'));
+              setDragSource(null);
+              setHoverSlotKey('');
+              return;
+            }
+            handleBracketSlotAction(slotKey);
+            setHoverSlotKey('');
+            setDragSource(null);
+          }}
+          onClick={() => handleBracketSlotAction(slotKey)}
+          className={`min-h-[56px] w-full rounded-[16px] border px-3 py-2.5 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 ${slotTone}`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-black uppercase tracking-wide opacity-70">
+                {side === 'A' ? t('editor_team_a') : t('editor_team_b')}
+              </div>
+              <div className="mt-0.5 text-sm font-black leading-tight">
+                {isPlaceholder ? t('editor_no_opponent') : teamLabel(value)}
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full border border-current/15 bg-white/60 px-2 py-1 text-[10px] font-black">
+              {isPlaceholder ? t('editor_without_opponent') : side}
+            </span>
+          </div>
+        </button>
+        {check && !check.allowed ? (
+          <div className="rounded-[12px] border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-3 py-2 text-[11px] font-bold text-[var(--editor-danger-700)]">
+            {check.humanMessage}
+          </div>
+        ) : check?.allowed ? (
+          <div className="rounded-[12px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-2 text-[11px] font-bold text-[var(--editor-success-700)]">
+            {check.humanMessage}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderBracketPairCard = (match: Match) => {
+    const winnerId = resolveWinnerTeamId(match);
+    const successor = findSuccessorMatch(draft.state.present.matches || [], match.id);
+    const successorSide = successor?.slot === 'teamAId' ? 'A' : 'B';
+    const successorLocked = !!successor && isLockedBracketMatchForStructureEdit(successor.match);
+    const hasMissingOpponent =
+      !String(match.teamAId || '').trim() ||
+      !String(match.teamBId || '').trim() ||
+      isPlaceholderTeamId(match.teamAId) ||
+      isPlaceholderTeamId(match.teamBId);
+    const matchLabel = match.roundName || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('bracket_word'));
+    const successorLabel = successor
+      ? `${successor.match.roundName || (successor.match.round ? t('round_n').replace('{n}', String(successor.match.round)) : t('bracket_word'))} · ${t('editor_slot_short')} ${successorSide}`
+      : t('editor_no_successor_final');
+
+    return (
+      <div
+        key={match.id}
+        className={`rounded-[20px] border p-4 shadow-sm transition-all duration-200 ${
+          successorLocked
+            ? 'border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)]'
+            : hasMissingOpponent
+              ? 'border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)]/55'
+              : 'border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)]'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-black text-[var(--editor-text-primary)]">{matchLabel}</div>
+            {match.code ? <div className="mt-0.5 text-[11px] font-bold text-[var(--editor-text-muted)]">{match.code}</div> : null}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            {winnerId ? (
+              <span className="rounded-full border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-2.5 py-1 text-[11px] font-black text-[var(--editor-success-700)]">
+                {t('editor_winner_decided')}
+              </span>
+            ) : null}
+            {hasMissingOpponent ? (
+              <span className="rounded-full border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-2.5 py-1 text-[11px] font-black text-[var(--editor-danger-700)]">
+                {t('editor_without_opponent')}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {renderBracketPairSlot(match, 'A')}
+          <div className="text-center text-[11px] font-black uppercase tracking-wide text-[var(--editor-text-muted)]">vs</div>
+          {renderBracketPairSlot(match, 'B')}
+        </div>
+
+        <div
+          className={`mt-3 rounded-[14px] border px-3 py-2 text-xs font-black ${
+            successorLocked
+              ? 'border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] text-[var(--editor-danger-700)]'
+              : 'border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] text-[var(--editor-success-700)]'
+          }`}
+        >
+          {successorLocked
+            ? t('editor_winner_cannot_advance')
+            : t('editor_winner_goes_to').replace('{target}', successorLabel)}
+        </div>
+      </div>
+    );
+  };
 
   if (!hasLiveTournament) {
     return (
@@ -1438,7 +1661,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     if (!canDrag) return;
                     setDragSource({ kind: 'pool-team', teamId: entry.team.id });
                     setSelection({ kind: 'pool-team', teamId: entry.team.id });
-                    setInteractionMessage(`Trascina ${entry.team.name} su un target valido.`);
+                    setInteractionMessage(t('editor_drag_pool_team').replace('{name}', entry.team.name));
                   }}
                   onDragEnd={() => {
                     setDragSource(null);
@@ -1454,7 +1677,6 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                         ? 'border-violet-200 bg-[var(--editor-bg-changed)] text-[var(--editor-text-primary)] shadow-[0_14px_30px_-28px_rgba(109,40,217,0.28)]'
                         : 'border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] text-[var(--editor-text-primary)] shadow-[0_12px_24px_-26px_rgba(15,23,42,0.2)] hover:border-[color:var(--editor-border-default)] hover:bg-[var(--editor-bg-hover)]'
                   }`}
-                  title={entry.disabled ? entry.humanMessage : t('editor_select_or_drag_team')}
                 >
                   {isChanged ? <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-[var(--editor-draft-600)]" /> : null}
                   <div className="flex items-start gap-3">
@@ -1525,6 +1747,17 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             </div>
           </div>
 
+          <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-xs font-black uppercase tracking-wide text-[var(--editor-text-muted)]">{t('editor_state_legend')}</span>
+              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-border-brand)] bg-[var(--editor-bg-selected)] px-3 py-1 text-xs font-black text-[var(--editor-brand-700)]">{t('editor_state_selected')}</span>
+              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-1 text-xs font-black text-[var(--editor-success-700)]">{t('editor_state_valid')}</span>
+              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-3 py-1 text-xs font-black text-[var(--editor-danger-700)]">{t('editor_state_invalid')}</span>
+              <span className="inline-flex min-h-8 items-center rounded-full border border-violet-200 bg-[var(--editor-bg-changed)] px-3 py-1 text-xs font-black text-[var(--editor-draft-700)]">{t('editor_state_modified')}</span>
+              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-locked-border)] bg-[var(--editor-locked-bg)] px-3 py-1 text-xs font-black text-[var(--editor-locked-text)]">{t('editor_state_blocked')}</span>
+            </div>
+          </div>
+
           {view === 'groups' ? (
             groupsAvailable ? (
               <div className="space-y-4">
@@ -1558,7 +1791,6 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                               ? 'border-violet-200 bg-[var(--editor-bg-changed)]'
                               : 'border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)]'
                         }`}
-                        title={cardCheck?.humanMessage || undefined}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -1643,7 +1875,6 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                                         ? 'border-violet-200 bg-[var(--editor-bg-changed)]'
                                         : 'border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] hover:bg-[var(--editor-bg-hover)]'
                                 }`}
-                                title={rowCheck?.humanMessage || undefined}
                               >
                                 {rowChanged ? <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-[var(--editor-draft-600)]" /> : null}
                                 <div className="flex items-start justify-between gap-3">
@@ -1664,6 +1895,15 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                                   </div>
                                   <GripVertical className="mt-1 h-4 w-4 shrink-0 text-[var(--editor-text-disabled)]" />
                                 </div>
+                                {rowCheck ? (
+                                  <div className={`mt-2 rounded-[12px] border px-3 py-2 text-[11px] font-bold ${
+                                    rowCheck.allowed
+                                      ? 'border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] text-[var(--editor-success-700)]'
+                                      : 'border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] text-[var(--editor-danger-700)]'
+                                  }`}>
+                                    {rowCheck.humanMessage}
+                                  </div>
+                                ) : null}
                               </button>
                             );
                           })}
@@ -1684,6 +1924,122 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             <div className="space-y-4">
               <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] px-4 py-3 text-sm font-medium text-[var(--editor-text-secondary)]">
                 {t('editor_bracket_editorial_round1')}
+              </div>
+
+              <div className="rounded-[22px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] p-4 shadow-sm">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="inline-flex items-center gap-2 text-base font-black text-[var(--editor-text-primary)]">
+                      <Brackets className="h-4 w-4 text-[var(--editor-brand-700)]" />
+                      {t('editor_add_team_wizard_title')}
+                    </div>
+                    <div className="mt-1 text-xs font-bold text-[var(--editor-text-muted)]">{t('editor_add_team_wizard_live_badge')}</div>
+                  </div>
+                  <button type="button" onClick={scrollToPreview} className={editorGhostButtonClass}>
+                    <Eye className="h-4 w-4" />
+                    {t('editor_preview')}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
+                  <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">1</span>
+                      <div>
+                        <div className="text-sm font-black text-[var(--editor-text-primary)]">{t('editor_wizard_step_choose')}</div>
+                        <div className="text-[11px] font-bold text-[var(--editor-text-muted)]">{t('editor_wizard_step_choose_desc')}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <TeamPickerCombobox
+                        label={t('editor_pool_picker_label')}
+                        query={wizardQuery}
+                        onQueryChange={setWizardQuery}
+                        items={poolEntries.map((entry) => ({
+                          id: entry.team.id,
+                          name: entry.team.name,
+                          disabled: entry.disabled,
+                          badge: entry.badgeLabel,
+                          placement: entry.placementLabel || t('editor_not_assigned'),
+                          reason: entry.disabled ? entry.humanMessage : undefined,
+                        }))}
+                        selectedId={selectedWizardTeamId}
+                        onSelect={(id) => {
+                          setSelectedPoolTeam(id);
+                          setWizardQuery(getCatalogTeam(draft.state.present, id)?.name || '');
+                        }}
+                        placeholder={t('editor_pool_picker_placeholder')}
+                      />
+                    </div>
+                    {selectedWizardTeam ? (
+                      <div className="mt-3 rounded-[14px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-2 text-xs font-black text-[var(--editor-success-700)]">
+                        {t('editor_wizard_selected_team').replace('{name}', selectedWizardTeam.name)}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">2</span>
+                      <div>
+                        <div className="text-sm font-black text-[var(--editor-text-primary)]">{t('editor_wizard_step_insert')}</div>
+                        <div className="text-[11px] font-bold text-[var(--editor-text-muted)]">{t('editor_wizard_step_insert_desc')}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {firstFreeRound1Pair ? (
+                        <button
+                          type="button"
+                          disabled={!selectedWizardTeamId}
+                          onClick={handleWizardInsertSelectedTeam}
+                          className="min-h-[48px] w-full rounded-[14px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-2 text-left text-sm font-black text-[var(--editor-success-700)] transition hover:bg-[var(--editor-success-100)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {t('editor_wizard_use_free_pair')}
+                        </button>
+                      ) : canExpandBracketWithPreliminaryRound ? (
+                        <div className="rounded-[14px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-3 text-sm font-bold text-[var(--editor-success-700)]">
+                          {t('editor_wizard_preliminary_recommended')}
+                        </div>
+                      ) : (
+                        <div className="rounded-[14px] border border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)] px-3 py-3 text-sm font-bold text-[var(--editor-warning-700)]">
+                          {t('editor_wizard_no_safe_pair')}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleAddPreliminaryRound}
+                        disabled={!canExpandBracketWithPreliminaryRound}
+                        className={editorOutlineButtonClass}
+                      >
+                        <Brackets className="h-4 w-4" />
+                        {t('editor_wizard_add_preliminary')}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">3</span>
+                      <div>
+                        <div className="text-sm font-black text-[var(--editor-text-primary)]">{t('editor_wizard_step_preview')}</div>
+                        <div className="text-[11px] font-bold text-[var(--editor-text-muted)]">{t('editor_wizard_step_preview_desc')}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" onClick={scrollToPreview} className={editorOutlineButtonClass}>
+                        {t('editor_preview')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleApplyDraft}
+                        disabled={applyBusy || !hasEditorChanges || !draft.validation.canApply}
+                        className={editorPrimaryButtonClass}
+                      >
+                        {t('editor_apply_changes')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-4 py-3">
@@ -1710,7 +2066,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                       className={editorGhostButtonClass}
                     >
                       {isBracketFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                      {isBracketFullscreen ? 'Esci da schermo intero' : 'Schermo intero'}
+                      {isBracketFullscreen ? t('editor_fullscreen_exit') : t('editor_fullscreen_open')}
                     </button>
                     <button
                       type="button"
@@ -1722,6 +2078,34 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                       {t('editor_add_preliminary_round')}
                     </button>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-[22px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-base font-black text-[var(--editor-text-primary)]">{t('editor_match_pair_view_title')}</div>
+                    <div className="mt-1 text-xs font-bold text-[var(--editor-text-muted)]">{t('editor_match_pair_view_desc')}</div>
+                  </div>
+                  {blockedAdvancementItems.length ? (
+                    <span className="rounded-full border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-3 py-1 text-[11px] font-black text-[var(--editor-danger-700)]">
+                      {t('editor_blocked_advancements_count').replace('{count}', String(blockedAdvancementItems.length))}
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  {bracketPairRounds.map((round, roundIndex) => {
+                    const roundName = round[0]?.roundName || t('round_n').replace('{n}', String(roundIndex + 1));
+                    return (
+                      <div key={`${roundName}:${roundIndex}`} className="space-y-3">
+                        <div className="text-xs font-black uppercase tracking-wide text-[var(--editor-text-muted)]">{roundName}</div>
+                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                          {round.map((match) => renderBracketPairCard(match))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1769,7 +2153,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     const slotKey = `${args.matchId}|${args.side}`;
                     const check = bracketTargetCheck(slotKey);
                     if (!check?.allowed) {
-                      setInteractionMessage(check?.humanMessage || 'Target non valido.');
+                      setInteractionMessage(check?.humanMessage || t('editor_invalid_target'));
                       setDragSource(null);
                       setHoverSlotKey('');
                       return;
@@ -1862,10 +2246,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 <div>
                   <div className="text-sm font-bold text-[var(--editor-danger-700)] inline-flex items-center gap-2">
                     <Trash2 className="w-4 h-4" />
-                    Duplicati da correggere
+                    {t('editor_duplicates_to_fix')}
                   </div>
                   <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">
-                    Elimina solo l’occorrenza sbagliata, poi applica la bozza.
+                    {t('editor_duplicates_fix_desc')}
                   </div>
                 </div>
                 <span className="rounded-full border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-2.5 py-1 text-[11px] font-bold text-[var(--editor-danger-700)]">
@@ -1888,7 +2272,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                           <div className="min-w-0">
                             <div className="text-xs font-semibold text-[var(--editor-text-primary)]">{occurrence.location}</div>
                             {occurrence.locked ? (
-                              <div className="mt-0.5 text-[11px] font-medium text-[var(--editor-danger-700)]">Questa occorrenza è protetta da un match già avviato.</div>
+                              <div className="mt-0.5 text-[11px] font-medium text-[var(--editor-danger-700)]">{t('editor_duplicate_occurrence_locked')}</div>
                             ) : null}
                           </div>
                           <button
@@ -1973,6 +2357,29 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             </div>
 
             <div className="space-y-2">
+              {draft.diff.bracketChanges.length || draft.diff.futureBracketChanges.length ? (
+                <div className="rounded-[16px] border border-[color:var(--editor-brand-100)] bg-[var(--editor-bg-surface)] p-3">
+                  <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-brand-700)]">{t('editor_before_after_preview_title')}</div>
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    {[...draft.diff.bracketChanges, ...draft.diff.futureBracketChanges].map((change) => (
+                      <div key={`before-after:${change.slotKey}:${change.afterTeamId || 'empty'}`} className="rounded-[14px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
+                        <div className="text-[11px] font-black uppercase tracking-wide text-[var(--editor-text-muted)]">{slotDisplayLabel(change.slotKey)}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div className="rounded-[12px] border border-[color:var(--editor-border-subtle)] bg-white px-3 py-2">
+                            <div className="text-[10px] font-black uppercase tracking-wide text-[var(--editor-text-muted)]">{t('editor_before_label')}</div>
+                            <div className="mt-1 text-xs font-black text-[var(--editor-text-primary)]">{teamLabel(change.beforeTeamId)}</div>
+                          </div>
+                          <div className="rounded-[12px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-2">
+                            <div className="text-[10px] font-black uppercase tracking-wide text-[var(--editor-success-700)]">{t('editor_after_label')}</div>
+                            <div className="mt-1 text-xs font-black text-[var(--editor-text-primary)]">{teamLabel(change.afterTeamId)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {draft.diff.groupChanges.length ? (
                 <div className="rounded-[16px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] p-3">
                   <div className="text-[11px] font-semibold tracking-wide text-[var(--editor-text-muted)]">{t('groups_label')}</div>
@@ -2016,6 +2423,20 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                         <div className="mt-0.5 text-xs font-medium text-[var(--editor-text-muted)]">
                           {teamLabel(change.beforeTeamId)} → {teamLabel(change.afterTeamId)}
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {blockedAdvancementItems.length ? (
+                <div className="rounded-[16px] border border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)] p-3">
+                  <div className="text-[11px] font-black uppercase tracking-wide text-[var(--editor-warning-700)]">{t('editor_blocked_advancements_title')}</div>
+                  <div className="mt-1 text-xs font-bold text-[var(--editor-warning-700)]">{t('editor_blocked_advancements_desc')}</div>
+                  <div className="mt-3 space-y-2">
+                    {blockedAdvancementItems.map((item) => (
+                      <div key={`${item.sourceLabel}:${item.winnerLabel}:${item.targetLabel}`} className="rounded-[14px] border border-[color:var(--editor-warning-100)] bg-white/80 px-3 py-2 text-xs font-black text-[var(--editor-text-primary)]">
+                        {item.winnerLabel} <span className="text-[var(--editor-text-muted)]">→</span> {item.targetLabel}
                       </div>
                     ))}
                   </div>
@@ -2166,6 +2587,164 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 {reloadBusy ? t('editor_reloading') : t('editor_reload_current_state')}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingLiveApply ? (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="inline-flex items-center gap-2 text-lg font-black text-slate-900">
+                  <TriangleAlert className="h-5 w-5 text-amber-600" />
+                  {t('editor_live_apply_confirm_title')}
+                </div>
+                <div className="mt-1 text-sm font-bold text-slate-600">{t('editor_live_apply_confirm_desc')}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingLiveApply(null)}
+                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div className="text-xl font-black text-slate-900">{pendingLiveApply.diff.operationsCount}</div>
+                <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{t('editor_operations_label')}</div>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">
+                <div className="text-xl font-black text-amber-900">{pendingLiveApply.validation.warnings.length}</div>
+                <div className="text-[11px] font-black uppercase tracking-wide text-amber-700">{t('editor_warnings_label')}</div>
+              </div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
+                <div className="text-xl font-black text-rose-900">{blockedAdvancementItems.length}</div>
+                <div className="text-[11px] font-black uppercase tracking-wide text-rose-700">{t('editor_blocked_advancements_short')}</div>
+              </div>
+            </div>
+
+            {blockedAdvancementItems.length ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="text-sm font-black text-amber-900">{t('editor_blocked_advancements_title')}</div>
+                <div className="mt-1 text-xs font-bold text-amber-800">{t('editor_blocked_advancements_desc')}</div>
+                <div className="mt-3 space-y-2">
+                  {blockedAdvancementItems.map((item) => (
+                    <div key={`live-confirm:${item.sourceLabel}:${item.winnerLabel}:${item.targetLabel}`} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-black text-slate-900">
+                      {item.winnerLabel} <span className="text-slate-400">→</span> {item.targetLabel}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-sm font-black text-slate-900">{t('editor_before_after_preview_title')}</div>
+              <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1">
+                {[...pendingLiveApply.diff.bracketChanges, ...pendingLiveApply.diff.futureBracketChanges].slice(0, 8).map((change) => (
+                  <div key={`live-change:${change.slotKey}:${change.afterTeamId || 'empty'}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                    <span className="font-black text-slate-950">{slotDisplayLabel(change.slotKey)}</span>
+                    <span className="mx-2 text-slate-400">·</span>
+                    {teamLabel(change.beforeTeamId)} <span className="text-slate-400">→</span> {teamLabel(change.afterTeamId)}
+                  </div>
+                ))}
+                {![...pendingLiveApply.diff.bracketChanges, ...pendingLiveApply.diff.futureBracketChanges].length ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs font-bold text-slate-500">
+                    {t('editor_no_bracket_slot_changes')}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingLiveApply(null)}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                {t('editor_live_apply_confirm_cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={scrollToPreview}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                {t('editor_preview')}
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreparedSnapshot(pendingLiveApply, t('editor_applied_to_live'))}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800"
+              >
+                {t('editor_live_apply_confirm_action')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingDuplicateDelete ? (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="inline-flex items-center gap-2 text-lg font-black text-slate-900">
+                  <Trash2 className="h-5 w-5 text-rose-600" />
+                  {t('editor_duplicate_delete_confirm_title')}
+                </div>
+                <div className="mt-2 text-sm font-bold text-slate-600">
+                  {t('editor_duplicate_delete_confirm_desc')
+                    .replace('{team}', pendingDuplicateDelete.teamName)
+                    .replace('{location}', pendingDuplicateDelete.location)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingDuplicateDelete(null)}
+                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingDuplicateDelete(null)}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                {t('editor_cancel_action')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyDeleteDuplicateOccurrence(pendingDuplicateDelete);
+                  setPendingDuplicateDelete(null);
+                }}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-black text-white hover:bg-rose-700"
+              >
+                {t('editor_duplicate_delete_action')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedActionLabel ? (
+        <div className="fixed inset-x-3 bottom-3 z-[60] mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-2xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-black">{selectedActionLabel}</div>
+              <div className="mt-0.5 text-xs font-bold text-white/70">{t('editor_tap_to_place_hint')}</div>
+            </div>
+            <button
+              type="button"
+              onClick={clearInteraction}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/15"
+            >
+              {t('editor_cancel_action')}
+            </button>
           </div>
         </div>
       ) : null}

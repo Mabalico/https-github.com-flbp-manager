@@ -4,6 +4,7 @@ import { buildTournamentStructureIntegritySummary } from './tournamentStructureI
 import {
   findTeamEliminated,
   findTeamStartedInPhase,
+  findSuccessorMatch,
   getCatalogTeam,
   getBracketMatches,
   getBracketAssignedTeamIds,
@@ -17,6 +18,7 @@ import {
   getTeamPlacement,
   hasRealBracketStarted,
   parseSlotKey,
+  resolveWinnerTeamId,
   isGroupConcluded,
   getMatchById,
   isLockedBracketMatchForStructureEdit,
@@ -386,6 +388,17 @@ export const canInsertTeamIntoBracketSlot = (
   if (currentValue && !isPlaceholderTeamId(currentValue)) {
     return blocked('slot_not_placeholder', 'Lo slot è già occupato da una squadra reale.');
   }
+  const oppositeSlotKey = `${parsed.matchId}|${parsed.field === 'teamAId' ? 'B' : 'A'}`;
+  const oppositeValue = getSlotValue(snapshot, oppositeSlotKey);
+  if (!oppositeValue || isPlaceholderTeamId(oppositeValue)) {
+    const successor = findSuccessorMatch(snapshot.matches || [], parsed.matchId);
+    if (successor && isLockedBracketMatchForStructureEdit(successor.match)) {
+      return blocked(
+        'successor_locked',
+        'Il vincitore non potrebbe avanzare: il round successivo è già stato giocato. Aggiungi la squadra con un turno preliminare.'
+      );
+    }
+  }
   return allowed('ok', 'Inserimento consentito nello slot selezionato.');
 };
 
@@ -636,6 +649,23 @@ export const validateDraftBeforeApply = (
         teamId: beforeTeamId || afterTeamId || undefined,
       });
     }
+  }
+
+  for (const match of getBracketMatches(draft)) {
+    const winner = resolveWinnerTeamId(match);
+    if (!winner || isPlaceholderTeamId(winner)) continue;
+    const successor = findSuccessorMatch(draft.matches || [], match.id);
+    if (!successor || !isLockedBracketMatchForStructureEdit(successor.match)) continue;
+    const successorValue = String((successor.match as any)[successor.slot] || '').trim();
+    if (successorValue === winner) continue;
+    pushIssueUnique(blockingErrors, {
+      severity: 'blocking',
+      code: 'successor_stale_locked',
+      message: `Il vincitore di ${match.code || match.id} non può avanzare: il round successivo è già stato giocato o avviato.`,
+      matchId: successor.match.id,
+      slotKey: `${successor.match.id}|${successor.slotName}`,
+      teamId: winner,
+    });
   }
 
   if (!blockingErrors.length) {

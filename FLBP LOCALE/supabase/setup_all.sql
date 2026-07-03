@@ -178,6 +178,8 @@ create table if not exists tournament_matches (
   score_b int not null default 0,
   team_a_id text null,
   team_b_id text null,
+  next_match_id text null,
+  next_slot text null check (next_slot is null or next_slot in ('A','B')),
   round int null,
   round_name text null,
   group_name text null,
@@ -201,6 +203,10 @@ create index if not exists idx_match_code
 
 create index if not exists idx_matches_phase_round_order
   on tournament_matches(workspace_id, tournament_id, phase, round, order_index);
+
+create index if not exists idx_matches_next
+  on tournament_matches(workspace_id, tournament_id, next_match_id)
+  where next_match_id is not null;
 
 create index if not exists idx_matches_group_order
   on tournament_matches(workspace_id, tournament_id, phase, group_name, order_index);
@@ -533,6 +539,8 @@ create table if not exists public_tournament_matches (
   order_index int null,
   team_a_id text null,
   team_b_id text null,
+  next_match_id text null,
+  next_slot text null check (next_slot is null or next_slot in ('A','B')),
   score_a int not null default 0,
   score_b int not null default 0,
   played boolean not null default false,
@@ -548,6 +556,10 @@ create table if not exists public_tournament_matches (
 
 create index if not exists idx_public_matches_tournament_order
   on public_tournament_matches(workspace_id, tournament_id, order_index);
+
+create index if not exists idx_public_matches_next
+  on public_tournament_matches(workspace_id, tournament_id, next_match_id)
+  where next_match_id is not null;
 
 create table if not exists public_tournament_match_stats (
   workspace_id text not null references workspaces(id) on delete cascade,

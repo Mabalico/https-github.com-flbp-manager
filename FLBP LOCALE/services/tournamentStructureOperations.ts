@@ -17,6 +17,7 @@ import {
 import {
   buildBracketRoundsFromMatches,
   cloneSnapshot,
+  deriveBracketSuccessorLinks,
   getCatalogTeam,
   getGroupById,
   getMatchById,
@@ -25,7 +26,7 @@ import {
   hasRealBracketStarted,
   isLockedBracketMatchForStructureEdit,
   parseSlotKey,
-  resolveWinnerTeamId,
+  reconcileBracketAdvancements,
   syncTournamentRosterFromStructure,
 } from './tournamentStructureSelectors';
 import type {
@@ -209,51 +210,9 @@ const normalizeFutureBracketMatch = (match: Match): Match => {
 
 export const realignFutureBracketFromRound1 = (snapshot: TournamentStructureSnapshot): TournamentStructureSnapshot => {
   const next = cloneSnapshot(snapshot);
-  const matches = cloneMatchList(next.matches);
-  const byId = new Map(matches.map((match) => [match.id, match]));
-  const bracketRoundsMap = new Map<number, Match[]>();
-
-  for (const match of matches) {
-    if (match.phase !== 'bracket') continue;
-    const round = match.round || 1;
-    if (!bracketRoundsMap.has(round)) bracketRoundsMap.set(round, []);
-    bracketRoundsMap.get(round)!.push(match);
-  }
-
-  const roundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
-  const rounds = roundNumbers.map((round) => (bracketRoundsMap.get(round) || []).slice().sort(sortByOrderIndexSafe));
-
-  for (let rIdx = 0; rIdx < rounds.length - 1; rIdx += 1) {
-    const currentRound = rounds[rIdx] || [];
-    const nextRound = rounds[rIdx + 1] || [];
-
-    for (let mIdx = 0; mIdx < currentRound.length; mIdx += 1) {
-      const current = byId.get(currentRound[mIdx].id) || currentRound[mIdx];
-      const targetSkeleton = nextRound[Math.floor(mIdx / 2)];
-      if (!targetSkeleton) continue;
-      const target = byId.get(targetSkeleton.id) || targetSkeleton;
-      if (isLockedBracketMatchForStructureEdit(target)) continue;
-
-      const slot: 'teamAId' | 'teamBId' = mIdx % 2 === 0 ? 'teamAId' : 'teamBId';
-      const winner = resolveWinnerTeamId(current);
-      if (!winner) {
-        byId.set(target.id, normalizeFutureBracketMatch(target));
-        continue;
-      }
-      byId.set(
-        target.id,
-        normalizeFutureBracketMatch({
-          ...target,
-          [slot]: winner,
-        })
-      );
-    }
-  }
-
-  next.matches = matches.map((match) => {
-    const candidate = byId.get(match.id) || match;
-    return candidate.phase === 'bracket' ? normalizeFutureBracketMatch(candidate) : candidate;
-  });
+  next.matches = reconcileBracketAdvancements(next.matches, { resetFutureParticipants: true }).map((match) =>
+    match.phase === 'bracket' ? normalizeFutureBracketMatch(match) : match
+  );
   next.tournament.matches = cloneMatchList(next.matches);
   next.tournament.rounds = buildBracketRoundsFromMatches(next.matches);
   return syncTournamentRosterFromStructure(next);
@@ -495,6 +454,27 @@ const applyInsertTeamInBracketSlot = (
   const team = getCatalogTeam(next, teamId);
   if (!match || !team) return makeBlockedResult(blockedLike('unknown', 'Slot o squadra non trovati.'));
   (match as any)[parsed.field] = teamId;
+  const oppositeField: 'teamAId' | 'teamBId' = parsed.field === 'teamAId' ? 'teamBId' : 'teamAId';
+  const oppositeSlotName: 'A' | 'B' = oppositeField === 'teamAId' ? 'A' : 'B';
+  const oppositeValue = String((match as any)[oppositeField] || '').trim();
+  const oppositeIsGroupPlaceholder = /^TBD-/i.test(oppositeValue);
+  const oppositeHasFeeder = deriveBracketSuccessorLinks(next.matches).some(
+    (candidate) =>
+      candidate.phase === 'bracket' &&
+      String(candidate.nextMatchId || '') === match.id &&
+      candidate.nextSlot === oppositeSlotName
+  );
+  // Turn a lone insert into a real BYE only when nothing can ever fill the other
+  // side: no advancing feeder and no group-qualification placeholder. Otherwise
+  // the pairing stays open and waits for its real opponent.
+  if (
+    (!oppositeValue || isPlaceholderTeamId(oppositeValue)) &&
+    !isByeTeamId(oppositeValue) &&
+    !oppositeIsGroupPlaceholder &&
+    !oppositeHasFeeder
+  ) {
+    (match as any)[oppositeField] = 'BYE';
+  }
   Object.assign(match, resetEditableBracketMatch(match));
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'INSERT_TEAM_IN_BRACKET_SLOT', `Inserita ${team.name} nel tabellone.`, check);
@@ -699,7 +679,10 @@ const applyAddPreliminaryBracketRound = (
     });
   }
 
-  next.matches = [...shiftedMatches.filter((match) => match.phase !== 'bracket'), ...newRound1, ...shiftedMatches.filter((match) => match.phase === 'bracket')];
+  next.matches = deriveBracketSuccessorLinks(
+    [...shiftedMatches.filter((match) => match.phase !== 'bracket'), ...newRound1, ...shiftedMatches.filter((match) => match.phase === 'bracket')],
+    { overwrite: true }
+  );
   next.tournament.matches = cloneMatchList(next.matches);
   next.tournament.rounds = buildBracketRoundsFromMatches(next.matches);
   const synced = realignFutureBracketFromRound1(next);
