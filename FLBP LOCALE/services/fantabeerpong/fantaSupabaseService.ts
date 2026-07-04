@@ -434,14 +434,30 @@ const fetchTournamentStarted = async (
   return !!rows?.length;
 };
 
+// Legge una vista "awarded" (punti-titoli ricalcolati vivi dall'albo d'oro);
+// se la migration SQL non è ancora applicata sul progetto reale (404), ripiega
+// sulla tabella snapshot congelata così l'archivio resta comunque consultabile.
+const fetchArchivedAwardedJson = async <T>(
+  cfg: { url: string; anonKey: string; workspaceId: string },
+  awardedPath: string,
+  basePath: string,
+  source: string,
+): Promise<T | null> => {
+  const rows = await fetchJson<T>(`${restUrl(cfg, awardedPath)}`, buildHeaders(cfg), source);
+  if (rows !== null) return rows;
+  return await fetchJson<T>(`${restUrl(cfg, basePath)}`, buildHeaders(cfg), `${source}.fallback`);
+};
+
 const fetchFantaArchivedEditionName = async (
   cfg: { url: string; anonKey: string; workspaceId: string },
   tournamentId: string,
 ): Promise<string | null> => {
   if (!tournamentId) return null;
-  const rows = await fetchJson<Array<{ tournament_id: string; tournament_name?: string | null }>>(
-    `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=tournament_id,tournament_name&limit=1`,
-    buildHeaders(cfg),
+  const editionNameQuery = `?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=tournament_id,tournament_name&limit=1`;
+  const rows = await fetchArchivedAwardedJson<Array<{ tournament_id: string; tournament_name?: string | null }>>(
+    cfg,
+    `fanta_archived_editions_awarded${editionNameQuery}`,
+    `fanta_archived_editions${editionNameQuery}`,
     'fetchFantaArchivedEditionName',
   );
   const row = rows?.[0];
@@ -658,9 +674,11 @@ const hasMeaningfulArchivedEdition = (edition: FantaArchivedEdition | null | und
 const fetchFantaArchivedEditionsSnapshot = async (): Promise<FantaArchivedEdition[]> => {
   const cfg = getSupabaseConfig();
   if (!cfg) return [];
-  const rows = await fetchJson<SupabaseFantaArchivedEditionRow[]>(
-    `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=*&order=start_date.desc,archived_at.desc`,
-    buildHeaders(cfg),
+  const editionsQuery = `?workspace_id=eq.${encode(cfg.workspaceId)}&select=*&order=start_date.desc,archived_at.desc`;
+  const rows = await fetchArchivedAwardedJson<SupabaseFantaArchivedEditionRow[]>(
+    cfg,
+    `fanta_archived_editions_awarded${editionsQuery}`,
+    `fanta_archived_editions${editionsQuery}`,
     'fetchFantaArchivedEditionSnapshots',
   );
   return (rows || [])
@@ -854,25 +872,32 @@ export const fetchFantaArchivedEditionDetail = async (
   const cfg = getSupabaseConfig();
   if (!cfg || !tournamentId) return null;
 
+  const editionDetailQuery = `?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&limit=1`;
+  const standingsDetailQuery = `?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc`;
+  const rostersDetailQuery = `?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=team_name.asc,role.asc,player_name.asc`;
   const [snapshotEditionRows, snapshotStandingsRows, snapshotPlayerRows, archivedRosterRows, liveRosterRows] = await Promise.all([
-    fetchJson<SupabaseFantaArchivedEditionRow[]>(
-      `${restUrl(cfg, 'fanta_archived_editions')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&limit=1`,
-      buildHeaders(cfg),
+    fetchArchivedAwardedJson<SupabaseFantaArchivedEditionRow[]>(
+      cfg,
+      `fanta_archived_editions_awarded${editionDetailQuery}`,
+      `fanta_archived_editions${editionDetailQuery}`,
       'fetchFantaArchivedEditionSnapshotDetail',
     ),
-    fetchJson<SupabaseFantaArchivedStandingRow[]>(
-      `${restUrl(cfg, 'fanta_archived_standings')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc`,
-      buildHeaders(cfg),
+    fetchArchivedAwardedJson<SupabaseFantaArchivedStandingRow[]>(
+      cfg,
+      `fanta_archived_standings_awarded${standingsDetailQuery}`,
+      `fanta_archived_standings${standingsDetailQuery}`,
       'fetchFantaArchivedStandingSnapshotDetail',
     ),
-    fetchJson<SupabaseFantaArchivedPlayerRow[]>(
-      `${restUrl(cfg, 'fanta_archived_players')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=rank.asc`,
-      buildHeaders(cfg),
+    fetchArchivedAwardedJson<SupabaseFantaArchivedPlayerRow[]>(
+      cfg,
+      `fanta_archived_players_awarded${standingsDetailQuery}`,
+      `fanta_archived_players${standingsDetailQuery}`,
       'fetchFantaArchivedPlayerSnapshotDetail',
     ),
-    fetchJson<SupabaseFantaRosterLiveRow[]>(
-      `${restUrl(cfg, 'fanta_archived_rosters')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&select=*&order=team_name.asc,role.asc,player_name.asc`,
-      buildHeaders(cfg),
+    fetchArchivedAwardedJson<SupabaseFantaRosterLiveRow[]>(
+      cfg,
+      `fanta_archived_rosters_awarded${rostersDetailQuery}`,
+      `fanta_archived_rosters${rostersDetailQuery}`,
       'fetchFantaArchivedRosterSnapshotDetail',
     ),
     fetchJson<SupabaseFantaRosterLiveRow[]>(
