@@ -53,6 +53,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('bracket');
+  const [bracketPanelIndex, setBracketPanelIndex] = useState(0);
   const [sortMode, setSortMode] = useState<SortMode>('points');
   const [page, setPage] = useState(0);
   const [timeLeft, setTimeLeft] = useState(BRACKET_DURATION_SEC);
@@ -145,46 +146,6 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
   const startIndex = page * TV_ITEMS_PER_PAGE;
   const visible = sorted.slice(startIndex, startIndex + TV_ITEMS_PER_PAGE);
 
-  // Consecutive Loop Timer
-  useEffect(() => {
-    const t = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (activeScreen === 'bracket') {
-            // Switch to scorers screen
-            setActiveScreen('scorers');
-            setSortMode('points');
-            setPage(0);
-            return SCORERS_DURATION_SEC;
-          } else {
-            // activeScreen === 'scorers'
-            let nextPage = page + 1;
-            if (nextPage < totalPages) {
-              setPage(nextPage);
-              return SCORERS_DURATION_SEC;
-            } else {
-              if (sortMode === 'points') {
-                setSortMode('soffi');
-                setPage(0);
-                return SCORERS_DURATION_SEC;
-              } else {
-                setActiveScreen('bracket');
-                return BRACKET_DURATION_SEC;
-              }
-            }
-          }
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [activeScreen, page, totalPages, sortMode]);
-
-  // Keep page within bounds when data changes
-  useEffect(() => {
-    if (page > totalPages - 1) setPage(0);
-  }, [page, totalPages]);
-
   const normalize = (s: string) => (s || '').trim().toLowerCase();
   const hasTitle = (p: ScorerRow, type: HallOfFameEntry['type']) => {
     const pid = p.id;
@@ -224,6 +185,78 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
     return (matches || []).some((m) => m.phase === 'bracket' && !m.hidden && !m.isBye);
   }, [matches, preferredBracketRounds.length]);
 
+  const classicLayoutSupported = React.useMemo(() => {
+    if (!preferredBracketRounds.length) return false;
+    if (preferredBracketRounds.length === 1) return (preferredBracketRounds[0]?.length || 0) === 1;
+    const counts = preferredBracketRounds.map((round) => round.length);
+    if (counts[counts.length - 1] !== 1) return false;
+    for (let i = 0; i < counts.length - 1; i += 1) {
+      const current = counts[i] || 0;
+      const next = counts[i + 1] || 0;
+      if (current <= 0 || next <= 0) return false;
+      if (current % 2 !== 0) return false;
+      if (Math.ceil(current / 2) !== next) return false;
+    }
+    return true;
+  }, [preferredBracketRounds]);
+
+  const bracketSize = Math.max(2, 2 ** preferredBracketRounds.length);
+  const isDensePagedBracket = classicLayoutSupported && bracketSize >= 64;
+
+  // Consecutive Loop Timer
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          if (activeScreen === 'bracket') {
+            if (isDensePagedBracket) {
+              let nextPanel = bracketPanelIndex + 1;
+              if (nextPanel < 3) {
+                setBracketPanelIndex(nextPanel);
+                return BRACKET_DURATION_SEC;
+              } else {
+                setActiveScreen('scorers');
+                setBracketPanelIndex(0);
+                setSortMode('points');
+                setPage(0);
+                return SCORERS_DURATION_SEC;
+              }
+            } else {
+              setActiveScreen('scorers');
+              setSortMode('points');
+              setPage(0);
+              return SCORERS_DURATION_SEC;
+            }
+          } else {
+            // activeScreen === 'scorers'
+            let nextPage = page + 1;
+            if (nextPage < totalPages) {
+              setPage(nextPage);
+              return SCORERS_DURATION_SEC;
+            } else {
+              if (sortMode === 'points') {
+                setSortMode('soffi');
+                setPage(0);
+                return SCORERS_DURATION_SEC;
+              } else {
+                setActiveScreen('bracket');
+                setBracketPanelIndex(0);
+                return BRACKET_DURATION_SEC;
+              }
+            }
+          }
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [activeScreen, page, totalPages, sortMode, bracketPanelIndex, isDensePagedBracket]);
+
+  // Keep page within bounds when data changes
+  useEffect(() => {
+    if (page > totalPages - 1) setPage(0);
+  }, [page, totalPages]);
+
   return (
     <PublicTvShell data={data} logo={logo} onExit={onExit} variant="minimal">
       {activeScreen === 'bracket' ? (
@@ -243,7 +276,9 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
             <div className="shrink-0 flex items-center gap-4 text-[clamp(10px,0.82vw,15px)] font-black uppercase tracking-[0.14em] text-slate-100/92 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
               <span>{t('teams')} {visibleBracketTeamsCount}</span>
               <span>{t('turns_label')} {bracketRoundCount}</span>
-              <span className="bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20">{t('admin_tv_bracket')}</span>
+              <span className="bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20">
+                {t('admin_tv_bracket')}{isDensePagedBracket ? ` - ${bracketPanelIndex === 0 ? 'SIDE A' : bracketPanelIndex === 1 ? 'SIDE B' : 'FINALS'}` : ''}
+              </span>
               <span className="font-mono font-black">{timeLeft}s</span>
             </div>
           </div>
@@ -256,6 +291,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
                 matches={matches}
                 compact={false}
                 minimalChrome={true}
+                densePanelIndex={bracketPanelIndex}
               />
             ) : (
               <div className="flex h-full items-center justify-center rounded-[1.2rem] border border-white/10 bg-slate-950/60 text-slate-400 font-black uppercase tracking-[0.22em] text-sm">

@@ -91965,7 +91965,7 @@ var init_TvClassicBracket = __esm({
         )
       ] }, `${startX}-${startY}-${endX}-${endY}`);
     };
-    TvClassicBracket = ({ teams, matches, data, compact = false, minimalChrome = false }) => {
+    TvClassicBracket = ({ teams, matches, data, compact = false, minimalChrome = false, densePanelIndex: propDensePanelIndex }) => {
       const { t } = useTranslation();
       const resultsOnlyBracket = isResultsOnlyTournament(data || null);
       const getTeamOutcomeLabel = import_react25.default.useCallback((match, side) => {
@@ -92094,17 +92094,19 @@ var init_TvClassicBracket = __esm({
         return map;
       }, [resolvedRounds]);
       const isDensePagedBracket = minimalChrome && classicLayoutSupported && bracketSize >= 64;
-      const [densePanelIndex, setDensePanelIndex] = import_react25.default.useState(0);
+      const [localDensePanelIndex, setLocalDensePanelIndex] = import_react25.default.useState(0);
+      const densePanelIndex = propDensePanelIndex !== void 0 ? propDensePanelIndex : localDensePanelIndex;
       import_react25.default.useEffect(() => {
         if (!isDensePagedBracket) {
-          setDensePanelIndex(0);
+          setLocalDensePanelIndex(0);
           return;
         }
+        if (propDensePanelIndex !== void 0) return;
         const timer = window.setInterval(() => {
-          setDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
+          setLocalDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
         }, DENSE_BRACKET_PANEL_MS);
         return () => window.clearInterval(timer);
-      }, [isDensePagedBracket]);
+      }, [isDensePagedBracket, propDensePanelIndex]);
       const densePanel = DENSE_BRACKET_PANELS[densePanelIndex % DENSE_BRACKET_PANELS.length];
       const finalsStartRound = Math.max(0, resolvedRounds.length - 4);
       const densePanelRounds = import_react25.default.useMemo(() => {
@@ -93007,6 +93009,7 @@ var init_TvBracketScorersView = __esm({
     }) => {
       const { t } = useTranslation();
       const [activeScreen, setActiveScreen] = (0, import_react28.useState)("bracket");
+      const [bracketPanelIndex, setBracketPanelIndex] = (0, import_react28.useState)(0);
       const [sortMode, setSortMode] = (0, import_react28.useState)("points");
       const [page, setPage] = (0, import_react28.useState)(0);
       const [timeLeft, setTimeLeft] = (0, import_react28.useState)(BRACKET_DURATION_SEC);
@@ -93087,40 +93090,6 @@ var init_TvBracketScorersView = __esm({
       const totalPages = Math.max(1, Math.ceil(sorted.length / TV_ITEMS_PER_PAGE2));
       const startIndex = page * TV_ITEMS_PER_PAGE2;
       const visible = sorted.slice(startIndex, startIndex + TV_ITEMS_PER_PAGE2);
-      (0, import_react28.useEffect)(() => {
-        const t2 = setInterval(() => {
-          setTimeLeft((prev) => {
-            if (prev <= 1) {
-              if (activeScreen === "bracket") {
-                setActiveScreen("scorers");
-                setSortMode("points");
-                setPage(0);
-                return SCORERS_DURATION_SEC;
-              } else {
-                let nextPage = page + 1;
-                if (nextPage < totalPages) {
-                  setPage(nextPage);
-                  return SCORERS_DURATION_SEC;
-                } else {
-                  if (sortMode === "points") {
-                    setSortMode("soffi");
-                    setPage(0);
-                    return SCORERS_DURATION_SEC;
-                  } else {
-                    setActiveScreen("bracket");
-                    return BRACKET_DURATION_SEC;
-                  }
-                }
-              }
-            }
-            return prev - 1;
-          });
-        }, 1e3);
-        return () => clearInterval(t2);
-      }, [activeScreen, page, totalPages, sortMode]);
-      (0, import_react28.useEffect)(() => {
-        if (page > totalPages - 1) setPage(0);
-      }, [page, totalPages]);
       const normalize5 = (s) => (s || "").trim().toLowerCase();
       const hasTitle = (p, type) => {
         const pid = p.id;
@@ -93152,6 +93121,71 @@ var init_TvBracketScorersView = __esm({
         if (preferredBracketRounds.length > 0) return true;
         return (matches || []).some((m) => m.phase === "bracket" && !m.hidden && !m.isBye);
       }, [matches, preferredBracketRounds.length]);
+      const classicLayoutSupported = import_react28.default.useMemo(() => {
+        if (!preferredBracketRounds.length) return false;
+        if (preferredBracketRounds.length === 1) return (preferredBracketRounds[0]?.length || 0) === 1;
+        const counts = preferredBracketRounds.map((round) => round.length);
+        if (counts[counts.length - 1] !== 1) return false;
+        for (let i = 0; i < counts.length - 1; i += 1) {
+          const current = counts[i] || 0;
+          const next = counts[i + 1] || 0;
+          if (current <= 0 || next <= 0) return false;
+          if (current % 2 !== 0) return false;
+          if (Math.ceil(current / 2) !== next) return false;
+        }
+        return true;
+      }, [preferredBracketRounds]);
+      const bracketSize = Math.max(2, 2 ** preferredBracketRounds.length);
+      const isDensePagedBracket = classicLayoutSupported && bracketSize >= 64;
+      (0, import_react28.useEffect)(() => {
+        const t2 = setInterval(() => {
+          setTimeLeft((prev) => {
+            if (prev <= 1) {
+              if (activeScreen === "bracket") {
+                if (isDensePagedBracket) {
+                  let nextPanel = bracketPanelIndex + 1;
+                  if (nextPanel < 3) {
+                    setBracketPanelIndex(nextPanel);
+                    return BRACKET_DURATION_SEC;
+                  } else {
+                    setActiveScreen("scorers");
+                    setBracketPanelIndex(0);
+                    setSortMode("points");
+                    setPage(0);
+                    return SCORERS_DURATION_SEC;
+                  }
+                } else {
+                  setActiveScreen("scorers");
+                  setSortMode("points");
+                  setPage(0);
+                  return SCORERS_DURATION_SEC;
+                }
+              } else {
+                let nextPage = page + 1;
+                if (nextPage < totalPages) {
+                  setPage(nextPage);
+                  return SCORERS_DURATION_SEC;
+                } else {
+                  if (sortMode === "points") {
+                    setSortMode("soffi");
+                    setPage(0);
+                    return SCORERS_DURATION_SEC;
+                  } else {
+                    setActiveScreen("bracket");
+                    setBracketPanelIndex(0);
+                    return BRACKET_DURATION_SEC;
+                  }
+                }
+              }
+            }
+            return prev - 1;
+          });
+        }, 1e3);
+        return () => clearInterval(t2);
+      }, [activeScreen, page, totalPages, sortMode, bracketPanelIndex, isDensePagedBracket]);
+      (0, import_react28.useEffect)(() => {
+        if (page > totalPages - 1) setPage(0);
+      }, [page, totalPages]);
       return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(PublicTvShell, { data, logo, onExit, variant: "minimal", children: activeScreen === "bracket" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "relative h-full w-full overflow-hidden bg-black", children: [
         /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(30,64,175,0.08),transparent_32%),linear-gradient(180deg,rgba(2,6,23,0.18),rgba(2,6,23,0.42)_10%,rgba(2,6,23,0.7)_100%)]", "aria-hidden": "true" }),
         /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
@@ -93176,7 +93210,10 @@ var init_TvBracketScorersView = __esm({
               " ",
               bracketRoundCount
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("span", { className: "bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20", children: t("admin_tv_bracket") }),
+            /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("span", { className: "bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20", children: [
+              t("admin_tv_bracket"),
+              isDensePagedBracket ? ` - ${bracketPanelIndex === 0 ? "SIDE A" : bracketPanelIndex === 1 ? "SIDE B" : "FINALS"}` : ""
+            ] }),
             /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("span", { className: "font-mono font-black", children: [
               timeLeft,
               "s"
@@ -93190,7 +93227,8 @@ var init_TvBracketScorersView = __esm({
             data,
             matches,
             compact: false,
-            minimalChrome: true
+            minimalChrome: true,
+            densePanelIndex: bracketPanelIndex
           }
         ) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "flex h-full items-center justify-center rounded-[1.2rem] border border-white/10 bg-slate-950/60 text-slate-400 font-black uppercase tracking-[0.22em] text-sm", children: t("bracket_no_bracket_available") }) })
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)("div", { className: "flex-1 flex flex-col overflow-hidden bg-slate-900 px-[1.05%] py-[1.05%] h-full w-full", children: /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)("div", { className: "flex-1 min-h-0 rounded-2xl overflow-hidden border border-white/10 bg-white shadow-[0_28px_80px_rgba(2,6,23,0.28)] flex flex-col", children: [

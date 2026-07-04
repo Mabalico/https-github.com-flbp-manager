@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Trophy } from 'lucide-react';
 import { TournamentBracket } from './TournamentBracket';
 import type { Match, Team, TournamentData } from '../types';
@@ -90,6 +90,7 @@ interface TvClassicBracketProps {
   data?: TournamentData | null;
   compact?: boolean;
   minimalChrome?: boolean;
+  densePanelIndex?: number;
 }
 
 const sortByOrderIndexSafe = (a: Match, b: Match) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
@@ -523,7 +524,7 @@ const pathForConnector = (
   );
 };
 
-export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, matches, data, compact = false, minimalChrome = false }) => {
+export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, matches, data, compact = false, minimalChrome = false, densePanelIndex: propDensePanelIndex }) => {
   const { t } = useTranslation();
   const resultsOnlyBracket = isResultsOnlyTournament(data || null);
 
@@ -690,18 +691,20 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   }, [resolvedRounds]);
 
   const isDensePagedBracket = minimalChrome && classicLayoutSupported && bracketSize >= 64;
-  const [densePanelIndex, setDensePanelIndex] = React.useState(0);
+  const [localDensePanelIndex, setLocalDensePanelIndex] = React.useState(0);
+  const densePanelIndex = propDensePanelIndex !== undefined ? propDensePanelIndex : localDensePanelIndex;
 
   React.useEffect(() => {
     if (!isDensePagedBracket) {
-      setDensePanelIndex(0);
+      setLocalDensePanelIndex(0);
       return;
     }
+    if (propDensePanelIndex !== undefined) return; // parent is controlling it
     const timer = window.setInterval(() => {
-      setDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
+      setLocalDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
     }, DENSE_BRACKET_PANEL_MS);
     return () => window.clearInterval(timer);
-  }, [isDensePagedBracket]);
+  }, [isDensePagedBracket, propDensePanelIndex]);
 
   const densePanel = DENSE_BRACKET_PANELS[densePanelIndex % DENSE_BRACKET_PANELS.length];
   const finalsStartRound = Math.max(0, resolvedRounds.length - 4);
