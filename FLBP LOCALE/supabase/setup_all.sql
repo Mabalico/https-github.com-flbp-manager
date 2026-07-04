@@ -5421,7 +5421,6 @@ end $$;
 
 -- ===== END supabase/migrations/20260704000100_fanta_award_refs_source_and_winner_team.sql =====
 
-
 -- 20260704000100_fanta_award_points_definitive
 --
 -- FantaBeerpong final awards, definitive read-time fix.
@@ -5435,6 +5434,8 @@ end $$;
 --    source_tournament_id, not only tournament_id.
 -- 4) winner can be stored as a team award: in that case the winning team is
 --    expanded into its players so each selected player gets the flat +10.
+-- 5) Hall of Fame winner rows can be present in the public mirror before or
+--    instead of the admin table, so read both sources and de-duplicate awards.
 --
 -- Scoring rule:
 -- winner, MVP, top_scorer and defender are worth 10 points each.
@@ -5477,7 +5478,7 @@ stable
 security definer
 set search_path = public
 as $$
-with award_seed as (
+with award_seed_raw as (
   select
     h.workspace_id,
     coalesce(nullif(trim(coalesce(h.source_tournament_id, '')), ''), h.tournament_id) as tournament_id,
@@ -5489,6 +5490,30 @@ with award_seed as (
   where h.workspace_id = p_workspace_id
     and coalesce(nullif(trim(coalesce(h.source_tournament_id, '')), ''), h.tournament_id) = p_tournament_id
     and h.type in ('winner', 'mvp', 'top_scorer', 'defender')
+
+  union all
+
+  select
+    h.workspace_id,
+    coalesce(nullif(trim(coalesce(h.source_tournament_id, '')), ''), h.tournament_id) as tournament_id,
+    h.type,
+    nullif(trim(coalesce(h.team_name, '')), '') as team_name,
+    h.player_names,
+    null::text as player_id
+  from public.public_hall_of_fame_entries h
+  where h.workspace_id = p_workspace_id
+    and coalesce(nullif(trim(coalesce(h.source_tournament_id, '')), ''), h.tournament_id) = p_tournament_id
+    and h.type in ('winner', 'mvp', 'top_scorer', 'defender')
+),
+award_seed as (
+  select distinct
+    workspace_id,
+    tournament_id,
+    type,
+    team_name,
+    player_names,
+    player_id
+  from award_seed_raw
 ),
 award_refs as (
   select
@@ -5513,6 +5538,28 @@ award_refs as (
     lower(regexp_replace(trim(coalesce(tp.player_name, '')), '[[:space:]]+', ' ', 'g')) as player_name_key
   from award_seed h
   join public.tournament_teams tt
+    on tt.workspace_id = h.workspace_id
+   and tt.tournament_id = h.tournament_id
+   and (
+     tt.id = h.team_name
+     or lower(regexp_replace(trim(coalesce(tt.name, '')), '[[:space:]]+', ' ', 'g'))
+        = lower(regexp_replace(trim(coalesce(h.team_name, '')), '[[:space:]]+', ' ', 'g'))
+   )
+  cross join lateral (
+    values (tt.player1), (tt.player2)
+  ) as tp(player_name)
+  where h.type = 'winner'
+    and h.team_name is not null
+    and trim(coalesce(tp.player_name, '')) <> ''
+
+  union all
+
+  select
+    h.type,
+    null::text as player_id,
+    lower(regexp_replace(trim(coalesce(tp.player_name, '')), '[[:space:]]+', ' ', 'g')) as player_name_key
+  from award_seed h
+  join public.public_tournament_teams tt
     on tt.workspace_id = h.workspace_id
    and tt.tournament_id = h.tournament_id
    and (
@@ -5699,4 +5746,3 @@ grant select on public.fanta_archived_rosters_awarded to anon, authenticated;
 grant select on public.fanta_archived_standings_awarded to anon, authenticated;
 grant select on public.fanta_archived_players_awarded to anon, authenticated;
 grant select on public.fanta_archived_editions_awarded to anon, authenticated;
-
