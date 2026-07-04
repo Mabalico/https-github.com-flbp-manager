@@ -98,7 +98,10 @@ interface SupabasePublicMatchStat {
 
 interface SupabasePublicHallOfFameEntry {
   id: string;
+  tournament_id?: string | null;
+  source_tournament_id?: string | null;
   type?: string | null;
+  team_name?: string | null;
   player_names?: string[] | null;
 }
 
@@ -1183,12 +1186,30 @@ const normalizeFantaNameKey = (value: unknown) =>
 
 const FANTA_FINAL_AWARD_TYPES = new Set(['winner', 'mvp', 'top_scorer', 'defender']);
 
-const buildFantaFinalAwardLookup = (rows: SupabasePublicHallOfFameEntry[]) => {
+const buildFantaFinalAwardLookup = (
+  rows: SupabasePublicHallOfFameEntry[],
+  publicTeams: SupabasePublicTournamentTeam[] = [],
+) => {
   const awardTypesByPlayerName = new Map<string, Set<string>>();
+  const playersByTeamKey = new Map<string, string[]>();
+  (publicTeams || []).forEach((team) => {
+    const players = [team.player1, team.player2].map((name) => String(name || '').trim()).filter(Boolean);
+    if (!players.length) return;
+    [team.id, team.name].forEach((key) => {
+      const normalized = normalizeFantaNameKey(key);
+      if (normalized) playersByTeamKey.set(normalized, players);
+    });
+  });
+
   (rows || []).forEach((row) => {
     const awardType = String(row.type || '').trim();
     if (!FANTA_FINAL_AWARD_TYPES.has(awardType)) return;
-    (row.player_names || []).forEach((name) => {
+    const playerNames = [...(row.player_names || [])];
+    if (awardType === 'winner') {
+      const teamPlayers = playersByTeamKey.get(normalizeFantaNameKey(row.team_name));
+      if (teamPlayers?.length) playerNames.push(...teamPlayers);
+    }
+    playerNames.forEach((name) => {
       const key = normalizeFantaNameKey(name);
       if (!key) return;
       const types = awardTypesByPlayerName.get(key) || new Set<string>();
@@ -1282,7 +1303,7 @@ const fetchComputedFantaFallbackFresh = async (
       'fetchComputedFantaFallbackStats',
     ),
     fetchJson<SupabasePublicHallOfFameEntry[]>(
-      `${restUrl(cfg, 'public_hall_of_fame_entries')}?workspace_id=eq.${encode(cfg.workspaceId)}&tournament_id=eq.${encode(tournamentId)}&type=in.(winner,mvp,top_scorer,defender)&select=id,type,player_names`,
+      `${restUrl(cfg, 'public_hall_of_fame_entries')}?workspace_id=eq.${encode(cfg.workspaceId)}&or=(tournament_id.eq.${encode(tournamentId)},source_tournament_id.eq.${encode(tournamentId)})&type=in.(winner,mvp,top_scorer,defender)&select=id,tournament_id,source_tournament_id,type,team_name,player_names`,
       buildHeaders(cfg),
       'fetchComputedFantaFallbackAwards',
     ),
@@ -1309,7 +1330,7 @@ const fetchComputedFantaFallbackFresh = async (
     if (stat.player_name) current.playerName = stat.player_name;
     statsByTeamPlayer.set(key, current);
   });
-  const getFinalAwardPoints = buildFantaFinalAwardLookup(awards || []);
+  const getFinalAwardPoints = buildFantaFinalAwardLookup(awards || [], publicTeams || []);
 
   const winnerRows = (matches || [])
     .filter(isFinishedPublicMatch)

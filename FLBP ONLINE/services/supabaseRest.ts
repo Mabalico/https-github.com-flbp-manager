@@ -3270,7 +3270,7 @@ export const hasPublicHallOfFameFinalAwards = async (tournamentId: string): Prom
     const resolvedTournamentId = String(tournamentId || '').trim();
     if (!cfg || !resolvedTournamentId) return false;
     const res = await fetchWithTimeout(
-        restUrl(cfg, `public_hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${encodeURIComponent(resolvedTournamentId)}&type=in.(winner,mvp,top_scorer,defender)&select=id&limit=1`),
+        restUrl(cfg, `public_hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&or=(tournament_id.eq.${encodeURIComponent(resolvedTournamentId)},source_tournament_id.eq.${encodeURIComponent(resolvedTournamentId)})&type=in.(winner,mvp,top_scorer,defender)&select=id&limit=1`),
         { headers: buildAnonHeaders(cfg) },
         4000,
         { source: 'hasPublicHallOfFameFinalAwards', kind: 'sync' }

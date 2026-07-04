@@ -5,6 +5,12 @@
 -- - final awards are flat: Captain does not double them.
 -- - Captain doubles only cups and blows. Wins and Bonus Scia stay flat.
 
+alter table if exists public.hall_of_fame_entries
+  add column if not exists source_tournament_id text null;
+
+alter table if exists public.public_hall_of_fame_entries
+  add column if not exists source_tournament_id text null;
+
 alter table if exists public.fanta_archived_standings
   add column if not exists points_from_awards integer not null default 0;
 
@@ -97,6 +103,17 @@ scia_points as (
    )
   group by l.workspace_id, l.tournament_id, l.real_team_id, l.eliminated_by_team_id
 ),
+award_seed as (
+  select
+    h.workspace_id,
+    coalesce(nullif(trim(coalesce(h.source_tournament_id, '')), ''), h.tournament_id) as tournament_id,
+    h.type,
+    nullif(trim(coalesce(h.team_name, '')), '') as team_name,
+    h.player_names,
+    nullif(trim(coalesce(h.player_id, '')), '') as player_id
+  from public.hall_of_fame_entries h
+  where h.type in ('winner', 'mvp', 'top_scorer', 'defender')
+),
 award_refs as (
   select
     h.workspace_id,
@@ -104,14 +121,37 @@ award_refs as (
     h.type,
     nullif(trim(coalesce(h.player_id, '')), '') as player_id,
     lower(regexp_replace(trim(coalesce(p.player_name, '')), '[[:space:]]+', ' ', 'g')) as player_name_key
-  from public.hall_of_fame_entries h
+  from award_seed h
   cross join lateral unnest(
     case
       when coalesce(array_length(h.player_names, 1), 0) > 0 then h.player_names
       else array[coalesce(h.player_id, '')]
     end
   ) as p(player_name)
-  where h.type in ('winner', 'mvp', 'top_scorer', 'defender')
+  union all
+  -- Winner awards can be stored as a team award. Expand the winning team
+  -- into its two players so Fanta +10 title points reach the roster rows.
+  select
+    h.workspace_id,
+    h.tournament_id,
+    h.type,
+    null::text as player_id,
+    lower(regexp_replace(trim(coalesce(p.player_name, '')), '[[:space:]]+', ' ', 'g')) as player_name_key
+  from award_seed h
+  join public.tournament_teams tt
+    on tt.workspace_id = h.workspace_id
+   and tt.tournament_id = h.tournament_id
+   and (
+     tt.id = h.team_name
+     or lower(regexp_replace(trim(coalesce(tt.name, '')), '[[:space:]]+', ' ', 'g'))
+        = lower(regexp_replace(trim(coalesce(h.team_name, '')), '[[:space:]]+', ' ', 'g'))
+   )
+  cross join lateral (
+    values (tt.player1), (tt.player2)
+  ) as p(player_name)
+  where h.type = 'winner'
+    and h.team_name is not null
+    and trim(coalesce(p.player_name, '')) <> ''
 ),
 roster_base as (
   select
