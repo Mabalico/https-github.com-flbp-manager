@@ -1705,6 +1705,10 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                     await new Promise((resolve) => window.setTimeout(resolve, 1500));
                 }
             }
+            if (!awardsVisible) {
+                console.warn('[FantaBeerpong] Snapshot Fanta post-premi saltato: premi non ancora visibili su Supabase.');
+                return;
+            }
             await archiveFantaTournamentEdition(resolvedTournamentId);
             try {
                 window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
