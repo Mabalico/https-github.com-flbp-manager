@@ -4092,9 +4092,14 @@ while (guard < 5000) {
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket')}
                                         </button>
                                         {!liveResultsOnly && (
-                                            <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('scorers'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
-                                                <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
-                                            </button>
+                                            <>
+                                                <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('bracket_scorers'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                                    <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket_scorers')}
+                                                </button>
+                                                <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('scorers'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                                    <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
+                                                </button>
+                                            </>
                                         )}
                                     </div>
                                 </div>

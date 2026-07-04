@@ -266,5 +266,5 @@ export interface PlayerStats {
     yobLabel?: string;
 }
 
-export const TV_PROJECTIONS = ['groups', 'groups_bracket', 'bracket', 'scorers'] as const;
+export const TV_PROJECTIONS = ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const;
 export type TvProjection = typeof TV_PROJECTIONS[number];

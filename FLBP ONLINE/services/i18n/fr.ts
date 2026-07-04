@@ -122,6 +122,7 @@ export const dictionary: TranslationDictionary = {
   "admin_tv_groups_bracket": "TV G+T",
   "admin_tv_bracket": "TV Tableau de bord",
   "admin_tv_scorers": "TV Marqueurs",
+  "admin_tv_bracket_scorers": "TV Tableau + Buteurs",
   "admin_set": "Ensemble",
   "structure": "Structure",
   "reports": "Rapports",

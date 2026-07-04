@@ -122,6 +122,7 @@ export const dictionary: TranslationDictionary = {
   "admin_tv_groups_bracket": "TV G+T",
   "admin_tv_bracket": "TV 记分牌",
   "admin_tv_scorers": "TV 标记",
+  "admin_tv_bracket_scorers": "TV 对阵图 + 射手榜",
   "admin_set": "套装",
   "structure": "结构",
   "reports": "报告",

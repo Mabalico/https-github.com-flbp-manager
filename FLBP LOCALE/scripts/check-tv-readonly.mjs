@@ -6,6 +6,7 @@ const interactiveSurfaceFiles = [
   'components/TvSimpleView.tsx',
   'components/TvBracketView.tsx',
   'components/TvScorersView.tsx',
+  'components/TvBracketScorersView.tsx',
   'components/PublicTvShell.tsx',
 ];
 

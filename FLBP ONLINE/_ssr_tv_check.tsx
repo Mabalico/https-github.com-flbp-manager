@@ -93,11 +93,11 @@ const livePublicState = coerceAppState(sanitizeAppStateForPublic(liveState) as a
 const sampleBackupPublicState = coerceAppState(sanitizeAppStateForPublic(sampleBackupState) as any);
 
 const scenarios = [
-  { name: 'empty-shell', state: base, modes: ['groups', 'groups_bracket', 'bracket', 'scorers'] as const },
-  { name: 'live-populated', state: liveState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers'] as const },
-  { name: 'live-public-sanitized', state: livePublicState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers'] as const },
-  { name: 'sample-backup-coerced', state: sampleBackupState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers'] as const },
-  { name: 'sample-backup-public-sanitized', state: sampleBackupPublicState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers'] as const },
+  { name: 'empty-shell', state: base, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
+  { name: 'live-populated', state: liveState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
+  { name: 'live-public-sanitized', state: livePublicState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
+  { name: 'sample-backup-coerced', state: sampleBackupState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
+  { name: 'sample-backup-public-sanitized', state: sampleBackupPublicState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
 ];
 
 let hasError = false;
@@ -113,9 +113,9 @@ for (const scenario of scenarios) {
           throw new Error('groups_bracket missing expected tournament/group content');
         }
       }
-      if ((scenario.name === 'live-populated' || scenario.name === 'live-public-sanitized') && mode === 'scorers') {
+      if ((scenario.name === 'live-populated' || scenario.name === 'live-public-sanitized') && (mode === 'scorers' || mode === 'bracket_scorers')) {
         if (!html.includes('Alfa') && !html.includes('Lupi Rossi')) {
-          throw new Error('scorers view missing expected player/team content');
+          throw new Error(`${mode} view missing expected player/team content`);
         }
       }
       if ((scenario.name === 'sample-backup-coerced' || scenario.name === 'sample-backup-public-sanitized') && mode === 'groups') {

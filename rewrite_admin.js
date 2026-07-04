@@ -83,6 +83,9 @@ const newBlock = `	        <div className="animate-fade-in flex flex-col min-h-[
                                         <button type="button" onClick={() => onEnterTv('bracket')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
                                             <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket')}
                                         </button>
+                                        <button type="button" onClick={() => onEnterTv('bracket_scorers')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
+                                            <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_bracket_scorers')}
+                                        </button>
                                         <button type="button" onClick={() => onEnterTv('scorers')} className="w-full text-left bg-transparent text-slate-800 px-4 py-3 rounded-[16px] font-black inline-flex items-center gap-3 hover:bg-slate-100 transition-colors">
                                             <div className="p-1.5 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_scorers')}
                                         </button>

@@ -4,6 +4,7 @@ import { TvProjection } from '../types';
 import { TvSimpleView } from './TvSimpleView';
 import { TvBracketView } from './TvBracketView';
 import { TvScorersView } from './TvScorersView';
+import { TvBracketScorersView } from './TvBracketScorersView';
 import { PublicTvShell } from './PublicTvShell';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
 
@@ -38,6 +39,19 @@ export const TvView: React.FC<TvViewProps> = ({ state, mode, onExit }) => {
         }
         if (mode === 'bracket' || mode === 'groups_bracket') {
             return <TvBracketView teams={liveTeams} matches={matches} data={data} logo={logo} onExit={onExit} mode={mode} />;
+        }
+        if (mode === 'bracket_scorers') {
+            return (
+                <TvBracketScorersView
+                    teams={liveTeams}
+                    matches={matches}
+                    data={data}
+                    logo={logo}
+                    awards={hallOfFame.filter((h) => h.tournamentId === data?.id)}
+                    playerAliases={playerAliases}
+                    onExit={onExit}
+                />
+            );
         }
         if (mode === 'scorers' && !isResultsOnlyTournament(data)) {
             return (
