@@ -18,6 +18,7 @@ import {
   buildBracketRoundsFromMatches,
   cloneSnapshot,
   deriveBracketSuccessorLinks,
+  findSuccessorMatch,
   getCatalogTeam,
   getGroupById,
   getMatchById,
@@ -27,6 +28,7 @@ import {
   isLockedBracketMatchForStructureEdit,
   parseSlotKey,
   reconcileBracketAdvancements,
+  resolveWinnerTeamId,
   syncTournamentRosterFromStructure,
 } from './tournamentStructureSelectors';
 import type {
@@ -148,6 +150,51 @@ const resetEditableBracketMatch = (match: Match): Match => {
     isBye: hasBye,
     stats: undefined,
   };
+};
+
+const clearChangedAutoWinnerFromUnlockedSuccessors = (
+  matches: Match[],
+  sourceMatchId: string,
+  previousWinnerId?: string
+): Match[] => {
+  const staleWinnerId = String(previousWinnerId || '').trim();
+  if (!staleWinnerId || isPlaceholderTeamId(staleWinnerId)) return matches;
+
+  let out = deriveBracketSuccessorLinks(matches || []);
+  const sourceMatch = out.find((match) => match.id === sourceMatchId);
+  if (!sourceMatch || resolveWinnerTeamId(sourceMatch) === staleWinnerId) return out;
+
+  let currentMatchId = sourceMatchId;
+  const visited = new Set<string>();
+  for (let guard = 0; guard < 64; guard += 1) {
+    if (visited.has(currentMatchId)) break;
+    visited.add(currentMatchId);
+
+    const successor = findSuccessorMatch(out, currentMatchId);
+    if (!successor) break;
+    const targetIndex = out.findIndex((match) => match.id === successor.match.id);
+    if (targetIndex < 0) break;
+    const target = out[targetIndex];
+    if (isLockedBracketMatchForStructureEdit(target)) break;
+
+    const currentValue = String((target as any)[successor.slot] || '').trim();
+    if (currentValue !== staleWinnerId) {
+      if (resolveWinnerTeamId(target) === staleWinnerId) {
+        currentMatchId = target.id;
+        continue;
+      }
+      break;
+    }
+
+    const updated = resetEditableBracketMatch({
+      ...target,
+      [successor.slot]: undefined,
+    } as Match);
+    out = out.map((match) => (match.id === updated.id ? updated : match));
+    currentMatchId = updated.id;
+  }
+
+  return out;
 };
 
 const normalizeFutureBracketMatch = (match: Match): Match => {
@@ -453,6 +500,7 @@ const applyInsertTeamInBracketSlot = (
   const match = getMatchById(next, parsed.matchId);
   const team = getCatalogTeam(next, teamId);
   if (!match || !team) return makeBlockedResult(blockedLike('unknown', 'Slot o squadra non trovati.'));
+  const previousWinner = resolveWinnerTeamId(match);
   (match as any)[parsed.field] = teamId;
   const oppositeField: 'teamAId' | 'teamBId' = parsed.field === 'teamAId' ? 'teamBId' : 'teamAId';
   const oppositeSlotName: 'A' | 'B' = oppositeField === 'teamAId' ? 'A' : 'B';
@@ -476,6 +524,7 @@ const applyInsertTeamInBracketSlot = (
     (match as any)[oppositeField] = 'BYE';
   }
   Object.assign(match, resetEditableBracketMatch(match));
+  next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, match.id, previousWinner);
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'INSERT_TEAM_IN_BRACKET_SLOT', `Inserita ${team.name} nel tabellone.`, check);
 };
@@ -492,8 +541,10 @@ const applyReplaceBracketSlot = (
   const match = getMatchById(next, parsed.matchId);
   const team = getCatalogTeam(next, newTeamId);
   if (!match || !team) return makeBlockedResult(blockedLike('unknown', 'Slot o squadra non trovati.'));
+  const previousWinner = resolveWinnerTeamId(match);
   (match as any)[parsed.field] = newTeamId;
   Object.assign(match, resetEditableBracketMatch(match));
+  next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, match.id, previousWinner);
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'REPLACE_BRACKET_SLOT', `Sostituita la squadra nel tabellone con ${team.name}.`, check);
 };
@@ -510,8 +561,10 @@ const applyClearBracketSlot = (
   if (!match) return makeBlockedResult(blockedLike('unknown', 'Match bracket non trovato.'));
   const currentValue = String((match as any)[parsed.field] || '').trim();
   const teamName = getCatalogTeam(snapshot, currentValue)?.name || currentValue;
+  const previousWinner = resolveWinnerTeamId(match);
   (match as any)[parsed.field] = 'BYE';
   Object.assign(match, resetEditableBracketMatch(match));
+  next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, match.id, previousWinner);
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'CLEAR_BRACKET_SLOT', `Rimossa ${teamName} dal tabellone.`, check);
 };
@@ -531,10 +584,16 @@ const applyMoveBracketSlot = (
   if (!fromMatch || !toMatch) return makeBlockedResult(blockedLike('unknown', 'Match bracket non trovato.'));
   const value = String((fromMatch as any)[fromParsed.field] || '').trim();
   const targetPlaceholder = String((toMatch as any)[toParsed.field] || '').trim();
+  const previousFromWinner = resolveWinnerTeamId(fromMatch);
+  const previousToWinner = fromMatch.id === toMatch.id ? previousFromWinner : resolveWinnerTeamId(toMatch);
   (fromMatch as any)[fromParsed.field] = targetPlaceholder && isPlaceholderTeamId(targetPlaceholder) ? targetPlaceholder : undefined;
   (toMatch as any)[toParsed.field] = value;
   Object.assign(fromMatch, resetEditableBracketMatch(fromMatch));
   Object.assign(toMatch, resetEditableBracketMatch(toMatch));
+  next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, fromMatch.id, previousFromWinner);
+  if (fromMatch.id !== toMatch.id) {
+    next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, toMatch.id, previousToWinner);
+  }
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'MOVE_BRACKET_SLOT', `Spostata la squadra ${getCatalogTeam(snapshot, value)?.name || value} nel tabellone.`, check);
 };
@@ -567,10 +626,16 @@ const applySwapBracketSlots = (
   if (!matchA || !matchB) return makeBlockedResult(blockedLike('unknown', 'Match bracket non trovato.'));
   const currentA = String((matchA as any)[parsedA.field] || '').trim();
   const currentB = String((matchB as any)[parsedB.field] || '').trim();
+  const previousWinnerA = resolveWinnerTeamId(matchA);
+  const previousWinnerB = matchA.id === matchB.id ? previousWinnerA : resolveWinnerTeamId(matchB);
   (matchA as any)[parsedA.field] = currentB;
   (matchB as any)[parsedB.field] = currentA;
   Object.assign(matchA, resetEditableBracketMatch(matchA));
   Object.assign(matchB, resetEditableBracketMatch(matchB));
+  next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, matchA.id, previousWinnerA);
+  if (matchA.id !== matchB.id) {
+    next.matches = clearChangedAutoWinnerFromUnlockedSuccessors(next.matches, matchB.id, previousWinnerB);
+  }
   const synced = realignFutureBracketFromRound1(next);
   return makeResult(synced, 'SWAP_BRACKET_SLOTS', 'Scambiate due posizioni nel tabellone.', check);
 };

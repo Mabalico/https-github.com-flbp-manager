@@ -390,7 +390,16 @@ export const canInsertTeamIntoBracketSlot = (
   }
   const oppositeSlotKey = `${parsed.matchId}|${parsed.field === 'teamAId' ? 'B' : 'A'}`;
   const oppositeValue = getSlotValue(snapshot, oppositeSlotKey);
-  if (!oppositeValue || isPlaceholderTeamId(oppositeValue)) {
+  const previousWinner = resolveWinnerTeamId(match);
+  if (previousWinner) {
+    const successor = findSuccessorMatch(snapshot.matches || [], parsed.matchId);
+    if (successor && isLockedBracketMatchForStructureEdit(successor.match)) {
+      return blocked(
+        'successor_locked',
+        'Il vincitore non potrebbe cambiare: il round successivo è già stato giocato. Aggiungi la squadra con un turno preliminare.'
+      );
+    }
+  } else if (!oppositeValue || isPlaceholderTeamId(oppositeValue)) {
     const successor = findSuccessorMatch(snapshot.matches || [], parsed.matchId);
     if (successor && isLockedBracketMatchForStructureEdit(successor.match)) {
       return blocked(
@@ -420,11 +429,18 @@ export const canReplaceBracketSlot = (
   if (currentValue === newTeamId) {
     return blocked('same_slot', 'La squadra selezionata è già presente in questo slot.');
   }
-  if ((match.isBye || match.hidden) && (!!oppositeValue && isPlaceholderTeamId(oppositeValue))) {
-    return blocked('slot_locked', 'La squadra già protetta da uno slot BYE/TBD non può essere sostituita da qui.');
-  }
   if (isLockedBracketMatchForStructureEdit(match)) {
     return blocked('slot_locked', 'Il match di destinazione è già giocato o in corso.');
+  }
+  const previousWinner = resolveWinnerTeamId(match);
+  if (previousWinner && previousWinner !== newTeamId) {
+    const successor = findSuccessorMatch(snapshot.matches || [], parsed.matchId);
+    if (successor && isLockedBracketMatchForStructureEdit(successor.match)) {
+      return blocked(
+        'successor_locked',
+        'Il vincitore non potrebbe cambiare: il round successivo è già stato giocato. Aggiungi la squadra con un turno preliminare.'
+      );
+    }
   }
   const teamState = getTeamEligibility(snapshot, newTeamId, 'bracket');
   if (teamState.status !== 'eligible') return blocked(teamState.reasonCode, teamState.humanMessage);

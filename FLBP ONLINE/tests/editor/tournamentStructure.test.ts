@@ -161,8 +161,7 @@ defineCase('bracket insert and replace checks respect BYE/TBD and locked matches
   const snapshot = makeSnapshot(tournament, tournament.matches || []);
 
   assertEqual(canInsertTeamIntoBracketSlot(snapshot, 'D', 'r1m1|B').allowed, true);
-  assertEqual(canReplaceBracketSlot(snapshot, 'r1m2|A', 'D').allowed, false);
-  assertEqual(canReplaceBracketSlot(snapshot, 'r1m2|A', 'D').reasonCode, 'slot_locked');
+  assertEqual(canReplaceBracketSlot(snapshot, 'r1m2|A', 'D').allowed, true);
 });
 
 defineCase('move to placeholder preserves original placeholder type in source slot', () => {
@@ -358,6 +357,65 @@ defineCase('bracket insert into empty opposite slot auto-advances unless success
   assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|A'), 'A');
   assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|B'), 'BYE');
   assertEqual(getSlotValue(result.nextSnapshot!, 'r2m1|A'), 'A');
+});
+
+defineCase('inserting an opponent into a previous BYE clears the stale auto-advance', () => {
+  const a = makeTeam('A', 'Alpha');
+  const b = makeTeam('B', 'Bravo');
+
+  const tournament = makeTournament('bye-to-match', 'elimination', [a, b], [], [
+    makeBracketMatch('r1m1', 1, 'A', 'BYE', {
+      orderIndex: 0,
+      played: true,
+      status: 'finished',
+      hidden: true,
+      isBye: true,
+    }),
+    makeBracketMatch('r2m1', 2, 'A', undefined, { orderIndex: 0 }),
+  ]);
+  const snapshot = makeSnapshot(tournament, tournament.matches || []);
+
+  const result = applyStructuralOperation(snapshot, {
+    type: 'INSERT_TEAM_IN_BRACKET_SLOT',
+    teamId: 'B',
+    slotKey: 'r1m1|B',
+  });
+
+  assertEqual(result.ok, true);
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|A'), 'A');
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|B'), 'B');
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r2m1|A'), '');
+  const source = result.nextSnapshot!.matches.find((match) => match.id === 'r1m1');
+  assertEqual(source?.status, 'scheduled');
+  assertEqual(source?.isBye, false);
+});
+
+defineCase('replacing a solo BYE winner removes the old winner from the successor', () => {
+  const a = makeTeam('A', 'Alpha');
+  const c = makeTeam('C', 'Charlie');
+
+  const tournament = makeTournament('replace-bye-winner', 'elimination', [a, c], [], [
+    makeBracketMatch('r1m1', 1, 'A', 'BYE', {
+      orderIndex: 0,
+      played: true,
+      status: 'finished',
+      hidden: true,
+      isBye: true,
+    }),
+    makeBracketMatch('r2m1', 2, 'A', undefined, { orderIndex: 0 }),
+  ]);
+  const snapshot = makeSnapshot(tournament, tournament.matches || []);
+
+  const result = applyStructuralOperation(snapshot, {
+    type: 'REPLACE_BRACKET_SLOT',
+    slotKey: 'r1m1|A',
+    newTeamId: 'C',
+  });
+
+  assertEqual(result.ok, true);
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|A'), 'C');
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|B'), 'BYE');
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r2m1|A'), 'C');
 });
 
 defineCase('explicit successor link overrides legacy positional bracket advancement', () => {
