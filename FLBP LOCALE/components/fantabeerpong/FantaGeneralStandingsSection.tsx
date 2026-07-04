@@ -12,7 +12,7 @@ interface Props {
   onOpenTeamDetail?: (teamId: string) => void;
 }
 
-type SortField = 'rank' | 'totalPoints' | 'livePoints' | 'gapFromLeader' | 'goals' | 'blows' | 'wins' | 'bonusScia' | 'playersInGame';
+type SortField = 'rank' | 'totalPoints' | 'livePoints' | 'gapFromLeader' | 'goals' | 'blows' | 'wins' | 'awardBonus' | 'bonusScia' | 'playersInGame';
 const stickyTh = 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
 const thPad = 'px-3 py-3 md:px-4';
 const tdPad = 'px-3 py-3 md:px-4';
@@ -77,6 +77,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
             goals: item.points_from_goals || 0,
             blows: item.points_from_blows || 0,
             wins: item.points_from_wins || 0,
+            awardBonus: item.points_from_awards || 0,
             bonusScia: item.bonus_scia || 0,
             playersInGame: item.players_in_game || 0,
             captainName: item.captain_name || 'N/D',
@@ -181,10 +182,11 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                   <div className="mt-0.5 text-2xl font-black text-slate-950">{row.totalPoints}</div>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+              <div className="mt-4 grid grid-cols-5 gap-2 text-center">
                 <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_live')}</div><div className="text-sm font-black text-slate-950">{row.playersInGame}/4</div></div>
                 <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="text-sm font-black text-slate-950">{row.goals}</div></div>
                 <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{row.wins}</div></div>
+                <div className="rounded-xl bg-amber-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-amber-700">{t('fanta_final_awards')}</div><div className="text-sm font-black text-amber-800">{row.awardBonus}</div></div>
                 <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{row.bonusScia}</div></div>
               </div>
             </button>
@@ -215,6 +217,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                   <SortTh field="goals" label={t('fanta_standings_goals')} />
                   <SortTh field="blows" label={t('fanta_standings_blows')} />
                   <SortTh field="wins" label={t('fanta_standings_wins')} />
+                  <SortTh field="awardBonus" label={t('fanta_final_awards')} />
                   <SortTh field="bonusScia" label={t('fanta_standings_scia')} />
                   <th className={`${thPad} ${stickyTh} text-center`}>{t('fanta_standings_captain')}</th>
                   <th className={`${thPad} ${stickyTh} text-center`}>{t('fanta_standings_trend')}</th>
@@ -237,6 +240,7 @@ export const FantaGeneralStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                     <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.goals}</td>
                     <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.blows}</td>
                     <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.wins}</td>
+                    <td className={`${tdPad} text-center font-bold text-amber-700`}>{row.awardBonus}</td>
                     <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.bonusScia}</td>
                     <td className={`${tdPad} text-center text-xs font-black text-slate-900`}>{row.captainName}</td>
                     <td className={`${tdPad} text-center`}><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${trendBadgeClass(row.trend)}`}>{trendLabel(t, row.trend)}</span></td>

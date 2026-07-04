@@ -293,6 +293,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                   <th className="px-4 py-3 text-center">{t('fanta_standings_goals')}</th>
                   <th className="px-4 py-3 text-center">{t('fanta_standings_blows')}</th>
                   <th className="px-4 py-3 text-center">{t('fanta_standings_wins')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_final_awards')}</th>
                   <th className="px-4 py-3 text-center">{t('fanta_standings_scia')}</th>
                   <th className="px-4 py-3 text-center">In gioco</th>
                 </tr>
@@ -320,6 +321,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
+                      <td className="px-4 py-3 text-center font-bold text-amber-700">{row.awardBonus}</td>
                       <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.playersInGame}</td>
                     </tr>
@@ -437,6 +439,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                   <th className="px-4 py-3 text-center">{t('fanta_standings_goals')}</th>
                   <th className="px-4 py-3 text-center">{t('fanta_standings_blows')}</th>
                   <th className="px-4 py-3 text-center">{t('fanta_standings_wins')}</th>
+                  <th className="px-4 py-3 text-center">{t('fanta_final_awards')}</th>
                   <th className="px-4 py-3 text-center">{t('fanta_standings_scia')}</th>
                 </tr>
               </thead>
@@ -463,6 +466,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
                       <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
+                      <td className="px-4 py-3 text-center font-bold text-amber-700">{row.awardBonus}</td>
                       <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
                     </tr>
                   );
@@ -542,6 +546,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                 <th className="px-4 py-3 text-center">{t('fanta_standings_goals')}</th>
                 <th className="px-4 py-3 text-center">{t('fanta_standings_blows')}</th>
                 <th className="px-4 py-3 text-center">{t('fanta_standings_wins')}</th>
+                <th className="px-4 py-3 text-center">{t('fanta_final_awards')}</th>
                 <th className="px-4 py-3 text-center">{t('fanta_standings_scia')}</th>
               </tr>
             </thead>
@@ -562,6 +567,7 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
                   <td className="px-4 py-3 text-center font-bold text-slate-600">{row.goals}</td>
                   <td className="px-4 py-3 text-center font-bold text-slate-600">{row.blows}</td>
                   <td className="px-4 py-3 text-center font-bold text-slate-600">{row.wins}</td>
+                  <td className="px-4 py-3 text-center font-bold text-amber-700">{row.awardBonus}</td>
                   <td className="px-4 py-3 text-center font-bold text-indigo-700">{row.bonusScia}</td>
                 </tr>
               ))}

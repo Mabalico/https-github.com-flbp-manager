@@ -12,7 +12,7 @@ interface Props {
   onOpenPlayerDetail?: (playerId: string) => void;
 }
 
-type SortField = 'rank' | 'fantasyPoints' | 'livePoints' | 'selectedByTeams' | 'goals' | 'blows' | 'wins' | 'bonusScia';
+type SortField = 'rank' | 'fantasyPoints' | 'livePoints' | 'selectedByTeams' | 'goals' | 'blows' | 'wins' | 'awardBonus' | 'bonusScia';
 const stickyTh = 'sticky top-0 z-10 bg-slate-50/95 supports-[backdrop-filter]:bg-slate-50/90 backdrop-blur';
 const thPad = 'px-3 py-3 md:px-4';
 const tdPad = 'px-3 py-3 md:px-4';
@@ -81,6 +81,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         goals: r.points_from_goals || 0,
         blows: r.points_from_blows || 0,
         wins: r.points_from_wins || 0,
+        awardBonus: r.points_from_awards || 0,
         bonusScia: r.bonus_scia || 0,
         status: r.status || 'waiting',
         roleLabel: t('fanta_players_label_player'),
@@ -190,10 +191,11 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                 <div className="mt-0.5 text-2xl font-black text-slate-950">{row.fantasyPoints}</div>
               </div>
             </div>
-            <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+            <div className="mt-4 grid grid-cols-5 gap-2 text-center">
               <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_goals')}</div><div className="text-sm font-black text-slate-950">{row.goals}</div></div>
               <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_blows')}</div><div className="text-sm font-black text-slate-950">{row.blows}</div></div>
               <div className="rounded-xl bg-slate-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-slate-500">{t('fanta_standings_wins')}</div><div className="text-sm font-black text-slate-950">{row.wins}</div></div>
+              <div className="rounded-xl bg-amber-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-amber-700">{t('fanta_final_awards')}</div><div className="text-sm font-black text-amber-800">{row.awardBonus}</div></div>
               <div className="rounded-xl bg-indigo-50 px-2 py-2"><div className="text-[9px] font-black uppercase text-indigo-600">{t('fanta_standings_scia')}</div><div className="text-sm font-black text-indigo-700">{row.bonusScia}</div></div>
             </div>
           </button>
@@ -217,6 +219,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                 <SortTh field="goals" label={t('fanta_standings_goals')} />
                 <SortTh field="blows" label={t('fanta_standings_blows')} />
                 <SortTh field="wins" label={t('fanta_standings_wins')} />
+                <SortTh field="awardBonus" label={t('fanta_final_awards')} />
                 <SortTh field="bonusScia" label={t('fanta_standings_scia')} />
                 <SortTh field="selectedByTeams" label={t('fanta_players_chosen_count')} />
                 <th className={`${thPad} ${stickyTh} text-center`}>{t('fanta_players_label_status')}</th>
@@ -239,6 +242,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
                   <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.goals}</td>
                   <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.blows}</td>
                   <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.wins}</td>
+                  <td className={`${tdPad} text-center font-bold text-amber-700`}>{row.awardBonus}</td>
                   <td className={`${tdPad} text-center font-bold text-slate-600`}>{row.bonusScia}</td>
                   <td className={`${tdPad} text-center font-black text-slate-900`}>{row.selectedByTeams}</td>
                   <td className={`${tdPad} text-center`}><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-wide ${statusBadgeClass(row.status)}`}>{statusLabel(t, row.status)}</span></td>
@@ -246,7 +250,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-20 text-center text-sm font-bold text-slate-400 italic">{t('fanta_players_not_found')}</td>
+                  <td colSpan={11} className="py-20 text-center text-sm font-bold text-slate-400 italic">{t('fanta_players_not_found')}</td>
                 </tr>
               )}
             </tbody>

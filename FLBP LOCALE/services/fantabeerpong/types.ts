@@ -89,14 +89,14 @@ export type FantaMyTeam = FantaMyTeamData;
 export interface FantaGeneralStandingsRow {
   id: string; rank: number; teamName: string; ownerLabel: string; totalPoints: number; livePoints: number; captainName: string;
   defendersCount: number; trend: FantaTrend; statusLabel: 'Live' | 'Stabile' | 'Recupero'; gapFromLeader: number; isMine?: boolean;
-  goals: number; blows: number; wins: number; bonusScia: number; playersInGame: number;
+  goals: number; blows: number; wins: number; awardBonus: number; bonusScia: number; playersInGame: number;
 }
 export interface FantaGeneralStandingsData { editionLabel: string; myTeamId: string; rows: FantaGeneralStandingsRow[]; }
 
 export interface FantaPlayersStandingsRow {
   id: string; rank: number; playerName: string; realTeamName: string; fantasyPoints: number; livePoints: number; roleLabel: string;
   selectedByTeams: number; status: FantaPlayerAvailability; isInMyTeam?: boolean; note: string;
-  goals: number; blows: number; wins: number; bonusScia: number;
+  goals: number; blows: number; wins: number; awardBonus: number; bonusScia: number;
 }
 export interface FantaPlayersStandingsData { editionLabel: string; featuredPlayerId: string; rows: FantaPlayersStandingsRow[]; }
 
