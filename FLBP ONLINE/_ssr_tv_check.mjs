@@ -152534,7 +152534,7 @@ var init_TvScorersView = __esm({
 });
 
 // components/TvBracketScorersView.tsx
-var import_react54, import_lucide_react51, import_jsx_runtime63, TV_PAGE_DURATION_SEC2, TV_ITEMS_PER_PAGE2, TV_MAX_PAGES2, TV_CLAMP_2_STYLE4, TvBracketScorersView;
+var import_react54, import_lucide_react51, import_jsx_runtime63, BRACKET_DURATION_SEC, SCORERS_DURATION_SEC, TV_ITEMS_PER_PAGE2, TV_MAX_PAGES2, TV_CLAMP_2_STYLE4, TvBracketScorersView;
 var init_TvBracketScorersView = __esm({
   "components/TvBracketScorersView.tsx"() {
     import_react54 = __toESM(require_react(), 1);
@@ -152546,8 +152546,9 @@ var init_TvBracketScorersView = __esm({
     import_lucide_react51 = __toESM(require_lucide_react(), 1);
     init_tournamentStructureSelectors();
     import_jsx_runtime63 = __toESM(require_jsx_runtime(), 1);
-    TV_PAGE_DURATION_SEC2 = 15;
-    TV_ITEMS_PER_PAGE2 = 10;
+    BRACKET_DURATION_SEC = 15;
+    SCORERS_DURATION_SEC = 15;
+    TV_ITEMS_PER_PAGE2 = 15;
     TV_MAX_PAGES2 = 3;
     TV_CLAMP_2_STYLE4 = {
       display: "-webkit-box",
@@ -152565,9 +152566,10 @@ var init_TvBracketScorersView = __esm({
       onExit
     }) => {
       const { t } = useTranslation();
+      const [activeScreen, setActiveScreen] = (0, import_react54.useState)("bracket");
       const [sortMode, setSortMode] = (0, import_react54.useState)("points");
       const [page, setPage] = (0, import_react54.useState)(0);
-      const [timeLeft, setTimeLeft] = (0, import_react54.useState)(TV_PAGE_DURATION_SEC2);
+      const [timeLeft, setTimeLeft] = (0, import_react54.useState)(BRACKET_DURATION_SEC);
       const rows = (0, import_react54.useMemo)(() => {
         const map = {};
         const birthDateFromKey = (key) => {
@@ -152649,18 +152651,33 @@ var init_TvBracketScorersView = __esm({
         const t2 = setInterval(() => {
           setTimeLeft((prev) => {
             if (prev <= 1) {
-              setPage((prevPage) => {
-                if (prevPage < totalPages - 1) return prevPage + 1;
-                setSortMode((prevMode) => prevMode === "points" ? "soffi" : "points");
-                return 0;
-              });
-              return TV_PAGE_DURATION_SEC2;
+              if (activeScreen === "bracket") {
+                setActiveScreen("scorers");
+                setSortMode("points");
+                setPage(0);
+                return SCORERS_DURATION_SEC;
+              } else {
+                let nextPage = page + 1;
+                if (nextPage < totalPages) {
+                  setPage(nextPage);
+                  return SCORERS_DURATION_SEC;
+                } else {
+                  if (sortMode === "points") {
+                    setSortMode("soffi");
+                    setPage(0);
+                    return SCORERS_DURATION_SEC;
+                  } else {
+                    setActiveScreen("bracket");
+                    return BRACKET_DURATION_SEC;
+                  }
+                }
+              }
             }
             return prev - 1;
           });
         }, 1e3);
         return () => clearInterval(t2);
-      }, [totalPages]);
+      }, [activeScreen, page, totalPages, sortMode]);
       (0, import_react54.useEffect)(() => {
         if (page > totalPages - 1) setPage(0);
       }, [page, totalPages]);
@@ -152695,7 +152712,7 @@ var init_TvBracketScorersView = __esm({
         if (preferredBracketRounds.length > 0) return true;
         return (matches || []).some((m) => m.phase === "bracket" && !m.hidden && !m.isBye);
       }, [matches, preferredBracketRounds.length]);
-      return /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(PublicTvShell, { data, logo, onExit, variant: "minimal", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "relative h-full w-full overflow-hidden bg-black", children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(PublicTvShell, { data, logo, onExit, variant: "minimal", children: activeScreen === "bracket" ? /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "relative h-full w-full overflow-hidden bg-black", children: [
         /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(30,64,175,0.08),transparent_32%),linear-gradient(180deg,rgba(2,6,23,0.18),rgba(2,6,23,0.42)_10%,rgba(2,6,23,0.7)_100%)]", "aria-hidden": "true" }),
         /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
           "img",
@@ -152703,7 +152720,7 @@ var init_TvBracketScorersView = __esm({
             src: "/tv-bracket-logo-2025.svg",
             alt: "",
             "aria-hidden": "true",
-            className: "pointer-events-none absolute left-[62%] top-1/2 z-0 h-auto w-[20%] min-w-[180px] max-w-[320px] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.14] drop-shadow-[0_0_24px_rgba(255,253,230,0.08)]"
+            className: "pointer-events-none absolute left-1/2 top-1/2 z-0 h-auto w-[28%] min-w-[220px] max-w-[420px] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.18] drop-shadow-[0_0_24px_rgba(255,253,230,0.08)]"
           }
         ),
         /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "pointer-events-none absolute inset-x-[1.4%] top-[1.25%] z-20 flex items-start justify-between gap-4 text-white", children: [
@@ -152718,91 +152735,95 @@ var init_TvBracketScorersView = __esm({
               t("turns_label"),
               " ",
               bracketRoundCount
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("span", { className: "bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20", children: t("admin_tv_bracket") }),
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("span", { className: "font-mono font-black", children: [
+              timeLeft,
+              "s"
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "absolute inset-x-[0.65%] bottom-[0.65%] top-[5.4%] min-h-0 min-w-0", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "grid h-full min-h-0 grid-cols-[minmax(0,0.96fr)_minmax(0,1.34fr)] gap-[0.85%]", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "min-h-0 overflow-hidden rounded-[1.45rem] border border-white/10 bg-slate-950/60 p-[1.05%] shadow-[0_32px_90px_rgba(2,6,23,0.4)] flex flex-col", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "rounded-2xl border border-white/10 bg-slate-900/78 px-4 py-2.5 shadow-[0_20px_50px_rgba(15,23,42,0.28)] shrink-0", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "flex items-center justify-between gap-4", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "min-w-0", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "text-[10px] font-black uppercase tracking-[0.22em] text-orange-400/80", children: t("top_scorers_live") }),
-                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "mt-0.5 text-[22px] leading-[1.05] font-black uppercase tracking-[0.06em] text-white", children: t("top_scorers_plural") })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "flex shrink-0 items-center gap-2", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: `rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${sortMode === "points" ? "border-orange-400/35 bg-orange-500/12 text-orange-200" : "border-cyan-400/35 bg-cyan-500/12 text-cyan-200"}`, children: metricLabel }),
-                /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "rounded-full border border-white/10 bg-slate-950/55 px-2 py-0.5 text-[10px] font-mono font-black text-slate-200", children: [
-                  Math.min(page + 1, totalPages),
-                  "/",
-                  totalPages
-                ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "rounded-full border border-white/10 bg-slate-950/55 px-2 py-0.5 text-[10px] font-mono font-black text-slate-200", children: [
-                  timeLeft,
-                  "s"
-                ] })
-              ] })
-            ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "grid grid-cols-12 bg-slate-950 text-white px-4 py-2 text-[10px] font-black uppercase tracking-[0.16em] border-b border-slate-800 rounded-t-xl mt-3 shrink-0", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center", children: "#" }),
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-4", children: t("player_view") }),
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-4", children: t("team_view") }),
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center", children: t("games") }),
-              /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-2 text-right", children: sortMode === "points" ? t("canestri_tv") : t("soffi_tv") })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex-1 min-h-0 bg-slate-50 flex flex-col rounded-b-xl overflow-hidden", children: visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex-1 flex items-center justify-center text-slate-400 text-sm font-black", children: t("no_data_available") }) : visible.map((p, idx) => {
-              const rank = startIndex + idx + 1;
-              return /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)(
-                "div",
-                {
-                  className: `grid grid-cols-12 px-4 items-center border-b border-slate-200 last:border-0 ${idx % 2 === 0 ? "bg-white" : "bg-slate-100/90"}`,
-                  style: { height: `calc(100% / ${TV_ITEMS_PER_PAGE2})` },
-                  children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("span", { className: "inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-black text-[12px]", children: rank }) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-4 pr-2 min-w-0", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)(
-                      "div",
-                      {
-                        className: "text-slate-900 font-black text-[13px] leading-tight break-words",
-                        style: TV_CLAMP_2_STYLE4,
-                        children: [
-                          p.name,
-                          isU25(p.birthDate) && /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("span", { className: "ml-1 align-middle text-[8px] px-1 py-0.2 rounded-full bg-emerald-100 text-emerald-700 font-black", children: "U25" }),
-                          hasTitle(p, "mvp") && /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(import_lucide_react51.Star, { className: "ml-1 inline h-3 w-3 align-middle text-amber-500", "aria-hidden": true })
-                        ]
-                      }
-                    ) }),
-                    /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
-                      "div",
-                      {
-                        className: "col-span-4 pr-2 min-w-0 text-slate-600 uppercase text-[10px] font-bold leading-tight break-words",
-                        style: TV_CLAMP_2_STYLE4,
-                        children: p.teamName
-                      }
-                    ),
-                    /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center text-slate-700 font-mono font-black text-[11px]", children: p.matchesPlayed }),
-                    /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
-                      "div",
-                      {
-                        className: `col-span-2 text-right text-[14px] font-black font-mono ${sortMode === "points" ? "text-orange-600" : "text-cyan-600"}`,
-                        children: sortMode === "points" ? p.points : p.soffi
-                      }
-                    )
-                  ]
-                },
-                p.id
-              );
-            }) })
+        /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "absolute inset-x-[0.2%] inset-y-[0.35%] top-[4.9%] min-h-0 min-w-0", children: hasBracketContent ? /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
+          TvClassicBracket,
+          {
+            teams,
+            data,
+            matches,
+            compact: false,
+            minimalChrome: true
+          }
+        ) : /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex h-full items-center justify-center rounded-[1.2rem] border border-white/10 bg-slate-950/60 text-slate-400 font-black uppercase tracking-[0.22em] text-sm", children: t("bracket_no_bracket_available") }) })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex-1 flex flex-col overflow-hidden bg-slate-900 px-[1.05%] py-[1.05%] h-full w-full", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "flex-1 min-h-0 rounded-2xl overflow-hidden border border-white/10 bg-white shadow-[0_28px_80px_rgba(2,6,23,0.28)] flex flex-col", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "flex items-center justify-between gap-4 px-5 py-3 bg-slate-900 text-white border-b border-white/10 shrink-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "min-w-0", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "text-[10px] font-black uppercase tracking-[0.24em] text-slate-300", children: t("top_scorers_live") }),
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
+              "div",
+              {
+                className: "mt-0.5 text-[26px] font-black uppercase tracking-[0.04em] text-white leading-tight break-words",
+                style: TV_CLAMP_2_STYLE4,
+                children: t("top_scorers_plural")
+              }
+            )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "min-h-0 overflow-hidden rounded-[1.45rem] border border-white/10 bg-slate-950/60 p-[0.45%] shadow-[0_32px_90px_rgba(2,6,23,0.4)]", children: hasBracketContent ? /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
-            TvClassicBracket,
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "flex items-center gap-3 shrink-0", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "bg-orange-600/30 px-2 py-0.5 rounded border border-orange-400/20 text-orange-200 text-xs font-black uppercase tracking-wider", children: t("admin_tv_scorers") }),
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: `rounded-full border px-3 py-1 text-[12px] font-black uppercase tracking-[0.14em] ${sortMode === "points" ? "border-orange-400/35 bg-orange-500/12 text-orange-200" : "border-cyan-400/35 bg-cyan-500/12 text-cyan-200"}`, children: metricLabel }),
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-[12px] font-mono font-black text-slate-300", children: [
+              Math.min(page + 1, totalPages),
+              "/",
+              totalPages
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-[12px] font-mono font-black text-slate-300", children: [
+              timeLeft,
+              "s"
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)("div", { className: "grid grid-cols-12 bg-slate-950 text-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.16em] border-b border-slate-800 shrink-0", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center", children: "#" }),
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-4", children: t("player_view") }),
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-4", children: t("team_view") }),
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center", children: t("games") }),
+          /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-2 text-right", children: sortMode === "points" ? t("canestri_tv") : t("soffi_tv") })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex-1 min-h-0 bg-slate-50 flex flex-col", children: visible.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex-1 flex items-center justify-center text-slate-400 text-sm font-black", children: t("no_data_available") }) : visible.map((p, idx) => {
+          const rank = startIndex + idx + 1;
+          return /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)(
+            "div",
             {
-              teams,
-              data,
-              matches,
-              compact: false,
-              minimalChrome: true
-            }
-          ) : /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "flex h-full items-center justify-center rounded-[1.2rem] border border-white/10 bg-slate-950/60 text-slate-400 font-black uppercase tracking-[0.22em] text-sm", children: t("bracket_no_bracket_available") }) })
-        ] }) })
-      ] }) });
+              className: `grid grid-cols-12 px-4 items-center border-b border-slate-200 last:border-0 ${idx % 2 === 0 ? "bg-white" : "bg-slate-100/90"}`,
+              style: { height: `calc(100% / ${TV_ITEMS_PER_PAGE2})` },
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("span", { className: "inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-200 text-slate-700 font-black text-[14px]", children: rank }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-4 pr-3 min-w-0", children: /* @__PURE__ */ (0, import_jsx_runtime63.jsxs)(
+                  "div",
+                  {
+                    className: "text-slate-900 font-black text-[15px] leading-tight break-words",
+                    style: TV_CLAMP_2_STYLE4,
+                    children: [
+                      p.name,
+                      isU25(p.birthDate) && /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("span", { className: "ml-2 align-middle text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-black", children: "U25" }),
+                      hasTitle(p, "mvp") && /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(import_lucide_react51.Star, { className: "ml-2 inline h-4 w-4 align-middle text-amber-500", "aria-hidden": true })
+                    ]
+                  }
+                ) }),
+                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)(
+                  "div",
+                  {
+                    className: "col-span-4 pr-3 min-w-0 text-slate-600 uppercase text-[12px] font-bold leading-tight break-words",
+                    style: TV_CLAMP_2_STYLE4,
+                    children: p.teamName
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: "col-span-1 text-center text-slate-700 font-mono font-black text-[13px]", children: p.matchesPlayed }),
+                /* @__PURE__ */ (0, import_jsx_runtime63.jsx)("div", { className: `col-span-2 text-right text-[16px] font-black font-mono ${sortMode === "points" ? "text-orange-600" : "text-cyan-600"}`, children: sortMode === "points" ? p.points : p.soffi })
+              ]
+            },
+            p.id
+          );
+        }) })
+      ] }) }) });
     };
   }
 });
@@ -152993,9 +153014,9 @@ for (const scenario of scenarios) {
           throw new Error("groups_bracket missing expected tournament/group content");
         }
       }
-      if ((scenario.name === "live-populated" || scenario.name === "live-public-sanitized") && (mode === "scorers" || mode === "bracket_scorers")) {
+      if ((scenario.name === "live-populated" || scenario.name === "live-public-sanitized") && mode === "scorers") {
         if (!html.includes("Alfa") && !html.includes("Lupi Rossi")) {
-          throw new Error(`${mode} view missing expected player/team content`);
+          throw new Error("scorers view missing expected player/team content");
         }
       }
       if ((scenario.name === "sample-backup-coerced" || scenario.name === "sample-backup-public-sanitized") && mode === "groups") {

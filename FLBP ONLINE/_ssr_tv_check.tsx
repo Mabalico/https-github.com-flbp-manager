@@ -113,9 +113,9 @@ for (const scenario of scenarios) {
           throw new Error('groups_bracket missing expected tournament/group content');
         }
       }
-      if ((scenario.name === 'live-populated' || scenario.name === 'live-public-sanitized') && (mode === 'scorers' || mode === 'bracket_scorers')) {
+      if ((scenario.name === 'live-populated' || scenario.name === 'live-public-sanitized') && mode === 'scorers') {
         if (!html.includes('Alfa') && !html.includes('Lupi Rossi')) {
-          throw new Error(`${mode} view missing expected player/team content`);
+          throw new Error('scorers view missing expected player/team content');
         }
       }
       if ((scenario.name === 'sample-backup-coerced' || scenario.name === 'sample-backup-public-sanitized') && mode === 'groups') {
