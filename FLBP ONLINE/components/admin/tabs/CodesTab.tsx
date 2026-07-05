@@ -15,6 +15,8 @@ export interface CodesTabProps {
     printCodes: () => void;
     toggleMatchStatus: (matchId: string) => void;
     openReportFromCodes: (matchId: string) => void;
+    reloadFromDb?: () => Promise<void> | void;
+    isReloadingFromDb?: boolean;
 }
 
 export const CodesTab: React.FC<CodesTabProps> = ({
@@ -24,6 +26,8 @@ export const CodesTab: React.FC<CodesTabProps> = ({
     printCodes,
     toggleMatchStatus,
     openReportFromCodes,
+    reloadFromDb,
+    isReloadingFromDb = false,
 }) => {
     const [query, setQuery] = React.useState('');
     const { t } = useTranslation();
@@ -422,7 +426,21 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                     </button>
                                                 </div>
                                             )
-                                            : t('codes_no_match_available')}
+                                            : (
+                                                <div className="space-y-3">
+                                                    <div>{t('codes_no_match_available')}</div>
+                                                    {reloadFromDb && (
+                                                        <button
+                                                            type="button"
+                                                            disabled={isReloadingFromDb}
+                                                            onClick={() => void reloadFromDb()}
+                                                            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-900 bg-slate-900 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
+                                                        >
+                                                            {isReloadingFromDb ? 'Ricarico dal DB...' : 'Ricarica dati dal DB'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
                                     </div>
                                 )}
                             </div>

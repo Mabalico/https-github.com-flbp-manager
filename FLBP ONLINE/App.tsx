@@ -1161,8 +1161,10 @@ const App: React.FC = () => {
         };
 
         const onLiveStateCommitted = (event: Event) => {
-            const nextState = (event as CustomEvent<{ state?: AppState }>).detail?.state;
+            const detail = (event as CustomEvent<{ state?: AppState; skipStructuredSync?: boolean }>).detail;
+            const nextState = detail?.state;
             if (!nextState) return;
+            if (detail?.skipStructuredSync) return;
             void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
                 return flushAutoStructuredSync(nextState, { force: true });
             }).catch(() => {

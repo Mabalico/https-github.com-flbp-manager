@@ -11,7 +11,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { FANTA_APP_CHANGE_EVENT } from '../services/playerAppService';
 
@@ -1013,6 +1013,7 @@ const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } |
 
     // Lista Codici filter
     const [codesStatusFilter, setCodesStatusFilter] = useState<'all'|'scheduled'|'playing'|'finished'>('all');
+    const [codesReloading, setCodesReloading] = useState(false);
 
     // Arbitri (turni tavoli)
     // Source of truth (when live tournament exists): tournament.config.refTables (optional, persisted).
@@ -2305,6 +2306,25 @@ const confirmAliasModal = () => {
           }).join('')}
         </tbody></table>`;
         openPrintWindow(`${t('admin_print_codes_title')} (${visible.length})`, html);
+    };
+
+    const reloadAdminSnapshotFromDb = async () => {
+        if (codesReloading) return;
+        setCodesReloading(true);
+        try {
+            const remoteRow = await pullWorkspaceState({ source: 'AdminDashboard.codes.reloadSnapshot', kind: 'admin' });
+            if (!remoteRow?.state) {
+                alert('Non ho trovato uno snapshot admin valido nel DB.');
+                return;
+            }
+            const remoteState = coerceAppState(remoteRow.state);
+            setRemoteBaseUpdatedAt(remoteRow.updated_at || null);
+            setState(remoteState);
+        } catch (error: any) {
+            alert(`Non riesco a ricaricare lo stato dal DB.\n\n${String(error?.message || error || '')}`);
+        } finally {
+            setCodesReloading(false);
+        }
     };
 
     const printBracket = () => {
@@ -3642,9 +3662,30 @@ while (guard < 5000) {
             ? { ...workingState.tournament, matches: finalMatches }
             : workingState.tournament;
         const nextState = { ...workingState, tournament: nextTournament, tournamentMatches: finalMatches };
+        try {
+            await pushWorkspaceState(nextState, undefined, {
+                source: 'AdminDashboard.handleSaveReport.snapshot',
+                kind: 'admin',
+            });
+            try {
+                await flushAutoStructuredSync(nextState, { force: true });
+            } catch (structuredError) {
+                console.warn('Admin report structured sync failed after snapshot save', structuredError);
+            }
+        } catch (error: any) {
+            console.warn('Admin report snapshot save failed', error);
+            alert([
+                'Il referto non è stato salvato su Supabase.',
+                '',
+                'Non chiudere questa finestra: controlla la connessione, poi riprova il salvataggio.',
+                '',
+                String(error?.message || error || ''),
+            ].join('\n'));
+            return;
+        }
         setState(nextState);
         window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
-            detail: { state: nextState, source: 'admin-save-report' }
+            detail: { state: nextState, source: 'admin-save-report', skipStructuredSync: true }
         }));
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
         alert(t('alert_report_saved'));
@@ -4536,6 +4577,8 @@ while (guard < 5000) {
                     printCodes={printCodes}
                     toggleMatchStatus={toggleMatchStatus}
                     openReportFromCodes={openReportFromCodes}
+                    reloadFromDb={reloadAdminSnapshotFromDb}
+                    isReloadingFromDb={codesReloading}
                 />
             )}
 
