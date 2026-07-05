@@ -2281,8 +2281,11 @@ const confirmAliasModal = () => {
     };
 
     const printCodes = () => {
-        const teamMap = new Map<string, string>((state.teams || []).map(t => [t.id, t.name] as [string, string]));
-        const ms = [...(state.tournamentMatches || [])]
+        const teamMap = new Map<string, string>();
+        (state.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
+        (state.tournament?.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
+        const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
+        const ms = [...sourceMatches]
                                     .filter(m => !(m as any).hidden)
                                     .filter(m => {
                                         const ids = getMatchParticipantIds(m);
@@ -3415,7 +3418,8 @@ while (guard < 5000) {
     };
 
     const handlePickReportMatch = (id: string) => {
-        const m = (state.tournamentMatches || []).find(mm => mm.id === id);
+        const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
+        const m = sourceMatches.find(mm => mm.id === id);
         if (!m) return;
         if (!isReportableMatch(m)) {
             alert(t('report_unavailable_placeholder'));
@@ -3540,7 +3544,7 @@ while (guard < 5000) {
         }
 
         const getTeamFromWorkingCatalog = (id?: string) => getTeamFromStateSnapshot(workingState, id);
-        const matches = [...(workingState.tournamentMatches || [])];
+        const matches = [...((workingState.tournamentMatches?.length ? workingState.tournamentMatches : workingState.tournament?.matches) || [])];
         const idx = matches.findIndex(m => m.id === reportMatchId);
         if (idx === -1) {
             alert(t('alert_select_match'));

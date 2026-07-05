@@ -53,7 +53,22 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         playing: { label: t('match_status_playing'), pill: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
         finished: { label: t('match_status_finished'), pill: 'border-rose-200 bg-rose-50 text-rose-800' },
     } as const), [t]);
-    const teamCatalog = React.useMemo(() => new Map((state.teams || []).map((team) => [team.id, team] as const)), [state.teams]);
+    const sourceMatches = React.useMemo(() => {
+        const adminMatches = state.tournamentMatches || [];
+        const tournamentMatches = state.tournament?.matches || [];
+        return adminMatches.length ? adminMatches : tournamentMatches;
+    }, [state.tournament?.matches, state.tournamentMatches]);
+
+    const teamCatalog = React.useMemo(() => {
+        const map = new Map<string, Team>();
+        (state.teams || []).forEach((team) => {
+            if (team?.id) map.set(team.id, team);
+        });
+        (state.tournament?.teams || []).forEach((team) => {
+            if (team?.id) map.set(team.id, team);
+        });
+        return map;
+    }, [state.teams, state.tournament?.teams]);
 
     const renderCallButtons = React.useCallback((match: any) => {
         if (match?.status === 'finished') return null;
@@ -186,10 +201,10 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 
                 <div className="text-xs font-bold text-slate-500">
                     {(() => {
-                        const total = (state.tournamentMatches || []).length;
+                        const total = sourceMatches.length;
                         const filtered = codesStatusFilter === 'all'
                             ? total
-                            : (state.tournamentMatches || []).filter(m => m.status === codesStatusFilter).length;
+                            : sourceMatches.filter(m => m.status === codesStatusFilter).length;
                         return (
                             <>
                                 {t('codes_live_tournament_label')}: {state.tournament ? t('yes_short') : t('no_short')} • {t('matches_label')}: {filtered}/{total}
@@ -209,8 +224,10 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         {state.tournament && (
             <>
                 {(() => {
-                    const teamMap = new Map((state.teams || []).map(t => [t.id, t.name] as const));
-                    const ms = [...(state.tournamentMatches || [])]
+                    const teamMap = new Map<string, string>();
+                    (state.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
+                    (state.tournament?.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
+                    const ms = [...sourceMatches]
                         .filter(m => !(m as any).hidden)
                         .filter(m => {
                             const ids = getMatchParticipantIds(m as any);
