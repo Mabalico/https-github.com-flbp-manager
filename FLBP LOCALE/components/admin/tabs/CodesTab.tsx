@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, FileText, ListChecks, LoaderCircle, PhoneCall, Play, Printer, Search, ThumbsUp, X } from 'lucide-react';
+import { CheckCircle2, FileText, ListChecks, LoaderCircle, PhoneCall, Play, Printer, RefreshCw, Search, ThumbsUp, X } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import type { Team } from '../../../types';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../../../services/matchUtils';
@@ -161,6 +161,19 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                         <option value="playing">{t('match_status_playing')}</option>
                         <option value="finished">{t('match_status_finished_plural')}</option>
                     </select>
+
+                    {reloadFromDb && (
+                        <button
+                            type="button"
+                            onClick={() => void reloadFromDb()}
+                            disabled={isReloadingFromDb}
+                            className={`${btnSecondary} ${isReloadingFromDb ? 'cursor-not-allowed opacity-60' : ''}`}
+                            title="Ricarica lo snapshot admin da Supabase"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isReloadingFromDb ? 'animate-spin' : ''}`} />
+                            {isReloadingFromDb ? 'Ricarico...' : 'Ricarica DB'}
+                        </button>
+                    )}
 
                     <button type="button"
                         onClick={printCodes}
