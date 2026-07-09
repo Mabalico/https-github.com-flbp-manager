@@ -18,6 +18,13 @@
 - Per backup/template inclusi nel repository esegui: `npm run audit:backup-profiles`.
 - Per un backup esterno specifico esegui: `npm run inspect:backup -- ./path/to/backup.json`.
 
+## Supabase / GitHub workflow
+
+- Lo schema Supabase va modificato tramite migration in `supabase/migrations/`; non considerare completo un cambio fatto solo dal Dashboard/SQL Editor.
+- Le Edge Functions vivono in `supabase/functions/`. Non committare mai token, service-role key o secret runtime: vanno gestiti su Supabase/GitHub.
+- I workflow GitHub nella root `.github/workflows/supabase-*.yml` deployano `FLBP ONLINE` usando `SUPABASE_PROJECT_ID`, `SUPABASE_ACCESS_TOKEN` e `SUPABASE_DB_PASSWORD`.
+- Per PR che toccano `FLBP ONLINE/supabase/**`, fai passare `Supabase CI`; in locale usa `supabase db start` e `supabase db lint --local --fail-on error` solo se CLI e Docker sono disponibili.
+
 ## Working rules
 
 - Non toccare TV Mode, Referti/OCR o engine torneo se non richiesto esplicitamente.

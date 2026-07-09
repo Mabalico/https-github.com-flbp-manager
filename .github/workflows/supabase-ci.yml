@@ -1,0 +1,48 @@
+name: Supabase CI
+
+on:
+  pull_request:
+    paths:
+      - 'FLBP ONLINE/supabase/**'
+      - '.github/workflows/supabase-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUPABASE_WORKDIR: 'FLBP ONLINE'
+
+jobs:
+  migrations:
+    name: Validate Supabase migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Apply migrations to a clean local database
+        run: |
+          set -euo pipefail
+          supabase db start
+
+      - name: Lint local database schema
+        run: |
+          set -euo pipefail
+          supabase db lint --local --fail-on error
+
+      - name: Stop local Supabase
+        if: always()
+        run: |
+          supabase stop --no-backup || true
