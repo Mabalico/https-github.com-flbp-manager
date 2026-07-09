@@ -116,7 +116,9 @@ const getSupabasePublicOps = async () => {
     const module = await loadSupabasePublicModule();
     return {
         pullPublicWorkspaceState: module.pullPublicWorkspaceState,
+        pullPublicWorkspaceLive: module.pullPublicWorkspaceLive,
         pullPublicWorkspaceUpdatedAt: module.pullPublicWorkspaceUpdatedAt,
+        isPublicWorkspaceLiveUnavailableError: module.isPublicWorkspaceLiveUnavailableError,
         trackPublicSiteView: module.trackPublicSiteView
     };
 };
@@ -966,14 +968,40 @@ const App: React.FC = () => {
             return true;
         };
 
-        const pullOnce = async (opts?: { checkUpdatedAtOnly?: boolean }) => {
+        const rawHas = (raw: unknown, key: string) =>
+            !!raw && typeof raw === 'object' && Object.prototype.hasOwnProperty.call(raw, key);
+
+        const hydratePublicLiveRow = async (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceLive']>>) => {
+            if (!row?.state) return false;
+            try {
+                const raw = row.state as any;
+                const live = await coerceLoadedAppState(raw);
+                if (cancelled) return false;
+                setPublicDbState((current) => {
+                    const next: AppState = { ...(current || live) };
+                    if (rawHas(raw, '__schemaVersion')) next.__schemaVersion = live.__schemaVersion;
+                    if (rawHas(raw, 'teams')) next.teams = live.teams;
+                    if (rawHas(raw, 'fantaSettings')) next.fantaSettings = live.fantaSettings;
+                    if (rawHas(raw, 'tournament')) next.tournament = live.tournament;
+                    if (rawHas(raw, 'tournamentMatches')) next.tournamentMatches = live.tournamentMatches;
+                    if (next.tournament) {
+                        next.tournament = { ...next.tournament, matches: next.tournamentMatches || [] };
+                    }
+                    return coerceAppState(next);
+                });
+                const nextUpdatedAt = row.updated_at || null;
+                publicDbUpdatedAtRef.current = nextUpdatedAt;
+                setPublicDbUpdatedAt(nextUpdatedAt);
+            } catch {
+                return false;
+            }
+            return true;
+        };
+
+        const pullFullSnapshot = async () => {
             if (!shouldPollNow()) return;
             try {
                 const ops = await getSupabasePublicOps();
-                if (opts?.checkUpdatedAtOnly && publicDbUpdatedAtRef.current) {
-                    const updatedAt = await ops.pullPublicWorkspaceUpdatedAt({ kind: 'polling', source: 'App.publicWorkspaceUpdatedAtPoll' });
-                    if (!updatedAt || updatedAt === publicDbUpdatedAtRef.current) return;
-                }
                 const row = await ops.pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll' });
                 if (cancelled) return;
                 if (!row?.state) return;
@@ -984,13 +1012,33 @@ const App: React.FC = () => {
             }
         };
 
-        void pullOnce();
-        const onVisible = () => {
+        const pullLiveSnapshot = async () => {
             if (!shouldPollNow()) return;
-            void pullOnce();
+            try {
+                const ops = await getSupabasePublicOps();
+                try {
+                    const row = await ops.pullPublicWorkspaceLive({ kind: 'polling', source: 'App.publicWorkspaceLivePoll' });
+                    if (cancelled) return;
+                    if (!row?.state) return;
+                    await hydratePublicLiveRow(row);
+                    return;
+                } catch (liveError) {
+                    if (!ops.isPublicWorkspaceLiveUnavailableError(liveError)) {
+                        throw liveError;
+                    }
+                }
+
+                const row = await ops.pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll.fallback' });
+                if (cancelled) return;
+                if (!row?.state) return;
+                writeCachedPublicWorkspaceState(row);
+                await hydratePublicRow(row);
+            } catch {
+                // silent fallback to local state
+            }
         };
-        document.addEventListener('visibilitychange', onVisible);
-        window.addEventListener('focus', onVisible);
+
+        void pullFullSnapshot();
 
         const shouldKeepPolling = tvMode != null
             || view === 'tournament'
@@ -999,10 +1047,15 @@ const App: React.FC = () => {
         if (!shouldKeepPolling) {
             return () => {
                 cancelled = true;
-                document.removeEventListener('visibilitychange', onVisible);
-                window.removeEventListener('focus', onVisible);
             };
         }
+
+        const onVisiblePollLive = () => {
+            if (!shouldPollNow()) return;
+            void pullLiveSnapshot();
+        };
+        document.addEventListener('visibilitychange', onVisiblePollLive);
+        window.addEventListener('focus', onVisiblePollLive);
 
         const intervalMs = tvMode != null ? 90000 : (view === 'tournament_detail' ? 15000 : 60000);
         const isTvMode = tvMode != null;
@@ -1012,7 +1065,7 @@ const App: React.FC = () => {
         const onUserActivity = () => {
             const wasIdle = isCurrentlyIdle();
             lastActivityAt = Date.now();
-            if (wasIdle) void pullOnce();
+            if (wasIdle) void pullLiveSnapshot();
         };
         const activityEvents: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
         if (!isTvMode) {
@@ -1020,12 +1073,12 @@ const App: React.FC = () => {
         }
         const id = window.setInterval(() => {
             if (isCurrentlyIdle()) return;
-            void pullOnce({ checkUpdatedAtOnly: isTvMode });
+            void pullLiveSnapshot();
         }, intervalMs);
         return () => {
             cancelled = true;
-            document.removeEventListener('visibilitychange', onVisible);
-            window.removeEventListener('focus', onVisible);
+            document.removeEventListener('visibilitychange', onVisiblePollLive);
+            window.removeEventListener('focus', onVisiblePollLive);
             if (!isTvMode) {
                 activityEvents.forEach((ev) => window.removeEventListener(ev, onUserActivity));
             }
@@ -1154,7 +1207,7 @@ const App: React.FC = () => {
             // On lifecycle flush we attempt a best-effort immediate DB sync when enabled.
             // (Scheduling a debounced sync here risks being cancelled by pagehide/unload.)
             void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
-                return flushAutoStructuredSync(latestStateRef.current, { force: true });
+                return flushAutoStructuredSync(latestStateRef.current, { force: true, allowDuringBackoff: true });
             }).catch(() => {
                 // ignore best-effort background sync loader errors
             });

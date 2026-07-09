@@ -1,5 +1,5 @@
 import type { AppState } from './storageService';
-import { getSupabaseAccessToken, getSupabaseConfig, pushNormalizedFromState } from './supabaseRest';
+import { getSupabaseAccessToken, getSupabaseConfig, pushLiveTournamentIncremental, pushNormalizedFromState } from './supabaseRest';
 import { markDbSyncConflict, markDbSyncError, markDbSyncOk } from './dbDiagnostics';
 import { getAppStateRepository } from './repository/getRepository';
 import { hasMeaningfulAppState } from './appStateMeaning';
@@ -29,7 +29,53 @@ let lastFingerprint = '';
 
 const MIN_INTERVAL_MS = 20_000; // throttle
 const DEBOUNCE_MS = 1500;
+const RETRY_BACKOFF_STEPS_MS = [5_000, 15_000, 45_000, 120_000];
+const RETRY_JITTER_RATIO = 0.2;
 let retryHooksInstalled = false;
+let retryFailureCount = 0;
+let retryCooldownUntil = 0;
+let lifecycleBypassUsedForCooldownUntil = 0;
+let retryTimer: number | null = null;
+
+const retryDelayWithJitter = (failureCount: number) => {
+  const base = RETRY_BACKOFF_STEPS_MS[Math.min(Math.max(failureCount - 1, 0), RETRY_BACKOFF_STEPS_MS.length - 1)];
+  const jitter = 1 + ((Math.random() * 2 - 1) * RETRY_JITTER_RATIO);
+  return Math.max(1_000, Math.round(base * jitter));
+};
+
+const clearRetryBackoff = () => {
+  retryFailureCount = 0;
+  retryCooldownUntil = 0;
+  lifecycleBypassUsedForCooldownUntil = 0;
+  if (retryTimer != null) {
+    window.clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+};
+
+const noteRetryFailure = (markLifecycleBypassUsed = false) => {
+  retryFailureCount += 1;
+  const delayMs = retryDelayWithJitter(retryFailureCount);
+  retryCooldownUntil = Date.now() + delayMs;
+  lifecycleBypassUsedForCooldownUntil = markLifecycleBypassUsed ? retryCooldownUntil : 0;
+  if (retryTimer != null) window.clearTimeout(retryTimer);
+  retryTimer = window.setTimeout(() => {
+    retryTimer = null;
+    void flushAutoStructuredSync(undefined, { force: true });
+  }, delayMs);
+  return delayMs;
+};
+
+const isRetryCoolingDown = (allowLifecycleBypass?: boolean) => {
+  if (!retryCooldownUntil) return false;
+  const now = Date.now();
+  if (now >= retryCooldownUntil) return false;
+  if (allowLifecycleBypass && lifecycleBypassUsedForCooldownUntil !== retryCooldownUntil) {
+    lifecycleBypassUsedForCooldownUntil = retryCooldownUntil;
+    return false;
+  }
+  return true;
+};
 
 const installRetryHooks = () => {
   if (retryHooksInstalled) return;
@@ -123,7 +169,7 @@ export const scheduleAutoStructuredSync = (state: AppState) => {
 
 export const flushAutoStructuredSync = async (
   stateOverride?: AppState,
-  opts?: { force?: boolean }
+  opts?: { force?: boolean; allowDuringBackoff?: boolean }
 ): Promise<void> => {
   if (stateOverride) pending = stateOverride;
   if (inFlight) {
@@ -144,6 +190,7 @@ export const flushAutoStructuredSync = async (
 
   const cfg = getSupabaseConfig();
   if (!cfg) return;
+  if (isRetryCoolingDown(opts?.allowDuringBackoff)) return;
 
   const now = Date.now();
   const fp = safeFingerprint(s);
@@ -162,9 +209,12 @@ export const flushAutoStructuredSync = async (
   pending = null;
 
   try {
-    const summary = await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
+    const summary = s.tournament
+      ? await pushLiveTournamentIncremental(s, forceThisRun ? { force: true } : undefined)
+      : await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
     lastRunAt = Date.now();
     lastFingerprint = fp;
+    clearRetryBackoff();
     markDbSyncOk('structured', summary);
     try {
       window.dispatchEvent(new CustomEvent('flbp-fanta-change'));
@@ -184,7 +234,8 @@ export const flushAutoStructuredSync = async (
       }
     } else {
       if (!queuedFlushAfterInFlight) pending = s;
-      markDbSyncError(e?.message || String(e));
+      const delayMs = noteRetryFailure(!!opts?.allowDuringBackoff);
+      markDbSyncError(`${e?.message || String(e)} Riprovo tra ${Math.ceil(delayMs / 1000)}s.`);
     }
   } finally {
     const shouldDrainQueuedState = queuedFlushAfterInFlight;

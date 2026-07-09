@@ -5,6 +5,9 @@ import { buildPlayerProfileSnapshot, getAliasRemovalImpact, removePlayerAliasMap
 import { deleteHallOfFameEntry, getHallOfFameEntryOrigin, reassignHallOfFameEntry } from '../../services/hallOfFameAdmin';
 import { buildTitledHallOfFameRows } from '../../services/hallOfFameView';
 import { generateTournamentStructure } from '../../services/tournamentEngine';
+import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../services/playerIdentity';
+import { __buildNormalizedTournamentRowsForTest } from '../../services/supabaseRest';
+import sampleBackup from '../../docs/sample_backup.json';
 
 const makeBirthDate = (year: number) => `${year}-01-01`;
 
@@ -153,6 +156,221 @@ const assertOk = (value: unknown, message?: string) => {
   if (!value) {
     throw new Error(message || 'Expected truthy value.');
   }
+};
+
+const buildLegacyTournamentRowsForTest = (state: AppState, entry: { t: any; status: 'live' | 'archived'; matches: any[] }, workspaceId: string, nowIso: () => string) => {
+  const tournamentRows: any[] = [];
+  const teamRows: any[] = [];
+  const groupRows: any[] = [];
+  const groupTeamRows: any[] = [];
+  const matchRows: any[] = [];
+  const statRows: any[] = [];
+  const publicTournamentRows: any[] = [];
+  const publicTeamRows: any[] = [];
+  const publicGroupRows: any[] = [];
+  const publicGroupTeamRows: any[] = [];
+  const publicMatchRows: any[] = [];
+  const publicStatRows: any[] = [];
+
+  const t = entry.t;
+  const tid = t.id;
+  const tournamentResultsOnly = !!t?.config?.resultsOnly;
+  tournamentRows.push({
+    workspace_id: workspaceId,
+    id: tid,
+    name: t.name,
+    start_date: t.startDate,
+    type: t.type,
+    config: t.config || {},
+    is_manual: !!t.isManual,
+    status: entry.status,
+    updated_at: nowIso()
+  });
+
+  publicTournamentRows.push({
+    workspace_id: workspaceId,
+    id: tid,
+    name: t.name,
+    start_date: t.startDate,
+    type: t.type,
+    config: t.config || {},
+    is_manual: !!t.isManual,
+    status: entry.status,
+    updated_at: nowIso()
+  });
+
+  const teams = (t.teams || []) as any[];
+  teams.forEach((tm: any) => {
+    const player1BirthDate = normalizeBirthDateInput(tm.player1BirthDate);
+    const player2BirthDate = normalizeBirthDateInput(tm.player2BirthDate);
+    teamRows.push({
+      workspace_id: workspaceId,
+      tournament_id: tid,
+      id: tm.id,
+      name: tm.name,
+      player1: tm.player1,
+      player2: tm.player2 ?? '',
+      player1_yob: deriveYoBFromBirthDate(player1BirthDate) ?? tm.player1YoB ?? null,
+      player1_birth_date: player1BirthDate ?? null,
+      player2_yob: deriveYoBFromBirthDate(player2BirthDate) ?? tm.player2YoB ?? null,
+      player2_birth_date: player2BirthDate ?? null,
+      player1_is_referee: !!tm.player1IsReferee,
+      player2_is_referee: !!tm.player2IsReferee,
+      is_referee: !!tm.isReferee,
+      created_at_ms: tm.createdAt ?? null
+    });
+
+    publicTeamRows.push({
+      workspace_id: workspaceId,
+      tournament_id: tid,
+      id: tm.id,
+      name: tm.name,
+      player1: tm.player1,
+      player2: tm.player2 ?? '',
+      player1_is_referee: !!tm.player1IsReferee,
+      player2_is_referee: !!tm.player2IsReferee,
+      is_referee: !!tm.isReferee,
+      created_at: tm.createdAt ? new Date(tm.createdAt).toISOString() : null
+    });
+  });
+
+  const groups = (t.groups || []) as any[];
+  groups
+    .slice()
+    .sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), 'it', { sensitivity: 'base' }))
+    .forEach((g: any, idx: number) => {
+      groupRows.push({
+        workspace_id: workspaceId,
+        tournament_id: tid,
+        id: g.id,
+        name: g.name,
+        order_index: idx
+      });
+
+      publicGroupRows.push({
+        workspace_id: workspaceId,
+        tournament_id: tid,
+        id: g.id,
+        name: g.name,
+        order_index: idx
+      });
+      (g.teams || []).forEach((gt: any) => {
+        groupTeamRows.push({
+          workspace_id: workspaceId,
+          tournament_id: tid,
+          group_id: g.id,
+          team_id: gt.id
+        });
+
+        publicGroupTeamRows.push({
+          workspace_id: workspaceId,
+          tournament_id: tid,
+          group_id: g.id,
+          team_id: gt.id,
+          seed: null
+        });
+      });
+    });
+
+  const teamById = new Map<string, any>(teams.map((x: any) => [x.id, x]));
+  const matches = (entry.matches || []) as any[];
+
+  matches.forEach((m: any) => {
+    const phase = m.phase || (m.groupName ? 'groups' : 'bracket');
+    const isBye = !!m.isBye || m.teamAId === 'BYE' || m.teamBId === 'BYE';
+    const hidden = isBye ? true : !!m.hidden;
+    matchRows.push({
+      workspace_id: workspaceId,
+      tournament_id: tid,
+      id: m.id,
+      code: m.code ?? null,
+      phase,
+      status: m.status,
+      played: !!m.played,
+      score_a: m.scoreA ?? 0,
+      score_b: m.scoreB ?? 0,
+      team_a_id: m.teamAId ?? null,
+      team_b_id: m.teamBId ?? null,
+      next_match_id: m.nextMatchId ?? null,
+      next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
+      round: m.round ?? null,
+      round_name: m.roundName ?? null,
+      group_name: m.groupName ?? null,
+      order_index: m.orderIndex ?? null,
+      hidden,
+      is_bye: isBye,
+      updated_at: nowIso()
+    });
+
+    publicMatchRows.push({
+      workspace_id: workspaceId,
+      tournament_id: tid,
+      id: m.id,
+      code: m.code ?? null,
+      phase,
+      status: m.status,
+      played: !!m.played,
+      score_a: m.scoreA ?? 0,
+      score_b: m.scoreB ?? 0,
+      team_a_id: m.teamAId ?? null,
+      team_b_id: m.teamBId ?? null,
+      next_match_id: m.nextMatchId ?? null,
+      next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
+      round: m.round ?? null,
+      round_name: m.roundName ?? null,
+      group_name: m.groupName ?? null,
+      order_index: m.orderIndex ?? null,
+      hidden,
+      is_bye: isBye,
+      updated_at: nowIso()
+    });
+
+    if (tournamentResultsOnly) return;
+
+    (m.stats || []).forEach((s: any) => {
+      const team = teamById.get(s.teamId);
+      const birthDate = team
+        ? normalizeBirthDateInput(team.player1 === s.playerName ? team.player1BirthDate : team.player2BirthDate)
+        : undefined;
+      const rawKey = getPlayerKey(s.playerName, pickPlayerIdentityValue(birthDate));
+      const resolvedKey = resolvePlayerKey(state, rawKey);
+      statRows.push({
+        workspace_id: workspaceId,
+        tournament_id: tid,
+        match_id: m.id,
+        team_id: s.teamId,
+        player_name: s.playerName,
+        canestri: s.canestri ?? 0,
+        soffi: s.soffi ?? 0,
+        player_key: resolvedKey
+      });
+
+      publicStatRows.push({
+        workspace_id: workspaceId,
+        tournament_id: tid,
+        match_id: m.id,
+        team_id: s.teamId,
+        player_name: s.playerName,
+        canestri: s.canestri ?? 0,
+        soffi: s.soffi ?? 0
+      });
+    });
+  });
+
+  return {
+    tournamentRows,
+    teamRows,
+    groupRows,
+    groupTeamRows,
+    matchRows,
+    statRows,
+    publicTournamentRows,
+    publicTeamRows,
+    publicGroupRows,
+    publicGroupTeamRows,
+    publicMatchRows,
+    publicStatRows,
+  };
 };
 
 defineCase('deep delete removes archived tournament and linked hall of fame entries with impact summary', () => {
@@ -367,6 +585,24 @@ defineCase('tournament generation keeps the selected tournament date', () => {
   );
 
   assertEqual(tournament.startDate, '2026-07-18T00:00:00.000Z');
+});
+
+defineCase('normalized tournament row mapper matches the legacy export mapping for sample backup', () => {
+  const sampleState = coerceAppState(sampleBackup as any);
+  if (!sampleState.tournament) throw new Error('Expected sample backup to contain a live tournament.');
+
+  const entry = {
+    t: sampleState.tournament,
+    status: 'live' as const,
+    matches: sampleState.tournamentMatches || sampleState.tournament.matches || [],
+  };
+  const workspaceId = 'sample-workspace';
+  const nowIso = () => '2026-07-09T00:00:00.000Z';
+
+  const nextRows = __buildNormalizedTournamentRowsForTest(sampleState, entry, workspaceId, nowIso);
+  const legacyRows = buildLegacyTournamentRowsForTest(sampleState, entry, workspaceId, nowIso);
+
+  assertEqual(JSON.stringify(nextRows), JSON.stringify(legacyRows));
 });
 
 let failed = 0;

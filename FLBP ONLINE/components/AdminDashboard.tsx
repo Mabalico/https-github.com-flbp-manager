@@ -6,12 +6,12 @@ import { useTranslation } from '../App';
 import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
-import { getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
+import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
 import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushPublicWorkspaceState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushPublicWorkspaceState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { FANTA_APP_CHANGE_EVENT } from '../services/playerAppService';
 
@@ -1682,6 +1682,15 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         }
     };
 
+    const pushFullStructuredExportBestEffort = async (nextState: AppState, source: string) => {
+        if (!getSupabaseConfig()) return;
+        try {
+            await pushNormalizedFromState(nextState, { force: true });
+        } catch (error) {
+            console.warn(`[Supabase] Full structured export skipped after ${source}.`, error);
+        }
+    };
+
     // I titoli dell'albo d'oro (campioni, MVP, capocannoniere, miglior difensore)
     // valgono punti Fanta (points_from_awards) calcolati lato DB da
     // hall_of_fame_entries. Quelle righe arrivano su Supabase solo con lo
@@ -2108,6 +2117,7 @@ const confirmAliasModal = () => {
 
             if (!confirm(`${t('admin_restore_backup_confirm')}\n\n${summaryText}${warningText}`)) return;
             setState(parsed);
+            await pushFullStructuredExportBestEffort(parsed, 'backup restore');
             alert(t('alert_backup_restored'));
         } catch (e) {
             alert(t('alert_backup_invalid'));
@@ -2140,6 +2150,7 @@ const confirmAliasModal = () => {
 
             const merged = mergeBackupJsonState(state, parsed);
             setState(merged.state);
+            await pushFullStructuredExportBestEffort(merged.state, 'backup merge');
 
             const combinedWarnings = [...report.warnings, ...merged.warnings];
             const warningText = combinedWarnings.length
@@ -2822,6 +2833,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             await snapshotFantaBeforeArchive(newState.tournament.id);
             closeLiveCallsForTournament(newState.tournament.id);
             newState = archiveTournamentV2(newState);
+            await pushFullStructuredExportBestEffort(newState, 'implicit archive before live start');
         }
 
         newState.tournament = draftResultsOnly
@@ -3551,6 +3563,7 @@ while (guard < 5000) {
             return;
         }
         const base = matches[idx];
+        const matchesBeforeReportSave = cloneMatchesForResultSync(matches);
         if (!isReportableMatch(base)) {
             alert(t('report_unavailable_placeholder'));
             return;
@@ -3666,18 +3679,31 @@ while (guard < 5000) {
             ? { ...workingState.tournament, matches: finalMatches }
             : workingState.tournament;
         const nextState = { ...workingState, tournament: nextTournament, tournamentMatches: finalMatches };
+        const reportMatchesToPersist = collectChangedMatchResults(matchesBeforeReportSave, finalMatches, reportMatchId);
         try {
-            await pushWorkspaceState(nextState, undefined, {
-                source: 'AdminDashboard.handleSaveReport.snapshot',
-                kind: 'admin',
-            });
             try {
-                await flushAutoStructuredSync(nextState, { force: true });
-            } catch (structuredError) {
-                console.warn('Admin report structured sync failed after snapshot save', structuredError);
+                await pushAdminMatchResults({
+                    tournamentId: workingState.tournament?.id || state.tournament.id,
+                    matchId: reportMatchId,
+                    matches: reportMatchesToPersist,
+                });
+                window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+            } catch (matchResultError) {
+                if (!isMatchResultRpcMissingError(matchResultError)) {
+                    throw matchResultError;
+                }
+                await pushWorkspaceState(nextState, undefined, {
+                    source: 'AdminDashboard.handleSaveReport.snapshot',
+                    kind: 'admin',
+                });
+                try {
+                    await flushAutoStructuredSync(nextState, { force: true });
+                } catch (structuredError) {
+                    console.warn('Admin report structured sync failed after snapshot save', structuredError);
+                }
             }
         } catch (error: any) {
-            console.warn('Admin report snapshot save failed', error);
+            console.warn('Admin report save failed', error);
             alert([
                 'Il referto non è stato salvato su Supabase.',
                 '',
@@ -4631,6 +4657,7 @@ while (guard < 5000) {
             await snapshotFantaBeforeArchive(archivedTournamentId);
             closeLiveCallsForTournament(archivedTournamentId);
             const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
+            await pushFullStructuredExportBestEffort(next, 'archive without MVP');
             setState(next);
             void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
             setMvpModalOpen(false);
@@ -4649,6 +4676,7 @@ while (guard < 5000) {
                 await snapshotFantaBeforeArchive(archivedTournamentId);
                 closeLiveCallsForTournament(archivedTournamentId);
                 next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
+                await pushFullStructuredExportBestEffort(next, 'archive with MVP');
                 setState(next);
                 void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
                 setMvpModalOpen(false);

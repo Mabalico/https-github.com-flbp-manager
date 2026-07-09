@@ -32,6 +32,8 @@ export interface SupabasePublicWorkspaceStateRow {
     updated_at?: string;
 }
 
+export interface SupabasePublicWorkspaceLiveRow extends SupabasePublicWorkspaceStateRow {}
+
 export interface SupabasePublicCareerLeaderboardRow {
     workspace_id: string;
     id: string;
@@ -176,6 +178,29 @@ const fetchWithTimeout = async (
 
 let pullPublicWorkspaceStateLastEtag: string | null = null;
 let pullPublicWorkspaceStateLastRow: SupabasePublicWorkspaceStateRow | null = null;
+let pullPublicWorkspaceLiveLastEtag: string | null = null;
+let pullPublicWorkspaceLiveLastRow: SupabasePublicWorkspaceLiveRow | null = null;
+let pullPublicWorkspaceLiveUnavailable = false;
+
+export const PUBLIC_WORKSPACE_LIVE_UNAVAILABLE_CODE = 'PUBLIC_WORKSPACE_LIVE_UNAVAILABLE';
+
+const makePublicWorkspaceLiveUnavailableError = (message?: string) => {
+    const error: any = new Error(message || 'public_workspace_live non disponibile');
+    error.code = PUBLIC_WORKSPACE_LIVE_UNAVAILABLE_CODE;
+    return error;
+};
+
+export const isPublicWorkspaceLiveUnavailableError = (error: unknown): boolean =>
+    (error as any)?.code === PUBLIC_WORKSPACE_LIVE_UNAVAILABLE_CODE;
+
+const isMissingPublicWorkspaceLiveError = (status: number, body: string) => {
+    const text = String(body || '').toLowerCase();
+    return status === 404
+        || text.includes('public_workspace_live')
+        || text.includes('pgrst205')
+        || text.includes('pgrst202')
+        || (text.includes('relation') && text.includes('does not exist'));
+};
 
 export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
@@ -204,6 +229,46 @@ export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<
     const rows = (await res.json()) as SupabasePublicWorkspaceStateRow[];
     pullPublicWorkspaceStateLastRow = rows?.[0] || null;
     return pullPublicWorkspaceStateLastRow;
+};
+
+export const pullPublicWorkspaceLive = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceLiveRow | null> => {
+    if (pullPublicWorkspaceLiveUnavailable) {
+        throw makePublicWorkspaceLiveUnavailableError();
+    }
+
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+
+    const url = restUrl(
+        cfg,
+        `public_workspace_live?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`
+    );
+    const headers: Record<string, string> = { ...buildAnonHeaders(cfg) };
+    if (pullPublicWorkspaceLiveLastEtag) {
+        headers['If-None-Match'] = pullPublicWorkspaceLiveLastEtag;
+    }
+    const res = await fetchWithTimeout(
+        url,
+        { headers },
+        2500,
+        { source: perf?.source || 'pullPublicWorkspaceLive', kind: perf?.kind || 'polling' }
+    );
+    if (res.status === 304) {
+        return pullPublicWorkspaceLiveLastRow;
+    }
+    if (!res.ok) {
+        const body = await readErrorBody(res);
+        if (isMissingPublicWorkspaceLiveError(res.status, body)) {
+            pullPublicWorkspaceLiveUnavailable = true;
+            throw makePublicWorkspaceLiveUnavailableError(body);
+        }
+        throw new Error(body);
+    }
+    const etag = res.headers.get('ETag') || res.headers.get('etag');
+    if (etag) pullPublicWorkspaceLiveLastEtag = etag;
+    const rows = (await res.json()) as SupabasePublicWorkspaceLiveRow[];
+    pullPublicWorkspaceLiveLastRow = rows?.[0] || null;
+    return pullPublicWorkspaceLiveLastRow;
 };
 
 export const pullPublicWorkspaceUpdatedAt = async (perf?: RequestPerfHint): Promise<string | null> => {

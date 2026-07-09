@@ -21,7 +21,8 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 
 | Area | Trigger | Frequenza | Path reale | Consuma Supabase | Note |
 |---|---|---:|---|---|---|
-| Snapshot pubblico globale | apertura vista pubblica + polling selettivo | una volta su enter; 60s in `tournament`; 15s in `tournament_detail` live; 90s in TV; pause in tab nascosta con refresh immediato al ritorno visibile | `App.tsx` | **SÌ** | Chiama `pullPublicWorkspaceState()` con source `App.publicWorkspacePoll`. In TV i tick successivi leggono prima solo `updated_at` e scaricano lo snapshot completo solo se è cambiato. Home / Leaderboard / Hall of Fame fanno refresh on-enter senza polling continuo. |
+| Snapshot pubblico completo | apertura vista pubblica / sezioni storiche | una volta su enter | `App.tsx` | **SÌ** | Chiama `pullPublicWorkspaceState()` con source `App.publicWorkspacePoll`. Serve a caricare storico, Hall of Fame, integrazioni e fallback completo. Non è più il documento del polling live frequente. |
+| Snapshot pubblico live | polling selettivo live | 60s in `tournament`; 15s in `tournament_detail` live; 90s in TV; pause in tab nascosta con refresh immediato al ritorno visibile | `App.tsx`, `services/supabasePublic.ts` | **SÌ** | Chiama `pullPublicWorkspaceLive()` su `public_workspace_live` con ETag/304. Il payload contiene solo `teams`, `tournament`, `tournamentMatches`, `fantaSettings`, `__schemaVersion`; se la migration manca, fallback al vecchio `public_workspace_state`. |
 | Lista tornei pubblici | ingresso in `tournament` / `tournament_detail` + polling selettivo | una volta su enter; 20s solo in `tournament`; pause in tab nascosta con refresh immediato al ritorno visibile | `App.tsx` | **SÌ** | Chiama `pullPublicTournamentsList()` con source `App.publicTournamentsPoll`. In `tournament_detail` il refresh è solo on-enter. |
 | Bundle dettaglio torneo | ingresso in `tournament_detail` + polling selettivo | una volta su enter; 5s solo live; pause in tab nascosta con refresh immediato al ritorno visibile | `App.tsx` | **SÌ** | Chiama `pullPublicTournamentBundle()` con source `App.publicTournamentBundlePoll`. I tornei non live non fanno più polling continuo. |
 | Leaderboard pubblica | ingresso nella vista | una volta per ingresso | `components/Leaderboard.tsx` | **CONDIZIONALE** | Se `publicDbReadEnabled()` e `getSupabaseConfig()` sono attivi, esegue `pullPublicCareerLeaderboard()` e `pullPublicHallOfFameEntries()` una volta su mount. Altrimenti ricade sul calcolo locale. |
@@ -29,11 +30,11 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 | Area Giocatore live | ingresso/login/save profilo + polling convocazioni | refresh completo su eventi; polling solo convocazioni ogni 12s | `components/PlayerArea.tsx` | **SÌ** | Il refresh completo legge profilo, richieste merge, alias e device solo su eventi significativi. Il timer periodico legge solo `player_app_calls` senza rieseguire la normalizzazione stale a ogni tick; il cutoff lato read resta attivo. |
 | Turni live dalla lista tornei | azione utente “apri turni” | on demand | `components/PublicTournaments.tsx` | **CONDIZIONALE** | Se esistono già `liveTeams/liveMatches`, non chiama Supabase. Se mancano e Supabase è configurato, esegue `pullPublicTournamentBundle(liveTournament.id)`. |
 | Admin auth/session check | mount Admin + focus finestra + `visibilitychange=visible` + polling solo visibile | 60s + eventi browser | `components/AdminDashboard.tsx` | **SÌ** | Esegue `ensureFreshSupabaseSession()` e `ensureSupabaseAdminAccess()`. Serve per mantenere valida la sessione admin reale senza controlli continui in background. |
-| Repository remoto Admin | refresh visibile + focus + online + visibilitychange | 20s + eventi browser | `services/repository/RemoteRepository.ts` | **CONDIZIONALE** | Il polling periodico visibile richiama `refresh()`, che porta a `pullWorkspaceState()`. Vale nel flusso remoto admin. |
+| Repository remoto Admin | refresh visibile + focus + online + visibilitychange | 20s + eventi browser | `services/repository/RemoteRepository.ts` | **CONDIZIONALE** | Il polling periodico visibile richiama `refresh()`, che porta a `pullWorkspaceState()`. I retry di write falliti usano backoff esponenziale con jitter; i conflitti restano nella pausa dedicata. Vale nel flusso remoto admin. |
 | Flush repository remoto | `beforeunload`, `pagehide`, `visibilitychange=hidden` | evento | `services/repository/RemoteRepository.ts` | **CONDIZIONALE** | Può fare **write** verso Supabase via `pushWorkspaceState()` solo se c'è stato admin pending state da salvare. |
 | Save stato app (debounced) | cambio stato admin/live | debounce 200ms | `App.tsx` | **CONDIZIONALE** | `repo.save(...)` viene sempre chiamato dopo il debounce, ma consuma Supabase solo se il repository attivo è remoto e ci sono dati da flushare. |
 | Flush salvataggio su chiusura/nascosto | `beforeunload`, `pagehide`, `visibilitychange=hidden` | evento | `App.tsx` | **CONDIZIONALE** | Fa `repo.save(...)` e `flushAutoStructuredSync(...)`. Il consumo verso Supabase dipende dal repository remoto e dallo structured sync attivo. |
-| Structured sync automatico | cambi stato + retry su online/visible | debounce 1500ms, throttle 20s | `services/autoDbSync.ts` | **CONDIZIONALE** | Se `isAutoStructuredSyncEnabled()` è attivo, Supabase è configurato e c'è JWT admin, può chiamare `pushNormalizedFromState(...)`. Non è un polling UI, è sync best-effort. |
+| Structured sync automatico | cambi stato + retry su online/visible | debounce 1500ms, throttle 20s | `services/autoDbSync.ts` | **CONDIZIONALE** | Se `isAutoStructuredSyncEnabled()` è attivo, Supabase è configurato e c'è JWT admin, durante un live chiama `pushLiveTournamentIncremental(...)` e aggiorna solo il torneo corrente. Il full `pushNormalizedFromState(...)` resta per stato idle/eventi una-tantum. Non è un polling UI, è sync best-effort. |
 | Dashboard visualizzazioni | apertura sottotab o cambio range date | on demand | `components/admin/tabs/data/ViewsSubTab.tsx` | **SÌ** | Esegue `pullPublicSiteViewsDailyRange(startDate, endDate)` una volta ogni cambio intervallo. Non è polling. |
 | Timer “ultimo aggiornamento” dettaglio torneo | timer UI locale | 30s | `components/PublicTournamentDetail.tsx` | **NO** | Aggiorna solo `lastUpdated` in UI quando il torneo è live. Nessuna chiamata rete. |
 | Rotazione TV bracket | timer UI locale | intervallo costante `ROTATION_MS` | `components/TvBracketView.tsx` | **NO** | Cambia pagina/rotazione nella TV, non esegue fetch. |
@@ -44,14 +45,14 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 ## Lettura rapida per sezione
 
 ### Public / Home / Leaderboard / Hall of Fame
-- Il refresh più pesante lato pubblico è in `App.tsx`: snapshot pubblico globale, lista tornei, bundle torneo.
+- Il refresh più pesante lato pubblico è in `App.tsx`: snapshot pubblico completo on-enter, lista tornei, bundle torneo.
 - Home, `Leaderboard.tsx` e `HallOfFame.tsx` sono ora allineate a logica **refresh on enter** senza polling continuo. I polling pubblici attivi vengono sospesi quando la tab è nascosta e ripartono con refresh immediato quando torna visibile.
 - `Leaderboard.tsx` e `HallOfFame.tsx` aggiungono fetch **on enter** quando il public DB read è attivo.
 - Se Supabase non è configurato o il public read è spento, queste viste ricadono sullo stato locale e non consumano Supabase.
 
 ### Tournament / Tournament detail / TV
 - `App.tsx` continua a essere il punto principale di traffico.
-- In `tournament_detail`, il bundle torneo è il refresh più frequente solo quando il torneo è live: 5s. Anche qui il polling viene sospeso se la tab è nascosta e riprende al ritorno visibile.
+- In `tournament_detail`, il polling dello stato app usa il documento piccolo `public_workspace_live` quando il torneo è live. Anche qui il polling viene sospeso se la tab è nascosta e riprende al ritorno visibile.
 - Per i tornei non live il bundle fa refresh on enter senza polling continuo.
 - Le TV hanno anche timer propri (`TvBracketView.tsx`, `TvScorersView.tsx`), ma questi timer sono **solo UI**: il traffico Supabase dipende dal polling già gestito in `App.tsx`.
 
@@ -64,6 +65,9 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 - `services/autoDbSync.ts` **non** è un polling UI classico.
 - È una sincronizzazione best-effort che parte su modifiche, `online` e `visibilitychange=visible`, con debounce 1500ms e throttle 20s.
 - Consuma Supabase solo se attivata da flag e se c'è una sessione admin valida.
+- Durante un torneo live esporta in modo incrementale solo `state.tournament` + `state.tournamentMatches`, con upsert mirati su tabelle torneo/private e mirror pubblici e delete solo delle righe stale di quel torneo.
+- Il full export normalizzato resta per azioni una-tantum: archiviazione torneo, restore/merge backup, export manuale e stati senza torneo live.
+- I retry dopo errori non-conflitto usano backoff esponenziale con jitter; i flush lifecycle (`pagehide`/`beforeunload`/tab nascosta) possono fare un solo tentativo best-effort durante il cooldown.
 
 ### Diagnostica DB admin
 - Il pulsante **Diagnostica** in Gestione Dati esegue `runDbHealthChecks()` solo su richiesta esplicita dell'admin.
@@ -80,7 +84,8 @@ Queste non sono refresh continui, ma è utile tenerle tracciate perché generano
 | Conteggio visita pubblica | `App.tsx`, `services/supabaseRest.ts` | **SÌ** | È una write una tantum per browser/giorno nelle viste pubbliche ammesse. Non è polling. |
 | Login admin | `components/AdminDashboard.tsx`, `services/supabaseRest.ts` | **SÌ** | Chiamata auth esplicita al login. |
 | Login arbitro | `components/RefereesArea.tsx`, `services/supabaseRest.ts` | **SÌ** | Chiamata esplicita a `verifyRefereePassword()`. |
-| Salvataggio stato arbitro / risultato | `components/RefereesArea.tsx`, `services/supabaseRest.ts` | **SÌ** | Write esplicita a `pushRefereeLiveState()`. |
+| Salvataggio referto admin | `components/AdminDashboard.tsx`, `services/supabaseRest.ts` | **SÌ** | Write esplicita a `pushAdminMatchResults()`: aggiorna solo match referto + match a valle propagati. Se la RPC non è ancora migrata o lo snapshot pubblico non è pronto, fallback al vecchio snapshot completo. |
+| Salvataggio referto arbitro | `components/RefereesArea.tsx`, `services/supabaseRest.ts` | **SÌ** | Write esplicita a `pushRefereeMatchResults()`: stessa password/audit arbitri, ma invia solo i match cambiati. `pushRefereeLiveState()` resta fallback per DB non migrati. |
 
 ## Dove guardare quando si vuole ridurre il consumo
 

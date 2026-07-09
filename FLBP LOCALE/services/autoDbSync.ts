@@ -1,5 +1,5 @@
 import type { AppState } from './storageService';
-import { getSupabaseAccessToken, getSupabaseConfig, pushNormalizedFromState } from './supabaseRest';
+import { getSupabaseAccessToken, getSupabaseConfig, pushLiveTournamentIncremental, pushNormalizedFromState } from './supabaseRest';
 import { markDbSyncConflict, markDbSyncError, markDbSyncOk } from './dbDiagnostics';
 import { getAppStateRepository } from './repository/getRepository';
 import { hasMeaningfulAppState } from './appStateMeaning';
@@ -162,7 +162,9 @@ export const flushAutoStructuredSync = async (
   pending = null;
 
   try {
-    const summary = await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
+    const summary = s.tournament
+      ? await pushLiveTournamentIncremental(s, forceThisRun ? { force: true } : undefined)
+      : await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
     lastRunAt = Date.now();
     lastFingerprint = fp;
     markDbSyncOk('structured', summary);

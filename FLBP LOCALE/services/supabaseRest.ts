@@ -4004,6 +4004,378 @@ export interface NormalizedPullResult {
     remoteUpdatedAt?: string | null;
 }
 
+type NormalizedTournamentEntry = {
+    t: any;
+    status: 'live' | 'archived';
+    matches: any[];
+};
+
+type NowIsoFactory = () => string;
+
+interface NormalizedTournamentRows {
+    tournamentRows: RestRow[];
+    teamRows: RestRow[];
+    groupRows: RestRow[];
+    groupTeamRows: RestRow[];
+    matchRows: RestRow[];
+    statRows: RestRow[];
+    publicTournamentRows: RestRow[];
+    publicTeamRows: RestRow[];
+    publicGroupRows: RestRow[];
+    publicGroupTeamRows: RestRow[];
+    publicMatchRows: RestRow[];
+    publicStatRows: RestRow[];
+}
+
+const createEmptyTournamentRows = (): NormalizedTournamentRows => ({
+    tournamentRows: [],
+    teamRows: [],
+    groupRows: [],
+    groupTeamRows: [],
+    matchRows: [],
+    statRows: [],
+    publicTournamentRows: [],
+    publicTeamRows: [],
+    publicGroupRows: [],
+    publicGroupTeamRows: [],
+    publicMatchRows: [],
+    publicStatRows: [],
+});
+
+const appendTournamentRows = (target: NormalizedTournamentRows, source: NormalizedTournamentRows) => {
+    target.tournamentRows.push(...source.tournamentRows);
+    target.teamRows.push(...source.teamRows);
+    target.groupRows.push(...source.groupRows);
+    target.groupTeamRows.push(...source.groupTeamRows);
+    target.matchRows.push(...source.matchRows);
+    target.statRows.push(...source.statRows);
+    target.publicTournamentRows.push(...source.publicTournamentRows);
+    target.publicTeamRows.push(...source.publicTeamRows);
+    target.publicGroupRows.push(...source.publicGroupRows);
+    target.publicGroupTeamRows.push(...source.publicGroupTeamRows);
+    target.publicMatchRows.push(...source.publicMatchRows);
+    target.publicStatRows.push(...source.publicStatRows);
+};
+
+const buildTournamentNormalizedRows = (
+    workspaceId: string,
+    state: AppState,
+    entry: NormalizedTournamentEntry,
+    nowIso: NowIsoFactory = () => new Date().toISOString()
+): NormalizedTournamentRows => {
+    const rows = createEmptyTournamentRows();
+    const t = entry.t;
+    const tid = t.id;
+    const tournamentResultsOnly = !!t?.config?.resultsOnly;
+
+    rows.tournamentRows.push({
+        workspace_id: workspaceId,
+        id: tid,
+        name: t.name,
+        start_date: t.startDate,
+        type: t.type,
+        config: t.config || {},
+        is_manual: !!t.isManual,
+        status: entry.status,
+        updated_at: nowIso()
+    });
+
+    // Public tournaments (sanitized: no YoB, no birthDate, no player keys)
+    rows.publicTournamentRows.push({
+        workspace_id: workspaceId,
+        id: tid,
+        name: t.name,
+        start_date: t.startDate,
+        type: t.type,
+        config: t.config || {},
+        is_manual: !!t.isManual,
+        status: entry.status,
+        updated_at: nowIso()
+    });
+
+    const teams = (t.teams || []) as any[];
+    teams.forEach((tm: any) => {
+        const player1BirthDate = normalizeBirthDateInput(tm.player1BirthDate);
+        const player2BirthDate = normalizeBirthDateInput(tm.player2BirthDate);
+        rows.teamRows.push({
+            workspace_id: workspaceId,
+            tournament_id: tid,
+            id: tm.id,
+            name: tm.name,
+            player1: tm.player1,
+            player2: tm.player2 ?? '',
+            player1_yob: deriveYoBFromBirthDate(player1BirthDate) ?? tm.player1YoB ?? null,
+            player1_birth_date: player1BirthDate ?? null,
+            player2_yob: deriveYoBFromBirthDate(player2BirthDate) ?? tm.player2YoB ?? null,
+            player2_birth_date: player2BirthDate ?? null,
+            player1_is_referee: !!tm.player1IsReferee,
+            player2_is_referee: !!tm.player2IsReferee,
+            is_referee: !!tm.isReferee,
+            created_at_ms: tm.createdAt ?? null
+        });
+
+        rows.publicTeamRows.push({
+            workspace_id: workspaceId,
+            tournament_id: tid,
+            id: tm.id,
+            name: tm.name,
+            player1: tm.player1,
+            player2: tm.player2 ?? '',
+            player1_is_referee: !!tm.player1IsReferee,
+            player2_is_referee: !!tm.player2IsReferee,
+            is_referee: !!tm.isReferee,
+            created_at: tm.createdAt ? new Date(tm.createdAt).toISOString() : null
+        });
+    });
+
+    const groups = (t.groups || []) as any[];
+    groups
+        .slice()
+        .sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), 'it', { sensitivity: 'base' }))
+        .forEach((g: any, idx: number) => {
+            rows.groupRows.push({
+                workspace_id: workspaceId,
+                tournament_id: tid,
+                id: g.id,
+                name: g.name,
+                order_index: idx
+            });
+
+            rows.publicGroupRows.push({
+                workspace_id: workspaceId,
+                tournament_id: tid,
+                id: g.id,
+                name: g.name,
+                order_index: idx
+            });
+
+            (g.teams || []).forEach((gt: any) => {
+                rows.groupTeamRows.push({
+                    workspace_id: workspaceId,
+                    tournament_id: tid,
+                    group_id: g.id,
+                    team_id: gt.id
+                });
+
+                rows.publicGroupTeamRows.push({
+                    workspace_id: workspaceId,
+                    tournament_id: tid,
+                    group_id: g.id,
+                    team_id: gt.id,
+                    seed: null
+                });
+            });
+        });
+
+    const teamById = new Map<string, any>(teams.map((x: any) => [x.id, x]));
+    const matches = (entry.matches || []) as any[];
+
+    matches.forEach((m: any) => {
+        const phase = m.phase || (m.groupName ? 'groups' : 'bracket');
+        const isBye = !!m.isBye || m.teamAId === 'BYE' || m.teamBId === 'BYE';
+        const hidden = isBye ? true : !!m.hidden;
+        rows.matchRows.push({
+            workspace_id: workspaceId,
+            tournament_id: tid,
+            id: m.id,
+            code: m.code ?? null,
+            phase,
+            status: m.status,
+            played: !!m.played,
+            score_a: m.scoreA ?? 0,
+            score_b: m.scoreB ?? 0,
+            team_a_id: m.teamAId ?? null,
+            team_b_id: m.teamBId ?? null,
+            next_match_id: m.nextMatchId ?? null,
+            next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
+            round: m.round ?? null,
+            round_name: m.roundName ?? null,
+            group_name: m.groupName ?? null,
+            order_index: m.orderIndex ?? null,
+            hidden,
+            is_bye: isBye,
+            updated_at: nowIso()
+        });
+
+        rows.publicMatchRows.push({
+            workspace_id: workspaceId,
+            tournament_id: tid,
+            id: m.id,
+            code: m.code ?? null,
+            phase,
+            status: m.status,
+            played: !!m.played,
+            score_a: m.scoreA ?? 0,
+            score_b: m.scoreB ?? 0,
+            team_a_id: m.teamAId ?? null,
+            team_b_id: m.teamBId ?? null,
+            next_match_id: m.nextMatchId ?? null,
+            next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
+            round: m.round ?? null,
+            round_name: m.roundName ?? null,
+            group_name: m.groupName ?? null,
+            order_index: m.orderIndex ?? null,
+            hidden,
+            is_bye: isBye,
+            updated_at: nowIso()
+        });
+
+        if (tournamentResultsOnly) return;
+
+        (m.stats || []).forEach((s: any) => {
+            const team = teamById.get(s.teamId);
+            const birthDate = team
+                ? normalizeBirthDateInput(team.player1 === s.playerName ? team.player1BirthDate : team.player2BirthDate)
+                : undefined;
+            const rawKey = getPlayerKey(s.playerName, pickPlayerIdentityValue(birthDate));
+            const resolvedKey = resolvePlayerKey(state, rawKey);
+            rows.statRows.push({
+                workspace_id: workspaceId,
+                tournament_id: tid,
+                match_id: m.id,
+                team_id: s.teamId,
+                player_name: s.playerName,
+                canestri: s.canestri ?? 0,
+                soffi: s.soffi ?? 0,
+                player_key: resolvedKey
+            });
+
+            rows.publicStatRows.push({
+                workspace_id: workspaceId,
+                tournament_id: tid,
+                match_id: m.id,
+                team_id: s.teamId,
+                player_name: s.playerName,
+                canestri: s.canestri ?? 0,
+                soffi: s.soffi ?? 0
+            });
+        });
+    });
+
+    return rows;
+};
+
+export const __buildNormalizedTournamentRowsForTest = (
+    state: AppState,
+    entry: NormalizedTournamentEntry,
+    workspaceId = 'test-workspace',
+    nowIso: NowIsoFactory = () => new Date().toISOString()
+) => buildTournamentNormalizedRows(workspaceId, state, entry, nowIso);
+
+const restSelectRows = async <T,>(cfg: SupabaseConfig, pathWithQuery: string): Promise<T> => {
+    await ensureFreshAuthForSupabaseOps();
+    const res = await fetchWithDevRequestPerf(restUrl(cfg, pathWithQuery), { headers: buildHeaders(cfg) }, { source: 'restSelectRows', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return (await res.json()) as T;
+};
+
+const rowKeyForColumns = (row: RestRow, columns: string[]) => JSON.stringify(columns.map((column) => row?.[column] ?? null));
+
+const eqFilter = (column: string, value: unknown) => `${column}=eq.${encodeURIComponent(String(value ?? ''))}`;
+
+const deleteStaleRowsForTable = async (
+    cfg: SupabaseConfig,
+    table: string,
+    tournamentId: string,
+    desiredRows: RestRow[],
+    keyColumns: string[]
+) => {
+    const workspaceEnc = encodeURIComponent(cfg.workspaceId);
+    const tournamentEnc = encodeURIComponent(tournamentId);
+    const existingRows = await restSelectRows<RestRow[]>(
+        cfg,
+        `${table}?workspace_id=eq.${workspaceEnc}&tournament_id=eq.${tournamentEnc}&select=${keyColumns.join(',')}`
+    );
+    const desired = new Set(desiredRows.map((row) => rowKeyForColumns(row, keyColumns)));
+    const staleRows = (existingRows || []).filter((row) => !desired.has(rowKeyForColumns(row, keyColumns)));
+
+    for (const row of staleRows) {
+        const filters = [
+            eqFilter('workspace_id', cfg.workspaceId),
+            eqFilter('tournament_id', tournamentId),
+            ...keyColumns.map((column) => eqFilter(column, row[column]))
+        ];
+        await restDeleteWhere(cfg, table, filters.join('&'));
+    }
+};
+
+const deleteStaleTournamentRows = async (cfg: SupabaseConfig, tournamentId: string, rows: NormalizedTournamentRows) => {
+    await deleteStaleRowsForTable(cfg, 'tournament_match_stats', tournamentId, rows.statRows, ['match_id', 'team_id', 'player_name']);
+    await deleteStaleRowsForTable(cfg, 'tournament_group_teams', tournamentId, rows.groupTeamRows, ['group_id', 'team_id']);
+    await deleteStaleRowsForTable(cfg, 'tournament_matches', tournamentId, rows.matchRows, ['id']);
+    await deleteStaleRowsForTable(cfg, 'tournament_groups', tournamentId, rows.groupRows, ['id']);
+    await deleteStaleRowsForTable(cfg, 'tournament_teams', tournamentId, rows.teamRows, ['id']);
+};
+
+const deleteStalePublicTournamentRows = async (cfg: SupabaseConfig, tournamentId: string, rows: NormalizedTournamentRows) => {
+    await deleteStaleRowsForTable(cfg, 'public_tournament_match_stats', tournamentId, rows.publicStatRows, ['match_id', 'team_id', 'player_name']);
+    await deleteStaleRowsForTable(cfg, 'public_tournament_group_teams', tournamentId, rows.publicGroupTeamRows, ['group_id', 'team_id']);
+    await deleteStaleRowsForTable(cfg, 'public_tournament_matches', tournamentId, rows.publicMatchRows, ['id']);
+    await deleteStaleRowsForTable(cfg, 'public_tournament_groups', tournamentId, rows.publicGroupRows, ['id']);
+    await deleteStaleRowsForTable(cfg, 'public_tournament_teams', tournamentId, rows.publicTeamRows, ['id']);
+};
+
+const emptyNormalizedExportSummary = (): NormalizedExportSummary => ({
+    tournaments: 0,
+    teams: 0,
+    groups: 0,
+    groupTeams: 0,
+    matches: 0,
+    matchStats: 0,
+    hallOfFame: 0,
+    integrationsScorers: 0,
+    aliases: 0,
+    publicCareerPlayers: 0,
+});
+
+export const pushLiveTournamentIncremental = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg || !state.tournament) return emptyNormalizedExportSummary();
+
+    // Keep the canonical snapshot atomic/light; normalized tables below are the live mirror.
+    await pushWorkspaceState(state, opts);
+    await ensureWorkspace(cfg);
+
+    const tournamentId = String(state.tournament.id || '').trim();
+    if (!tournamentId) return emptyNormalizedExportSummary();
+
+    const rows = buildTournamentNormalizedRows(cfg.workspaceId, state, {
+        t: state.tournament,
+        status: 'live',
+        matches: state.tournamentMatches || []
+    });
+
+    await restUpsertRows(cfg, 'tournaments', rows.tournamentRows, 'workspace_id,id');
+    await restUpsertRows(cfg, 'tournament_teams', rows.teamRows, 'workspace_id,tournament_id,id');
+    await restUpsertRows(cfg, 'tournament_groups', rows.groupRows, 'workspace_id,tournament_id,id');
+    await restUpsertRows(cfg, 'tournament_group_teams', rows.groupTeamRows, 'workspace_id,tournament_id,group_id,team_id');
+    await restUpsertRows(cfg, 'tournament_matches', rows.matchRows, 'workspace_id,tournament_id,id');
+    await restUpsertRows(cfg, 'tournament_match_stats', rows.statRows, 'workspace_id,tournament_id,match_id,team_id,player_name', 800);
+    await deleteStaleTournamentRows(cfg, tournamentId, rows);
+
+    try {
+        await restUpsertRows(cfg, 'public_tournaments', rows.publicTournamentRows, 'workspace_id,id');
+        await restUpsertRows(cfg, 'public_tournament_teams', rows.publicTeamRows, 'workspace_id,tournament_id,id');
+        await restUpsertRows(cfg, 'public_tournament_groups', rows.publicGroupRows, 'workspace_id,tournament_id,id');
+        await restUpsertRows(cfg, 'public_tournament_group_teams', rows.publicGroupTeamRows, 'workspace_id,tournament_id,group_id,team_id');
+        await restUpsertRows(cfg, 'public_tournament_matches', rows.publicMatchRows, 'workspace_id,tournament_id,id');
+        await restUpsertRows(cfg, 'public_tournament_match_stats', rows.publicStatRows, 'workspace_id,tournament_id,match_id,team_id,player_name', 800);
+        await deleteStalePublicTournamentRows(cfg, tournamentId, rows);
+    } catch {
+        // ignore: public mirror tables might not exist yet or may be temporarily unauthorized
+    }
+
+    return {
+        ...emptyNormalizedExportSummary(),
+        tournaments: rows.tournamentRows.length,
+        teams: rows.teamRows.length,
+        groups: rows.groupRows.length,
+        groupTeams: rows.groupTeamRows.length,
+        matches: rows.matchRows.length,
+        matchStats: rows.statRows.length,
+    };
+};
+
 // NOTE: This is an explicit admin action. It overwrites normalized tables for the workspace.
 export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
@@ -4134,210 +4506,28 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         tournaments.push({ t: state.tournament, status: 'live', matches: state.tournamentMatches || [] });
     }
 
-    const tournamentRows: RestRow[] = [];
-    const teamRows: RestRow[] = [];
-    const groupRows: RestRow[] = [];
-    const groupTeamRows: RestRow[] = [];
-    const matchRows: RestRow[] = [];
-    const statRows: RestRow[] = [];
-
-    // Public (sanitized) tournament bundles
-    const publicTournamentRows: RestRow[] = [];
-    const publicTeamRows: RestRow[] = [];
-    const publicGroupRows: RestRow[] = [];
-    const publicGroupTeamRows: RestRow[] = [];
-    const publicMatchRows: RestRow[] = [];
-    const publicStatRows: RestRow[] = [];
+    const tournamentBundleRows = createEmptyTournamentRows();
 
     for (const entry of tournaments) {
-        const t = entry.t;
-        const tid = t.id;
-        const tournamentResultsOnly = !!t?.config?.resultsOnly;
-        tournamentRows.push({
-            workspace_id: cfg.workspaceId,
-            id: tid,
-            name: t.name,
-            start_date: t.startDate,
-            type: t.type,
-            config: t.config || {},
-            is_manual: !!t.isManual,
-            status: entry.status,
-            updated_at: new Date().toISOString()
-        });
-
-        // Public tournaments (sanitized: no YoB, no birthDate, no player keys)
-        publicTournamentRows.push({
-            workspace_id: cfg.workspaceId,
-            id: tid,
-            name: t.name,
-            start_date: t.startDate,
-            type: t.type,
-            config: t.config || {},
-            is_manual: !!t.isManual,
-            status: entry.status,
-            updated_at: new Date().toISOString()
-        });
-
-        const teams = (t.teams || []) as any[];
-        teams.forEach((tm: any) => {
-            const player1BirthDate = normalizeBirthDateInput(tm.player1BirthDate);
-            const player2BirthDate = normalizeBirthDateInput(tm.player2BirthDate);
-            teamRows.push({
-                workspace_id: cfg.workspaceId,
-                tournament_id: tid,
-                id: tm.id,
-                name: tm.name,
-                player1: tm.player1,
-                player2: tm.player2 ?? '',
-                player1_yob: deriveYoBFromBirthDate(player1BirthDate) ?? tm.player1YoB ?? null,
-                player1_birth_date: player1BirthDate ?? null,
-                player2_yob: deriveYoBFromBirthDate(player2BirthDate) ?? tm.player2YoB ?? null,
-                player2_birth_date: player2BirthDate ?? null,
-                player1_is_referee: !!tm.player1IsReferee,
-                player2_is_referee: !!tm.player2IsReferee,
-                is_referee: !!tm.isReferee,
-                created_at_ms: tm.createdAt ?? null
-            });
-
-            publicTeamRows.push({
-                workspace_id: cfg.workspaceId,
-                tournament_id: tid,
-                id: tm.id,
-                name: tm.name,
-                player1: tm.player1,
-                player2: tm.player2 ?? '',
-                player1_is_referee: !!tm.player1IsReferee,
-                player2_is_referee: !!tm.player2IsReferee,
-                is_referee: !!tm.isReferee,
-                created_at: tm.createdAt ? new Date(tm.createdAt).toISOString() : null
-            });
-        });
-
-        const groups = (t.groups || []) as any[];
-        groups
-            .slice()
-            .sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), 'it', { sensitivity: 'base' }))
-            .forEach((g: any, idx: number) => {
-                groupRows.push({
-                    workspace_id: cfg.workspaceId,
-                    tournament_id: tid,
-                    id: g.id,
-                    name: g.name,
-                    order_index: idx
-                });
-
-                publicGroupRows.push({
-                    workspace_id: cfg.workspaceId,
-                    tournament_id: tid,
-                    id: g.id,
-                    name: g.name,
-                    order_index: idx
-                });
-                (g.teams || []).forEach((gt: any) => {
-                    groupTeamRows.push({
-                        workspace_id: cfg.workspaceId,
-                        tournament_id: tid,
-                        group_id: g.id,
-                        team_id: gt.id
-                    });
-
-                    publicGroupTeamRows.push({
-                        workspace_id: cfg.workspaceId,
-                        tournament_id: tid,
-                        group_id: g.id,
-                        team_id: gt.id,
-                        seed: null
-                    });
-                });
-            });
-
-        const teamById = new Map<string, any>(teams.map((x: any) => [x.id, x]));
-        const matches = (entry.matches || []) as any[];
-
-        matches.forEach((m: any) => {
-            const phase = m.phase || (m.groupName ? 'groups' : 'bracket');
-            const isBye = !!m.isBye || m.teamAId === 'BYE' || m.teamBId === 'BYE';
-            const hidden = isBye ? true : !!m.hidden;
-            matchRows.push({
-                workspace_id: cfg.workspaceId,
-                tournament_id: tid,
-                id: m.id,
-                code: m.code ?? null,
-                phase,
-                status: m.status,
-                played: !!m.played,
-                score_a: m.scoreA ?? 0,
-                score_b: m.scoreB ?? 0,
-                team_a_id: m.teamAId ?? null,
-                team_b_id: m.teamBId ?? null,
-                next_match_id: m.nextMatchId ?? null,
-                next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
-                round: m.round ?? null,
-                round_name: m.roundName ?? null,
-                group_name: m.groupName ?? null,
-                order_index: m.orderIndex ?? null,
-                hidden,
-                is_bye: isBye,
-                updated_at: new Date().toISOString()
-            });
-
-            publicMatchRows.push({
-                workspace_id: cfg.workspaceId,
-                tournament_id: tid,
-                id: m.id,
-                code: m.code ?? null,
-                phase,
-                status: m.status,
-                played: !!m.played,
-                score_a: m.scoreA ?? 0,
-                score_b: m.scoreB ?? 0,
-                team_a_id: m.teamAId ?? null,
-                team_b_id: m.teamBId ?? null,
-                next_match_id: m.nextMatchId ?? null,
-                next_slot: m.nextSlot === 'A' || m.nextSlot === 'B' ? m.nextSlot : null,
-                round: m.round ?? null,
-                round_name: m.roundName ?? null,
-                group_name: m.groupName ?? null,
-                order_index: m.orderIndex ?? null,
-                hidden,
-                is_bye: isBye,
-                updated_at: new Date().toISOString()
-            });
-
-            if (tournamentResultsOnly) return;
-
-            (m.stats || []).forEach((s: any) => {
-                const team = teamById.get(s.teamId);
-                const birthDate = team
-                    ? normalizeBirthDateInput(team.player1 === s.playerName ? team.player1BirthDate : team.player2BirthDate)
-                    : undefined;
-                const rawKey = getPlayerKey(s.playerName, pickPlayerIdentityValue(birthDate));
-                const resolvedKey = resolvePlayerKey(state, rawKey);
-                statRows.push({
-                    workspace_id: cfg.workspaceId,
-                    tournament_id: tid,
-                    match_id: m.id,
-                    team_id: s.teamId,
-                    player_name: s.playerName,
-                    canestri: s.canestri ?? 0,
-                    soffi: s.soffi ?? 0,
-                    player_key: resolvedKey
-                });
-
-                publicStatRows.push({
-                    workspace_id: cfg.workspaceId,
-                    tournament_id: tid,
-                    match_id: m.id,
-                    team_id: s.teamId,
-                    player_name: s.playerName,
-                    canestri: s.canestri ?? 0,
-                    soffi: s.soffi ?? 0
-                });
-            });
-        });
+        appendTournamentRows(tournamentBundleRows, buildTournamentNormalizedRows(cfg.workspaceId, state, entry));
     }
 
     // Insert order matters due to FKs.
+    const {
+        tournamentRows,
+        teamRows,
+        groupRows,
+        groupTeamRows,
+        matchRows,
+        statRows,
+        publicTournamentRows,
+        publicTeamRows,
+        publicGroupRows,
+        publicGroupTeamRows,
+        publicMatchRows,
+        publicStatRows,
+    } = tournamentBundleRows;
+
     await restUpsertRows(cfg, 'tournaments', tournamentRows, 'workspace_id,id');
     await restUpsertRows(cfg, 'tournament_teams', teamRows, 'workspace_id,tournament_id,id');
     await restUpsertRows(cfg, 'tournament_groups', groupRows, 'workspace_id,tournament_id,id');

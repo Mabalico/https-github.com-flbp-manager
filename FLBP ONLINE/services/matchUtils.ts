@@ -75,6 +75,85 @@ export const formatMatchScoreLabel = (m: Match): string => {
   return `${m.scoreA ?? 0}-${m.scoreB ?? 0}`;
 };
 
+const normalizeMatchStatsForSync = (m?: Match | null) =>
+  (m?.stats || [])
+    .map((s) => ({
+      teamId: String(s.teamId || ''),
+      playerName: String(s.playerName || ''),
+      canestri: Number(s.canestri || 0),
+      soffi: Number(s.soffi || 0),
+    }))
+    .sort((a, b) => `${a.teamId}|${a.playerName}`.localeCompare(`${b.teamId}|${b.playerName}`));
+
+export const buildMatchResultSyncSignature = (match?: Match | null) => {
+  if (!match) return '';
+  return JSON.stringify({
+    id: match.id,
+    teamAId: match.teamAId || null,
+    teamBId: match.teamBId || null,
+    teamIds: match.teamIds || null,
+    scoresByTeam: match.scoresByTeam || null,
+    scoreA: Number(match.scoreA || 0),
+    scoreB: Number(match.scoreB || 0),
+    played: !!match.played,
+    status: match.status || 'scheduled',
+    stats: normalizeMatchStatsForSync(match),
+    round: match.round ?? null,
+    code: match.code || null,
+    phase: match.phase || null,
+    groupName: match.groupName || null,
+    roundName: match.roundName || null,
+    orderIndex: match.orderIndex ?? null,
+    nextMatchId: match.nextMatchId || null,
+    nextSlot: match.nextSlot || null,
+    hidden: !!match.hidden,
+    isBye: !!match.isBye,
+    isTieBreak: !!match.isTieBreak,
+    targetScore: match.targetScore ?? null,
+    refereeReportAudit: match.refereeReportAudit || null,
+    refereeReportFinalId: match.refereeReportFinalId || null,
+    refereeReportSource: match.refereeReportSource || null,
+    refereeReportAuthorName: match.refereeReportAuthorName || null,
+    refereeReportSavedAt: match.refereeReportSavedAt || null,
+  });
+};
+
+export const collectChangedMatchResults = (before: Match[], after: Match[], primaryMatchId: string): Match[] => {
+  const primaryId = String(primaryMatchId || '').trim();
+  const beforeById = new Map((before || []).map((match) => [String(match.id || ''), match]));
+  const out: Match[] = [];
+  const seen = new Set<string>();
+  const push = (match?: Match | null) => {
+    const id = String(match?.id || '').trim();
+    if (!id || seen.has(id) || !match) return;
+    seen.add(id);
+    out.push(match);
+  };
+
+  push((after || []).find((match) => String(match.id || '') === primaryId) || null);
+  (after || []).forEach((match) => {
+    const id = String(match.id || '').trim();
+    if (!id) return;
+    if (id === primaryId || buildMatchResultSyncSignature(match) !== buildMatchResultSyncSignature(beforeById.get(id))) {
+      push(match);
+    }
+  });
+  return out;
+};
+
+export const cloneMatchesForResultSync = (matches: Match[]): Match[] =>
+  (matches || []).map((match) => ({
+    ...match,
+    teamIds: match.teamIds ? [...match.teamIds] : undefined,
+    scoresByTeam: match.scoresByTeam ? { ...match.scoresByTeam } : undefined,
+    stats: match.stats?.map((stat) => ({ ...stat })),
+    refereeReportAudit: match.refereeReportAudit?.map((entry) => ({
+      ...entry,
+      scoresByTeam: entry.scoresByTeam ? { ...entry.scoresByTeam } : undefined,
+      stats: entry.stats?.map((stat) => ({ ...stat })),
+    })),
+  }));
+
 /**
  * Formats a compact match label with code + participant names.
  *

@@ -22,6 +22,8 @@ export class RemoteRepository implements AppStateRepository {
   private static readonly REMOTE_POLL_INTERVAL_MS = 20000;
   private static readonly REMOTE_SAVE_DEBOUNCE_MS = 100;
   private static readonly REMOTE_SNAPSHOT_EVENT_KEY = 'flbp_remote_snapshot_event';
+  private static readonly FLUSH_BACKOFF_STEPS_MS = [5000, 15000, 45000, 120000];
+  private static readonly FLUSH_BACKOFF_JITTER_RATIO = 0.2;
 
   private readonly instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private pullKicked = false;
@@ -33,6 +35,10 @@ export class RemoteRepository implements AppStateRepository {
   private lastStateFingerprint = '';
   private conflictedDraftFingerprint: string | null = null;
   private lastRemoteState: AppState | null = null;
+  private flushFailureCount = 0;
+  private flushCooldownUntil = 0;
+  private flushLifecycleBypassUsedForCooldownUntil = 0;
+  private flushBackoffTimer: number | null = null;
 
   private isAdminViewActive(): boolean {
     try {
@@ -45,6 +51,48 @@ export class RemoteRepository implements AppStateRepository {
   private shouldBackgroundRefresh(): boolean {
     if (this.pendingState || hasRemoteDraftCache()) return true;
     return this.isAdminViewActive();
+  }
+
+  private flushRetryDelayWithJitter() {
+    const base = RemoteRepository.FLUSH_BACKOFF_STEPS_MS[
+      Math.min(Math.max(this.flushFailureCount - 1, 0), RemoteRepository.FLUSH_BACKOFF_STEPS_MS.length - 1)
+    ];
+    const jitter = 1 + ((Math.random() * 2 - 1) * RemoteRepository.FLUSH_BACKOFF_JITTER_RATIO);
+    return Math.max(1000, Math.round(base * jitter));
+  }
+
+  private clearFlushBackoff() {
+    this.flushFailureCount = 0;
+    this.flushCooldownUntil = 0;
+    this.flushLifecycleBypassUsedForCooldownUntil = 0;
+    if (this.flushBackoffTimer != null) {
+      window.clearTimeout(this.flushBackoffTimer);
+      this.flushBackoffTimer = null;
+    }
+  }
+
+  private noteFlushFailure(markLifecycleBypassUsed = false) {
+    this.flushFailureCount += 1;
+    const delayMs = this.flushRetryDelayWithJitter();
+    this.flushCooldownUntil = Date.now() + delayMs;
+    this.flushLifecycleBypassUsedForCooldownUntil = markLifecycleBypassUsed ? this.flushCooldownUntil : 0;
+    if (this.flushBackoffTimer != null) window.clearTimeout(this.flushBackoffTimer);
+    this.flushBackoffTimer = window.setTimeout(() => {
+      this.flushBackoffTimer = null;
+      void this.flushNow();
+    }, delayMs);
+    return delayMs;
+  }
+
+  private isFlushCoolingDown(allowLifecycleBypass?: boolean) {
+    if (!this.flushCooldownUntil) return false;
+    const now = Date.now();
+    if (now >= this.flushCooldownUntil) return false;
+    if (allowLifecycleBypass && this.flushLifecycleBypassUsedForCooldownUntil !== this.flushCooldownUntil) {
+      this.flushLifecycleBypassUsedForCooldownUntil = this.flushCooldownUntil;
+      return false;
+    }
+    return true;
   }
 
   private publishRemoteSnapshotUpdate(updatedAt?: string | null) {
@@ -129,14 +177,14 @@ export class RemoteRepository implements AppStateRepository {
 
     try {
       window.addEventListener('beforeunload', () => {
-        void this.flushNow();
+        void this.flushNow({ allowDuringBackoff: true });
       });
       window.addEventListener('pagehide', () => {
-        void this.flushNow();
+        void this.flushNow({ allowDuringBackoff: true });
       });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
-          void this.flushNow();
+          void this.flushNow({ allowDuringBackoff: true });
         } else {
           refresh();
         }
@@ -408,7 +456,7 @@ export class RemoteRepository implements AppStateRepository {
     return this.pullInFlight;
   }
 
-  private async flushNow() {
+  private async flushNow(opts?: { allowDuringBackoff?: boolean }) {
     const state = this.pendingState;
     if (!state) return;
 
@@ -448,12 +496,17 @@ export class RemoteRepository implements AppStateRepository {
       return;
     }
 
+    if (this.isFlushCoolingDown(opts?.allowDuringBackoff)) {
+      return;
+    }
+
     markAdminSyncSaving(this.source);
 
     try {
       const row = await pushWorkspaceState(state);
       this.pendingState = null;
       this.rememberRemoteState(state, row.updated_at || null, { broadcast: true });
+      this.clearFlushBackoff();
       clearRemoteDraftCache();
       clearDbSyncCurrentIssue();
       markDbSyncOk('snapshot');
@@ -469,6 +522,7 @@ export class RemoteRepository implements AppStateRepository {
       writeRemoteDraftCache(state, this.lastRemoteUpdatedAt);
 
       if (e?.code === 'FLBP_DB_CONFLICT') {
+        this.clearFlushBackoff();
         this.conflictedDraftFingerprint = fingerprint;
         markDbSyncConflict(e?.message || 'Conflitto DB', {
           remoteUpdatedAt: e?.remoteUpdatedAt || null,
@@ -480,9 +534,11 @@ export class RemoteRepository implements AppStateRepository {
         );
       } else {
         this.conflictedDraftFingerprint = null;
-        markDbSyncError(e?.message || 'Sync snapshot fallita (offline/non autorizzato).');
+        const delayMs = this.noteFlushFailure(!!opts?.allowDuringBackoff);
+        const retrySeconds = Math.ceil(delayMs / 1000);
+        markDbSyncError(`${e?.message || 'Sync snapshot fallita (offline/non autorizzato).'} Riprovo tra ${retrySeconds}s.`);
         markAdminSyncErrorState(
-          'Errore di sincronizzazione. Mantengo le modifiche locali e riprovo automaticamente alla prossima riconnessione.',
+          `Errore di sincronizzazione. Mantengo le modifiche locali; in attesa di riprovare tra ${retrySeconds}s.`,
           this.source
         );
       }

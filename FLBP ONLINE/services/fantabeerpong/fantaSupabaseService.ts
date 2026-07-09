@@ -320,12 +320,20 @@ const fetchPretournamentTeamGroups = async (
 const fetchPretournamentWorkspaceSnapshot = async (
   cfg: { url: string; anonKey: string; workspaceId: string },
 ): Promise<{ teams: FantaBuilderTeamGroup[]; updatedAt?: string | null; fantaEnabled: boolean }> => {
-  const rows = await fetchJson<SupabasePublicWorkspaceStateRow[]>(
-    `${restUrl(cfg, 'public_workspace_state')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`,
+  const liveRows = await fetchJson<SupabasePublicWorkspaceStateRow[]>(
+    `${restUrl(cfg, 'public_workspace_live')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`,
     buildHeaders(cfg),
-    'fetchFantaPretournamentTeams',
+    'fetchFantaPretournamentTeams.live',
   );
-  const row = rows?.[0] || null;
+  let row = liveRows?.[0] || null;
+  if (!row?.state) {
+    const rows = await fetchJson<SupabasePublicWorkspaceStateRow[]>(
+      `${restUrl(cfg, 'public_workspace_state')}?workspace_id=eq.${encode(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`,
+      buildHeaders(cfg),
+      'fetchFantaPretournamentTeams',
+    );
+    row = rows?.[0] || null;
+  }
   const stateTeams = Array.isArray(row?.state?.teams) ? row.state!.teams! : [];
   return {
     teams: mapAdminTeamsToFantaGroups(stateTeams),

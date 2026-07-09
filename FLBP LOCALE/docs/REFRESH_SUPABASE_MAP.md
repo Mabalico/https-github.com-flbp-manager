@@ -33,7 +33,7 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 | Flush repository remoto | `beforeunload`, `pagehide`, `visibilitychange=hidden` | evento | `services/repository/RemoteRepository.ts` | **CONDIZIONALE** | Può fare **write** verso Supabase via `pushWorkspaceState()` solo se c'è stato admin pending state da salvare. |
 | Save stato app (debounced) | cambio stato admin/live | debounce 200ms | `App.tsx` | **CONDIZIONALE** | `repo.save(...)` viene sempre chiamato dopo il debounce, ma consuma Supabase solo se il repository attivo è remoto e ci sono dati da flushare. |
 | Flush salvataggio su chiusura/nascosto | `beforeunload`, `pagehide`, `visibilitychange=hidden` | evento | `App.tsx` | **CONDIZIONALE** | Fa `repo.save(...)` e `flushAutoStructuredSync(...)`. Il consumo verso Supabase dipende dal repository remoto e dallo structured sync attivo. |
-| Structured sync automatico | cambi stato + retry su online/visible | debounce 1500ms, throttle 20s | `services/autoDbSync.ts` | **CONDIZIONALE** | Se `isAutoStructuredSyncEnabled()` è attivo, Supabase è configurato e c'è JWT admin, può chiamare `pushNormalizedFromState(...)`. Non è un polling UI, è sync best-effort. |
+| Structured sync automatico | cambi stato + retry su online/visible | debounce 1500ms, throttle 20s | `services/autoDbSync.ts` | **CONDIZIONALE** | Se `isAutoStructuredSyncEnabled()` è attivo, Supabase è configurato e c'è JWT admin, durante un live chiama `pushLiveTournamentIncremental(...)` e aggiorna solo il torneo corrente. Il full `pushNormalizedFromState(...)` resta per stato idle/eventi una-tantum. Non è un polling UI, è sync best-effort. |
 | Dashboard visualizzazioni | apertura sottotab o cambio range date | on demand | `components/admin/tabs/data/ViewsSubTab.tsx` | **SÌ** | Esegue `pullPublicSiteViewsDailyRange(startDate, endDate)` una volta ogni cambio intervallo. Non è polling. |
 | Timer “ultimo aggiornamento” dettaglio torneo | timer UI locale | 30s | `components/PublicTournamentDetail.tsx` | **NO** | Aggiorna solo `lastUpdated` in UI quando il torneo è live. Nessuna chiamata rete. |
 | Rotazione TV bracket | timer UI locale | intervallo costante `ROTATION_MS` | `components/TvBracketView.tsx` | **NO** | Cambia pagina/rotazione nella TV, non esegue fetch. |
@@ -64,6 +64,8 @@ Prima di guardare il dettaglio, ci sono alcune guardie globali importanti:
 - `services/autoDbSync.ts` **non** è un polling UI classico.
 - È una sincronizzazione best-effort che parte su modifiche, `online` e `visibilitychange=visible`, con debounce 1500ms e throttle 20s.
 - Consuma Supabase solo se attivata da flag e se c'è una sessione admin valida.
+- Durante un torneo live esporta in modo incrementale solo `state.tournament` + `state.tournamentMatches`, con upsert mirati su tabelle torneo/private e mirror pubblici e delete solo delle righe stale di quel torneo.
+- Il full export normalizzato resta per azioni una-tantum: archiviazione torneo, restore/merge backup, export manuale e stati senza torneo live.
 
 ### Diagnostica DB admin
 - Il pulsante **Diagnostica** in Gestione Dati esegue `runDbHealthChecks()` solo su richiesta esplicita dell'admin.

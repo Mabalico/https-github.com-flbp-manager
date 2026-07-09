@@ -1,18 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
-import { formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds } from '../services/matchUtils';
+import { cloneMatchesForResultSync, collectChangedMatchResults, formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds } from '../services/matchUtils';
 import { loadImageProcessingService, type RefertoStructuredOcrResult } from '../services/lazyImageProcessing';
 import { syncBracketFromGroups, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
-import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
+import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, isMatchResultRpcMissingError, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, pushRefereeMatchResults, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
-import { buildPlayerAreaSnapshot, findRefereeBypassNameForProfile, toPlayerRuntimeProfile } from '../services/playerAppService';
+import { FANTA_APP_CHANGE_EVENT, buildPlayerAreaSnapshot, findRefereeBypassNameForProfile, toPlayerRuntimeProfile } from '../services/playerAppService';
 import { tryMergeRemoteStateConflict } from '../services/stateConflictMerge';
 import { withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
@@ -1018,6 +1018,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 return;
             }
             const base = matches[idx];
+            const matchesBeforeReportSave = cloneMatchesForResultSync(matches);
 
             const isMulti = !!(base.teamIds && base.teamIds.length >= 2);
             const participantIds = isMulti
@@ -1099,6 +1100,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             const nextTournament = state.tournament ? { ...state.tournament, matches } : state.tournament;
             const nextState: AppState = { ...state, tournament: nextTournament, tournamentMatches: matches };
+            const reportMatchesToPersist = collectChangedMatchResults(matchesBeforeReportSave, matches, foundMatch.id);
 
             const shouldUseRefereeRemotePush = !isLocalOnlyMode() && !!getSupabaseConfig() && !getSupabaseAccessToken();
             if (shouldUseRefereeRemotePush) {
@@ -1108,48 +1110,76 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     alert(t('referees_session_expired_relogin') || 'Sessione arbitro scaduta su questo dispositivo. Per sicurezza la password arbitri non viene salvata nel browser: effettua di nuovo il login arbitri.');
                     return;
                 }
+                let useSnapshotFallback = false;
                 try {
-                    await pushRefereeLiveState(nextState, {
+                    await pushRefereeMatchResults({
                         tournamentId: state.tournament.id,
+                        matchId: foundMatch.id,
                         refereePassword,
-                        baseUpdatedAt: getRemoteBaseUpdatedAt()
+                        authVersion: String((state.tournament as any)?.refereesAuthVersion || '').trim() || null,
+                        matches: reportMatchesToPersist,
                     });
+                    window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
                     clearDbSyncCurrentIssue();
                     markDbSyncOk('snapshot');
                 } catch (e: any) {
-                    if (e?.code === 'FLBP_DB_CONFLICT') {
-                        try {
-                            const pulled = await pullRefereeLiveState(state.tournament.id, refereePassword);
-                            if (pulled?.ok && pulled.state) {
-                                const mergeResult = tryMergeRemoteStateConflict({
-                                    baseState: state,
-                                    localState: nextState,
-                                    remoteState: pulled.state
-                                });
-                                if (mergeResult.ok) {
-                                    await pushRefereeLiveState(mergeResult.state, {
-                                        tournamentId: state.tournament.id,
-                                        refereePassword,
-                                        baseUpdatedAt: pulled.updated_at || null
-                                    });
-                                    closeLiveCallsForMatch(updated, state.tournament.id);
-                                    clearDbSyncCurrentIssue();
-                                    markDbSyncOk('snapshot');
-                                    setState(mergeResult.state);
-                                    alert(t('alert_report_saved'));
-                                    return;
-                                }
-                            }
-                        } catch {
-                            // fall through to the user-facing conflict warning below
-                        }
+                    if (isMatchResultRpcMissingError(e)) {
+                        useSnapshotFallback = true;
+                    } else if (e?.code === 'FLBP_DB_CONFLICT') {
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
+                        return;
                     } else {
                         markDbSyncError(e?.message || String(e), 'snapshot');
                         alert(t('referees_db_save_failed') || 'Salvataggio DB arbitri non riuscito. Controlla connessione e riprova.');
+                        return;
                     }
-                    return;
+                }
+
+                if (useSnapshotFallback) {
+                    try {
+                        await pushRefereeLiveState(nextState, {
+                            tournamentId: state.tournament.id,
+                            refereePassword,
+                            baseUpdatedAt: getRemoteBaseUpdatedAt()
+                        });
+                        clearDbSyncCurrentIssue();
+                        markDbSyncOk('snapshot');
+                    } catch (e: any) {
+                        if (e?.code === 'FLBP_DB_CONFLICT') {
+                            try {
+                                const pulled = await pullRefereeLiveState(state.tournament.id, refereePassword);
+                                if (pulled?.ok && pulled.state) {
+                                    const mergeResult = tryMergeRemoteStateConflict({
+                                        baseState: state,
+                                        localState: nextState,
+                                        remoteState: pulled.state
+                                    });
+                                    if (mergeResult.ok) {
+                                        await pushRefereeLiveState(mergeResult.state, {
+                                            tournamentId: state.tournament.id,
+                                            refereePassword,
+                                            baseUpdatedAt: pulled.updated_at || null
+                                        });
+                                        closeLiveCallsForMatch(updated, state.tournament.id);
+                                        clearDbSyncCurrentIssue();
+                                        markDbSyncOk('snapshot');
+                                        setState(mergeResult.state);
+                                        alert(t('alert_report_saved'));
+                                        return;
+                                    }
+                                }
+                            } catch {
+                                // fall through to the user-facing conflict warning below
+                            }
+                            markDbSyncConflict(e?.message || 'Conflitto DB');
+                            alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
+                        } else {
+                            markDbSyncError(e?.message || String(e), 'snapshot');
+                            alert(t('referees_db_save_failed') || 'Salvataggio DB arbitri non riuscito. Controlla connessione e riprova.');
+                        }
+                        return;
+                    }
                 }
             }
 
