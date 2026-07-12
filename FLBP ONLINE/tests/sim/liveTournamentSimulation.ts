@@ -31,11 +31,13 @@ import { getPlayerKey } from '../../services/playerIdentity';
 import {
   archiveFantaTournamentEdition,
   getSupabaseConfig,
+  promoteFantaPretournamentToTournament,
   pullWorkspaceState,
   pushAdminMatchResults,
   pushLiveTournamentIncremental,
   pushNormalizedFromState,
   pushWorkspaceState,
+  resetFantaConfigToPretournament,
   setRemoteBaseUpdatedAt,
   setSupabaseSession,
   signInWithPassword,
@@ -198,6 +200,73 @@ const buildReportedMatch = (state: AppState, base: Match): Match => {
   return withRefereeReportAudit(base, updated, { source: 'admin', refereeName: 'Sim Runner' });
 };
 
+// ------------------------------ fanta helpers ------------------------------
+
+let adminAccessToken = '';
+
+const adminRpc = async (name: string, body: Record<string, unknown>): Promise<any> => {
+  const cfg = getSupabaseConfig();
+  if (!cfg) throw new Error('Supabase non configurato');
+  const res = await fetch(`${cfg.url.replace(/\/$/, '')}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: {
+      apikey: cfg.anonKey,
+      Authorization: `Bearer ${adminAccessToken || cfg.anonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`RPC ${name} -> HTTP ${res.status}: ${text.slice(0, 300)}`);
+  try { return JSON.parse(text); } catch { return text; }
+};
+
+// Statistiche locali accumulate (fonte di verita' del simulatore) per i
+// confronti con le viste fanta lato DB.
+const localPlayerGoals = new Map<string, number>(); // player_name normalizzato -> canestri totali
+const normalizePlayerNameKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+type FantaCheck = { atMatch: number; ok: boolean; detail: string };
+const fantaChecks: FantaCheck[] = [];
+let fantaTeamsPromoted = 0;
+let fantaEnabledForRun = false;
+
+const checkFantaLivePropagation = async (tournamentId: string, atMatch: number) => {
+  if (!fantaEnabledForRun) return;
+  try {
+    const cfg = getSupabaseConfig()!;
+    const wEnc = encodeURIComponent(cfg.workspaceId);
+    const tEnc = encodeURIComponent(tournamentId);
+    const [standings, rosterRows] = await Promise.all([
+      anonRestGet(`fanta_live_standings?workspace_id=eq.${wEnc}&tournament_id=eq.${tEnc}&select=team_id,total_points`),
+      anonRestGet(`fanta_roster_live_rows?workspace_id=eq.${wEnc}&tournament_id=eq.${tEnc}&select=player_name,raw_goals&limit=1000`),
+    ]);
+
+    const problems: string[] = [];
+    if ((standings?.length || 0) !== fantaTeamsPromoted) {
+      problems.push(`classifica fanta: ${standings?.length || 0} squadre attese ${fantaTeamsPromoted}`);
+    }
+    let comparedPlayers = 0;
+    for (const row of rosterRows || []) {
+      const expected = localPlayerGoals.get(normalizePlayerNameKey(String(row.player_name || ''))) ?? 0;
+      const got = Number(row.raw_goals || 0);
+      comparedPlayers += 1;
+      if (got !== expected) {
+        problems.push(`canestri di "${row.player_name}": vista fanta=${got} attesi=${expected}`);
+        if (problems.length > 5) break;
+      }
+    }
+    if (problems.length) {
+      fantaChecks.push({ atMatch, ok: false, detail: problems.slice(0, 5).join(' | ') });
+      issues.push(`Fanta NON coerente al referto #${atMatch}: ${problems[0]}`);
+    } else {
+      fantaChecks.push({ atMatch, ok: true, detail: `${standings?.length || 0} squadre, ${comparedPlayers} giocatori-rosa coerenti` });
+    }
+  } catch (e: any) {
+    fantaChecks.push({ atMatch, ok: false, detail: `errore lettura viste fanta: ${String(e?.message || e)}` });
+  }
+};
+
 // -------------------------- propagation check ------------------------------
 
 type SavedResult = { id: string; scoreA: number; scoreB: number };
@@ -246,6 +315,7 @@ const main = async () => {
   // 1) Login admin (stessa funzione dell'app)
   const session = await timeIt('login admin', () => signInWithPassword(ADMIN_EMAIL, ADMIN_PASSWORD));
   setSupabaseSession(session);
+  adminAccessToken = session.accessToken;
   console.log(`Login ok come ${session.email || ADMIN_EMAIL}`);
 
   // 2) Stato attuale + guardie di sicurezza
@@ -260,9 +330,35 @@ const main = async () => {
   const hofBefore = (state.hallOfFame || []).length;
   console.log(`Stato attuale: ${state.teams?.length || 0} iscritti, ${historyBefore} tornei storici, ${hofBefore} voci albo`);
 
-  // 3) Squadre sintetiche + tabellone con il motore reale
+  // 3) Squadre sintetiche + FASE PRETORNEO FANTA (come "Attiva Fanta")
   const simTeams = buildSimTeams(TEAMS_N);
-  state = { ...state, teams: [...(state.teams || []), ...simTeams] };
+  state = {
+    ...state,
+    teams: [...(state.teams || []), ...simTeams],
+    fantaSettings: { ...(state.fantaSettings || {}), enabled: true, updatedAt: new Date().toISOString() },
+  } as AppState;
+  await timeIt('push stato pretorneo', () => pushWorkspaceState(state));
+  try {
+    await timeIt('reset fanta config a pretorneo', () => resetFantaConfigToPretournament());
+    const seedOut = await timeIt('seed squadre fanta pretorneo', () =>
+      adminRpc('flbp_sim_seed_fanta_pretournament', {
+        p_workspace_id: cfg.workspaceId,
+        p_overwrite: false,
+        p_team_id_prefix: `simt_${SEED}_`,
+      })
+    );
+    console.log(`Seed fanta pretorneo: ${JSON.stringify(seedOut)}`);
+    const containerTeams = await anonRestGet(
+      `fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.__pre_tournament__&select=id`
+    );
+    fantaTeamsPromoted = containerTeams?.length || 0;
+    fantaEnabledForRun = fantaTeamsPromoted > 0;
+    console.log(`Squadre fanta sul pretorneo: ${fantaTeamsPromoted}${fantaEnabledForRun ? '' : ' (fanta checks disattivati: nessun account player)'}`);
+  } catch (e: any) {
+    issues.push(`Setup fanta pretorneo fallito: ${String(e?.message || e)}`);
+    fantaEnabledForRun = false;
+  }
+
   const generated = generateTournamentStructure(simTeams, {
     mode: 'elimination',
     tournamentName: `Torneo Sim ${TEAMS_N} - seed ${SEED}`,
@@ -283,6 +379,29 @@ const main = async () => {
   // 4) Push iniziale (snapshot + export incrementale) - come "Conferma e Avvia Live"
   await timeIt('push snapshot iniziale', () => pushWorkspaceState(state));
   await timeIt('export incrementale iniziale', () => pushLiveTournamentIncremental(state));
+
+  // 4b) Promozione fanta pretorneo -> torneo live (come fa handleStartLive)
+  if (fantaEnabledForRun) {
+    try {
+      const promoteOut = await timeIt('promozione fanta al live', () =>
+        promoteFantaPretournamentToTournament(tournamentId, state.tournament as any)
+      );
+      console.log(`Promozione fanta: ${JSON.stringify(promoteOut)}`);
+      const liveTeams = await anonRestGet(
+        `fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${encodeURIComponent(tournamentId)}&select=id`
+      );
+      fantaTeamsPromoted = liveTeams?.length || 0;
+      if (!fantaTeamsPromoted) {
+        issues.push('Promozione fanta: nessuna squadra risulta collegata al torneo live');
+        fantaEnabledForRun = false;
+      } else {
+        console.log(`Squadre fanta collegate al live: ${fantaTeamsPromoted}`);
+      }
+    } catch (e: any) {
+      issues.push(`Promozione fanta fallita: ${String(e?.message || e)}`);
+      fantaEnabledForRun = false;
+    }
+  }
 
   // 5) Referti uno per uno
   const savedResults: SavedResult[] = [];
@@ -321,8 +440,15 @@ const main = async () => {
     await timeIt('autosave snapshot', () => pushWorkspaceState(state));
 
     savedResults.push({ id: base.id, scoreA: reported.scoreA, scoreB: reported.scoreB });
+    for (const st of reported.stats || []) {
+      const key = normalizePlayerNameKey(String(st.playerName || ''));
+      localPlayerGoals.set(key, (localPlayerGoals.get(key) ?? 0) + (st.canestri || 0));
+    }
     if (reportNo % 5 === 0) await checkPublicPropagation(savedResults, reportNo);
-    if (reportNo % 10 === 0) console.log(`  ... ${reportNo} referti inseriti`);
+    if (reportNo % 10 === 0) {
+      await checkFantaLivePropagation(tournamentId, reportNo);
+      console.log(`  ... ${reportNo} referti inseriti`);
+    }
   }
   console.log(`Referti completati: ${reportNo}`);
 
@@ -370,6 +496,55 @@ const main = async () => {
   console.log(`  classifiche storiche aggiornate (giocatore campione di prova): ${careerOk ? 'OK' : 'NON TROVATO'}`);
   if (!careerOk) issues.push('public_career_leaderboard non contiene il giocatore sim dopo archiviazione');
 
+  // 7b) Verifiche FANTA post-archiviazione (viste _awarded: snapshot + titoli vivi)
+  if (fantaEnabledForRun) {
+    const fantaStandings = await anonRestGet(
+      `fanta_archived_standings_awarded?workspace_id=eq.${wEnc}&tournament_id=eq.${tEnc}&select=team_name,total_points,points_from_awards&order=rank.asc`
+    );
+    const fantaRowsOk = (fantaStandings?.length || 0) === fantaTeamsPromoted;
+    console.log(`  archivio fanta (squadre): ${fantaStandings?.length || 0}/${fantaTeamsPromoted} ${fantaRowsOk ? 'OK' : 'INCOMPLETO'}`);
+    if (!fantaRowsOk) issues.push(`Archivio fanta: attese ${fantaTeamsPromoted} squadre, trovate ${fantaStandings?.length || 0}`);
+
+    const awardedPlayerNames: string[] = (hofRows || [])
+      .flatMap((r: any) => (Array.isArray(r.player_names) ? r.player_names : []))
+      .map((n: any) => normalizePlayerNameKey(String(n || '')))
+      .filter(Boolean);
+    const fantaRosterRows = await anonRestGet(
+      `fanta_archived_rosters_awarded?workspace_id=eq.${wEnc}&tournament_id=eq.${tEnc}&select=player_name,points_from_awards,raw_goals&limit=1000`
+    );
+    const rosterHasAwardedPlayer = (fantaRosterRows || []).filter((r: any) =>
+      awardedPlayerNames.includes(normalizePlayerNameKey(String(r.player_name || '')))
+    );
+    if (rosterHasAwardedPlayer.length) {
+      const missingAwardPts = rosterHasAwardedPlayer.filter((r: any) => Number(r.points_from_awards || 0) < 10);
+      console.log(`  punti-titoli nelle rose fanta: ${rosterHasAwardedPlayer.length - missingAwardPts.length}/${rosterHasAwardedPlayer.length} titolati con +10 ${missingAwardPts.length ? 'MANCANO PUNTI' : 'OK'}`);
+      if (missingAwardPts.length) {
+        issues.push(`Punti-titoli fanta mancanti per: ${missingAwardPts.slice(0, 5).map((r: any) => r.player_name).join(', ')}`);
+      }
+    } else {
+      console.log('  punti-titoli nelle rose fanta: nessuna rosa contiene un titolato (caso possibile, nessuna verifica)');
+    }
+
+    // Coerenza canestri finale: vista archivio vs statistiche locali accumulate
+    const goalMismatches = (fantaRosterRows || []).filter((r: any) => {
+      const expected = localPlayerGoals.get(normalizePlayerNameKey(String(r.player_name || ''))) ?? 0;
+      return Number(r.raw_goals || 0) !== expected;
+    });
+    console.log(`  canestri rose fanta vs simulazione: ${goalMismatches.length ? `${goalMismatches.length} INCOERENTI` : 'OK'}`);
+    if (goalMismatches.length) {
+      issues.push(`Canestri fanta incoerenti per: ${goalMismatches.slice(0, 5).map((r: any) => r.player_name).join(', ')}`);
+    }
+
+    const fantaEdition = await anonRestGet(
+      `fanta_archived_editions_awarded?workspace_id=eq.${wEnc}&tournament_id=eq.${tEnc}&select=winner_team_name,winner_points,teams_count`
+    );
+    const editionOk = !!fantaEdition?.[0] && Number(fantaEdition[0].winner_points || 0) > 0;
+    console.log(`  edizione fanta archiviata: ${editionOk ? `OK (vincitore "${fantaEdition[0].winner_team_name}" con ${fantaEdition[0].winner_points} punti)` : 'MANCANTE O SENZA PUNTI'}`);
+    if (!editionOk) issues.push('fanta_archived_editions_awarded senza vincitore/punti per il torneo sim');
+  } else {
+    console.log('  fanta: non attivo in questa run (nessuna squadra fanta) - verifiche saltate');
+  }
+
   // 8) Report finale
   console.log('\n================= REPORT =================');
   console.log(summarizeOps());
@@ -381,6 +556,10 @@ const main = async () => {
   if (propagationChecks.length) {
     const lat = okChecks.map((c) => c.latencyMs || 0);
     console.log(`  riepilogo: ${okChecks.length}/${propagationChecks.length} coerenti | latenza avg=${lat.length ? Math.round(lat.reduce((a, b) => a + b, 0) / lat.length) : '-'}ms p95=${percentile(lat, 95)}ms`);
+  }
+  if (fantaChecks.length) {
+    console.log('\nPropagazione FANTA live (check ogni 10 referti):');
+    for (const c of fantaChecks) console.log(`  #${c.atMatch}: ${c.ok ? 'OK' : 'FALLITO'} - ${c.detail}`);
   }
   console.log(`\nProblemi rilevati (${issues.length}):`);
   for (const p of issues) console.log(`  - ${p}`);
