@@ -55,7 +55,20 @@ const argValue = (name: string): string | null => {
 
 const TEAMS_N = Math.max(4, Math.min(400, parseInt(argValue('teams') || '128', 10) || 128));
 const SEED = parseInt(argValue('seed') || `${Date.now() % 100000}`, 10) || 1;
+// --use-existing: usa le squadre GIA' presenti in lista iscritti (es. generate
+// dal pool in-app) invece di crearne di sintetiche.
+const USE_EXISTING_TEAMS = process.argv.includes('--use-existing');
 const PROPAGATION_TIMEOUT_MS = 20_000;
+
+const longestCommonIdPrefix = (ids: string[]): string | null => {
+  if (!ids.length) return null;
+  let prefix = ids[0];
+  for (const id of ids) {
+    while (prefix && !id.startsWith(prefix)) prefix = prefix.slice(0, -1);
+    if (!prefix) return null;
+  }
+  return prefix.length >= 4 ? prefix : null;
+};
 
 const readEnvSim = (): Record<string, string> => {
   try {
@@ -330,13 +343,27 @@ const main = async () => {
   const hofBefore = (state.hallOfFame || []).length;
   console.log(`Stato attuale: ${state.teams?.length || 0} iscritti, ${historyBefore} tornei storici, ${hofBefore} voci albo`);
 
-  // 3) Squadre sintetiche + FASE PRETORNEO FANTA (come "Attiva Fanta")
-  const simTeams = buildSimTeams(TEAMS_N);
-  state = {
-    ...state,
-    teams: [...(state.teams || []), ...simTeams],
-    fantaSettings: { ...(state.fantaSettings || {}), enabled: true, updatedAt: new Date().toISOString() },
-  } as AppState;
+  // 3) Squadre (sintetiche o gia' in lista) + FASE PRETORNEO FANTA
+  let simTeams: Team[];
+  let fantaSeedPrefix: string | null;
+  if (USE_EXISTING_TEAMS) {
+    simTeams = (state.teams || []).filter((t) => !t.hidden && !t.isBye);
+    if (simTeams.length < 4) throw new Error(`--use-existing: servono almeno 4 squadre in lista, trovate ${simTeams.length}`);
+    fantaSeedPrefix = longestCommonIdPrefix(simTeams.map((t) => String(t.id || '')));
+    console.log(`Uso ${simTeams.length} squadre gia' iscritte (prefisso fanta: ${fantaSeedPrefix || 'nessuno (tutte)'})`);
+    state = {
+      ...state,
+      fantaSettings: { ...(state.fantaSettings || {}), enabled: true, updatedAt: new Date().toISOString() },
+    } as AppState;
+  } else {
+    simTeams = buildSimTeams(TEAMS_N);
+    fantaSeedPrefix = `simt_${SEED}_`;
+    state = {
+      ...state,
+      teams: [...(state.teams || []), ...simTeams],
+      fantaSettings: { ...(state.fantaSettings || {}), enabled: true, updatedAt: new Date().toISOString() },
+    } as AppState;
+  }
   await timeIt('push stato pretorneo', () => pushWorkspaceState(state));
   try {
     await timeIt('reset fanta config a pretorneo', () => resetFantaConfigToPretournament());
@@ -344,7 +371,7 @@ const main = async () => {
       adminRpc('flbp_sim_seed_fanta_pretournament', {
         p_workspace_id: cfg.workspaceId,
         p_overwrite: false,
-        p_team_id_prefix: `simt_${SEED}_`,
+        p_team_id_prefix: fantaSeedPrefix,
       })
     );
     console.log(`Seed fanta pretorneo: ${JSON.stringify(seedOut)}`);
@@ -361,7 +388,7 @@ const main = async () => {
 
   const generated = generateTournamentStructure(simTeams, {
     mode: 'elimination',
-    tournamentName: `Torneo Sim ${TEAMS_N} - seed ${SEED}`,
+    tournamentName: `Torneo Sim ${simTeams.length} - seed ${SEED}`,
   } as any);
   state = {
     ...state,
@@ -490,11 +517,23 @@ const main = async () => {
   console.log(`  albo d'oro (winner/top_scorer/defender/mvp): ${missingTypes.length ? `MANCANO ${missingTypes.join(',')}` : 'OK'} (${hofRows?.length || 0} voci)`);
   if (missingTypes.length) issues.push(`Albo d'oro incompleto per il torneo sim: mancano ${missingTypes.join(', ')}`);
 
-  const anySimPlayerName = encodeURIComponent(`Simuno${pad3(1)} Prova`);
-  const careerRows = await anonRestGet(`public_career_leaderboard?workspace_id=eq.${wEnc}&name=eq.${anySimPlayerName}&select=name,games_played,points`);
-  const careerOk = Array.isArray(careerRows) && careerRows.length > 0 && (careerRows[0].games_played || 0) > 0;
-  console.log(`  classifiche storiche aggiornate (giocatore campione di prova): ${careerOk ? 'OK' : 'NON TROVATO'}`);
-  if (!careerOk) issues.push('public_career_leaderboard non contiene il giocatore sim dopo archiviazione');
+  // Controllo carriera: prendo il capocannoniere della simulazione (verita' locale)
+  const topScorerEntry = [...localPlayerGoals.entries()].sort((a, b) => b[1] - a[1])[0];
+  const topScorerOriginalName = (state.tournamentHistory || [])
+    .flatMap((tr) => tr.teams || [])
+    .flatMap((tm) => [tm.player1, tm.player2])
+    .find((n) => n && normalizePlayerNameKey(String(n)) === topScorerEntry?.[0]) || '';
+  if (topScorerOriginalName) {
+    const careerRows = await anonRestGet(
+      `public_career_leaderboard?workspace_id=eq.${wEnc}&name=eq.${encodeURIComponent(topScorerOriginalName)}&select=name,games_played,points`
+    );
+    const careerOk = Array.isArray(careerRows) && careerRows.length > 0
+      && (careerRows[0].points || 0) >= (topScorerEntry?.[1] || 0);
+    console.log(`  classifiche storiche aggiornate (capocannoniere "${topScorerOriginalName}", ${topScorerEntry?.[1]} canestri sim): ${careerOk ? 'OK' : 'NON COERENTE'}`);
+    if (!careerOk) issues.push(`public_career_leaderboard non riflette il capocannoniere sim (${topScorerOriginalName})`);
+  } else {
+    console.log('  classifiche storiche: capocannoniere sim non individuabile per nome, controllo saltato');
+  }
 
   // 7b) Verifiche FANTA post-archiviazione (viste _awarded: snapshot + titoli vivi)
   if (fantaEnabledForRun) {
