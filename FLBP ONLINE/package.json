@@ -30,7 +30,8 @@
     "audit:backup-profiles": "node scripts/audit-backup-profiles.mjs",
     "inspect:backup": "node scripts/inspect-backup-profile.mjs",
     "check:i18n": "node scripts/check-i18n-coverage.mjs",
-    "check:tv-readonly": "node scripts/check-tv-readonly.mjs"
+    "check:tv-readonly": "node scripts/check-tv-readonly.mjs",
+    "sim:live": "node ./node_modules/vite/bin/vite.js build --config vite.sim.config.ts && node ./.tmp-node-tests/liveTournamentSimulation.js"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
