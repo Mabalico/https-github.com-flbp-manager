@@ -3,7 +3,7 @@ import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, 
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
-import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star } from 'lucide-react';
+import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star, Lock } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
@@ -27,6 +27,8 @@ import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
+import { initAdminWriteLease, releaseAdminWriteLease, takeoverAdminWriteLease } from '../services/adminWriteLease';
+import { readAdminLeaseInfo, subscribeAdminLease, type AdminLeaseInfo } from '../services/adminWriteLeaseState';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
 import {
@@ -394,6 +396,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [loginBusy, setLoginBusy] = useState<boolean>(false);
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
+    const [adminLeaseInfo, setAdminLeaseInfo] = useState<AdminLeaseInfo>(() => readAdminLeaseInfo());
     const playerBootstrapDeniedKeyRef = useRef<string | null>(null);
     const reloadIntoAdmin = React.useCallback(() => {
         try {
@@ -464,6 +467,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     useEffect(() => {
         return subscribeAdminSyncState(setAdminSyncState);
+    }, []);
+
+    useEffect(() => {
+        return subscribeAdminLease(setAdminLeaseInfo);
+    }, []);
+
+    // Write lease "un solo admin scrive alla volta": acquisiscilo entrando in
+    // area admin, rilascialo uscendo. Se un'altra sessione e' attiva, questa
+    // finestra resta in sola lettura (overlay con takeover esplicito).
+    useEffect(() => {
+        void initAdminWriteLease();
+        return () => {
+            void releaseAdminWriteLease();
+        };
     }, []);
 
     const isFatalAdminAccessFailure = React.useCallback((reason: string | null | undefined) => {
@@ -4628,6 +4645,46 @@ while (guard < 5000) {
 
             {tab === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} />}
             </React.Suspense>
+{adminLeaseInfo.status === 'passive' && (
+    <div className="fixed inset-0 z-[300] flex items-start justify-center bg-slate-900/40 p-4">
+        <div className="mt-20 w-full max-w-lg rounded-2xl border-2 border-amber-300 bg-white shadow-2xl p-5 space-y-3">
+            <div className="flex items-center gap-2 text-amber-700 font-black text-sm uppercase tracking-wide">
+                <Lock className="w-4 h-4" /> Sola lettura
+            </div>
+            <p className="text-sm text-slate-700 font-semibold">
+                Un'altra sessione Admin sta scrivendo in questo momento
+                {adminLeaseInfo.otherLabel ? <> (<span className="font-black">{adminLeaseInfo.otherLabel}</span>)</> : null}.
+                Questa finestra è bloccata per evitare conflitti e sovrascritture.
+            </p>
+            {adminLeaseInfo.otherSince && (
+                <p className="text-xs text-slate-500">Sessione attiva da: {new Date(adminLeaseInfo.otherSince).toLocaleString()}</p>
+            )}
+            <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                    type="button"
+                    onClick={async () => {
+                        try { await takeoverAdminWriteLease(); } catch { /* ricarico comunque */ }
+                        window.location.reload();
+                    }}
+                    className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-black hover:bg-slate-800 transition-colors"
+                >
+                    Prendi il controllo qui
+                </button>
+                <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-sm font-black hover:bg-slate-50 transition-colors"
+                >
+                    Aggiorna
+                </button>
+            </div>
+            <p className="text-[11px] text-slate-400">
+                Prendendo il controllo, l'altra finestra passa in sola lettura entro pochi secondi. Usalo se quella sessione è rimasta aperta per errore.
+            </p>
+        </div>
+    </div>
+)}
+
 {aliasModalOpen && (
     <AliasModal
         title={aliasModalTitle}

@@ -4,6 +4,7 @@ import type { TournamentData, Team, Match, Group, MatchStats, TournamentConfig, 
 import { buildRealSimPoolFromState } from './simPool';
 import { readViteSupabaseAdminEmail, readViteSupabaseAnonKey, readViteSupabaseUrl, readViteWorkspaceId } from './viteEnv';
 import { fetchWithDevRequestPerf, type DevRequestPerfKind, type DevRequestPerfMeta } from './devRequestPerf';
+import { getAdminLeaseHolderForWrites, isAdminWriteBlockedByLease, setAdminLeaseInfo } from './adminWriteLeaseState';
 
 type Json = any;
 
@@ -3722,8 +3723,12 @@ export const pushAdminMatchResults = async (opts: {
 }): Promise<MatchResultPushResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    if (isAdminWriteBlockedByLease()) {
+        throw new Error('FLBP_LEASE_READONLY: questa finestra Admin è in sola lettura perché un\'altra sessione Admin è attiva. Usa "Prendi il controllo" per scrivere da qui.');
+    }
     const session = await requireSupabaseWriteSession();
     const rpcName = 'flbp_admin_push_match_result';
+    const leaseHolder = getAdminLeaseHolderForWrites();
     const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
         method: 'POST',
         headers: buildHeaders(cfg, session.accessToken),
@@ -3732,10 +3737,15 @@ export const pushAdminMatchResults = async (opts: {
             p_tournament_id: String(opts.tournamentId || '').trim(),
             p_match_id: String(opts.matchId || '').trim(),
             p_matches: opts.matches || [],
+            ...(leaseHolder ? { p_lease_holder: leaseHolder } : {})
         })
     }, { source: 'pushAdminMatchResults', kind: 'admin' });
     if (!res.ok) {
-        throwMatchResultRpcError(await readErrorBody(res), rpcName);
+        const errBody = await readErrorBody(res);
+        if (errBody.includes('FLBP_LEASE_HELD')) {
+            setAdminLeaseInfo({ status: 'passive' });
+        }
+        throwMatchResultRpcError(errBody, rpcName);
     }
     const out = await res.json() as MatchResultPushResult;
     setRemoteBaseUpdatedAt(out.updated_at || null);
@@ -3885,6 +3895,9 @@ const makeConflictError = (message: string, meta?: { remoteUpdatedAt?: string | 
 export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    if (isAdminWriteBlockedByLease()) {
+        throw new Error('FLBP_LEASE_READONLY: questa finestra Admin è in sola lettura perché un\'altra sessione Admin è attiva. Usa "Prendi il controllo" per scrivere da qui.');
+    }
     await requireSupabaseWriteSession();
     const payload: SupabaseWorkspaceStateRow = {
         workspace_id: cfg.workspaceId,
@@ -3896,6 +3909,10 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
     const publicState = sanitizeAppStateForPublic(state);
     const rpcName = 'flbp_admin_push_workspace_state';
 
+    // p_lease_holder solo quando il lease e' attivo: se il DB non ha ancora la
+    // migration del lease, la chiamata resta a 5 parametri e continua a
+    // matchare la vecchia firma.
+    const leaseHolder = getAdminLeaseHolderForWrites();
     const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
         method: 'POST',
         headers: buildHeaders(cfg),
@@ -3904,12 +3921,19 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
             p_state: state,
             p_public_state: publicState,
             p_base_updated_at: baseUpdatedAt || null,
-            p_force: !!opts?.force
+            p_force: !!opts?.force,
+            ...(leaseHolder ? { p_lease_holder: leaseHolder } : {})
         })
     }, { source: perf?.source || 'pushWorkspaceState', kind: perf?.kind || 'admin' });
 
     if (!res.ok) {
         const body = await readErrorBody(res);
+        if (body.includes('FLBP_LEASE_HELD')) {
+            // Il server ha rifiutato: un'altra sessione detiene il testimone.
+            // Allinea subito lo stato locale cosi' la UI passa in sola lettura.
+            setAdminLeaseInfo({ status: 'passive' });
+            throw new Error(body);
+        }
         if (isMissingRpcFunctionError(body, rpcName)) {
             throw new Error(
                 'Il progetto Supabase non espone ancora la RPC admin atomica per lo snapshot. ' +

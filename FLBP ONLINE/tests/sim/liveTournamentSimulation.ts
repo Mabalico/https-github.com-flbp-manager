@@ -46,6 +46,8 @@ import {
   signInWithPassword,
 } from '../../services/supabaseRest';
 import { isPublicWorkspaceLiveUnavailableError, pullPublicWorkspaceLive } from '../../services/supabasePublic';
+import { initAdminWriteLease, releaseAdminWriteLease, takeoverAdminWriteLease } from '../../services/adminWriteLease';
+import { readAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 import type { Match, Team } from '../../types';
 
 // ----------------------------- CLI / env ----------------------------------
@@ -357,6 +359,16 @@ const main = async () => {
   adminAccessToken = session.accessToken;
   console.log(`Login ok come ${session.email || ADMIN_EMAIL}`);
 
+  // Write lease "un solo admin scrive alla volta": il simulatore e' una
+  // sessione admin a tutti gli effetti. takeover=true scavalca eventuali
+  // sessioni rimaste appese, come "Prendi il controllo" nell'app.
+  await initAdminWriteLease({ label: 'Simulatore headless', takeover: true });
+  {
+    const leaseStatus = readAdminLeaseInfo().status;
+    if (leaseStatus === 'active') console.log('Write lease admin acquisito (takeover).');
+    else console.log(`Write lease non attivo (${leaseStatus}): migration assente? Proseguo senza gating.`);
+  }
+
   // 2) Stato attuale + guardie di sicurezza
   const remoteRow = await timeIt('pull workspace state', () => pullWorkspaceState({ source: 'sim.initialPull', kind: 'admin' }));
   if (!remoteRow?.state) throw new Error('Snapshot admin non trovato nel DB');
@@ -394,6 +406,7 @@ const main = async () => {
 
     if (!simEditions.length && !orphanFantaIds.length) {
       console.log('Nessun torneo di simulazione o dato fanta orfano da rimuovere.');
+      await releaseAdminWriteLease();
       return;
     }
 
@@ -414,6 +427,7 @@ const main = async () => {
     await timeIt('push stato ripulito', () => pushWorkspaceState(state));
     await timeIt('export completo post-pulizia', () => pushNormalizedFromState(state, { force: true }));
     console.log('Pulizia completata: storico, albo, classifiche, mirror e dati fanta riallineati.');
+    await releaseAdminWriteLease();
     return;
   }
 
@@ -431,6 +445,96 @@ const main = async () => {
     const pass = before > 0 && after === 0;
     console.log(`Squadre fanta dopo = ${after} -> ${pass ? 'PASS' : (before === 0 ? 'INCONCLUSIVO (nessuna squadra da rimuovere)' : 'FAIL')}`);
     process.exitCode = pass ? 0 : 1;
+    await releaseAdminWriteLease();
+    return;
+  }
+
+  // Verifica del write lease "un solo admin scrive alla volta": esercita il
+  // gate lato server (zombie senza/con holder sbagliato), il takeover e la
+  // retrocompatibilita' a lease libero. Non modifica lo stato (ripusha lo
+  // snapshot appena letto).
+  if (process.argv.includes('--verify-lease')) {
+    const checks: Array<{ name: string; pass: boolean }> = [];
+    const note = (name: string, pass: boolean, detail = '') => {
+      checks.push({ name, pass });
+      console.log(`  ${pass ? 'PASS' : 'FAIL'} - ${name}${detail ? ` [${detail.slice(0, 130)}]` : ''}`);
+    };
+    console.log('Verifica write lease:');
+
+    if (readAdminLeaseInfo().status !== 'active') {
+      console.log('FAIL - lease non attivo dopo il takeover iniziale: migration non applicata?');
+      process.exitCode = 1;
+      await releaseAdminWriteLease();
+      return;
+    }
+
+    try {
+      await pushWorkspaceState(state);
+      note('push con lease attivo accettato', true);
+    } catch (e: any) {
+      note('push con lease attivo accettato', false, String(e?.message || e));
+    }
+
+    try {
+      await adminRpc('flbp_admin_push_match_result', {
+        p_workspace_id: cfg.workspaceId, p_tournament_id: 'x', p_match_id: 'x', p_matches: [], p_lease_holder: null,
+      });
+      note('zombie SENZA holder rifiutato a lease attivo', false, 'accettato!');
+    } catch (e: any) {
+      const m = String(e?.message || e);
+      note('zombie SENZA holder rifiutato a lease attivo', m.includes('FLBP_LEASE_HELD'), m);
+    }
+
+    try {
+      await adminRpc('flbp_admin_push_match_result', {
+        p_workspace_id: cfg.workspaceId, p_tournament_id: 'x', p_match_id: 'x', p_matches: [], p_lease_holder: 'zombie-tab',
+      });
+      note('zombie con holder SBAGLIATO rifiutato a lease attivo', false, 'accettato!');
+    } catch (e: any) {
+      const m = String(e?.message || e);
+      note('zombie con holder SBAGLIATO rifiutato a lease attivo', m.includes('FLBP_LEASE_HELD'), m);
+    }
+
+    const holderB = `verifica-seconda-finestra-${SEED}`;
+    try {
+      const acq = await adminRpc('flbp_admin_acquire_write_lease', {
+        p_workspace_id: cfg.workspaceId, p_holder_id: holderB, p_holder_label: 'Seconda finestra (verifica)', p_takeover: true,
+      });
+      note('takeover dalla seconda finestra riuscito', !!acq?.acquired);
+    } catch (e: any) {
+      note('takeover dalla seconda finestra riuscito', false, String(e?.message || e));
+    }
+
+    try {
+      await pushWorkspaceState(state);
+      note('push della finestra spodestata rifiutato', false, 'accettato!');
+    } catch (e: any) {
+      const m = String(e?.message || e);
+      note('push della finestra spodestata rifiutato', m.includes('FLBP_LEASE'), m);
+    }
+
+    try {
+      await takeoverAdminWriteLease();
+      await pushWorkspaceState(state);
+      note('push dopo ri-takeover accettato', true);
+    } catch (e: any) {
+      note('push dopo ri-takeover accettato', false, String(e?.message || e));
+    }
+
+    await releaseAdminWriteLease();
+    try {
+      await adminRpc('flbp_admin_push_match_result', {
+        p_workspace_id: cfg.workspaceId, p_tournament_id: 'x', p_match_id: 'x', p_matches: [], p_lease_holder: null,
+      });
+      note('a lease libero il gate non blocca i client legacy', false, 'inatteso: nessun errore di business');
+    } catch (e: any) {
+      const m = String(e?.message || e);
+      note('a lease libero il gate non blocca i client legacy', !m.includes('FLBP_LEASE'), m);
+    }
+
+    const failed = checks.filter((c) => !c.pass).length;
+    console.log(failed ? `\nESITO LEASE: ${failed} verifiche FALLITE` : '\nESITO LEASE: TUTTO VERDE');
+    process.exitCode = failed ? 1 : 0;
     return;
   }
 
@@ -789,6 +893,7 @@ const main = async () => {
   console.log('Nota: il torneo simulato resta archiviato per ispezione; le "Sim Squadra" restano in lista iscritti (rimuovibili dall\'app).');
 
   process.exitCode = issues.length === 0 && failedOps.length === 0 ? 0 : 1;
+  await releaseAdminWriteLease();
 };
 
 main().catch((e) => {
@@ -796,4 +901,5 @@ main().catch((e) => {
   console.log('\nOperazioni registrate fino all\'errore:');
   console.log(summarizeOps());
   process.exitCode = 1;
+  void releaseAdminWriteLease();
 });

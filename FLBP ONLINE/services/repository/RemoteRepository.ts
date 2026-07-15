@@ -1,6 +1,7 @@
 import { coerceAppState, type AppState } from '../storageService';
 import { markAdminSyncConflictState, markAdminSyncErrorState, markAdminSyncPending, markAdminSyncSaving, markAdminSyncSynced, resetAdminSyncState } from '../adminSyncState';
 import { getSupabaseConfig, getSupabaseSession, hasSupabaseWriteSession, pullWorkspaceState, pullWorkspaceStateUpdatedAt, pushWorkspaceState, setRemoteBaseUpdatedAt } from '../supabaseRest';
+import { isAdminWriteBlockedByLease } from '../adminWriteLeaseState';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk, markRemoteVersions } from '../dbDiagnostics';
 import { clearLocalAppStateCaches } from './featureFlags';
 import { clearRemoteDraftCache, hasRemoteDraftCache, isRemoteDraftCacheFresh, readRemoteDraftCache, readRestorableRemoteDraftCache, writeRemoteDraftCache } from './remoteDraftCache';
@@ -497,6 +498,12 @@ export class RemoteRepository implements AppStateRepository {
     }
 
     if (this.isFlushCoolingDown(opts?.allowDuringBackoff)) {
+      return;
+    }
+
+    if (isAdminWriteBlockedByLease()) {
+      // Finestra in sola lettura (write lease detenuto altrove): tieni la
+      // bozza locale senza tentare push, il server la rifiuterebbe comunque.
       return;
     }
 

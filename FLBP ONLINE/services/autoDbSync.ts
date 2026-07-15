@@ -1,5 +1,6 @@
 import type { AppState } from './storageService';
 import { getSupabaseAccessToken, getSupabaseConfig, pushLiveTournamentIncremental, pushNormalizedFromState } from './supabaseRest';
+import { isAdminWriteBlockedByLease } from './adminWriteLeaseState';
 import { markDbSyncConflict, markDbSyncError, markDbSyncOk } from './dbDiagnostics';
 import { getAppStateRepository } from './repository/getRepository';
 import { hasMeaningfulAppState } from './appStateMeaning';
@@ -171,6 +172,12 @@ export const flushAutoStructuredSync = async (
   stateOverride?: AppState,
   opts?: { force?: boolean; allowDuringBackoff?: boolean }
 ): Promise<void> => {
+  if (isAdminWriteBlockedByLease()) {
+    // Finestra in sola lettura (write lease detenuto altrove): nessun export,
+    // nemmeno quello forzato su pagehide (era il vettore delle sovrascritture
+    // da scheda stantia).
+    return;
+  }
   if (stateOverride) pending = stateOverride;
   if (inFlight) {
     // Live/referto/simulation commits can arrive while a previous structured
