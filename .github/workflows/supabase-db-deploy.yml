@@ -1,5 +1,15 @@
 name: Deploy Supabase database
 
+# Applica le migration di "FLBP ONLINE/supabase/migrations" al progetto hosted.
+#
+# Self-healing:
+# - le versioni in supabase/migration-baseline.txt (applicate a mano dal SQL
+#   editor prima che il CI funzionasse) vengono solo REGISTRATE nella storia
+#   remota (migration repair --status applied), mai rieseguite;
+# - se il push fallisce per storia disallineata, ripara e riprova una volta;
+# - alla fine un dry-run deve dire "up to date", altrimenti il job fallisce
+#   (mai piu' run verdi che in realta' non hanno deployato nulla).
+
 on:
   push:
     branches:
@@ -7,6 +17,8 @@ on:
     paths:
       - 'FLBP ONLINE/supabase/config.toml'
       - 'FLBP ONLINE/supabase/migrations/**'
+      - 'FLBP ONLINE/supabase/migration-baseline.txt'
+      - '.github/workflows/supabase-db-deploy.yml'
   workflow_dispatch:
     inputs:
       mode:
@@ -30,7 +42,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SUPABASE_WORKDIR: 'FLBP ONLINE'
   SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID || 'kgwhcemqkgqvtsctnwql' }}
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -40,8 +51,15 @@ jobs:
     name: Push Supabase migrations
     if: ${{ github.event_name == 'push' || github.event.inputs.confirm == 'RUN' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     environment: production
+    defaults:
+      run:
+        shell: bash
+        # Il progetto Supabase vive nel sottodir "FLBP ONLINE": senza questo
+        # workdir il CLI girava nella root del repo, non vedeva ne' config.toml
+        # ne' le migration, e i run "verdi" erano dei no-op.
+        working-directory: FLBP ONLINE
 
     steps:
       - name: Checkout
@@ -67,20 +85,91 @@ jobs:
             echo "::error::Missing GitHub secret SUPABASE_DB_PASSWORD"
             exit 1
           }
+          test -f supabase/config.toml || {
+            echo "::error::supabase/config.toml not found in workdir (FLBP ONLINE)"
+            exit 1
+          }
+          dup="$(ls supabase/migrations/*.sql | xargs -n1 basename | cut -c1-14 | sort | uniq -d)"
+          if [ -n "$dup" ]; then
+            echo "::error::Duplicate migration versions (db push would fail): $dup"
+            exit 1
+          fi
 
       - name: Link Supabase project
         run: |
           set -euo pipefail
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
-      - name: Preview pending migrations
+      - name: Register baseline migrations as applied (no re-run)
+        run: |
+          set -euo pipefail
+          baseline_file="supabase/migration-baseline.txt"
+          if [ ! -f "$baseline_file" ]; then
+            echo "No baseline file, skipping."
+            exit 0
+          fi
+          to_mark=()
+          while IFS= read -r version; do
+            # Registra solo versioni con un file migration locale corrispondente.
+            if compgen -G "supabase/migrations/${version}_*.sql" > /dev/null; then
+              to_mark+=("$version")
+            else
+              echo "::warning::Baseline version ${version} has no local migration file, skipping"
+            fi
+          done < <(grep -oE '^[0-9]{14}' "$baseline_file" | sort -u)
+          if [ "${#to_mark[@]}" -eq 0 ]; then
+            echo "Baseline empty, nothing to register."
+            exit 0
+          fi
+          echo "Registering ${#to_mark[@]} baseline versions as applied..."
+          supabase migration repair --status applied "${to_mark[@]}"
+
+      - name: Migration status
         run: |
           set -euo pipefail
           supabase migration list --linked
-          supabase db push --linked --dry-run
+
+      - name: Preview pending migrations
+        run: |
+          set -euo pipefail
+          supabase db push --dry-run
 
       - name: Apply pending migrations
         if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
         run: |
+          set -uo pipefail
+          log="$(mktemp)"
+          supabase db push --yes 2>&1 | tee "$log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -eq 0 ]; then
+            exit 0
+          fi
+          echo "First push failed (rc=$rc), attempting history self-heal..."
+          # Versioni registrate in remoto senza file locale (es. file rinominati):
+          # vanno tolte dalla storia.
+          if grep -q 'Remote migration versions not found' "$log"; then
+            orphans="$(sed -n '/Remote migration versions not found/,+5p' "$log" | grep -oE '[0-9]{14}' | sort -u | tr '\n' ' ')"
+            if [ -n "${orphans// /}" ]; then
+              echo "Reverting orphan remote versions: $orphans"
+              # shellcheck disable=SC2086
+              supabase migration repair --status reverted $orphans
+            fi
+          fi
+          extra=""
+          if grep -q 'inserted before the last migration' "$log"; then
+            extra="--include-all"
+          fi
+          set -e
+          echo "Retrying push ${extra:+with $extra}..."
+          supabase db push --yes $extra
+
+      - name: Verify convergence
+        if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
+        run: |
           set -euo pipefail
-          supabase db push --linked --yes
+          out="$(supabase db push --dry-run 2>&1)"
+          echo "$out"
+          if ! echo "$out" | grep -qi 'up to date'; then
+            echo "::error::Migrations did NOT converge: dry-run still reports pending work"
+            exit 1
+          fi
