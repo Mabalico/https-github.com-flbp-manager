@@ -367,21 +367,53 @@ const main = async () => {
   // ("Torneo Sim ...") e i loro dati derivati (albo, carriera, mirror).
   if (process.argv.includes('--cleanup-sim')) {
     const simEditions = (state.tournamentHistory || []).filter((tr) => String(tr.name || '').startsWith('Torneo Sim'));
-    if (!simEditions.length) {
-      console.log('Nessun torneo di simulazione da rimuovere.');
+    const delFanta = async (id: string, label: string) => {
+      try {
+        const out = await adminRpc('flbp_admin_delete_fanta_tournament_data', {
+          p_workspace_id: cfg.workspaceId,
+          p_tournament_id: id,
+        });
+        if ((out?.deleted_teams ?? 0) > 0) console.log(`  fanta ${label} ${id}: rimosse ${out.deleted_teams} squadre, ${out.deleted_rosters} rose`);
+      } catch (e: any) {
+        console.warn(`  delete fanta ${label} ${id}: ${String(e?.message || e)}`);
+      }
+    };
+
+    // Ids fanta "legittimi" da preservare: il container pretorneo e ogni torneo
+    // ancora presente nel mirror pubblico. Tutto il resto = residuo di test.
+    const publicTournaments = await anonRestGet(
+      `public_tournaments?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id&limit=1000`
+    );
+    const keepIds = new Set<string>(['__pre_tournament__', ...(publicTournaments || []).map((t: any) => String(t.id))]);
+    const fantaTeamRows = await anonRestGet(
+      `fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=tournament_id&limit=5000`
+    );
+    const fantaTournamentIds = [...new Set((fantaTeamRows || []).map((r: any) => String(r.tournament_id || '')).filter(Boolean))];
+    const simEditionIds = new Set(simEditions.map((t) => t.id));
+    const orphanFantaIds = fantaTournamentIds.filter((id) => !keepIds.has(id) && !simEditionIds.has(id));
+
+    if (!simEditions.length && !orphanFantaIds.length) {
+      console.log('Nessun torneo di simulazione o dato fanta orfano da rimuovere.');
       return;
     }
-    console.log(`Rimuovo ${simEditions.length} tornei di simulazione: ${simEditions.map((t) => t.name).join(', ')}`);
-    for (const ed of simEditions) {
-      const res = removeArchivedTournamentDeep(state, ed.id);
-      state = res.state;
-      try { await deleteFantaTournamentData(ed.id); } catch { /* nessun dato fanta */ }
+
+    if (simEditions.length) {
+      console.log(`Rimuovo ${simEditions.length} tornei di simulazione: ${simEditions.map((t) => t.name).join(', ')}`);
+      for (const ed of simEditions) {
+        const res = removeArchivedTournamentDeep(state, ed.id);
+        state = res.state;
+        await delFanta(ed.id, 'edizione');
+      }
+    }
+    if (orphanFantaIds.length) {
+      console.log(`Rimuovo dati fanta orfani per ${orphanFantaIds.length} tornei non piu' nel mirror: ${orphanFantaIds.join(', ')}`);
+      for (const id of orphanFantaIds) await delFanta(id, 'orfano');
     }
     // rimuovo anche le squadre sintetiche residue in lista iscritti
     state = { ...state, teams: (state.teams || []).filter((t) => !String(t.id || '').startsWith('simt_')) };
     await timeIt('push stato ripulito', () => pushWorkspaceState(state));
     await timeIt('export completo post-pulizia', () => pushNormalizedFromState(state, { force: true }));
-    console.log('Pulizia completata: storico, albo, classifiche e mirror riallineati.');
+    console.log('Pulizia completata: storico, albo, classifiche, mirror e dati fanta riallineati.');
     return;
   }
 
@@ -479,9 +511,37 @@ const main = async () => {
     }
   }
 
+  // Un conflitto di scrittura significa che il nostro base snapshot e' stantio:
+  // qualcun altro ha scritto sul workspace dopo il nostro ultimo pull.
+  const isWriteConflict = (e: any) =>
+    /Conflitto|FLBP_DB_CONFLICT|aggiornato da un altro/i.test(String(e?.message || e || ''));
+
+  // Ripulla lo stato dal DB, riallinea la base ottimistica e restituisce l'id
+  // del torneo live attualmente nel DB (null se non c'e' nessun torneo live).
+  const refreshBaseFromRemote = async (context: string): Promise<string | null> => {
+    const row = await pullWorkspaceState({ source: `sim.recovery.${context}`, kind: 'admin' });
+    setRemoteBaseUpdatedAt(row?.updated_at || null);
+    const remote = row?.state ? coerceAppState(row.state) : null;
+    const liveId = remote?.tournament?.id ? String(remote.tournament.id) : null;
+    if (liveId && liveId !== tournamentId) {
+      throw new Error(
+        `Un altro writer (scheda Admin aperta?) ha sostituito il torneo live: nel DB c'e' ` +
+        `${liveId}, il nostro e' ${tournamentId}. Chiudi ogni altra scheda Admin e rilancia. [${context}]`
+      );
+    }
+    if (!liveId) {
+      throw new Error(
+        `Un altro writer ha azzerato il torneo live nel DB (nessun torneo live). ` +
+        `Chiudi ogni altra scheda Admin e rilancia. [${context}]`
+      );
+    }
+    return liveId;
+  };
+
   // Persistenza di un referto: usa la RPC atomica per-match se disponibile,
   // altrimenti il percorso snapshot + export incrementale (identico al fallback
-  // dell'app quando la migration per-match non e' applicata).
+  // dell'app quando la migration per-match non e' applicata). In caso di
+  // conflitto isolato ripulla lo stato e ritenta una volta, invece di cadere.
   let perMatchRpcAvailable = true;
   let loggedFallback = false;
   const persistReport = async (
@@ -503,8 +563,11 @@ const main = async () => {
             console.log('  (RPC per-match non applicata: uso il fallback snapshot + export incrementale come fa l\'app)');
           }
         } else {
+          // La RPC per-match legge lo snapshot lato server: se e' ancora il nostro
+          // torneo (refreshBaseFromRemote non lancia) il retry va a buon fine.
           issues.push(`Referto #${reportIndex} (${matchLabel}) errore RPC: ${String(e?.message || e)} - ritento`);
-          await sleep(1500);
+          await refreshBaseFromRemote(`rpc#${reportIndex}`);
+          await sleep(1000);
           try {
             await timeIt('RPC referto per-match (retry)', () => pushAdminMatchResults({ tournamentId, matchId, matches: changed }));
             return;
@@ -516,10 +579,21 @@ const main = async () => {
       }
     }
     // Fallback: snapshot completo + export incrementale del solo torneo live.
-    await timeIt('fallback snapshot+incrementale', async () => {
-      await pushWorkspaceState(nextState);
-      await pushLiveTournamentIncremental(nextState);
-    });
+    // Su conflitto isolato ripulla la base e ritenta una volta.
+    try {
+      await timeIt('fallback snapshot+incrementale', async () => {
+        await pushWorkspaceState(nextState);
+        await pushLiveTournamentIncremental(nextState);
+      });
+    } catch (e: any) {
+      if (!isWriteConflict(e)) throw e;
+      issues.push(`Referto #${reportIndex} (${matchLabel}) conflitto snapshot: ripullo e ritento`);
+      await refreshBaseFromRemote(`fallback#${reportIndex}`);
+      await timeIt('fallback snapshot+incrementale (retry)', async () => {
+        await pushWorkspaceState(nextState);
+        await pushLiveTournamentIncremental(nextState);
+      });
+    }
   };
 
   // 5) Referti uno per uno
