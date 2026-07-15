@@ -417,6 +417,23 @@ const main = async () => {
     return;
   }
 
+  // Verifica del percorso di produzione: chiama la vera deleteFantaTournamentData
+  // (come fa l'app quando elimini un torneo) e controlla che le squadre fanta
+  // spariscano davvero via la RPC admin.
+  const verifyDeleteTid = argValue('verify-app-delete');
+  if (verifyDeleteTid) {
+    const teamsUrl = `fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${encodeURIComponent(verifyDeleteTid)}&select=id`;
+    const before = (await anonRestGet(teamsUrl))?.length || 0;
+    console.log(`Verifica delete app per torneo ${verifyDeleteTid}: squadre fanta prima = ${before}`);
+    const res = await deleteFantaTournamentData(verifyDeleteTid);
+    console.log(`Risultato deleteFantaTournamentData: ${JSON.stringify(res.removed)} (configReset=${res.configReset})`);
+    const after = (await anonRestGet(teamsUrl))?.length || 0;
+    const pass = before > 0 && after === 0;
+    console.log(`Squadre fanta dopo = ${after} -> ${pass ? 'PASS' : (before === 0 ? 'INCONCLUSIVO (nessuna squadra da rimuovere)' : 'FAIL')}`);
+    process.exitCode = pass ? 0 : 1;
+    return;
+  }
+
   if (state.tournament) {
     throw new Error(`SICUREZZA: esiste gia' un torneo live ("${state.tournament.name}"). Archivialo o eliminalo prima di simulare.`);
   }
