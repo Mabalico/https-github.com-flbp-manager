@@ -28,9 +28,12 @@ import { reconcileBracketAdvancements } from '../../services/tournamentStructure
 import { cloneMatchesForResultSync, collectChangedMatchResults } from '../../services/matchUtils';
 import { withRefereeReportAudit } from '../../services/refereeReportAudit';
 import { getPlayerKey } from '../../services/playerIdentity';
+import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
 import {
   archiveFantaTournamentEdition,
+  deleteFantaTournamentData,
   getSupabaseConfig,
+  isMatchResultRpcMissingError,
   promoteFantaPretournamentToTournament,
   pullWorkspaceState,
   pushAdminMatchResults,
@@ -42,7 +45,7 @@ import {
   setSupabaseSession,
   signInWithPassword,
 } from '../../services/supabaseRest';
-import { pullPublicWorkspaceLive } from '../../services/supabasePublic';
+import { isPublicWorkspaceLiveUnavailableError, pullPublicWorkspaceLive } from '../../services/supabasePublic';
 import type { Match, Team } from '../../types';
 
 // ----------------------------- CLI / env ----------------------------------
@@ -71,17 +74,23 @@ const longestCommonIdPrefix = (ids: string[]): string | null => {
 };
 
 const readEnvSim = (): Record<string, string> => {
-  try {
-    const raw = readFileSync(new URL('../../.env.sim', import.meta.url), 'utf8');
-    const out: Record<string, string> = {};
-    for (const line of raw.split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-      if (m) out[m[1]] = m[2];
+  // Eseguito come `node ./.tmp-node-tests/...` dalla cartella FLBP ONLINE:
+  // .env.sim vive nella working directory. Provo cwd e alcuni fallback.
+  const candidates = ['.env.sim', './.env.sim', '../.env.sim'];
+  for (const path of candidates) {
+    try {
+      const raw = readFileSync(path, 'utf8');
+      const out: Record<string, string> = {};
+      for (const line of raw.split(/\r?\n/)) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+        if (m) out[m[1]] = m[2].trim();
+      }
+      return out;
+    } catch {
+      // prova il prossimo path
     }
-    return out;
-  } catch {
-    return {};
   }
+  return {};
 };
 
 const envSim = readEnvSim();
@@ -286,14 +295,31 @@ type SavedResult = { id: string; scoreA: number; scoreB: number };
 type PropagationCheck = { atMatch: number; ok: boolean; latencyMs: number | null; detail: string };
 const propagationChecks: PropagationCheck[] = [];
 
+// Legge i match live pubblici dal documento "live" se presente (migration
+// applicata), altrimenti dallo snapshot pubblico completo (fallback).
+let publicLiveDocAvailable = true;
+const fetchPublicLiveMatches = async (): Promise<Match[]> => {
+  if (publicLiveDocAvailable) {
+    try {
+      const row = await pullPublicWorkspaceLive({ source: 'sim.propagationCheck', kind: 'polling' });
+      if (row?.state) return ((row.state as any).tournamentMatches as Match[]) || [];
+    } catch (e) {
+      if (!isPublicWorkspaceLiveUnavailableError(e)) throw e;
+      publicLiveDocAvailable = false;
+    }
+  }
+  const cfg = getSupabaseConfig()!;
+  const rows = await anonRestGet(`public_workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=state&limit=1`);
+  return ((rows?.[0]?.state?.tournamentMatches) as Match[]) || [];
+};
+
 const checkPublicPropagation = async (savedSoFar: SavedResult[], atMatch: number) => {
   const wanted = savedSoFar.slice(-5);
   const t0 = Date.now();
   let lastDetail = '';
   while (Date.now() - t0 < PROPAGATION_TIMEOUT_MS) {
     try {
-      const row = await pullPublicWorkspaceLive({ source: 'sim.propagationCheck', kind: 'polling' });
-      const liveMatches: Match[] = (row?.state as any)?.tournamentMatches || [];
+      const liveMatches: Match[] = await fetchPublicLiveMatches();
       const byId = new Map(liveMatches.map((m) => [m.id, m]));
       const misses = wanted.filter((w) => {
         const m = byId.get(w.id);
@@ -336,6 +362,29 @@ const main = async () => {
   if (!remoteRow?.state) throw new Error('Snapshot admin non trovato nel DB');
   setRemoteBaseUpdatedAt(remoteRow.updated_at || null);
   let state: AppState = coerceAppState(remoteRow.state);
+
+  // Modalita' pulizia: rimuove dallo storico i tornei di simulazione
+  // ("Torneo Sim ...") e i loro dati derivati (albo, carriera, mirror).
+  if (process.argv.includes('--cleanup-sim')) {
+    const simEditions = (state.tournamentHistory || []).filter((tr) => String(tr.name || '').startsWith('Torneo Sim'));
+    if (!simEditions.length) {
+      console.log('Nessun torneo di simulazione da rimuovere.');
+      return;
+    }
+    console.log(`Rimuovo ${simEditions.length} tornei di simulazione: ${simEditions.map((t) => t.name).join(', ')}`);
+    for (const ed of simEditions) {
+      const res = removeArchivedTournamentDeep(state, ed.id);
+      state = res.state;
+      try { await deleteFantaTournamentData(ed.id); } catch { /* nessun dato fanta */ }
+    }
+    // rimuovo anche le squadre sintetiche residue in lista iscritti
+    state = { ...state, teams: (state.teams || []).filter((t) => !String(t.id || '').startsWith('simt_')) };
+    await timeIt('push stato ripulito', () => pushWorkspaceState(state));
+    await timeIt('export completo post-pulizia', () => pushNormalizedFromState(state, { force: true }));
+    console.log('Pulizia completata: storico, albo, classifiche e mirror riallineati.');
+    return;
+  }
+
   if (state.tournament) {
     throw new Error(`SICUREZZA: esiste gia' un torneo live ("${state.tournament.name}"). Archivialo o eliminalo prima di simulare.`);
   }
@@ -430,6 +479,49 @@ const main = async () => {
     }
   }
 
+  // Persistenza di un referto: usa la RPC atomica per-match se disponibile,
+  // altrimenti il percorso snapshot + export incrementale (identico al fallback
+  // dell'app quando la migration per-match non e' applicata).
+  let perMatchRpcAvailable = true;
+  let loggedFallback = false;
+  const persistReport = async (
+    nextState: AppState,
+    matchId: string,
+    changed: Match[],
+    reportIndex: number,
+    matchLabel: string
+  ) => {
+    if (perMatchRpcAvailable) {
+      try {
+        await timeIt('RPC referto per-match', () => pushAdminMatchResults({ tournamentId, matchId, matches: changed }));
+        return;
+      } catch (e: any) {
+        if (isMatchResultRpcMissingError(e)) {
+          perMatchRpcAvailable = false;
+          if (!loggedFallback) {
+            loggedFallback = true;
+            console.log('  (RPC per-match non applicata: uso il fallback snapshot + export incrementale come fa l\'app)');
+          }
+        } else {
+          issues.push(`Referto #${reportIndex} (${matchLabel}) errore RPC: ${String(e?.message || e)} - ritento`);
+          await sleep(1500);
+          try {
+            await timeIt('RPC referto per-match (retry)', () => pushAdminMatchResults({ tournamentId, matchId, matches: changed }));
+            return;
+          } catch (e2: any) {
+            issues.push(`Referto #${reportIndex} (${matchLabel}) FALLITO anche al retry: ${String(e2?.message || e2)}`);
+            perMatchRpcAvailable = false; // passa al fallback per non bloccare la corsa
+          }
+        }
+      }
+    }
+    // Fallback: snapshot completo + export incrementale del solo torneo live.
+    await timeIt('fallback snapshot+incrementale', async () => {
+      await pushWorkspaceState(nextState);
+      await pushLiveTournamentIncremental(nextState);
+    });
+  };
+
   // 5) Referti uno per uno
   const savedResults: SavedResult[] = [];
   let reportNo = 0;
@@ -443,28 +535,14 @@ const main = async () => {
     let matches = (state.tournamentMatches || []).map((m) => (m.id === base.id ? reported : m));
     matches = reconcileBracketAdvancements(matches);
     const changed = collectChangedMatchResults(before, matches, base.id);
-
-    try {
-      await timeIt('RPC referto per-match', () =>
-        pushAdminMatchResults({ tournamentId, matchId: base.id, matches: changed })
-      );
-    } catch (e: any) {
-      issues.push(`Referto #${reportNo} (${base.code || base.id}) FALLITO: ${String(e?.message || e)}`);
-      // un retry, come farebbe un admin
-      await sleep(1500);
-      await timeIt('RPC referto per-match (retry)', () =>
-        pushAdminMatchResults({ tournamentId, matchId: base.id, matches: changed })
-      );
-    }
-
-    state = {
+    const nextState: AppState = {
       ...state,
       tournamentMatches: matches,
       tournament: { ...state.tournament!, matches } as any,
     };
 
-    // autosave dello snapshot come fa l'app dopo ogni modifica
-    await timeIt('autosave snapshot', () => pushWorkspaceState(state));
+    await persistReport(nextState, base.id, changed, reportNo, base.code || base.id);
+    state = nextState;
 
     savedResults.push({ id: base.id, scoreA: reported.scoreA, scoreB: reported.scoreB });
     for (const st of reported.stats || []) {
@@ -498,6 +576,18 @@ const main = async () => {
     console.log(`Fanta archivio: ${JSON.stringify(fantaOut)}`);
   } catch (e: any) {
     issues.push(`Snapshot fanta archivio fallito: ${String(e?.message || e)}`);
+  }
+
+  // 6b) Pulizia: in modalita' sintetica rimuovo le squadre "Sim Squadra" dalla
+  // lista iscritti per non lasciare residui (lo storico conserva le sue copie).
+  if (!USE_EXISTING_TEAMS) {
+    const simIds = new Set(simTeams.map((t) => t.id));
+    const cleanedTeams = (state.teams || []).filter((t) => !simIds.has(t.id));
+    if (cleanedTeams.length !== (state.teams || []).length) {
+      state = { ...state, teams: cleanedTeams };
+      await timeIt('pulizia squadre sintetiche', () => pushWorkspaceState(state));
+      console.log(`Rimosse ${(simTeams.length)} squadre sintetiche dalla lista iscritti.`);
+    }
   }
 
   // 7) Verifiche finali dal lato PUBBLICO (anonimo)
