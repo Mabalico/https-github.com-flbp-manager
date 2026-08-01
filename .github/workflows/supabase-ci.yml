@@ -41,7 +41,30 @@ jobs:
       - name: Lint local database schema
         run: |
           set -euo pipefail
-          supabase db lint --local --fail-on error
+          # plpgsql_check cannot resolve temp tables created inside a function
+          # at runtime. Keep error-level linting strict, but allow the one exact
+          # pre-existing false positive from the simulation-only seed helper.
+          lint_output="$(NO_COLOR=1 supabase db lint --local --level error --fail-on none)"
+          printf '%s\n' "$lint_output"
+          lint_json="$(printf '%s\n' "$lint_output" | sed -n '/^\[/,$p')"
+          test -n "$lint_json" || {
+            echo "::error::Supabase lint did not return its expected JSON report"
+            exit 1
+          }
+          unexpected_errors="$(printf '%s\n' "$lint_json" | jq '[
+            .[]
+            | .function as $function
+            | .issues[]
+            | select(.level == "error")
+            | select(
+                ($function != "public.flbp_sim_seed_fanta_pretournament")
+                or (.message != "relation \"_sim_eligible_players\" does not exist")
+              )
+          ] | length')"
+          test "$unexpected_errors" -eq 0 || {
+            echo "::error::Supabase lint found $unexpected_errors unexpected schema error(s)"
+            exit 1
+          }
 
       - name: Stop local Supabase
         if: always()
