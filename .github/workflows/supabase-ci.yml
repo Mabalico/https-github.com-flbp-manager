@@ -14,14 +14,15 @@ concurrency:
   group: supabase-ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  SUPABASE_WORKDIR: 'FLBP ONLINE'
-
 jobs:
   migrations:
     name: Validate Supabase migrations
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: FLBP ONLINE
 
     steps:
       - name: Checkout
