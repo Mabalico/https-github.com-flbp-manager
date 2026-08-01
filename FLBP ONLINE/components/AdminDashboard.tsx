@@ -29,6 +29,7 @@ import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverr
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
 import { initAdminWriteLease, releaseAdminWriteLease, takeoverAdminWriteLease } from '../services/adminWriteLease';
 import { readAdminLeaseInfo, subscribeAdminLease, type AdminLeaseInfo } from '../services/adminWriteLeaseState';
+import { canContinueVerifiedAdminOnLocalNode, rememberVerifiedAdminSession } from '../services/localAdminContinuity';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
 import {
@@ -582,6 +583,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             setSupabaseEmail(resolvedEmail);
             setAdminAuthEmailInput(resolvedEmail);
             setAdminSessionChecking(false);
+            rememberVerifiedAdminSession(getSupabaseSession());
             return true;
         } catch {
             clearSupabaseSession();
@@ -657,6 +659,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                         userId: session.userId || null,
                     });
                     applyAdminAuthState(resolvedEmail, currentAdminAuthMode === 'legacy');
+                    return;
+                }
+
+                if (await canContinueVerifiedAdminOnLocalNode(session)) {
+                    if (!alive) return;
+                    applyAdminAuthState(nextEmail || getConfiguredAdminEmail(), false);
                     return;
                 }
 

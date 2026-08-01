@@ -21,6 +21,7 @@ import {
     autoResolveBracketByeMatch,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
 } from '../services/tournamentStructureSelectors';
+import { acknowledgeRefereeReport, enqueueRefereeReport, markRefereeReportAttemptFailed, readDurablePendingRefereeReports } from '../services/repository/refereeReportOutbox';
 
 interface RefereesAreaProps {
     state: AppState;
@@ -379,6 +380,56 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         [filteredPendingMatches],
     );
 
+    const replayPendingReports = async (refereePassword: string) => {
+        const tournamentId = String(liveTournament?.id || '').trim();
+        if (!tournamentId || !refereePassword) return 0;
+        const pending = (await readDurablePendingRefereeReports()).filter((entry) => entry.tournamentId === tournamentId);
+        let synced = 0;
+        for (const entry of pending) {
+            try {
+                await pushRefereeMatchResults({
+                    tournamentId: entry.tournamentId,
+                    matchId: entry.matchId,
+                    refereePassword,
+                    authVersion: String((liveTournament as any)?.refereesAuthVersion || '').trim() || null,
+                    matches: entry.matches,
+                    operationId: entry.operationId,
+                });
+                acknowledgeRefereeReport(entry.operationId);
+                synced += 1;
+            } catch (error) {
+                markRefereeReportAttemptFailed(entry.operationId, error);
+                break;
+            }
+        }
+        if (synced > 0) {
+            try {
+                const pulled = await pullRefereeLiveState(tournamentId, refereePassword);
+                if (pulled?.ok && pulled.state) setState(pulled.state);
+            } catch {
+                // The committed reports are durable; normal polling will refresh.
+            }
+        }
+        return synced;
+    };
+
+    useEffect(() => {
+        if (!authed || !liveTournament?.id) return;
+        const retry = () => {
+            const secret = syncedPasswordRef.current.trim();
+            if (secret) void replayPendingReports(secret);
+        };
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') retry();
+        };
+        window.addEventListener('online', retry);
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+            window.removeEventListener('online', retry);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, [authed, liveTournament?.id]);
+
     // ===== Auth =====
     const doLogin = async () => {
         const live = liveTournament;
@@ -438,6 +489,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             setAuthed(true);
             setPassword('');
             setLoginError(null);
+            const replayed = await replayPendingReports(entered);
+            if (replayed > 0) {
+                alert(`${replayed} refert${replayed === 1 ? 'o pendente sincronizzato' : 'i pendenti sincronizzati'}.`);
+            }
         } catch (e: any) {
             const msg = String(e?.message || e || '');
             setLoginError(
@@ -1111,6 +1166,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     return;
                 }
                 let useSnapshotFallback = false;
+                const queuedReport = await enqueueRefereeReport({
+                    tournamentId: state.tournament.id,
+                    matchId: foundMatch.id,
+                    matches: reportMatchesToPersist,
+                });
                 try {
                     await pushRefereeMatchResults({
                         tournamentId: state.tournament.id,
@@ -1118,7 +1178,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         refereePassword,
                         authVersion: String((state.tournament as any)?.refereesAuthVersion || '').trim() || null,
                         matches: reportMatchesToPersist,
+                        operationId: queuedReport.operationId,
                     });
+                    acknowledgeRefereeReport(queuedReport.operationId);
                     window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
                     clearDbSyncCurrentIssue();
                     markDbSyncOk('snapshot');
@@ -1126,12 +1188,16 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     if (isMatchResultRpcMissingError(e)) {
                         useSnapshotFallback = true;
                     } else if (e?.code === 'FLBP_DB_CONFLICT') {
+                        markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncConflict(e?.message || 'Conflitto DB');
-                        alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
+                        setState(nextState);
+                        alert('Conflitto DB: il referto è conservato nella coda locale e non verrà perso. Verifica la versione remota prima di riprovare.');
                         return;
                     } else {
+                        markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncError(e?.message || String(e), 'snapshot');
-                        alert(t('referees_db_save_failed') || 'Salvataggio DB arbitri non riuscito. Controlla connessione e riprova.');
+                        setState(nextState);
+                        alert('Connessione non disponibile: il referto è salvato sul dispositivo e verrà riprovato dopo il nuovo accesso arbitri.');
                         return;
                     }
                 }
@@ -1143,6 +1209,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             refereePassword,
                             baseUpdatedAt: getRemoteBaseUpdatedAt()
                         });
+                        acknowledgeRefereeReport(queuedReport.operationId);
                         clearDbSyncCurrentIssue();
                         markDbSyncOk('snapshot');
                     } catch (e: any) {
@@ -1161,6 +1228,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                             refereePassword,
                                             baseUpdatedAt: pulled.updated_at || null
                                         });
+                                        acknowledgeRefereeReport(queuedReport.operationId);
                                         closeLiveCallsForMatch(updated, state.tournament.id);
                                         clearDbSyncCurrentIssue();
                                         markDbSyncOk('snapshot');
@@ -1173,10 +1241,14 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 // fall through to the user-facing conflict warning below
                             }
                             markDbSyncConflict(e?.message || 'Conflitto DB');
-                            alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
+                            markRefereeReportAttemptFailed(queuedReport.operationId, e);
+                            setState(nextState);
+                            alert('Conflitto DB: il referto resta conservato nella coda locale.');
                         } else {
                             markDbSyncError(e?.message || String(e), 'snapshot');
-                            alert(t('referees_db_save_failed') || 'Salvataggio DB arbitri non riuscito. Controlla connessione e riprova.');
+                            markRefereeReportAttemptFailed(queuedReport.operationId, e);
+                            setState(nextState);
+                            alert('Salvataggio remoto non riuscito: il referto resta conservato nella coda locale.');
                         }
                         return;
                     }

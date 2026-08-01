@@ -1,0 +1,8 @@
+# Copiare in C:\Users\NOME\.cloudflared\config.yml dopo aver creato un Named Tunnel.
+tunnel: INSERIRE_ID_TUNNEL
+credentials-file: C:\Users\NOME\.cloudflared\INSERIRE_ID_TUNNEL.json
+
+ingress:
+  - hostname: locale.example.it
+    service: http://127.0.0.1:8787
+  - service: http_status:404

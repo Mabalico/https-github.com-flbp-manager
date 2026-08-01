@@ -1,0 +1,17 @@
+{
+  "name": "flbp-local-tournament-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.mjs",
+    "check": "node --check src/server.mjs && node --check src/store.mjs && node --check src/supabaseSync.mjs && node --check src/preflight.mjs && node --check src/publicSanitizer.mjs && node --check src/backupRestore.mjs && node --check src/restoreBackupCli.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.mjs",
+    "preflight": "node --disable-warning=ExperimentalWarning src/preflight.mjs",
+    "restore": "node --disable-warning=ExperimentalWarning src/restoreBackupCli.mjs",
+    "qa:server": "node --disable-warning=ExperimentalWarning test/qa-server.mjs"
+  }
+}

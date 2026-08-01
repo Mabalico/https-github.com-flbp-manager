@@ -1,0 +1,100 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { LocalStore } from '../src/store.mjs';
+import { buildSupabaseServerHeaders, SupabaseSync } from '../src/supabaseSync.mjs';
+
+const stateAt = (name) => ({
+  state: {
+    tournament: { id: 't1', name, matches: [{ id: 'm1' }] },
+    tournamentMatches: [{ id: 'm1' }],
+  },
+  publicState: {},
+});
+
+test('Supabase server headers support new secret keys without an invalid Bearer token', () => {
+  assert.deepEqual(buildSupabaseServerHeaders('sb_secret_test-key'), {
+    apikey: 'sb_secret_test-key',
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  });
+  assert.equal(
+    buildSupabaseServerHeaders('legacy-service-role').Authorization,
+    'Bearer legacy-service-role',
+  );
+});
+
+const withSync = async (run) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-sync-'));
+  const store = new LocalStore({ dataDir, workspaceId: 'default', filename: 'sync.sqlite' });
+  try {
+    store.importCloudSnapshot({ ...stateAt('Cloud'), version: 1, operationId: 'cloud-v1' });
+    store.setActive(true, 7);
+    const sync = new SupabaseSync({
+      workspaceId: 'default',
+      nodeId: 'node-test',
+      supabaseUrl: 'https://example.supabase.co',
+      supabaseServiceRoleKey: 'service-role-test',
+    }, store);
+    await run({ store, sync });
+  } finally {
+    store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+};
+
+test('outbox rows are cleared only after the transactional RPC confirms every operation', () => withSync(async ({ store, sync }) => {
+  store.commitSnapshot({ ...stateAt('Locale'), operationId: 'local-v2', baseVersion: 1 });
+  let request = null;
+  sync.rpc = async (name, body) => {
+    request = { name, body };
+    return { ok: true, confirmed: 1, inserted: 1, idempotent: 0, covered_by_snapshot: 0 };
+  };
+
+  const result = await sync.syncOutbox();
+  assert.equal(request.name, 'flbp_local_append_operations');
+  assert.equal(request.body.p_epoch, 7);
+  assert.equal(request.body.p_operations[0].operation_id, 'local-v2');
+  assert.equal(request.body.p_operations[0].local_version, 2);
+  assert.equal(result.inserted, 1);
+  assert.equal(store.pendingOutboxCount(), 0);
+}));
+
+test('an incomplete or ambiguous RPC response keeps the outbox durable and retryable', () => withSync(async ({ store, sync }) => {
+  store.commitSnapshot({ ...stateAt('Locale'), operationId: 'local-v2-retry', baseVersion: 1 });
+  sync.rpc = async () => ({ ok: true, confirmed: 0 });
+
+  await assert.rejects(() => sync.syncOutbox(), /non ha confermato tutte le operazioni/);
+  assert.equal(store.pendingOutboxCount(), 1);
+  assert.equal(store.listPendingOutbox()[0].attempts, 1);
+}));
+
+test('a commit arriving during an upload is drained immediately without waiting for the 30-minute backup', () => withSync(async ({ store, sync }) => {
+  store.commitSnapshot({ ...stateAt('Locale v2'), operationId: 'local-drain-v2', baseVersion: 1 });
+  let releaseFirst;
+  let signalFirst;
+  const firstEntered = new Promise((resolve) => { signalFirst = resolve; });
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const requests = [];
+  sync.rpc = async (_name, body) => {
+    requests.push(body.p_operations.map((entry) => entry.operation_id));
+    if (requests.length === 1) {
+      signalFirst();
+      await firstGate;
+    }
+    return { ok: true, confirmed: body.p_operations.length, inserted: body.p_operations.length };
+  };
+
+  const firstUpload = sync.scheduleOutboxSync();
+  await firstEntered;
+  store.commitSnapshot({ ...stateAt('Locale v3'), operationId: 'local-drain-v3', baseVersion: 2 });
+  const joinedUpload = sync.scheduleOutboxSync();
+  assert.equal(joinedUpload, firstUpload);
+  releaseFirst();
+  await firstUpload;
+
+  assert.deepEqual(requests, [['local-drain-v2'], ['local-drain-v3']]);
+  assert.equal(store.pendingOutboxCount(), 0);
+}));

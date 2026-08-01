@@ -1,0 +1,162 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import process from 'node:process';
+import { loadConfig, validateOperationalConfig } from './config.mjs';
+import { buildSupabaseServerHeaders } from './supabaseSync.mjs';
+
+const config = loadConfig();
+const checks = [];
+const add = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: String(detail || '') });
+
+const safeResponseBody = async (response) => {
+  try {
+    const text = await response.text();
+    return text
+      .replace(/eyJ[A-Za-z0-9_.-]+/g, '[token]')
+      .replace(/sb_secret_[A-Za-z0-9_-]+/g, '[secret-key]')
+      .slice(0, 500);
+  } catch {
+    return `${response.status} ${response.statusText}`;
+  }
+};
+
+const serviceHeaders = () => buildSupabaseServerHeaders(config.supabaseServiceRoleKey);
+
+const timedFetch = async (url, init = {}, timeoutMs = 8_000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const operationalErrors = validateOperationalConfig(config);
+add('Configurazione server', operationalErrors.length === 0, operationalErrors.join(' ') || 'Valori obbligatori presenti.');
+add('Node.js 24+', Number(process.versions.node.split('.')[0]) >= 24, process.version);
+add('Build React locale', fs.existsSync(path.join(config.webDist, 'index.html')), config.webDist);
+
+try {
+  const dataParent = fs.existsSync(config.dataDir) ? config.dataDir : path.dirname(config.dataDir);
+  fs.accessSync(dataParent, fs.constants.R_OK | fs.constants.W_OK);
+  add('Cartella SQLite', true, config.dataDir);
+} catch (error) {
+  add('Cartella SQLite', false, error?.message || error);
+}
+
+if (config.secondaryBackupDir) {
+  try {
+    const secondaryParent = fs.existsSync(config.secondaryBackupDir) ? config.secondaryBackupDir : path.dirname(config.secondaryBackupDir);
+    fs.accessSync(secondaryParent, fs.constants.R_OK | fs.constants.W_OK);
+    const primaryRoot = path.parse(config.dataDir).root.toLowerCase();
+    const secondaryRoot = path.parse(config.secondaryBackupDir).root.toLowerCase();
+    add('Replica SQLite secondaria', primaryRoot !== secondaryRoot, primaryRoot !== secondaryRoot
+      ? config.secondaryBackupDir
+      : 'La replica è scrivibile ma si trova sullo stesso volume del DB primario.');
+  } catch (error) {
+    add('Replica SQLite secondaria', false, error?.message || error);
+  }
+}
+
+if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
+  add('Supabase control plane', false, 'SUPABASE_URL o Secret key server assente.');
+} else {
+  const workspace = encodeURIComponent(config.workspaceId);
+  try {
+    const response = await timedFetch(
+      `${config.supabaseUrl}/rest/v1/workspace_state?workspace_id=eq.${workspace}&select=workspace_id,version,last_operation_id&limit=1`,
+      { headers: serviceHeaders() },
+    );
+    const body = response.ok ? await response.json() : null;
+    add('Snapshot Supabase', response.ok && Array.isArray(body) && body.length === 1, response.ok ? `workspace=${config.workspaceId}, version=${body?.[0]?.version ?? '—'}` : await safeResponseBody(response));
+  } catch (error) {
+    add('Snapshot Supabase', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_resolve_data_plane`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      body: JSON.stringify({ p_workspace_id: config.workspaceId }),
+    });
+    const body = response.ok ? await response.json() : null;
+    add('RPC coordinatore', response.ok && ['cloud', 'local', 'recovery'].includes(body?.mode), response.ok ? `mode=${body?.mode}, epoch=${body?.epoch ?? 0}` : await safeResponseBody(response));
+  } catch (error) {
+    add('RPC coordinatore', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(
+      `${config.supabaseUrl}/rest/v1/flbp_local_operation_log?workspace_id=eq.${workspace}&select=local_version&limit=1`,
+      { headers: serviceHeaders() },
+    );
+    add('Journal remoto', response.ok, response.ok ? 'Tabella raggiungibile con chiave server.' : await safeResponseBody(response));
+  } catch (error) {
+    add('Journal remoto', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_append_operations`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      // Epoch 0 viene rifiutato prima di qualsiasi scrittura: qui interessa
+      // distinguere una funzione presente da PGRST202/funzione assente.
+      body: JSON.stringify({
+        p_workspace_id: config.workspaceId,
+        p_node_id: 'preflight-non-writing-probe',
+        p_epoch: 0,
+        p_operations: [],
+      }),
+    });
+    const detail = await safeResponseBody(response);
+    const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
+    const callable = !missing && detail.includes('primary_epoch mancante');
+    add('RPC journal transazionale', callable, callable ? 'Funzione caricata e invocabile con chiave server.' : detail);
+  } catch (error) {
+    add('RPC journal transazionale', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_admin_push_workspace_state_v2`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      // operation_id vuoto forza un errore di validazione prima di lease/write.
+      body: JSON.stringify({
+        p_workspace_id: config.workspaceId,
+        p_state: {},
+        p_public_state: {},
+        p_base_updated_at: null,
+        p_force: false,
+        p_lease_holder: null,
+        p_operation_id: '',
+      }),
+    });
+    const detail = await safeResponseBody(response);
+    const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
+    const callable = !missing && detail.includes('FLBP_INVALID_OPERATION');
+    add('RPC Admin idempotente', callable, callable ? 'Funzione v2 caricata e invocabile con chiave server.' : detail);
+  } catch (error) {
+    add('RPC Admin idempotente', false, error?.message || error);
+  }
+}
+
+if (!config.publicUrl) {
+  add('Named Tunnel HTTPS', false, 'FLBP_LOCAL_PUBLIC_URL assente.');
+} else {
+  try {
+    const response = await timedFetch(`${config.publicUrl}/health`, { headers: { Accept: 'application/json' } });
+    const body = response.ok ? await response.json() : null;
+    add('Named Tunnel HTTPS', response.ok && body?.ok === true, response.ok ? `Nodo ${body?.nodeId || 'raggiungibile'}; active=${!!body?.active}` : await safeResponseBody(response));
+  } catch (error) {
+    add('Named Tunnel HTTPS', false, error?.message || error);
+  }
+}
+
+const width = Math.max(...checks.map((check) => check.name.length));
+for (const check of checks) {
+  console.log(`${check.ok ? 'PASS' : 'FAIL'}  ${check.name.padEnd(width)}  ${check.detail}`);
+}
+const failures = checks.filter((check) => !check.ok);
+console.log(`\n${checks.length - failures.length}/${checks.length} controlli superati.`);
+if (failures.length) process.exitCode = 1;
