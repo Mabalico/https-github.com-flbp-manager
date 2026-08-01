@@ -124,7 +124,9 @@ test('control panel uses a CSP-compatible external script', async () => {
     const scriptResponse = await fetch(`${ctx.base}/control.js`);
     assert.equal(scriptResponse.status, 200);
     assert.match(scriptResponse.headers.get('content-type') || '', /javascript/);
-    assert.match(await scriptResponse.text(), /fetch\('\/health'\)/);
+      const script = await scriptResponse.text();
+      assert.match(script, /fetch\('\/health'\)/);
+      assert.doesNotThrow(() => new Function(script));
   } finally {
     await cleanup(ctx);
   }
