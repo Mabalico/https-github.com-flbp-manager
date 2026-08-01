@@ -4,6 +4,7 @@ import { isAdminWriteBlockedByLease } from './adminWriteLeaseState';
 import { markDbSyncConflict, markDbSyncError, markDbSyncOk } from './dbDiagnostics';
 import { getAppStateRepository } from './repository/getRepository';
 import { hasMeaningfulAppState } from './appStateMeaning';
+import { DATA_PLANE_CHANGE_EVENT, resolveDataPlane } from './dataPlaneClient';
 
 // LocalStorage/env flags are kept in repository/featureFlags to avoid scattering.
 import { isAutoStructuredSyncEnabled } from './repository/featureFlags';
@@ -33,10 +34,20 @@ const DEBOUNCE_MS = 1500;
 const RETRY_BACKOFF_STEPS_MS = [5_000, 15_000, 45_000, 120_000];
 const RETRY_JITTER_RATIO = 0.2;
 let retryHooksInstalled = false;
+let dataPlaneHookInstalled = false;
 let retryFailureCount = 0;
 let retryCooldownUntil = 0;
 let lifecycleBypassUsedForCooldownUntil = 0;
 let retryTimer: number | null = null;
+const NORMALIZED_SYNC_REQUIRED_LS_KEY = 'flbp_normalized_sync_required_v1';
+
+const normalizedSyncRequired = () => {
+  try { return localStorage.getItem(NORMALIZED_SYNC_REQUIRED_LS_KEY) === '1'; } catch { return false; }
+};
+
+const clearNormalizedSyncRequired = () => {
+  try { localStorage.removeItem(NORMALIZED_SYNC_REQUIRED_LS_KEY); } catch { /* ignore */ }
+};
 
 const retryDelayWithJitter = (failureCount: number) => {
   const base = RETRY_BACKOFF_STEPS_MS[Math.min(Math.max(failureCount - 1, 0), RETRY_BACKOFF_STEPS_MS.length - 1)];
@@ -91,6 +102,19 @@ const installRetryHooks = () => {
       if (document.visibilityState === 'visible') {
         void flushAutoStructuredSync(undefined, { force: true });
       }
+    });
+
+  } catch {
+    // ignore
+  }
+};
+
+const installDataPlaneHook = () => {
+  if (dataPlaneHookInstalled) return;
+  dataPlaneHookInstalled = true;
+  try {
+    window.addEventListener(DATA_PLANE_CHANGE_EVENT, () => {
+      void flushAutoStructuredSync(undefined, { force: true });
     });
   } catch {
     // ignore
@@ -153,13 +177,13 @@ const safeFingerprint = (s: AppState): string => {
 };
 
 export const scheduleAutoStructuredSync = (state: AppState) => {
-  if (!isAutoStructuredSyncEnabled()) return;
-  installRetryHooks();
-
   const cfg = getSupabaseConfig();
   if (!cfg) return;
 
   pending = state;
+  installDataPlaneHook();
+  if (!isAutoStructuredSyncEnabled() && !normalizedSyncRequired()) return;
+  installRetryHooks();
   if (timer != null) window.clearTimeout(timer);
 
   timer = window.setTimeout(() => {
@@ -199,6 +223,15 @@ export const flushAutoStructuredSync = async (
   if (!cfg) return;
   if (isRetryCoolingDown(opts?.allowDuringBackoff)) return;
 
+  const route = await resolveDataPlane();
+  if (route.mode !== 'cloud') {
+    // SQLite is authoritative. Keep only the latest state queued; the control
+    // page emits DATA_PLANE_CHANGE_EVENT after safe deactivation and this
+    // normalized mirror is then rebuilt once, instead of every 20 seconds.
+    pending = s;
+    return;
+  }
+
   const now = Date.now();
   const fp = safeFingerprint(s);
   const forceThisRun = !!opts?.force || queuedForceAfterInFlight;
@@ -222,6 +255,7 @@ export const flushAutoStructuredSync = async (
     lastRunAt = Date.now();
     lastFingerprint = fp;
     clearRetryBackoff();
+    clearNormalizedSyncRequired();
     markDbSyncOk('structured', summary);
     try {
       window.dispatchEvent(new CustomEvent('flbp-fanta-change'));

@@ -19,7 +19,8 @@ import {
     ensureFreshSupabaseSession,
     clearSupabaseSession,
     ensureSupabaseAdminAccess,
-    getConfiguredAdminEmail
+    getConfiguredAdminEmail,
+    forceCloudDataPlaneFailover
 } from '../../../../services/supabaseRest';
 import { readDbSyncDiagnostics, markDbSyncConflict, markDbSyncError, markDbSyncOk, markRemoteVersions, clearDbSyncHistory, clearDbSyncCurrentIssue, markDbHealth, isAdminWriteOnlyDbIssue } from '../../../../services/dbDiagnostics';
 import {
@@ -36,6 +37,7 @@ import { flushAutoStructuredSync } from '../../../../services/autoDbSync';
 import { DbMigrationWizard } from './DbMigrationWizard';
 import { Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from '../../../../App';
+import { DATA_PLANE_CHANGE_LS_KEY, resolveDataPlane, type DataPlaneRoute } from '../../../../services/dataPlaneClient';
 
 type PanelState =
     | { kind: 'idle' }
@@ -66,6 +68,14 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
     const remotePersistenceLocked = React.useMemo(() => isRemotePersistenceLocked(), []);
     const [diagTick, setDiagTick] = React.useState<number>(0);
     const [health, setHealth] = React.useState<null | { ok: boolean; checks: Array<{ name: string; ok: boolean; severity: string; message: string }> }>(null);
+    const [dataPlane, setDataPlane] = React.useState<DataPlaneRoute | null>(null);
+    const isServerPcOrigin = React.useMemo(() => {
+        try {
+            return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+        } catch {
+            return false;
+        }
+    }, []);
     const healthHasWarnings = React.useMemo(() => {
         return !!health?.checks?.some((c) => !c.ok || String(c.severity || 'info') !== 'info');
     }, [health]);
@@ -83,6 +93,24 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
     React.useEffect(() => {
         const t = window.setInterval(() => setDiagTick(v => v + 1), 2000);
         return () => window.clearInterval(t);
+    }, []);
+
+    React.useEffect(() => {
+        let alive = true;
+        const refreshDataPlane = async (force = false) => {
+            try {
+                const route = await resolveDataPlane({ force });
+                if (alive) setDataPlane(route);
+            } catch {
+                // The normal repository diagnostics report connectivity errors.
+            }
+        };
+        void refreshDataPlane(true);
+        const timer = window.setInterval(() => void refreshDataPlane(true), 10_000);
+        return () => {
+            alive = false;
+            window.clearInterval(timer);
+        };
     }, []);
 
     const hasToken = !!token.trim();
@@ -155,6 +183,29 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
             }
             setPanel({ kind: 'error', message: msg });
         }
+    };
+
+    const onForceCloudFailover = () => {
+        if (dataPlane?.mode !== 'recovery' || dataPlane.epoch == null) return;
+        const confirmed = window.confirm(
+            'FAILOVER DI EMERGENZA\n\nUsalo solo se il PC del torneo non è recuperabile. Supabase tornerà scrivibile dall’ultimo backup disponibile; le modifiche rimaste soltanto sul disco del PC potrebbero mancare. Continuare?'
+        );
+        if (!confirmed) return;
+        void run('Failover di emergenza verso Supabase', async () => {
+            const out = await forceCloudDataPlaneFailover(Number(dataPlane.epoch));
+            try {
+                localStorage.setItem('flbp_normalized_sync_required_v1', '1');
+                localStorage.setItem(DATA_PLANE_CHANGE_LS_KEY, String(Date.now()));
+            } catch {
+                // This tab still refreshes its in-memory route below.
+            }
+            const nextRoute = await resolveDataPlane({ force: true });
+            setDataPlane(nextRoute);
+            setPanel({
+                kind: 'ok',
+                message: `Failover completato: Supabase è primario (epoch ${out.epoch}). Verifica l’ultimo backup prima di riprendere le modifiche.`,
+            });
+        });
     };
 
     const onAuthLogin = () => run(t('db_login_admin'), async () => {
@@ -379,6 +430,58 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                         <span className="text-xs text-slate-600">{t('db_workspace_label')}: <span className="font-mono">{cfg.workspaceId}</span></span>
                     ) : null}
                 </div>
+            </div>
+
+            <div className={`border rounded-2xl p-3 text-xs ${dataPlane?.mode === 'local' ? 'bg-violet-50 border-violet-200 text-violet-950' : dataPlane?.mode === 'recovery' ? 'bg-red-50 border-red-200 text-red-950' : 'bg-white border-slate-200 text-slate-800'}`}>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                        <div className="font-black">Nodo dati del torneo</div>
+                        <div className="mt-1 font-bold">
+                            {dataPlane?.mode === 'local'
+                                ? 'SERVER LOCALE PRIMARIO — tutte le letture live e le scritture critiche passano dal PC del torneo.'
+                                : dataPlane?.mode === 'recovery'
+                                    ? 'RECUPERO — scritture sospese per evitare due database primari contemporaneamente.'
+                                    : 'SUPABASE PRIMARIO — il server locale è in standby.'}
+                        </div>
+                    </div>
+                    <span className="px-2 py-1 rounded-lg border bg-white font-black">
+                        {String(dataPlane?.mode || 'verifica').toUpperCase()}{dataPlane?.epoch ? ` · epoch ${dataPlane.epoch}` : ''}
+                    </span>
+                </div>
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <div className="flex-1 min-w-[240px] text-[11px] font-semibold opacity-80">
+                        L’autorizzazione locale viene rilasciata automaticamente solo alla web app aperta sul PC server. Il token principale non va copiato in browser remoti.
+                    </div>
+                    {isServerPcOrigin ? (
+                    <a
+                        href={`${window.location.origin}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-2 rounded-xl bg-violet-700 text-white text-center font-black"
+                    >
+                        Pannello server / switch
+                    </a>
+                    ) : (
+                        <span className="px-3 py-2 rounded-xl border border-slate-300 bg-white font-black">
+                            Switch disponibile sul PC server
+                        </span>
+                    )}
+                </div>
+                {dataPlane?.mode === 'recovery' ? (
+                    <div className="mt-3 border-t border-red-200 pt-3 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="text-[11px] font-bold max-w-2xl">
+                            Se il PC può essere riacceso, non usare il failover: riavvia server e tunnel e lascia sincronizzare l’outbox. Questa azione serve solo per un PC definitivamente non recuperabile.
+                        </div>
+                        <button
+                            type="button"
+                            disabled={isBusy || !hasAdminSession}
+                            onClick={onForceCloudFailover}
+                            className={`px-3 py-2 rounded-xl font-black ${isBusy || !hasAdminSession ? 'bg-red-100 text-red-300' : 'bg-red-700 text-white hover:bg-red-800'}`}
+                        >
+                            Failover emergenza a Supabase
+                        </button>
+                    </div>
+                ) : null}
             </div>
 
             <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3 text-xs text-sky-900">

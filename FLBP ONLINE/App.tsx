@@ -1196,21 +1196,17 @@ const App: React.FC = () => {
     }, [state]);
 
     useEffect(() => {
-        const flush = () => {
+        const checkpointLocally = () => {
+            // Lifecycle events are not a safe time for network writes: a stale
+            // tab can race the active writer while the browser is unloading.
+            // Only persist a change that was still waiting for the normal
+            // debounce; RemoteRepository stores the draft synchronously and
+            // retries after the page becomes active again.
             if (saveTimeoutRef.current) {
                 window.clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
+                repo.save(latestStateRef.current);
             }
-            repo.save(latestStateRef.current);
-            void repo.flush?.();
-
-            // On lifecycle flush we attempt a best-effort immediate DB sync when enabled.
-            // (Scheduling a debounced sync here risks being cancelled by pagehide/unload.)
-            void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
-                return flushAutoStructuredSync(latestStateRef.current, { force: true, allowDuringBackoff: true });
-            }).catch(() => {
-                // ignore best-effort background sync loader errors
-            });
         };
 
         const onLiveStateCommitted = (event: Event) => {
@@ -1225,19 +1221,19 @@ const App: React.FC = () => {
             });
         };
 
-        // Ensure we don't lose the last updates on refresh/close (especially important on mobile)
-        window.addEventListener('beforeunload', flush);
-        window.addEventListener('pagehide', flush);
+        // Checkpoint only; never push a full snapshot during page teardown.
+        window.addEventListener('beforeunload', checkpointLocally);
+        window.addEventListener('pagehide', checkpointLocally);
         window.addEventListener('flbp:live-state-committed', onLiveStateCommitted as EventListener);
 
         const onVis = () => {
-            if (document.visibilityState === 'hidden') flush();
+            if (document.visibilityState === 'hidden') checkpointLocally();
         };
         document.addEventListener('visibilitychange', onVis);
 
         return () => {
-            window.removeEventListener('beforeunload', flush);
-            window.removeEventListener('pagehide', flush);
+            window.removeEventListener('beforeunload', checkpointLocally);
+            window.removeEventListener('pagehide', checkpointLocally);
             window.removeEventListener('flbp:live-state-committed', onLiveStateCommitted as EventListener);
             document.removeEventListener('visibilitychange', onVis);
         };

@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { readViteSupabaseAnonKey, readViteSupabaseUrl, readViteWorkspaceId } from './viteEnv';
 import { fetchWithDevRequestPerf, type DevRequestPerfKind } from './devRequestPerf';
+import { pullLocalWorkspace, resolveDataPlane } from './dataPlaneClient';
 
 type Json = any;
 
@@ -205,6 +206,8 @@ const isMissingPublicWorkspaceLiveError = (status: number, body: string) => {
 export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceStateRow;
 
     const url = restUrl(
         cfg,
@@ -232,6 +235,8 @@ export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<
 };
 
 export const pullPublicWorkspaceLive = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceLiveRow | null> => {
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceLiveRow;
     if (pullPublicWorkspaceLiveUnavailable) {
         throw makePublicWorkspaceLiveUnavailableError();
     }
@@ -274,6 +279,11 @@ export const pullPublicWorkspaceLive = async (perf?: RequestPerfHint): Promise<S
 export const pullPublicWorkspaceUpdatedAt = async (perf?: RequestPerfHint): Promise<string | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        const row = await pullLocalWorkspace(route, false);
+        return row.updated_at || null;
+    }
 
     const url = restUrl(
         cfg,
@@ -313,61 +323,20 @@ export const trackPublicSiteView = async (date?: string): Promise<{ ok: boolean;
 export const pullPublicCareerLeaderboard = async (perf?: RequestPerfHint): Promise<PlayerStats[]> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-
-    const url = restUrl(
-        cfg,
-        `public_career_leaderboard?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id,name,team_name,games_played,points,soffi,avg_points,avg_soffi,u25,yob_label`
-    );
-    const res = await fetchWithDevRequestPerf(
-        url,
-        { headers: buildAnonHeaders(cfg) },
-        { source: perf?.source || 'pullPublicCareerLeaderboard', kind: perf?.kind || 'user' }
-    );
-    if (!res.ok) throw new Error(await readErrorBody(res));
-    const rows = (await res.json()) as SupabasePublicCareerLeaderboardRow[];
-
-    return (rows || []).map((r) => ({
-        id: r.id,
-        name: r.name || '',
-        teamName: r.team_name || '',
-        gamesPlayed: r.games_played || 0,
-        points: r.points || 0,
-        soffi: r.soffi || 0,
-        avgPoints: typeof r.avg_points === 'number' ? r.avg_points : parseFloat(String(r.avg_points || 0)),
-        avgSoffi: typeof r.avg_soffi === 'number' ? r.avg_soffi : parseFloat(String(r.avg_soffi || 0)),
-        u25: !!r.u25,
-        yobLabel: r.yob_label || undefined
-    }));
+    // The component computes this projection from the authoritative public
+    // workspace snapshot. This avoids a second table that can lag behind the
+    // Admin commit during or immediately after local-primary mode.
+    return [];
 };
 
 export const pullPublicHallOfFameEntries = async (perf?: RequestPerfHint): Promise<HallOfFameEntry[]> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-
-    const url = restUrl(
-        cfg,
-        `public_hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}` +
-            `&select=id,year,tournament_id,tournament_name,type,team_name,player_names,value,created_at` +
-            `&order=year.desc,created_at.desc`
-    );
-
-    const res = await fetchWithDevRequestPerf(
-        url,
-        { headers: buildAnonHeaders(cfg) },
-        { source: perf?.source || 'pullPublicHallOfFameEntries', kind: perf?.kind || 'user' }
-    );
-    if (!res.ok) throw new Error(await readErrorBody(res));
-    const rows = (await res.json()) as any[];
-    return (rows || []).map((r) => ({
-        id: r.id,
-        year: String(r.year ?? ''),
-        tournamentId: r.tournament_id,
-        tournamentName: r.tournament_name,
-        type: r.type,
-        teamName: r.team_name ?? undefined,
-        playerNames: Array.isArray(r.player_names) ? r.player_names : [],
-        value: r.value ?? undefined
-    }));
+    const route = await resolveDataPlane();
+    const row = route.mode === 'local'
+        ? await pullLocalWorkspace(route, false)
+        : await pullPublicWorkspaceState(perf);
+    return Array.isArray(row?.state?.hallOfFame) ? row.state.hallOfFame : [];
 };
 
 const coerceFinalRoundRobin = (cfg: any): FinalRoundRobinConfig | undefined => {
@@ -420,27 +389,15 @@ const mapPublicTournamentRowToData = (r: SupabasePublicTournamentRow, teams: Tea
 export const pullPublicTournamentsList = async (perf?: RequestPerfHint): Promise<{ liveTournament: TournamentData | null; history: TournamentData[] }> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-
-    const url = restUrl(
-        cfg,
-        `public_tournaments?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}` +
-        `&select=id,name,start_date,type,config,is_manual,status,updated_at` +
-        `&order=start_date.asc`
-    );
-    const res = await fetchWithDevRequestPerf(
-        url,
-        { headers: buildAnonHeaders(cfg) },
-        { source: perf?.source || 'pullPublicTournamentsList', kind: perf?.kind || 'polling' }
-    );
-    if (!res.ok) throw new Error(await readErrorBody(res));
-    const rows = (await res.json()) as SupabasePublicTournamentRow[];
-
-    const liveRow = (rows || []).find(r => r.status === 'live') || null;
-    const historyRows = (rows || []).filter(r => r.status !== 'live');
-
+    const route = await resolveDataPlane();
+    const row = route.mode === 'local'
+        ? await pullLocalWorkspace(route, false)
+        : await pullPublicWorkspaceState(perf);
+    const live = row?.state?.tournament || null;
+    const liveMatches = Array.isArray(row?.state?.tournamentMatches) ? row.state.tournamentMatches : (live?.matches || []);
     return {
-        liveTournament: liveRow ? mapPublicTournamentRowToData(liveRow, [], []) : null,
-        history: historyRows.map(r => mapPublicTournamentRowToData(r, [], []))
+        liveTournament: live ? { ...live, matches: liveMatches } as TournamentData : null,
+        history: Array.isArray(row?.state?.tournamentHistory) ? row.state.tournamentHistory : [],
     };
 };
 
@@ -450,97 +407,21 @@ export const pullPublicTournamentBundle = async (
 ): Promise<{ data: TournamentData; teams: Team[]; matches: Match[] } | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-    const tid = encodeURIComponent(tournamentId);
-    const anonHeaders = buildAnonHeaders(cfg);
-
-    const requestKind = perf?.kind || 'user';
-    const requestSource = perf?.source || 'pullPublicTournamentBundle';
-    const [tRes, teamsRes, groupsRes, groupTeamsRes, matchesRes, statsRes] = await Promise.all([
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournaments?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&id=eq.${tid}&select=id,name,start_date,type,config,is_manual,status&limit=1`), { headers: anonHeaders }, { source: `${requestSource}.tournament`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,name,player1,player2,player1_is_referee,player2_is_referee,is_referee,created_at&order=created_at.asc`), { headers: anonHeaders }, { source: `${requestSource}.teams`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_groups?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,name,order_index&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.groups`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_group_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=group_id,team_id,seed`), { headers: anonHeaders }, { source: `${requestSource}.groupTeams`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_matches?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=id,code,phase,group_name,round,round_name,order_index,team_a_id,team_b_id,next_match_id,next_slot,score_a,score_b,played,status,is_bye,hidden&order=order_index.asc`), { headers: anonHeaders }, { source: `${requestSource}.matches`, kind: requestKind }),
-        fetchWithDevRequestPerf(restUrl(cfg, `public_tournament_match_stats?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&tournament_id=eq.${tid}&select=match_id,team_id,player_name,canestri,soffi`), { headers: anonHeaders }, { source: `${requestSource}.stats`, kind: requestKind }),
-    ]);
-
-    for (const r of [tRes, teamsRes, groupsRes, groupTeamsRes, matchesRes, statsRes]) {
-        if (!r.ok) throw new Error(await readErrorBody(r));
+    const route = await resolveDataPlane();
+    {
+        const row = route.mode === 'local'
+            ? await pullLocalWorkspace(route, false)
+            : await pullPublicWorkspaceState(perf);
+        const live = row?.state?.tournament;
+        const history = Array.isArray(row?.state?.tournamentHistory) ? row.state.tournamentHistory : [];
+        const tournament = String(live?.id || '') === String(tournamentId || '')
+            ? { ...live, matches: Array.isArray(row?.state?.tournamentMatches) ? row.state.tournamentMatches : (live?.matches || []) }
+            : history.find((item: TournamentData) => String(item?.id || '') === String(tournamentId || ''));
+        if (!tournament) return null;
+        const teams = Array.isArray(tournament.teams) ? tournament.teams : [];
+        const matches = Array.isArray(tournament.matches)
+            ? tournament.matches
+            : (Array.isArray((tournament as any).rounds) ? (tournament as any).rounds.flat() : []);
+        return { data: tournament as TournamentData, teams, matches };
     }
-
-    const tRows = (await tRes.json()) as SupabasePublicTournamentRow[];
-    const tRow = tRows?.[0];
-    if (!tRow) return null;
-
-    const teamRows = (await teamsRes.json()) as SupabasePublicTournamentTeamRow[];
-    const teams: Team[] = (teamRows || []).map(tr => ({
-        id: tr.id,
-        name: tr.name || '',
-        player1: tr.player1 || '',
-        player2: tr.player2 || undefined,
-        player1IsReferee: !!tr.player1_is_referee,
-        player2IsReferee: !!tr.player2_is_referee,
-        isReferee: !!tr.is_referee,
-        createdAt: tr.created_at ? Date.parse(tr.created_at) : undefined
-    }));
-
-    const groupsRows = (await groupsRes.json()) as SupabasePublicTournamentGroupRow[];
-    const groupTeamsRows = (await groupTeamsRes.json()) as SupabasePublicTournamentGroupTeamRow[];
-
-    const teamById = new Map<string, Team>();
-    teams.forEach(tt => teamById.set(tt.id, tt));
-
-    const groupTeamsByGroup = new Map<string, string[]>();
-    (groupTeamsRows || []).forEach(gt => {
-        const arr = groupTeamsByGroup.get(gt.group_id) || [];
-        arr.push(gt.team_id);
-        groupTeamsByGroup.set(gt.group_id, arr);
-    });
-
-    const groups: Group[] = (groupsRows || []).map(gr => ({
-        id: gr.id,
-        name: gr.name || '',
-        teams: (groupTeamsByGroup.get(gr.id) || []).map(id => teamById.get(id)).filter(Boolean) as Team[]
-    }));
-
-    const matchRows = (await matchesRes.json()) as SupabasePublicTournamentMatchRow[];
-    const statRows = (await statsRes.json()) as SupabasePublicTournamentMatchStatRow[];
-
-    const statsByMatch = new Map<string, MatchStats[]>();
-    (statRows || []).forEach(sr => {
-        const arr = statsByMatch.get(sr.match_id) || [];
-        arr.push({
-            teamId: sr.team_id,
-            playerName: sr.player_name,
-            canestri: sr.canestri || 0,
-            soffi: sr.soffi || 0,
-        });
-        statsByMatch.set(sr.match_id, arr);
-    });
-
-    const matches: Match[] = (matchRows || []).map(mr => ({
-        id: mr.id,
-        code: mr.code || undefined,
-        phase: (mr.phase as any) || undefined,
-        groupName: mr.group_name || undefined,
-        round: typeof mr.round === 'number' ? mr.round : (mr.round ? parseInt(String(mr.round), 10) : undefined),
-        roundName: mr.round_name || undefined,
-        orderIndex: typeof mr.order_index === 'number' ? mr.order_index : (mr.order_index ? parseInt(String(mr.order_index), 10) : undefined),
-        teamAId: mr.team_a_id || undefined,
-        teamBId: mr.team_b_id || undefined,
-        nextMatchId: mr.next_match_id || undefined,
-        nextSlot: mr.next_slot === 'A' || mr.next_slot === 'B' ? mr.next_slot : undefined,
-        scoreA: typeof mr.score_a === 'number' ? mr.score_a : parseInt(String(mr.score_a || 0), 10) || 0,
-        scoreB: typeof mr.score_b === 'number' ? mr.score_b : parseInt(String(mr.score_b || 0), 10) || 0,
-        played: !!mr.played,
-        status: (mr.status as any) || 'scheduled',
-        isBye: !!mr.is_bye,
-        hidden: !!mr.hidden,
-        stats: statsByMatch.get(mr.id) || undefined,
-    }));
-
-    const data = mapPublicTournamentRowToData(tRow, teams, groups);
-    data.matches = matches;
-
-    return { data, teams, matches };
 };

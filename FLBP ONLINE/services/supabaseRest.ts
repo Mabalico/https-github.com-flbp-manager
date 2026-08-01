@@ -5,6 +5,8 @@ import { buildRealSimPoolFromState } from './simPool';
 import { readViteSupabaseAdminEmail, readViteSupabaseAnonKey, readViteSupabaseUrl, readViteWorkspaceId } from './viteEnv';
 import { fetchWithDevRequestPerf, type DevRequestPerfKind, type DevRequestPerfMeta } from './devRequestPerf';
 import { getAdminLeaseHolderForWrites, isAdminWriteBlockedByLease, setAdminLeaseInfo } from './adminWriteLeaseState';
+import { commitLocalMatchResult, commitLocalWorkspace, makeDataOperationId, pullLocalWorkspace, resolveDataPlane, verifyLocalReferee } from './dataPlaneClient';
+import { clearVerifiedAdminSession, rememberVerifiedAdminSession } from './localAdminContinuity';
 
 type Json = any;
 
@@ -199,6 +201,8 @@ export interface SupabaseWorkspaceStateRow {
     workspace_id: string;
     state: Json;
     updated_at?: string;
+    version?: number | null;
+    primary_epoch?: number | null;
 }
 
 export interface SupabasePublicWorkspaceStateRow {
@@ -384,7 +388,10 @@ export const setSupabaseSession = (s: SupabaseSession | null) => {
     }
 };
 
-export const clearSupabaseSession = () => setSupabaseSession(null);
+export const clearSupabaseSession = () => {
+    setSupabaseSession(null);
+    clearVerifiedAdminSession();
+};
 
 export const getPlayerSupabaseAccessToken = (): string | null => {
     try {
@@ -615,8 +622,13 @@ export const ensureFreshSupabaseSession = async (options?: { force?: boolean }):
             body: JSON.stringify({ refresh_token: cur.refreshToken })
         }, { source: 'ensureFreshSupabaseSession', kind: 'admin' });
         if (!res.ok) {
-            clearSupabaseSession();
-            return null;
+            if (res.status === 400 || res.status === 401 || res.status === 403) {
+                clearSupabaseSession();
+                return null;
+            }
+            // A transient Supabase outage must not destroy the real session
+            // cached for local-primary tournament continuity.
+            return cur;
         }
         const j = await res.json();
         const accessToken = String(j.access_token || '').trim();
@@ -633,8 +645,7 @@ export const ensureFreshSupabaseSession = async (options?: { force?: boolean }):
         setSupabaseSession(next);
         return next;
     } catch {
-        clearSupabaseSession();
-        return null;
+        return cur;
     }
 };
 
@@ -2048,6 +2059,7 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
         if (!sameSupabaseSession(session, nextSession)) {
             setSupabaseSession(nextSession);
         }
+        rememberVerifiedAdminSession(nextSession);
 
         return {
             ok: true,
@@ -2720,9 +2732,13 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
 export const pullWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        return await pullLocalWorkspace(route, true) as SupabaseWorkspaceStateRow;
+    }
     const session = await requireSupabaseWriteSession();
 
-    const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`);
+    const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at,version,primary_epoch&limit=1`);
     const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 6000, { source: perf?.source || 'pullWorkspaceState', kind: perf?.kind || 'admin' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     const rows = (await res.json()) as SupabaseWorkspaceStateRow[];
@@ -2732,6 +2748,11 @@ export const pullWorkspaceState = async (perf?: RequestPerfHint): Promise<Supaba
 export const pullWorkspaceStateUpdatedAt = async (perf?: RequestPerfHint): Promise<string | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        const row = await pullLocalWorkspace(route, true);
+        return row.updated_at || null;
+    }
     const session = await requireSupabaseWriteSession();
     const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=updated_at&limit=1`);
     const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 4000, { source: perf?.source || 'pullWorkspaceStateUpdatedAt', kind: perf?.kind || 'admin' });
@@ -2740,12 +2761,38 @@ export const pullWorkspaceStateUpdatedAt = async (perf?: RequestPerfHint): Promi
     return rows?.[0]?.updated_at || null;
 };
 
+export const forceCloudDataPlaneFailover = async (expectedEpoch: number): Promise<{ ok: boolean; mode: 'cloud'; epoch: number; last_backup_at?: string | null; warning?: string | null }> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const session = await requireSupabaseWriteSession();
+    const res = await fetchWithTimeout(
+        rpcUrl(cfg, 'flbp_admin_force_cloud_failover'),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                p_workspace_id: cfg.workspaceId,
+                p_expected_epoch: Number(expectedEpoch || 0),
+                p_confirmation: 'FAILOVER CLOUD CON POSSIBILE PERDITA',
+            }),
+        },
+        12_000,
+        { source: 'forceCloudDataPlaneFailover', kind: 'admin' },
+    );
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    return await res.json();
+};
+
 let pullPublicWorkspaceStateLastEtag: string | null = null;
 let pullPublicWorkspaceStateLastRow: SupabasePublicWorkspaceStateRow | null = null;
 
 export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceStateRow;
+    }
 
     const url = restUrl(cfg, `public_workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`);
     const headers: Record<string, string> = { ...buildAnonHeaders(cfg) };
@@ -3647,6 +3694,9 @@ type MatchResultPushResult = {
 type AdminPushWorkspaceStateResult = {
     ok: boolean;
     updated_at?: string | null;
+    version?: number | null;
+    operation_id?: string | null;
+    idempotent?: boolean;
 };
 
 const normalizeRpcConflictError = (message: string, updatedAt?: string | null) => {
@@ -3726,6 +3776,17 @@ export const pushAdminMatchResults = async (opts: {
     if (isAdminWriteBlockedByLease()) {
         throw new Error('FLBP_LEASE_READONLY: questa finestra Admin è in sola lettura perché un\'altra sessione Admin è attiva. Usa "Prendi il controllo" per scrivere da qui.');
     }
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        return await commitLocalMatchResult(route, {
+            tournamentId: opts.tournamentId,
+            matchId: opts.matchId,
+            matches: opts.matches,
+            operationId: (opts.matches || []).find((match) => String(match?.id || '') === String(opts.matchId || ''))?.refereeReportFinalId || makeDataOperationId(),
+            admin: true,
+        }) as MatchResultPushResult;
+    }
+    if (route.mode === 'recovery') throw new Error('FLBP_DATA_PLANE_RECOVERY: scritture sospese finché il server locale non viene recuperato o disattivato in sicurezza.');
     const session = await requireSupabaseWriteSession();
     const rpcName = 'flbp_admin_push_match_result';
     const leaseHolder = getAdminLeaseHolderForWrites();
@@ -3758,9 +3819,23 @@ export const pushRefereeMatchResults = async (opts: {
     refereePassword: string;
     authVersion?: string | null;
     matches: Match[];
+    operationId?: string | null;
 }): Promise<MatchResultPushResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        return await commitLocalMatchResult(route, {
+            tournamentId: opts.tournamentId,
+            matchId: opts.matchId,
+            refereePassword: opts.refereePassword,
+            matches: opts.matches,
+            operationId: opts.operationId
+                || (opts.matches || []).find((match) => String(match?.id || '') === String(opts.matchId || ''))?.refereeReportFinalId
+                || makeDataOperationId(),
+        }) as MatchResultPushResult;
+    }
+    if (route.mode === 'recovery') throw new Error('FLBP_DATA_PLANE_RECOVERY: referto conservato sul dispositivo; server locale temporaneamente non disponibile.');
     const rpcName = 'flbp_referee_push_match_result';
     const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
         method: 'POST',
@@ -3785,6 +3860,9 @@ export const pushRefereeMatchResults = async (opts: {
 export const verifyRefereePassword = async (tournamentId: string, refereePassword: string): Promise<RefereeAuthCheckResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') return await verifyLocalReferee(route, tournamentId, refereePassword) as RefereeAuthCheckResult;
+    if (route.mode === 'recovery') throw new Error('Server locale in recupero: accesso arbitri temporaneamente sospeso.');
     const res = await fetchWithDevRequestPerf(rpcUrl(cfg, 'flbp_referee_auth_check'), {
         method: 'POST',
         headers: buildAnonHeaders(cfg),
@@ -3804,6 +3882,14 @@ export const pullRefereeLiveState = async (
 ): Promise<RefereePullLiveStateResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        const auth = await verifyLocalReferee(route, tournamentId, refereePassword);
+        if (!auth?.ok) return { ok: false, reason: 'bad_password', auth_version: auth?.auth_version || null, updated_at: auth?.updated_at || null, state: null };
+        const row = await pullLocalWorkspace(route, false);
+        return { ok: true, auth_version: auth?.auth_version || null, updated_at: row.updated_at || null, state: coerceAppState(row.state) };
+    }
+    if (route.mode === 'recovery') throw new Error('Server locale in recupero: stato arbitri temporaneamente non disponibile.');
     const rpcName = 'flbp_referee_pull_live_state';
     const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
         method: 'POST',
@@ -3845,6 +3931,11 @@ export const pushRefereeLiveState = async (
 ): Promise<RefereePushStateResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        throw new Error('FLBP_MATCH_RESULT_RPC_REQUIRED: in modalità locale i referti vengono salvati esclusivamente come patch atomiche per partita.');
+    }
+    if (route.mode === 'recovery') throw new Error('FLBP_DATA_PLANE_RECOVERY: scritture arbitri sospese.');
 
     const res = await fetchWithDevRequestPerf(rpcUrl(cfg, 'flbp_referee_push_live_state'), {
         method: 'POST',
@@ -3892,12 +3983,35 @@ const makeConflictError = (message: string, meta?: { remoteUpdatedAt?: string | 
     return e;
 };
 
-export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+export const pushWorkspaceState = async (state: AppState, opts?: {
+    force?: boolean;
+    operationId?: string;
+    baseVersion?: number | null;
+    baseUpdatedAt?: string | null;
+}, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     if (isAdminWriteBlockedByLease()) {
         throw new Error('FLBP_LEASE_READONLY: questa finestra Admin è in sola lettura perché un\'altra sessione Admin è attiva. Usa "Prendi il controllo" per scrivere da qui.');
     }
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') {
+        const out = await commitLocalWorkspace(route, {
+            state,
+            publicState: sanitizeAppStateForPublic(state),
+            operationId: opts?.operationId || makeDataOperationId(),
+            baseVersion: opts?.baseVersion,
+            force: !!opts?.force,
+        });
+        return {
+            workspace_id: cfg.workspaceId,
+            state,
+            updated_at: out.updated_at || new Date().toISOString(),
+            version: out.version ?? null,
+            primary_epoch: out.primary_epoch ?? null,
+        };
+    }
+    if (route.mode === 'recovery') throw new Error('FLBP_DATA_PLANE_RECOVERY: il nodo locale non è raggiungibile; la modifica resta nella bozza durevole.');
     await requireSupabaseWriteSession();
     const payload: SupabaseWorkspaceStateRow = {
         workspace_id: cfg.workspaceId,
@@ -3905,29 +4019,46 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
         updated_at: new Date().toISOString()
     };
 
-    const baseUpdatedAt = getRemoteBaseUpdatedAt();
+    const baseUpdatedAt = opts && Object.prototype.hasOwnProperty.call(opts, 'baseUpdatedAt')
+        ? (opts.baseUpdatedAt || null)
+        : getRemoteBaseUpdatedAt();
     const publicState = sanitizeAppStateForPublic(state);
-    const rpcName = 'flbp_admin_push_workspace_state';
-
-    // p_lease_holder solo quando il lease e' attivo: se il DB non ha ancora la
-    // migration del lease, la chiamata resta a 5 parametri e continua a
-    // matchare la vecchia firma.
+    const operationId = opts?.operationId || makeDataOperationId();
     const leaseHolder = getAdminLeaseHolderForWrites();
-    const res = await fetchWithDevRequestPerf(rpcUrl(cfg, rpcName), {
+    const requestRpc = (name: string, body: Record<string, unknown>) => fetchWithDevRequestPerf(rpcUrl(cfg, name), {
         method: 'POST',
         headers: buildHeaders(cfg),
-        body: JSON.stringify({
-            p_workspace_id: cfg.workspaceId,
-            p_state: state,
-            p_public_state: publicState,
-            p_base_updated_at: baseUpdatedAt || null,
-            p_force: !!opts?.force,
-            ...(leaseHolder ? { p_lease_holder: leaseHolder } : {})
-        })
+        body: JSON.stringify(body)
     }, { source: perf?.source || 'pushWorkspaceState', kind: perf?.kind || 'admin' });
 
+    const commonBody = {
+        p_workspace_id: cfg.workspaceId,
+        p_state: state,
+        p_public_state: publicState,
+        p_base_updated_at: baseUpdatedAt || null,
+        p_force: !!opts?.force,
+    };
+    let rpcName = 'flbp_admin_push_workspace_state_v2';
+    let res = await requestRpc(rpcName, {
+        ...commonBody,
+        p_lease_holder: leaseHolder || null,
+        p_operation_id: operationId,
+    });
+    let failureBody = res.ok ? '' : await readErrorBody(res);
+
+    // Rollout compatibile: se il bundle web arriva prima della migration,
+    // usa temporaneamente la RPC legacy. Dopo la migration ogni retry è v2.
+    if (!res.ok && isMissingRpcFunctionError(failureBody, rpcName)) {
+        rpcName = 'flbp_admin_push_workspace_state';
+        res = await requestRpc(rpcName, {
+            ...commonBody,
+            ...(leaseHolder ? { p_lease_holder: leaseHolder } : {}),
+        });
+        failureBody = res.ok ? '' : await readErrorBody(res);
+    }
+
     if (!res.ok) {
-        const body = await readErrorBody(res);
+        const body = failureBody;
         if (body.includes('FLBP_LEASE_HELD')) {
             // Il server ha rifiutato: un'altra sessione detiene il testimone.
             // Allinea subito lo stato locale cosi' la UI passa in sola lettura.
@@ -3968,7 +4099,8 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
     const out: SupabaseWorkspaceStateRow = {
         workspace_id: cfg.workspaceId,
         state,
-        updated_at: rpcOut.updated_at || payload.updated_at
+        updated_at: rpcOut.updated_at || payload.updated_at,
+        version: rpcOut.version ?? null,
     };
     setRemoteBaseUpdatedAt(out.updated_at || payload.updated_at);
     return out;
