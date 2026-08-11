@@ -4,6 +4,8 @@ export type DataPlaneMode = 'cloud' | 'local' | 'recovery';
 
 export type DataPlaneRoute = {
   mode: DataPlaneMode;
+  authority?: 'cloud' | 'local' | null;
+  publicReadMode?: 'cloud' | 'local' | null;
   baseUrl?: string | null;
   epoch?: number | null;
   leaseExpiresAt?: string | null;
@@ -58,6 +60,8 @@ const timeoutFetch = async (input: RequestInfo | URL, init?: RequestInit, timeou
 
 const normalizeRoute = (raw: any): DataPlaneRoute => ({
   mode: raw?.mode === 'local' ? 'local' : raw?.mode === 'recovery' ? 'recovery' : 'cloud',
+  authority: raw?.authority === 'local' ? 'local' : raw?.authority === 'cloud' ? 'cloud' : null,
+  publicReadMode: raw?.public_read_mode === 'local' ? 'local' : raw?.public_read_mode === 'cloud' ? 'cloud' : null,
   baseUrl: typeof raw?.base_url === 'string' ? raw.base_url.replace(/\/$/, '') : (typeof raw?.baseUrl === 'string' ? raw.baseUrl.replace(/\/$/, '') : null),
   epoch: Number.isFinite(Number(raw?.epoch)) ? Number(raw.epoch) : null,
   leaseExpiresAt: raw?.lease_expires_at || raw?.leaseExpiresAt || null,

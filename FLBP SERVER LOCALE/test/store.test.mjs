@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { LocalStore, VersionConflictError } from '../src/store.mjs';
 import { replayCloudOperationJournal, SupabaseSync } from '../src/supabaseSync.mjs';
+import { buildPublicWorkspaceLiveState } from '../src/publicSanitizer.mjs';
 
 const fixture = () => {
   const match = { id: 'm1', scoreA: 0, scoreB: 0, refereeReportSavedAt: null };
@@ -37,6 +38,7 @@ test('snapshot commits are durable, versioned and idempotent', () => withStore((
   const committed = store.commitSnapshot({ ...changed, operationId: 'op-admin-1', baseVersion: 1 });
   assert.equal(committed.version, 2);
   assert.equal(store.pendingOutboxCount(), 1);
+  assert.equal(store.listPendingOutbox()[0].kind, 'state-patch');
 
   const repeated = store.commitSnapshot({ ...changed, operationId: 'op-admin-1', baseVersion: 1 });
   assert.equal(repeated.version, 2);
@@ -70,6 +72,21 @@ test('public snapshots are sanitized by the server even when the client sends pr
   assert.equal(publicState.playerAliases, undefined);
   assert.equal(publicState.playerAccountAliasIgnores, undefined);
 }));
+
+test('the public live projection excludes historical and private bulk data', () => {
+  const state = {
+    __schemaVersion: 2,
+    teams: [{ id: 'team-1', player1BirthDate: '1990-01-01' }],
+    tournament: { id: 't1', refereesPassword: 'private', matches: [{ id: 'm1' }] },
+    tournamentMatches: [{ id: 'm1' }],
+    tournamentHistory: [{ id: 'old' }],
+    playerAliases: { private: true },
+  };
+  const live = buildPublicWorkspaceLiveState(state);
+  assert.deepEqual(Object.keys(live).sort(), ['__schemaVersion', 'teams', 'tournament', 'tournamentMatches'].sort());
+  assert.equal(live.teams[0].player1BirthDate, undefined);
+  assert.equal(live.tournament.refereesPassword, undefined);
+});
 
 test('stale full snapshots cannot overwrite a newer version', () => withStore((store) => {
   const initial = fixture();
@@ -232,7 +249,8 @@ test('activation is compare-and-switch and does not make SQLite writable before 
   const out = await sync.activate(snapshot);
   assert.equal(out.epoch, 4);
   assert.equal(store.isActive(), false);
-  assert.equal(called.name, 'flbp_local_activate_data_plane');
+  assert.equal(called.name, 'flbp_local_activate_data_plane_v3');
+  assert.equal(called.body.p_public_read_mode, 'local');
   assert.equal(called.body.p_expected_cloud_version, 10);
   assert.equal(called.body.p_expected_cloud_operation_id, 'cloud-v10');
   assert.deepEqual(called.body.p_expected_cloud_state, { base: 'private-v10' });
@@ -258,7 +276,7 @@ test('an ambiguous final switch is retryable and clears the covered outbox only 
   let attempts = 0;
   let finalBody = null;
   sync.rpc = async (name, body) => {
-    assert.equal(name, 'flbp_local_deactivate_data_plane');
+    assert.equal(name, 'flbp_local_deactivate_data_plane_v2');
     attempts += 1;
     finalBody = body;
     if (attempts === 1) throw new Error('risposta persa');
@@ -305,6 +323,33 @@ test('remote operation journal rebuilds reports newer than the last full backup'
   assert.equal(recovered.publicState.tournament.matches[0].scoreB, 7);
 });
 
+test('activation without a public URL keeps Internet readers on the Supabase mirror', () => withStore(async (store) => {
+  const sync = new SupabaseSync({
+    nodeId: 'node-lan',
+    publicUrl: '',
+    supabaseUrl: 'https://project.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    workspaceId: 'default',
+    leaseTtlSeconds: 60,
+  }, store);
+  let called = null;
+  sync.rpc = async (name, body) => {
+    called = { name, body };
+    return { ok: true, epoch: 5 };
+  };
+  await sync.activate({
+    ...fixture(),
+    version: 1,
+    cloudBaseVersion: 1,
+    cloudBaseState: fixture().state,
+    cloudBasePublicState: fixture().publicState,
+    sourcePlaneEpoch: 0,
+  });
+  assert.equal(called.name, 'flbp_local_activate_data_plane_v3');
+  assert.equal(called.body.p_base_url, null);
+  assert.equal(called.body.p_public_read_mode, 'cloud');
+}));
+
 test('remote recovery stops on a journal version gap', () => {
   const initial = fixture();
   assert.throws(
@@ -314,6 +359,57 @@ test('remote recovery stops on a journal version gap', () => {
     ),
     /Journal remoto incompleto/,
   );
+});
+
+test('compact state patches replay to the exact private and public snapshots', () => {
+  const initial = fixture();
+  const storeState = structuredClone(initial.state);
+  storeState.tournament.name = 'Patch remoto';
+  const recovered = replayCloudOperationJournal(
+    { ...initial, version: 1, operationId: 'cloud-v1' },
+    [{
+      operation_id: 'patch-v2',
+      local_version: 2,
+      operation_kind: 'state-patch',
+      payload: {
+        statePatch: [{ op: 'set', path: ['tournament', 'name'], value: 'Patch remoto' }],
+        publicStatePatch: [{ op: 'set', path: ['tournament', 'name'], value: 'Patch remoto' }],
+      },
+      created_at: '2026-08-11T10:00:00.000Z',
+    }],
+  );
+  assert.deepEqual(recovered.state, storeState);
+  assert.equal(recovered.publicState.tournament.name, 'Patch remoto');
+  assert.equal(recovered.version, 2);
+});
+
+test('the rollout migration keeps local write authority with cloud public reads', () => {
+  const migration = fs.readFileSync(new URL('../../FLBP ONLINE/supabase/migrations/20260811000100_local_writer_cloud_public_read.sql', import.meta.url), 'utf8');
+  assert.match(migration, /public_read_mode text not null default 'local'/);
+  assert.match(migration, /flbp_local_activate_data_plane_v2[\s\S]*?'https:\/\/cloud-read\.invalid'/);
+  assert.match(migration, /'mode', 'cloud', 'authority', 'local'/);
+  assert.match(migration, /flbp_local_publish_live_data_plane[\s\S]*?flbp_upsert_public_workspace_live/);
+  assert.match(migration, /'workspace-snapshot', 'state-patch', 'match-result'/);
+});
+
+test('the live guard compacts full snapshots from final and periodic backups', () => {
+  const migration = fs.readFileSync(new URL('../../FLBP ONLINE/supabase/migrations/20260811000200_compact_public_live_guard.sql', import.meta.url), 'utf8');
+  assert.match(migration, /new\.state := public\.flbp_build_public_workspace_live_state/);
+  assert.match(migration, /before insert or update on public\.public_workspace_live/);
+});
+
+test('legacy baseline adoption requires identical version and full state', () => {
+  const migration = fs.readFileSync(new URL('../../FLBP ONLINE/supabase/migrations/20260811000300_legacy_baseline_operation_compat.sql', import.meta.url), 'utf8');
+  assert.match(migration, /v_cloud\.version <> p_version or v_cloud\.state is distinct from/);
+  assert.match(migration, /flbp_local_activate_data_plane_v3/);
+  assert.match(migration, /flbp_local_backup_data_plane_v2/);
+  assert.match(migration, /flbp_local_deactivate_data_plane_v2/);
+});
+
+test('deactivation v2 preserves retry after an already successful cloud switch', () => {
+  const migration = fs.readFileSync(new URL('../../FLBP ONLINE/supabase/migrations/20260811000400_idempotent_deactivation_v2.sql', import.meta.url), 'utf8');
+  assert.match(migration, /v_plane\.mode = 'cloud' and v_plane\.epoch = p_epoch/);
+  assert.match(migration, /return public\.flbp_local_deactivate_data_plane/);
 });
 
 test('Supabase migration serializes cloud writes, journal uploads and atomic final deactivation', () => {

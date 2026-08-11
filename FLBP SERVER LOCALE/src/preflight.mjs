@@ -87,6 +87,33 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
   }
 
   try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_activate_data_plane_v3`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      body: JSON.stringify({
+        p_workspace_id: config.workspaceId,
+        p_node_id: '',
+        p_base_url: null,
+        p_public_read_mode: 'cloud',
+        p_expected_cloud_version: 0,
+        p_expected_cloud_operation_id: null,
+        p_expected_cloud_state: {},
+        p_expected_public_state: {},
+        p_expected_plane_epoch: 0,
+        p_expected_recovered_version: 0,
+        p_local_baseline_operation_id: 'preflight-baseline',
+        p_ttl_seconds: 60,
+      }),
+    });
+    const detail = await safeResponseBody(response);
+    const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
+    const callable = !missing && detail.includes('node_id mancante');
+    add('RPC attivazione locale v3', callable, callable ? 'Modalità senza tunnel e baseline legacy disponibili.' : detail);
+  } catch (error) {
+    add('RPC attivazione locale v3', false, error?.message || error);
+  }
+
+  try {
     const response = await timedFetch(
       `${config.supabaseUrl}/rest/v1/flbp_local_operation_log?workspace_id=eq.${workspace}&select=local_version&limit=1`,
       { headers: serviceHeaders() },
@@ -142,14 +169,14 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
 }
 
 if (!config.publicUrl) {
-  add('Named Tunnel HTTPS', false, 'FLBP_LOCAL_PUBLIC_URL assente.');
+  add('Instradamento pubblico', true, 'Mirror Supabase: tunnel non richiesto per Admin e TV sulla LAN.');
 } else {
   try {
     const response = await timedFetch(`${config.publicUrl}/health`, { headers: { Accept: 'application/json' } });
     const body = response.ok ? await response.json() : null;
-    add('Named Tunnel HTTPS', response.ok && body?.ok === true, response.ok ? `Nodo ${body?.nodeId || 'raggiungibile'}; active=${!!body?.active}` : await safeResponseBody(response));
+    add('Instradamento pubblico', response.ok && body?.ok === true, response.ok ? `Tunnel opzionale raggiungibile; nodo ${body?.nodeId || 'raggiungibile'}; active=${!!body?.active}` : await safeResponseBody(response));
   } catch (error) {
-    add('Named Tunnel HTTPS', false, error?.message || error);
+    add('Instradamento pubblico', false, error?.message || error);
   }
 }
 

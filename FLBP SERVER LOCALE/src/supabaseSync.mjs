@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { applyMatchResultPatch } from './statePatch.mjs';
+import { applyStatePatch } from './stateDelta.mjs';
+import { buildPublicWorkspaceLiveState } from './publicSanitizer.mjs';
 
 const nowIso = () => new Date().toISOString();
 
@@ -45,6 +47,9 @@ export const replayCloudOperationJournal = (snapshot, rows) => {
       if (!payload.state || !payload.publicState) throw new Error(`Snapshot mancante nel journal alla versione ${rowVersion}.`);
       state = structuredClone(payload.state);
       publicState = structuredClone(payload.publicState);
+    } else if (row.operation_kind === 'state-patch') {
+      state = applyStatePatch(state, payload.statePatch);
+      publicState = applyStatePatch(publicState, payload.publicStatePatch);
     } else if (row.operation_kind === 'match-result') {
       const patched = applyMatchResultPatch({
         state,
@@ -76,6 +81,10 @@ export class SupabaseSync {
     this.epoch = Number(store.getMeta('primary_epoch', '0')) || null;
     this.syncInFlight = null;
     this.syncRequested = false;
+    this.syncTimer = null;
+    this.livePublishInFlight = null;
+    this.livePublishRequested = false;
+    this.livePublishForce = false;
   }
 
   isConfigured() {
@@ -125,7 +134,7 @@ export class SupabaseSync {
       publicState: basePublicState,
       updatedAt: privateRow.updated_at || publicRows?.[0]?.updated_at || null,
       version: Number(privateRow.version || 0),
-      operationId: privateRow.last_operation_id || null,
+      operationId: privateRow.last_operation_id || `legacy-cloud-v${Number(privateRow.version || 0)}`,
       primaryEpoch: privateRow.primary_epoch == null ? null : Number(privateRow.primary_epoch),
       cloudBaseVersion: Number(privateRow.version || 0),
       cloudBaseOperationId: privateRow.last_operation_id || null,
@@ -149,22 +158,27 @@ export class SupabaseSync {
   }
 
   async activate(snapshot) {
-    if (!this.config.publicUrl) throw new Error('FLBP_LOCAL_PUBLIC_URL non configurato: attiva prima il tunnel HTTPS.');
     if (!snapshot?.state || !snapshot?.publicState) throw new Error('Snapshot cloud verificabile mancante: attivazione locale rifiutata.');
-    const out = await this.rpc('flbp_local_activate_data_plane', {
+    const localBaselineOperationId = snapshot.operationId || `legacy-cloud-v${Number(snapshot.version || 0)}`;
+    snapshot.operationId = localBaselineOperationId;
+    const out = await this.rpc('flbp_local_activate_data_plane_v3', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
-      p_base_url: this.config.publicUrl,
+      p_base_url: this.config.publicUrl || null,
+      p_public_read_mode: this.config.publicUrl ? 'local' : 'cloud',
       p_expected_cloud_version: Number(snapshot.cloudBaseVersion ?? snapshot.version ?? 0),
       p_expected_cloud_operation_id: snapshot.cloudBaseOperationId ?? null,
       p_expected_cloud_state: snapshot.cloudBaseState ?? snapshot.state,
       p_expected_public_state: snapshot.cloudBasePublicState ?? snapshot.publicState,
       p_expected_plane_epoch: Number(snapshot.sourcePlaneEpoch || 0),
       p_expected_recovered_version: Number(snapshot.version || 0),
+      p_local_baseline_operation_id: localBaselineOperationId,
       p_ttl_seconds: this.config.leaseTtlSeconds,
     });
     this.epoch = Number(out?.epoch || 0);
     if (!this.epoch) throw new Error('Supabase non ha restituito un epoch di leadership valido.');
+    this.store.setMeta('last_public_live_version', '0');
+    this.store.setMeta('last_public_live_at', '');
     return out;
   }
 
@@ -189,10 +203,11 @@ export class SupabaseSync {
       this.store.setActive(false);
       return { ok: true, cloud: false };
     }
+    this.cancelScheduledOutboxSync();
     if (this.syncInFlight) await this.syncInFlight;
     const current = this.store.getCurrent();
     if (!current) throw new Error('Snapshot locale non inizializzato: disattivazione rifiutata.');
-    const out = await this.rpc('flbp_local_deactivate_data_plane', {
+    const out = await this.rpc('flbp_local_deactivate_data_plane_v2', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
       p_epoch: this.epoch,
@@ -211,7 +226,10 @@ export class SupabaseSync {
 
   async syncOutbox() {
     if (!this.isConfigured()) return { synced: 0 };
-    const rows = this.store.listPendingOutbox(100);
+    const rows = this.store.listPendingOutboxBatch({
+      maxOperations: this.config.outboxBatchMaxOperations || 25,
+      maxBytes: this.config.outboxBatchMaxBytes || 512 * 1024,
+    });
     if (!rows.length) return { synced: 0 };
     const operations = rows.map((row) => ({
       operation_id: row.operationId,
@@ -250,7 +268,7 @@ export class SupabaseSync {
     const current = this.store.getCurrent();
     if (!current) return { backedUp: false, reason: 'empty' };
     if (!this.epoch) this.epoch = Number(this.store.getMeta('primary_epoch', '0')) || null;
-    const out = await this.rpc('flbp_local_backup_data_plane', {
+    const out = await this.rpc('flbp_local_backup_data_plane_v2', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
       p_epoch: this.epoch,
@@ -261,12 +279,61 @@ export class SupabaseSync {
     });
     const updatedAt = out?.updated_at || nowIso();
     this.store.markSnapshotSynced(current.version, updatedAt);
-    await this.syncOutbox();
+    this.store.markOutboxSyncedThroughVersion(current.version);
+    // The full-backup RPC also touches the live row for backward compatibility;
+    // immediately rewrite it through the compact live-state sanitizer.
+    await this.publishLiveSnapshot({ force: true });
     return { backedUp: true, version: current.version, updatedAt };
   }
 
-  scheduleOutboxSync() {
+  publishLiveSnapshot({ force = false } = {}) {
+    this.livePublishRequested = true;
+    this.livePublishForce ||= force;
+    if (this.livePublishInFlight) return this.livePublishInFlight;
+    this.livePublishInFlight = Promise.resolve().then(async () => {
+      let result = { published: false, reason: 'unchanged' };
+      while (this.livePublishRequested) {
+        this.livePublishRequested = false;
+        const requestedForce = this.livePublishForce;
+        this.livePublishForce = false;
+        result = await this.publishLiveSnapshotOnce({ force: requestedForce });
+      }
+      return result;
+    }).finally(() => {
+      this.livePublishInFlight = null;
+      if (this.livePublishRequested) queueMicrotask(() => void this.publishLiveSnapshot({ force: this.livePublishForce }));
+    });
+    return this.livePublishInFlight;
+  }
+
+  async publishLiveSnapshotOnce({ force = false } = {}) {
+    if (!this.isConfigured() || !this.store.isActive()) return { published: false, reason: 'inactive' };
+    const current = this.store.getCurrent();
+    if (!current) return { published: false, reason: 'empty' };
+    const lastVersion = Number(this.store.getMeta('last_public_live_version', '0')) || 0;
+    if (!force && current.version <= lastVersion) return { published: false, reason: 'unchanged', version: current.version };
+    if (!this.epoch) this.epoch = Number(this.store.getMeta('primary_epoch', '0')) || null;
+    const out = await this.rpc('flbp_local_publish_live_data_plane', {
+      p_workspace_id: this.config.workspaceId,
+      p_node_id: this.nodeId,
+      p_epoch: this.epoch,
+      p_public_state: buildPublicWorkspaceLiveState(current.publicState),
+      p_version: current.version,
+      p_operation_id: current.operationId,
+    });
+    this.store.setMeta('last_public_live_version', String(current.version));
+    this.store.setMeta('last_public_live_at', out?.updated_at || nowIso());
+    return { published: true, version: current.version, updatedAt: out?.updated_at || null };
+  }
+
+  cancelScheduledOutboxSync() {
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    this.syncTimer = null;
+  }
+
+  flushOutboxNow() {
     if (!this.isConfigured()) return null;
+    this.cancelScheduledOutboxSync();
     this.syncRequested = true;
     if (this.syncInFlight) return this.syncInFlight;
     this.syncInFlight = Promise.resolve()
@@ -276,15 +343,32 @@ export class SupabaseSync {
           let result;
           do {
             result = await this.syncOutbox();
-          } while (Number(result?.synced || 0) >= 100);
+          } while (Number(result?.synced || 0) > 0 && this.store.pendingOutboxCount() > 0);
         }
       })
       .catch(() => null)
       .finally(() => {
         this.syncInFlight = null;
         // Una commit può arrivare tra l'ultimo controllo e il finally.
-        if (this.syncRequested) queueMicrotask(() => this.scheduleOutboxSync());
+        if (this.syncRequested) queueMicrotask(() => this.flushOutboxNow());
       });
     return this.syncInFlight;
+  }
+
+  scheduleOutboxSync({ immediate = false } = {}) {
+    if (!this.isConfigured()) return null;
+    const stats = this.store.pendingOutboxStats();
+    if (!stats.count) return this.syncInFlight;
+    const shouldFlushNow = immediate
+      || stats.count >= (this.config.outboxBatchMaxOperations || 25)
+      || stats.bytes >= (this.config.outboxBatchMaxBytes || 512 * 1024);
+    if (shouldFlushNow || this.syncInFlight) return this.flushOutboxNow();
+    if (!this.syncTimer) {
+      this.syncTimer = setTimeout(() => {
+        this.syncTimer = null;
+        void this.flushOutboxNow();
+      }, this.config.outboxFlushIntervalMs || 15_000);
+    }
+    return null;
   }
 }

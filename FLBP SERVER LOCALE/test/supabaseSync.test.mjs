@@ -87,7 +87,7 @@ test('a commit arriving during an upload is drained immediately without waiting 
     return { ok: true, confirmed: body.p_operations.length, inserted: body.p_operations.length };
   };
 
-  const firstUpload = sync.scheduleOutboxSync();
+  const firstUpload = sync.scheduleOutboxSync({ immediate: true });
   await firstEntered;
   store.commitSnapshot({ ...stateAt('Locale v3'), operationId: 'local-drain-v3', baseVersion: 2 });
   const joinedUpload = sync.scheduleOutboxSync();
@@ -97,4 +97,39 @@ test('a commit arriving during an upload is drained immediately without waiting 
 
   assert.deepEqual(requests, [['local-drain-v2'], ['local-drain-v3']]);
   assert.equal(store.pendingOutboxCount(), 0);
+}));
+
+test('ordinary commits wait for the configured batching window', () => withSync(async ({ store, sync }) => {
+  sync.config.outboxFlushIntervalMs = 60_000;
+  store.commitSnapshot({ ...stateAt('Locale differita'), operationId: 'local-delayed-v2', baseVersion: 1 });
+  let calls = 0;
+  sync.rpc = async () => {
+    calls += 1;
+    return { ok: true, confirmed: 1, inserted: 1 };
+  };
+  const scheduled = sync.scheduleOutboxSync();
+  assert.equal(scheduled, null);
+  assert.equal(calls, 0);
+  assert.equal(store.pendingOutboxCount(), 1);
+  sync.cancelScheduledOutboxSync();
+}));
+
+test('live publication uploads only the compact public projection', () => withSync(async ({ store, sync }) => {
+  const current = store.getCurrent();
+  store.commitSnapshot({
+    state: { ...current.state, tournamentHistory: [{ id: 'old-large-history' }] },
+    publicState: {},
+    operationId: 'local-live-v2',
+    baseVersion: 1,
+  });
+  let body = null;
+  sync.rpc = async (name, input) => {
+    assert.equal(name, 'flbp_local_publish_live_data_plane');
+    body = input;
+    return { ok: true, updated_at: '2026-08-11T12:00:00.000Z' };
+  };
+  const result = await sync.publishLiveSnapshot();
+  assert.equal(result.published, true);
+  assert.equal(body.p_public_state.tournamentHistory, undefined);
+  assert.ok(Array.isArray(body.p_public_state.tournamentMatches));
 }));

@@ -15,26 +15,27 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - backup completo dello snapshot privato/pubblico in una sola transazione Supabase ogni 30 minuti e alla disattivazione;
 - replica SQLite opzionale su un secondo disco/USB; se configurata, la risposta al commit arriva solo dopo che quella versione è leggibile anche nella copia secondaria;
 - disattivazione in draining persistente: backup finale e ritorno al cloud sono una singola RPC atomica e ritentabile;
-- mirroring immediato delle piccole operazioni/outbox quando Internet è disponibile.
+- journal in piccoli batch (default 15 secondi, massimo 25 operazioni/512 KiB) quando Internet è disponibile;
+- mirror live pubblico compatto ogni 60 secondi e letture Internet da Supabase, senza mettere i visitatori in competizione con i commit locali;
 - append remoto transazionale: SQLite elimina una voce dall'outbox solo quando Supabase conferma tutte le versioni, senza collisioni o buchi nel journal;
 - drain continuo dell'outbox: una commit arrivata durante un upload viene inviata nello stesso ciclo, senza attendere il backup periodico;
 - sessione Admin automatica esclusivamente dal loopback del PC server: il master token non viene esposto alla web app remota;
 - checkpoint browser confermato prima del push e salvataggi Admin serializzati: una risposta vecchia non può cancellare la modifica successiva;
 - fallback browser completo: se `localStorage` è pieno, la bozza confermata in IndexedDB viene riletta automaticamente al reload con la propria base di concorrenza;
 - scritture Admin cloud idempotenti tramite `operationId`: un retry dopo risposta persa non crea una seconda versione e un'operazione già superata non può sovrascrivere il DB;
-- commit Admin unico per snapshot privato e pubblico, propagato immediatamente a pubblico, arbitri e TV;
+- commit Admin unico per snapshot privato e pubblico, propagato entro circa un secondo alle TV aperte dal PC/LAN;
 - sync normalizzata Supabase sospesa mentre SQLite è primario e riattivata al ritorno cloud.
 
 ## Prima configurazione
 
-1. Eseguire la migration `FLBP ONLINE/supabase/migrations/20260801000100_local_data_plane_and_version_history.sql`.
+1. Applicare in ordine tutte le migration fino a `20260811000400_idempotent_deactivation_v2.sql` inclusa.
 2. Eseguire `Installa FLBP Server.cmd`: verifica Node.js 24, genera la build web, avvia la configurazione e crea **FLBP Server Locale** sul Desktop.
-3. Durante la configurazione inserire URL Supabase, Secret key server, origine Cloudflare e URL del tunnel.
-4. Configurare un tunnel HTTPS stabile verso `http://127.0.0.1:8787` usando il modello `cloudflared-config.example.yml`.
-5. Avviare il tunnel e poi il collegamento **FLBP Server Locale**. Un secondo avvio riconosce il processo esistente e non apre un duplicato. Con Microsoft Edge il pannello viene mostrato in una finestra applicazione dedicata.
+3. Durante la configurazione inserire URL Supabase e Secret key server. Lasciare vuoto l’URL del tunnel: in questa modalità Admin e TV restano sul PC/LAN, mentre il sito Internet legge il mirror Supabase.
+4. Avviare il collegamento **FLBP Server Locale**. Un secondo avvio riconosce il processo esistente e non apre un duplicato. Con Microsoft Edge il pannello viene mostrato in una finestra applicazione dedicata.
+5. Un tunnel HTTPS resta opzionale e serve soltanto se, in futuro, si vuole far leggere direttamente il PC anche a utenti esterni. Non è richiesto per il funzionamento raccomandato.
 6. Nel pannello locale premere **Attiva modalità locale**. Solo dopo il download iniziale e l’acquisizione dell’epoch Supabase il server diventa primario.
-7. Facoltativo ma consigliato sul PC del torneo: eseguire `Installa avvio automatico.cmd`. Il task Windows riavvia il processo al login e conserva l’output in `logs/server.log`. Se `cloudflared` e `%USERPROFILE%\.cloudflared\config.yml` sono già presenti, installa anche il task sorvegliato del tunnel e scrive `logs/tunnel.log`; se cloudflared è già un servizio Windows non crea duplicati.
-8. Prima del torneo eseguire `Verifica prontezza FLBP Server.cmd`: controlla build, accesso SQLite, snapshot/versioni Supabase, RPC del coordinatore, append transazionale, RPC Admin v2, journal remoto e raggiungibilità HTTPS del tunnel senza modificare dati.
+7. Facoltativo ma consigliato sul PC del torneo: eseguire `Installa avvio automatico.cmd`. Il task Windows riavvia il processo al login e conserva l’output in `logs/server.log`. Il task del tunnel viene creato solo se `FLBP_LOCAL_PUBLIC_URL` è stato configurato.
+8. Prima del torneo eseguire `Verifica prontezza FLBP Server.cmd`: controlla build, SQLite, snapshot/versioni Supabase, coordinatore v2, journal e instradamento pubblico senza modificare dati.
 
 La Secret key resta nel file locale `.env`, escluso da Git. Non va mai inserita in Cloudflare Pages o nel browser. È supportata anche la precedente `service_role`, ma per nuove installazioni usare una `sb_secret_...` dedicata al server locale.
 
@@ -56,7 +57,7 @@ Dal primo istante della procedura il server rifiuta nuove scritture. Se la chiam
 - Processo terminato o PC riavviato: WAL e outbox vengono riaperti senza scartare operazioni.
 - Identità del nodo ed epoch restano nel DB: dopo un riavvio il server riprende subito lo stesso heartbeat.
 - Riavvio durante la disattivazione: lo stato di draining resta sul disco; nessuna modifica viene accettata finché il retry non chiarisce quale nodo è primario.
-- Heartbeat scaduto: Supabase espone `recovery`, non cloud scrivibile. Le letture possono usare l’ultimo backup, ma le scritture restano sospese finché l’operatore recupera il PC o esegue un failover esplicito.
+- Heartbeat scaduto: Supabase espone `recovery`, non cloud scrivibile. Il pubblico continua a vedere l’ultimo mirror; le scritture restano sospese finché l’operatore recupera il PC o esegue un failover esplicito.
 - PC non recuperabile ma journal remoto integro: un server sostitutivo scarica l’ultimo backup, riproduce in ordine le operazioni successive dal journal Supabase e rifiuta l’attivazione se rileva un buco di versione.
 - PC e disco definitivamente persi: solo dopo la scadenza della lease, un Admin Supabase può usare il pulsante di failover d’emergenza; l’epoch viene incrementato e il vecchio processo resta revocato se ricompare.
 - Guasto fisico del disco prima che l’outbox sia arrivata a Supabase: nessun software su un solo disco può garantire zero perdita. Per il torneo usare UPS e un secondo supporto/backup del folder `data`.
@@ -83,4 +84,4 @@ npm run restore -- --backup "E:\FLBP Backup\flbp-local-v123-....sqlite"
 npm start
 ```
 
-Il pannello è disponibile su `http://localhost:8787/`; la web app identica a quella pubblica è su `http://localhost:8787/app/`.
+Il pannello è disponibile su `http://localhost:8787/`; la web app identica a quella pubblica è su `http://localhost:8787/app/`. Le TV sulla stessa rete aprono `http://IP-DEL-PC:8787/app/`: interrogano SQLite con ETag circa ogni secondo e non generano traffico Supabase.

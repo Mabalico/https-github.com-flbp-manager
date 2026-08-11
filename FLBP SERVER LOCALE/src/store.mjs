@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { backup as backupDatabase, DatabaseSync } from 'node:sqlite';
 import { applyMatchResultPatch } from './statePatch.mjs';
 import { sanitizeAppStateForPublic } from './publicSanitizer.mjs';
+import { buildStatePatch } from './stateDelta.mjs';
 
 export class VersionConflictError extends Error {
   constructor(currentVersion) {
@@ -18,6 +19,8 @@ const json = (value) => JSON.stringify(value ?? {});
 const parseJson = (value) => JSON.parse(String(value || '{}'));
 const nowIso = () => new Date().toISOString();
 const checksum = (stateJson, publicStateJson) => crypto.createHash('sha256').update(stateJson).update('\n').update(publicStateJson).digest('hex');
+const MAX_PATCH_BYTES = 256 * 1024;
+const MAX_PATCH_OPERATIONS = 5_000;
 
 export class LocalStore {
   constructor({ dataDir, workspaceId, filename = 'flbp-local.sqlite' }) {
@@ -185,6 +188,14 @@ export class LocalStore {
     return Number(row?.count || 0);
   }
 
+  pendingOutboxStats() {
+    const row = this.db.prepare(`
+      SELECT count(*) AS count, coalesce(sum(length(payload_json)), 0) AS bytes
+      FROM outbox WHERE workspace_id = ? AND synced_at IS NULL
+    `).get(this.workspaceId);
+    return { count: Number(row?.count || 0), bytes: Number(row?.bytes || 0) };
+  }
+
   validateCloudSnapshotImport({ state, publicState: _publicState, version = 0 }) {
     const current = this.getCurrent();
     const normalizedPublicState = sanitizeAppStateForPublic(state);
@@ -229,15 +240,32 @@ export class LocalStore {
   }
 
   commitSnapshot({ state, publicState, operationId, baseVersion, force = false, source = 'admin' }) {
+    const current = this.getCurrent();
+    const normalizedPublicState = sanitizeAppStateForPublic(state);
+    let patchPayload = null;
+    if (current) {
+      try {
+        patchPayload = {
+          statePatch: buildStatePatch(current.state, state),
+          publicStatePatch: buildStatePatch(current.publicState, normalizedPublicState),
+        };
+      } catch {
+        // Unusual JSON key shapes fall back to the already supported full snapshot.
+      }
+    }
+    const patchJson = patchPayload ? json(patchPayload) : '';
+    const usePatch = !!patchPayload
+      && patchPayload.statePatch.length + patchPayload.publicStatePatch.length <= MAX_PATCH_OPERATIONS
+      && Buffer.byteLength(patchJson, 'utf8') <= MAX_PATCH_BYTES;
     return this.#commit({
       state,
-      publicState: sanitizeAppStateForPublic(state),
+      publicState: normalizedPublicState,
       operationId,
       baseVersion,
       force,
       source,
-      kind: 'workspace-snapshot',
-      operationPayload: { state, publicState },
+      kind: usePatch ? 'state-patch' : 'workspace-snapshot',
+      operationPayload: usePatch ? patchPayload : { state, publicState: normalizedPublicState },
     });
   }
 
@@ -340,6 +368,19 @@ export class LocalStore {
     }));
   }
 
+  listPendingOutboxBatch({ maxOperations = 25, maxBytes = 512 * 1024 } = {}) {
+    const candidates = this.listPendingOutbox(Math.max(1, Math.min(Number(maxOperations) || 25, 100)));
+    const selected = [];
+    let bytes = 0;
+    for (const row of candidates) {
+      const rowBytes = Buffer.byteLength(json(row.payload), 'utf8');
+      if (selected.length && bytes + rowBytes > Math.max(1, Number(maxBytes) || 512 * 1024)) break;
+      selected.push(row);
+      bytes += rowBytes;
+    }
+    return selected;
+  }
+
   markOutboxSynced(ids) {
     const statement = this.db.prepare('UPDATE outbox SET synced_at = ?, last_error = NULL WHERE id = ?');
     const syncedAt = nowIso();
@@ -386,6 +427,8 @@ export class LocalStore {
       primaryEpoch: Number.parseInt(this.getMeta('primary_epoch', '0'), 10) || null,
       transition: this.getTransitionState(),
       lastBackupAt: this.getMeta('last_backup_at'),
+      lastPublicLiveAt: this.getMeta('last_public_live_at'),
+      lastPublicLiveVersion: Number(this.getMeta('last_public_live_version', '0')) || null,
       lastSecondaryBackupAt: this.getMeta('last_secondary_backup_at'),
       lastSecondaryBackupVersion: Number(this.getMeta('last_secondary_backup_version', '0')) || null,
       databaseFile: this.filename,

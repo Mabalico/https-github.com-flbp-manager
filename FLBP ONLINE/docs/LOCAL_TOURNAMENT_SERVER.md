@@ -2,15 +2,17 @@
 
 ## Confine del data plane
 
-Quando `flbp_resolve_data_plane()` restituisce `local`, il traffico critico del torneo usa il server Windows:
+Il coordinatore distingue ora l'autorità di scrittura dalla sorgente delle letture pubbliche. Durante il torneo il PC è l'unico writer, mentre i client serviti direttamente dal PC scoprono il server locale sulla stessa origine:
 
 - snapshot Admin privato;
-- snapshot pubblico e live/TV;
+- snapshot pubblico e live/TV aperti dal PC o dalla LAN;
 - elenco e dettaglio dei tornei derivati dallo snapshot pubblico;
 - autenticazione arbitri del torneo;
 - referti come patch atomiche per partita.
 
 Supabase resta il control plane e continua a gestire Auth, account giocatori, push, Fantabeerpong e dati non critici. Questi sottosistemi non vengono spostati su SQLite: replicarli in modo bidirezionale produrrebbe conflitti e indebolirebbe l’Auth. Lo snapshot `AppState` contiene comunque l’intero stato applicativo necessario a far proseguire il torneo.
+
+I visitatori del sito Internet leggono sempre il mirror Supabase. Il server pubblica il documento live compatto ogni 60 secondi; i browser online lo aggiornano ogni 120–140 secondi con jitter. Un ritardo pubblico di pochi minuti non influenza mai il commit locale. Un tunnel o un dominio dedicato non sono necessari per questa modalità.
 
 ## Flusso Admin locale
 
@@ -19,8 +21,9 @@ Supabase resta il control plane e continua a gestire Auth, account giocatori, pu
 3. Ogni modifica Admin viene prima salvata come bozza durevole nel browser e poi committata in SQLite con `operationId` e `baseVersion`.
    Il push attende la conferma del checkpoint locale; se nel frattempo arriva un’altra modifica, questa riceve un nuovo `operationId` e la risposta precedente non può cancellarla.
 4. Lo stesso commit aggiorna nella medesima transazione snapshot privato e snapshot pubblico sanitizzato.
-5. Pubblico, arbitri e TV leggono quindi la stessa versione dal server locale; dopo un riavvio WAL e versione restano invariati.
-6. Durante la leadership locale la sincronizzazione normalizzata periodica verso Supabase è sospesa. Dopo la disattivazione sicura, la ricostruzione del mirror viene eseguita una sola volta dall'Admin già aperto oppure alla sua successiva apertura; lo snapshot completo è già stato caricato atomicamente dal server.
+5. Admin, arbitri e TV sulla LAN leggono quindi la stessa versione dal server locale; dopo un riavvio WAL e versione restano invariati.
+6. L'outbox viene accorpata per circa 15 secondi e inviata in batch limitati; il mirror pubblico compatto segue un timer separato e il checkpoint completo resta ogni 30 minuti.
+7. Durante la leadership locale la sincronizzazione normalizzata periodica verso Supabase è sospesa. Dopo la disattivazione sicura, la ricostruzione del mirror viene eseguita una sola volta dall'Admin già aperto oppure alla sua successiva apertura; lo snapshot completo è già stato caricato atomicamente dal server.
 
 Se Internet cade o la finestra viene riaperta, l’Admin può continuare per 36 ore solo quando sono presenti insieme una sessione Supabase realmente verificata in precedenza e la sessione rilasciata dal nodo locale. Non viene introdotta una password Admin fittizia nel frontend.
 
@@ -64,8 +67,9 @@ sequenceDiagram
     L->>L: Importa la versione canonica in SQLite
     L->>L: Abilita le scritture locali
     W->>S: flbp_resolve_data_plane()
-    S-->>W: URL HTTPS locale + epoch N
-    W->>L: Letture e scritture critiche
+    S-->>W: cloud read + autorità locale + epoch N
+    W->>S: Letture pubbliche dal mirror
+    L->>L: Admin e TV LAN leggono SQLite
 ```
 
 ## Sequenza di disattivazione
@@ -84,7 +88,7 @@ sequenceDiagram
 
 Se la risposta della RPC finale viene persa, il nodo resta in draining anche dopo un riavvio e ritenta la stessa operazione. Supabase riconosce il retry della medesima versione/epoch come idempotente; il nodo non torna scrivibile finché non riceve una conferma.
 
-Con Internet assente il PC continua a conservare le modifiche in SQLite e nel journal locale, ma gli utenti esterni non possono raggiungerlo se il tunnel è caduto. Gli utenti collegati alla stessa LAN possono usare l’indirizzo locale anche se l’IP è cambiato: il server autorizza automaticamente la propria origine effettiva, continuando a respingere origini esterne non configurate. Per continuità pubblica anche senza la linea principale serve una seconda connessione Internet.
+Con Internet assente il PC continua a conservare le modifiche in SQLite e nel journal locale. Gli utenti esterni vedono l'ultimo mirror Supabase raggiungibile; Admin e TV sulla LAN continuano a usare l’indirizzo locale anche se l’IP è cambiato. Il server autorizza automaticamente la propria origine effettiva, continuando a respingere origini esterne non configurate.
 
 ## PC non recuperabile
 
@@ -101,8 +105,8 @@ Se la copia risultava attiva, il ripristino conserva nodo, epoch e outbox ma imp
 ## Evidenze e verifiche richieste prima dell’uso reale
 
 - applicare la migration e verificare le RPC con una Secret key server dedicata;
-- installare un Named Cloudflare Tunnel con hostname stabile;
-- configurare CORS con il dominio pubblico reale;
+- verificare che il sito pubblico continui a leggere Supabase mentre il PC possiede la leadership;
+- verificare Admin e TV dalla LAN con il tunnel disattivato;
 - testare due schede Admin, un arbitro e una TV simultaneamente;
 - staccare Internet durante un referto e verificare la coda;
 - terminare brutalmente il processo Node, riaprirlo e verificare versione/outbox;

@@ -75,6 +75,7 @@ export const createLocalServer = (overrides = {}) => {
   const configErrors = validateOperationalConfig(config);
   let heartbeatTimer = null;
   let backupTimer = null;
+  let publicLiveTimer = null;
   let secondaryBackupTimer = null;
   let secondaryBackupChain = Promise.resolve();
   let secondaryBackedVersion = 0;
@@ -155,12 +156,16 @@ export const createLocalServer = (overrides = {}) => {
     if (!backupTimer) backupTimer = setInterval(() => {
       if (store.isActive()) void sync.backupSnapshot().catch((error) => console.error('[backup]', error.message));
     }, config.fullBackupIntervalMs);
+    if (!publicLiveTimer) publicLiveTimer = setInterval(() => {
+      if (store.isActive()) void sync.publishLiveSnapshot().catch((error) => console.error('[public-live]', error.message));
+    }, config.publicLiveIntervalMs);
     if (!secondaryBackupTimer && config.secondaryBackupDir) secondaryBackupTimer = setInterval(() => {
       void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup]', error.message));
     }, config.secondaryBackupIntervalMs);
     if (firstStart && store.isActive()) {
       void sync.heartbeat().catch((error) => console.error('[heartbeat:startup]', error.message));
-      void sync.scheduleOutboxSync();
+      void sync.scheduleOutboxSync({ immediate: true });
+      void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
       void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
     }
   };
@@ -324,6 +329,9 @@ export const createLocalServer = (overrides = {}) => {
             }
             store.setTransitionState('idle');
             startTimers();
+            void sync.heartbeat().catch((error) => console.error('[heartbeat:activation]', error.message));
+            void sync.scheduleOutboxSync({ immediate: true });
+            void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:activation]', error.message));
             return sendJson(response, 200, { ok: true, activated, ...store.status() }, cors);
           } catch (error) {
             store.setTransitionState('activation-error');
@@ -373,7 +381,9 @@ export const createLocalServer = (overrides = {}) => {
     close: () => new Promise((resolve) => {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (backupTimer) clearInterval(backupTimer);
+      if (publicLiveTimer) clearInterval(publicLiveTimer);
       if (secondaryBackupTimer) clearInterval(secondaryBackupTimer);
+      sync.cancelScheduledOutboxSync();
       server.close(() => {
         void secondaryBackupChain.finally(() => {
           store.close();

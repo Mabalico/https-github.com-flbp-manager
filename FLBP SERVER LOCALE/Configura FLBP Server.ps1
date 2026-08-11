@@ -37,8 +37,8 @@ try {
 } finally {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($serverKeyPtr)
 }
-$publicUrl = (Read-Host 'URL HTTPS del tunnel locale (lasciare vuoto finché il tunnel non è pronto)').Trim().TrimEnd('/')
-$cloudflareOrigin = (Read-Host 'Origine della web app Cloudflare (es. https://flbp.example.it)').Trim().TrimEnd('/')
+$publicUrl = (Read-Host 'URL HTTPS del tunnel locale (opzionale; Invio per usare il mirror Supabase pubblico)').Trim().TrimEnd('/')
+$cloudflareOrigin = (Read-Host 'Origine della web app pubblica (opzionale, es. https://app.pages.dev)').Trim().TrimEnd('/')
 $secondaryBackupDir = (Read-Host 'Cartella replica su secondo disco/USB (consigliata, lasciare vuoto se non disponibile)').Trim()
 
 $allowed = @('http://localhost:8787', 'http://127.0.0.1:8787')
@@ -58,6 +58,10 @@ $lines = @(
     "FLBP_LOCAL_PUBLIC_URL=$publicUrl",
     "SUPABASE_URL=$supabaseUrl",
     "SUPABASE_SECRET_KEY=$serverKey",
+    'FLBP_OUTBOX_FLUSH_INTERVAL_MS=15000',
+    'FLBP_OUTBOX_BATCH_MAX_OPERATIONS=25',
+    'FLBP_OUTBOX_BATCH_MAX_BYTES=524288',
+    'FLBP_PUBLIC_LIVE_INTERVAL_MS=60000',
     'FLBP_FULL_BACKUP_INTERVAL_MS=1800000',
     'FLBP_HEARTBEAT_INTERVAL_MS=15000',
     'FLBP_LEASE_TTL_SECONDS=60'

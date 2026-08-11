@@ -38,3 +38,17 @@ export const sanitizeAppStateForPublic = (state) => {
   delete safe.playerAccountAliasIgnores;
   return safe;
 };
+
+export const buildPublicWorkspaceLiveState = (publicState) => {
+  const safe = publicState && typeof publicState === 'object' && !Array.isArray(publicState) ? publicState : {};
+  const live = {
+    __schemaVersion: safe.__schemaVersion ?? 1,
+    teams: (Array.isArray(safe.teams) ? safe.teams : []).map(sanitizeTeam),
+    tournament: safe.tournament ? sanitizeTournament(safe.tournament) : null,
+    tournamentMatches: Array.isArray(safe.tournamentMatches) ? safe.tournamentMatches : [],
+  };
+  if (safe.fantaSettings && typeof safe.fantaSettings === 'object' && !Array.isArray(safe.fantaSettings)) {
+    live.fantaSettings = safe.fantaSettings;
+  }
+  return live;
+};
