@@ -89,7 +89,7 @@ begin
   if v_plane.workspace_id is not null and v_plane.mode = 'local'
      and v_plane.node_id = p_node_id and v_plane.epoch = p_epoch then
     update public.flbp_data_plane set
-      heartbeat_at = v_now,
+      last_heartbeat_at = v_now,
       lease_expires_at = v_now + make_interval(secs => greatest(30, least(coalesce(p_ttl_seconds, 60), 300))),
       updated_at = v_now
     where workspace_id = v_workspace_id;
