@@ -31,6 +31,7 @@ import { getPlayerKey } from '../../services/playerIdentity';
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
 import {
   archiveFantaTournamentEdition,
+  cancelActivePlayerAppCallsForMatch,
   deleteFantaTournamentData,
   getSupabaseConfig,
   isMatchResultRpcMissingError,
@@ -152,6 +153,43 @@ const summarizeOps = () => {
         : '')
     );
   }
+  return lines.join('\n');
+};
+
+type NetworkMetric = {
+  service: string;
+  method: string;
+  status: number | null;
+  durationMs: number;
+  requestBytes: number;
+  responseBytes: number;
+  ok: boolean;
+  rateLimitRemaining: string | null;
+  retryAfter: string | null;
+};
+
+const summarizeNetwork = () => {
+  const entries = (((globalThis as any).__flbpSimNetworkMetrics || []) as NetworkMetric[]);
+  if (!entries.length) return '  nessuna richiesta registrata';
+  const byService = new Map<string, NetworkMetric[]>();
+  for (const entry of entries) byService.set(entry.service, [...(byService.get(entry.service) || []), entry]);
+  const lines: string[] = [];
+  for (const [service, list] of byService) {
+    const durations = list.map((entry) => entry.durationMs);
+    const requestBytes = list.reduce((sum, entry) => sum + entry.requestBytes, 0);
+    const responseBytes = list.reduce((sum, entry) => sum + entry.responseBytes, 0);
+    const failures = list.filter((entry) => !entry.ok).length;
+    const rateLimited = list.filter((entry) => entry.status === 429 || entry.retryAfter).length;
+    lines.push(
+      `  ${service}: n=${list.length} ok=${list.length - failures} err=${failures} 429/retry=${rateLimited}` +
+      ` | req=${requestBytes}B resp=${responseBytes}B` +
+      ` | ms avg=${Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)}` +
+      ` p95=${percentile(durations, 95)} max=${Math.max(...durations)}`
+    );
+  }
+  const totalRequestBytes = entries.reduce((sum, entry) => sum + entry.requestBytes, 0);
+  const totalResponseBytes = entries.reduce((sum, entry) => sum + entry.responseBytes, 0);
+  lines.push(`  TOTALE: richieste=${entries.length} upload=${totalRequestBytes}B download=${totalResponseBytes}B I/O HTTP=${totalRequestBytes + totalResponseBytes}B`);
   return lines.join('\n');
 };
 
@@ -375,6 +413,46 @@ const main = async () => {
   setRemoteBaseUpdatedAt(remoteRow.updated_at || null);
   let state: AppState = coerceAppState(remoteRow.state);
 
+  // Maintenance-only path mirroring the double-confirmed Admin action. The
+  // exact live id or name is mandatory, so a stale command cannot delete a
+  // newly-created tournament by accident.
+  const deleteLiveConfirmation = argValue('delete-live');
+  if (deleteLiveConfirmation) {
+    const live = state.tournament;
+    if (!live) {
+      console.log('Nessun torneo live da eliminare.');
+      console.log('\nConsumo rete Supabase:');
+      console.log(summarizeNetwork());
+      await releaseAdminWriteLease();
+      return;
+    }
+    const liveId = String(live.id || '').trim();
+    const liveName = String(live.name || '').trim();
+    if (deleteLiveConfirmation !== liveId && deleteLiveConfirmation !== liveName) {
+      throw new Error(`Conferma eliminazione non corrispondente: live id="${liveId}" nome="${liveName}"`);
+    }
+    console.log(`Elimino esclusivamente il torneo live confermato: "${liveName}" (${liveId})`);
+    try {
+      await timeIt('chiusura chiamate torneo live', () => cancelActivePlayerAppCallsForMatch({
+        tournamentId: liveId,
+        dispatchPush: true,
+      }));
+    } catch (error: any) {
+      console.warn(`Pulizia chiamate live non bloccante: ${String(error?.message || error)}`);
+    }
+    state = { ...state, tournament: null, tournamentMatches: [] };
+    await timeIt('push eliminazione torneo live', () => pushWorkspaceState(state));
+    await timeIt('export completo post-eliminazione', () => pushNormalizedFromState(state, { force: true }));
+    await timeIt('reset fanta a pretorneo', () => resetFantaConfigToPretournament());
+    const verified = await timeIt('verifica eliminazione torneo live', () => pullWorkspaceState({ source: 'sim.deleteLiveVerify', kind: 'admin' }));
+    if (verified?.state?.tournament) throw new Error('Verifica fallita: il torneo live risulta ancora presente.');
+    console.log('Eliminazione verificata sullo snapshot Admin e sul mirror normalizzato.');
+    console.log('\nConsumo rete Supabase:');
+    console.log(summarizeNetwork());
+    await releaseAdminWriteLease();
+    return;
+  }
+
   // Modalita' pulizia: rimuove dallo storico i tornei di simulazione
   // ("Torneo Sim ...") e i loro dati derivati (albo, carriera, mirror).
   if (process.argv.includes('--cleanup-sim')) {
@@ -427,6 +505,8 @@ const main = async () => {
     await timeIt('push stato ripulito', () => pushWorkspaceState(state));
     await timeIt('export completo post-pulizia', () => pushNormalizedFromState(state, { force: true }));
     console.log('Pulizia completata: storico, albo, classifiche, mirror e dati fanta riallineati.');
+    console.log('\nConsumo rete Supabase:');
+    console.log(summarizeNetwork());
     await releaseAdminWriteLease();
     return;
   }
@@ -872,6 +952,8 @@ const main = async () => {
   // 8) Report finale
   console.log('\n================= REPORT =================');
   console.log(summarizeOps());
+  console.log('\nConsumo rete Supabase:');
+  console.log(summarizeNetwork());
   console.log('\nPropagazione admin -> live pubblico (check ogni 5 referti):');
   const okChecks = propagationChecks.filter((c) => c.ok);
   for (const c of propagationChecks) {
