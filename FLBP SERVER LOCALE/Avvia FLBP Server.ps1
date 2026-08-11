@@ -44,14 +44,7 @@ if (-not (Test-FlbpServer)) {
     }
 }
 
-$edgeCandidates = @(
-    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path $env:LocalAppData 'Microsoft\Edge\Application\msedge.exe')
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-
-if ($edgeCandidates.Count -gt 0) {
-    Start-Process -FilePath $edgeCandidates[0] -ArgumentList "--app=$panelUrl" | Out-Null
-} else {
-    Start-Process $panelUrl | Out-Null
-}
+# La modalita `msedge --app` su alcuni PC lascia il processo in background
+# senza mostrare alcuna finestra. Aprire l'URL tramite il browser predefinito
+# e' piu affidabile e rende visibile il pannello anche se il browser e' gia aperto.
+Start-Process -FilePath $panelUrl | Out-Null

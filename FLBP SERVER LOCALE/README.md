@@ -29,15 +29,21 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 ## Prima configurazione
 
 1. Applicare in ordine tutte le migration fino a `20260811000400_idempotent_deactivation_v2.sql` inclusa.
-2. Eseguire `Installa FLBP Server.cmd`: verifica Node.js 24, genera la build web, avvia la configurazione e crea **FLBP Server Locale** sul Desktop.
+2. Eseguire `Installa FLBP Server.cmd`: verifica Node.js 24, genera la build web, avvia la configurazione, compila l'app Windows e crea **FLBP Manager Locale** sul Desktop.
 3. Durante la configurazione inserire URL Supabase e Secret key server. Lasciare vuoto l’URL del tunnel: in questa modalità Admin e TV restano sul PC/LAN, mentre il sito Internet legge il mirror Supabase.
-4. Avviare il collegamento **FLBP Server Locale**. Un secondo avvio riconosce il processo esistente e non apre un duplicato. Con Microsoft Edge il pannello viene mostrato in una finestra applicazione dedicata.
+4. Avviare il collegamento **FLBP Manager Locale**. Si apre una vera finestra Windows senza schede o barra degli indirizzi; il server viene avviato in background se non è già attivo. Il vecchio collegamento **FLBP Server Locale** viene mantenuto e apre la stessa app per compatibilità.
 5. Un tunnel HTTPS resta opzionale e serve soltanto se, in futuro, si vuole far leggere direttamente il PC anche a utenti esterni. Non è richiesto per il funzionamento raccomandato.
 6. Nel pannello locale premere **Attiva modalità locale**. Solo dopo il download iniziale e l’acquisizione dell’epoch Supabase il server diventa primario.
 7. Facoltativo ma consigliato sul PC del torneo: eseguire `Installa avvio automatico.cmd`. Il task Windows riavvia il processo al login e conserva l’output in `logs/server.log`. Il task del tunnel viene creato solo se `FLBP_LOCAL_PUBLIC_URL` è stato configurato.
 8. Prima del torneo eseguire `Verifica prontezza FLBP Server.cmd`: controlla build, SQLite, snapshot/versioni Supabase, coordinatore v2, journal e instradamento pubblico senza modificare dati.
 
 La Secret key resta nel file locale `.env`, escluso da Git. Non va mai inserita in Cloudflare Pages o nel browser. È supportata anche la precedente `service_role`, ma per nuove installazioni usare una `sb_secret_...` dedicata al server locale.
+
+## App Windows
+
+L'app viene compilata in `windows-app/publish` e usa il runtime Evergreen WebView2 installato in Windows. Non apre Chrome, Edge, Avast o un altro browser esterno. La barra nativa permette di passare tra **Pannello** e **FLBP Manager**, tornare indietro e aggiornare la pagina.
+
+Per rigenerare soltanto l'eseguibile e i collegamenti Desktop, avviare `Compila app Windows.cmd`. Chiudere la finestra dell'app non arresta il server e non disattiva il database locale: per concludere il torneo usare sempre **Chiudi modalità locale** dal pannello, così viene completato il backup finale su Supabase.
 
 ## Spegnimento corretto
 
