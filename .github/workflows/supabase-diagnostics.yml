@@ -119,7 +119,8 @@ jobs:
               from pg_stat_user_tables
               where schemaname = 'public'
                 and relname = any(array[
-                  'workspace_state', 'public_workspace_state',
+                  'workspace_state', 'public_workspace_state', 'workspace_state_versions',
+                  'flbp_data_plane', 'flbp_local_operation_log',
                   'tournaments', 'tournament_teams', 'tournament_groups',
                   'tournament_group_teams', 'tournament_matches', 'tournament_match_stats',
                   'public_tournaments', 'public_tournament_teams', 'public_tournament_groups',
