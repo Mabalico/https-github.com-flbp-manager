@@ -7,12 +7,11 @@
 // Stati:
 // - off:       feature non inizializzata (aree non-admin, simulatore senza
 //              lease, oppure DB senza la migration): nessun gating client.
-// - acquiring: primo tentativo in corso; le scritture NON sono bloccate lato
-//              client (la garanzia dura resta il controllo lato server).
+// - acquiring: primo tentativo in corso; le scritture sono bloccate finché il
+//              server non conferma esplicitamente il testimone.
 // - active:    questa finestra detiene il testimone e puo' scrivere.
 // - passive:   un'altra sessione e' attiva: questa finestra e' in sola lettura.
-// - error:     ultimo heartbeat fallito (rete): niente blocco client, il
-//              server resta l'arbitro.
+// - error:     ultimo heartbeat fallito: scritture bloccate in modo fail-closed.
 
 export type AdminLeaseStatus = 'off' | 'acquiring' | 'active' | 'passive' | 'error';
 
@@ -50,8 +49,9 @@ export const subscribeAdminLease = (listener: (next: AdminLeaseInfo) => void): (
 // Holder da allegare alle RPC di scrittura admin (null = feature off, il
 // server applica la modalita' retrocompatibile).
 export const getAdminLeaseHolderForWrites = (): string | null =>
-  info.status === 'off' ? null : info.holderId;
+  info.status === 'active' ? info.holderId : null;
 
 // Gating client (UX): blocca solo quando SAPPIAMO di essere passivi. La
 // garanzia di integrita' e' comunque il rifiuto lato server.
-export const isAdminWriteBlockedByLease = (): boolean => info.status === 'passive';
+export const isAdminWriteBlockedByLease = (): boolean =>
+  info.status === 'acquiring' || info.status === 'passive' || info.status === 'error';

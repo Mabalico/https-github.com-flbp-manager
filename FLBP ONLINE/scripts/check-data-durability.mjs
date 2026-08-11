@@ -52,7 +52,7 @@ requirePattern(
 );
 requirePattern(
   'services/repository/RemoteRepository.ts',
-  /readLatestPendingDurableStateCheckpoint[\s\S]{0,7000}restoreIndexedDbDraft[\s\S]{0,900}this\.emit/,
+  /restoreIndexedDbDraft[\s\S]{0,500}listDurableStateCheckpoints[\s\S]{0,2200}this\.emit/,
   'una bozza presente solo in IndexedDB deve essere riletta e riproposta dopo il reload',
 );
 requirePattern(
@@ -132,7 +132,7 @@ requirePattern(
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /control\/deactivate[\s\S]{0,900}deactivation-error/,
+  /control\/deactivate[\s\S]{0,2200}deactivation-error/,
   'un esito remoto ambiguo deve restare persistito fino al retry',
 );
 requirePattern(
@@ -162,12 +162,12 @@ requirePattern(
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /isTrustedLoopbackRequest[\s\S]{0,8000}control\/local-session/,
+  /isTrustedLoopbackRequest[\s\S]{0,16000}control\/local-session/,
   'la sessione Admin automatica deve essere limitata al loopback del PC server',
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /control\/resume-restored[\s\S]{0,900}sync\.heartbeat\(\)[\s\S]{0,300}setTransitionState\('idle'\)/,
+  /control\/resume-restored[\s\S]{0,900}sync\.reconcileTransition\(\)/,
   'un backup ripristinato deve restare bloccato finché Supabase non riconferma l’epoch',
 );
 

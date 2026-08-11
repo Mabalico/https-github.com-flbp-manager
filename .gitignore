@@ -42,3 +42,8 @@ AuthKey_*.p8
 
 # Archives and generated bundles
 *.zip
+
+# Windows desktop app build artifacts
+**/.packages/
+**/obj/
+**/publish/

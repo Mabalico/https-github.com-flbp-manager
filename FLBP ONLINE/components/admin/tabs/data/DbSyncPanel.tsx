@@ -32,7 +32,7 @@ import {
     setAutoStructuredSyncEnabled,
     setDataPersistenceMode
 } from '../../../../services/repository/featureFlags';
-import { clearRemoteDraftCache } from '../../../../services/repository/remoteDraftCache';
+import { clearRemoteDraftCache, readCurrentRemoteDraftCache } from '../../../../services/repository/remoteDraftCache';
 import { flushAutoStructuredSync } from '../../../../services/autoDbSync';
 import { DbMigrationWizard } from './DbMigrationWizard';
 import { Eye, EyeOff } from 'lucide-react';
@@ -267,6 +267,24 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         setDiagTick((x) => x + 1);
         setPanel({ kind: 'ok', message: t('db_download_done') });
     });
+
+    const onExportPendingDraft = async () => {
+        const draft = await readCurrentRemoteDraftCache();
+        if (!draft) {
+            setPanel({ kind: 'error', message: 'Nessuna bozza locale da esportare in questa finestra.' });
+            return;
+        }
+        const blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' });
+        const href = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = href;
+        anchor.download = `flbp-bozza-${draft.workspaceId}-${draft.operationId}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(href);
+        setPanel({ kind: 'ok', message: 'Bozza esportata. Il checkpoint originale resta conservato nel browser.' });
+    };
 
     const onDownloadStructured = () => run(t('db_download_structured'), async () => {
         const r = await pullNormalizedState();
@@ -563,11 +581,30 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                             <div className="font-mono text-xs break-words">{diag.lastConflictMessage}</div>
                         ) : null}
                         <div>
-                            {t('db_conflict_recommended_path_prefix')}: <span className="font-black">{t('db_conflict_recommended_path')}</span>.
-                            {t('db_conflict_force_note_prefix')} <span className="font-black">{t('db_force_overwrite')}</span> {t('db_conflict_force_note_suffix')}
+                            La bozza resta conservata. Ricarica lo snapshot remoto per riconciliare i dati oppure esporta la bozza prima di intervenire.
                         </div>
                         <div className="text-xs text-amber-800">
                             {t('db_conflict_note_accounts')}
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-2">
+                            <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={onDownload}
+                                className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                            >
+                                Ricarica e riconcilia
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onExportPendingDraft}
+                                className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-950"
+                            >
+                                Esporta bozza
+                            </button>
+                        </div>
+                        <div className="text-[11px] text-amber-800">
+                            Il download remoto non elimina la bozza: potrai confrontarla prima di applicare qualsiasi stato.
                         </div>
                     </div>
                 </div>

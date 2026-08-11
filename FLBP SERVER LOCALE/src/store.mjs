@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { backup as backupDatabase, DatabaseSync } from 'node:sqlite';
 import { applyMatchResultPatch } from './statePatch.mjs';
 import { sanitizeAppStateForPublic } from './publicSanitizer.mjs';
+import { buildStatePatch } from './stateDelta.mjs';
 
 export class VersionConflictError extends Error {
   constructor(currentVersion) {
@@ -18,6 +19,9 @@ const json = (value) => JSON.stringify(value ?? {});
 const parseJson = (value) => JSON.parse(String(value || '{}'));
 const nowIso = () => new Date().toISOString();
 const checksum = (stateJson, publicStateJson) => crypto.createHash('sha256').update(stateJson).update('\n').update(publicStateJson).digest('hex');
+const operationChecksum = (kind, payload) => crypto.createHash('sha256').update(String(kind || '')).update('\n').update(json(payload)).digest('hex');
+const MAX_PATCH_BYTES = 256 * 1024;
+const MAX_PATCH_OPERATIONS = 5_000;
 
 export class LocalStore {
   constructor({ dataDir, workspaceId, filename = 'flbp-local.sqlite' }) {
@@ -74,6 +78,10 @@ export class LocalStore {
       CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(workspace_id, synced_at, id);
       CREATE INDEX IF NOT EXISTS idx_snapshots_version ON snapshots(workspace_id, version DESC);
     `);
+    const snapshotColumns = this.db.prepare('PRAGMA table_info(snapshots)').all();
+    if (!snapshotColumns.some((column) => column.name === 'operation_checksum')) {
+      this.db.exec('ALTER TABLE snapshots ADD COLUMN operation_checksum TEXT');
+    }
   }
 
   close() {
@@ -91,6 +99,26 @@ export class LocalStore {
     const finalPath = path.join(resolvedDir, `${baseName}.sqlite`);
     try {
       await backupDatabase(this.db, partialPath);
+      const replica = new DatabaseSync(partialPath, { readOnly: true });
+      try {
+        const integrity = replica.prepare('PRAGMA integrity_check').all().map((row) => String(Object.values(row)[0] || ''));
+        if (integrity.length !== 1 || integrity[0].toLowerCase() !== 'ok') {
+          throw new Error(`Replica SQLite non integra: ${integrity.join('; ') || 'nessun esito'}`);
+        }
+        const copied = replica.prepare(`
+          SELECT version, operation_id, checksum
+          FROM current_workspace
+          WHERE workspace_id = ?
+        `).get(this.workspaceId);
+        if (!copied
+          || Number(copied.version) !== Number(current.version)
+          || String(copied.operation_id || '') !== String(current.operationId || '')
+          || String(copied.checksum || '') !== String(current.checksum || '')) {
+          throw new Error('Replica SQLite leggibile ma non corrispondente a versione, operationId e checksum correnti.');
+        }
+      } finally {
+        replica.close();
+      }
       fs.renameSync(partialPath, finalPath);
       const completed = fs.readdirSync(resolvedDir)
         .filter((name) => /^flbp-local-v\d+-.+\.sqlite$/.test(name))
@@ -101,7 +129,7 @@ export class LocalStore {
       }
       this.setMeta('last_secondary_backup_at', nowIso());
       this.setMeta('last_secondary_backup_version', String(current.version));
-      return { backedUp: true, version: current.version, filename: finalPath };
+      return { backedUp: true, verified: true, version: current.version, checksum: current.checksum, operationId: current.operationId, filename: finalPath };
     } catch (error) {
       try { fs.rmSync(partialPath, { force: true }); } catch { /* ignore cleanup */ }
       throw error;
@@ -144,6 +172,71 @@ export class LocalStore {
     this.setMeta('transition_state', String(state || 'idle'));
   }
 
+  getAdminWriterLease(nowMs = Date.now()) {
+    let lease = null;
+    try {
+      lease = parseJson(this.getMeta('admin_writer_lease', '{}'));
+    } catch {
+      lease = null;
+    }
+    if (!lease?.holderId || Number(lease.expiresAt || 0) <= nowMs) {
+      if (lease?.holderId) this.setMeta('admin_writer_lease', '{}');
+      return null;
+    }
+    return {
+      holderId: String(lease.holderId),
+      holderLabel: String(lease.holderLabel || 'Finestra Admin'),
+      acquiredAt: String(lease.acquiredAt || nowIso()),
+      expiresAt: Number(lease.expiresAt),
+    };
+  }
+
+  acquireAdminWriterLease({ holderId, holderLabel, takeover = false, ttlMs = 90_000 }) {
+    const safeHolderId = String(holderId || '').trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/.test(safeHolderId)) {
+      throw Object.assign(new Error('holderId Admin locale non valido.'), { statusCode: 400, code: 'FLBP_INVALID_HOLDER' });
+    }
+    const now = Date.now();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = this.getAdminWriterLease(now);
+      if (current && current.holderId !== safeHolderId && !takeover) {
+        this.db.exec('COMMIT');
+        return { acquired: false, holder_id: current.holderId, holder_label: current.holderLabel, acquired_at: current.acquiredAt, expires_at: new Date(current.expiresAt).toISOString() };
+      }
+      const next = {
+        holderId: safeHolderId,
+        holderLabel: String(holderLabel || current?.holderLabel || 'Finestra Admin').slice(0, 160),
+        acquiredAt: current?.holderId === safeHolderId ? current.acquiredAt : nowIso(),
+        expiresAt: now + Math.max(30_000, Math.min(Number(ttlMs) || 90_000, 300_000)),
+      };
+      this.setMeta('admin_writer_lease', json(next));
+      this.db.exec('COMMIT');
+      return { acquired: true, holder_id: next.holderId, holder_label: next.holderLabel, acquired_at: next.acquiredAt, expires_at: new Date(next.expiresAt).toISOString() };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch { /* transaction may already be closed */ }
+      throw error;
+    }
+  }
+
+  releaseAdminWriterLease(holderId) {
+    const current = this.getAdminWriterLease();
+    if (!current || current.holderId !== String(holderId || '').trim()) return { released: false };
+    this.setMeta('admin_writer_lease', '{}');
+    return { released: true };
+  }
+
+  requireAdminWriterLease(holderId) {
+    const current = this.getAdminWriterLease();
+    if (!current || current.holderId !== String(holderId || '').trim()) {
+      throw Object.assign(new Error('Questa finestra Admin non possiede il controllo di scrittura locale.'), {
+        statusCode: 423,
+        code: 'FLBP_LEASE_READONLY',
+      });
+    }
+    return current;
+  }
+
   getCurrent() {
     const row = this.db.prepare('SELECT * FROM current_workspace WHERE workspace_id = ?').get(this.workspaceId);
     if (!row) return null;
@@ -162,7 +255,7 @@ export class LocalStore {
 
   getSnapshotByOperationId(operationId) {
     const row = this.db.prepare(`
-      SELECT workspace_id, version, operation_id, state_json, public_state_json, checksum, created_at
+      SELECT workspace_id, version, operation_id, state_json, public_state_json, checksum, operation_checksum, created_at
       FROM snapshots
       WHERE workspace_id = ? AND operation_id = ?
     `).get(this.workspaceId, String(operationId || '').trim());
@@ -174,6 +267,7 @@ export class LocalStore {
       state: parseJson(row.state_json),
       publicState: parseJson(row.public_state_json),
       checksum: row.checksum,
+      operationChecksum: row.operation_checksum || null,
       updatedAt: row.created_at,
       cloudUpdatedAt: null,
       primaryEpoch: Number.parseInt(this.getMeta('primary_epoch', '0'), 10) || 0,
@@ -183,6 +277,14 @@ export class LocalStore {
   pendingOutboxCount() {
     const row = this.db.prepare('SELECT count(*) AS count FROM outbox WHERE workspace_id = ? AND synced_at IS NULL').get(this.workspaceId);
     return Number(row?.count || 0);
+  }
+
+  pendingOutboxStats() {
+    const row = this.db.prepare(`
+      SELECT count(*) AS count, coalesce(sum(length(payload_json)), 0) AS bytes
+      FROM outbox WHERE workspace_id = ? AND synced_at IS NULL
+    `).get(this.workspaceId);
+    return { count: Number(row?.count || 0), bytes: Number(row?.bytes || 0) };
   }
 
   validateCloudSnapshotImport({ state, publicState: _publicState, version = 0 }) {
@@ -229,21 +331,47 @@ export class LocalStore {
   }
 
   commitSnapshot({ state, publicState, operationId, baseVersion, force = false, source = 'admin' }) {
+    const current = this.getCurrent();
+    const normalizedPublicState = sanitizeAppStateForPublic(state);
+    let patchPayload = null;
+    if (current) {
+      try {
+        patchPayload = {
+          statePatch: buildStatePatch(current.state, state),
+          publicStatePatch: buildStatePatch(current.publicState, normalizedPublicState),
+        };
+      } catch {
+        // Unusual JSON key shapes fall back to the already supported full snapshot.
+      }
+    }
+    const patchJson = patchPayload ? json(patchPayload) : '';
+    const usePatch = !!patchPayload
+      && patchPayload.statePatch.length + patchPayload.publicStatePatch.length <= MAX_PATCH_OPERATIONS
+      && Buffer.byteLength(patchJson, 'utf8') <= MAX_PATCH_BYTES;
     return this.#commit({
       state,
-      publicState: sanitizeAppStateForPublic(state),
+      publicState: normalizedPublicState,
       operationId,
       baseVersion,
       force,
       source,
-      kind: 'workspace-snapshot',
-      operationPayload: { state, publicState },
+      kind: usePatch ? 'state-patch' : 'workspace-snapshot',
+      operationPayload: usePatch ? patchPayload : { state, publicState: normalizedPublicState },
+      idempotencyKind: 'workspace-snapshot',
+      idempotencyPayload: { state, publicState: normalizedPublicState },
     });
   }
 
   commitMatchPatch({ tournamentId, matchId, matches, operationId, source = 'referee' }) {
     const existing = this.getSnapshotByOperationId(operationId);
-    if (existing) return { ...existing, idempotent: true };
+    const operationPayload = { tournamentId, matchId, matches };
+    if (existing) {
+      const requestedChecksum = operationChecksum('match-result', operationPayload);
+      if (existing.operationChecksum && existing.operationChecksum !== requestedChecksum) {
+        throw Object.assign(new Error('operationId già usato con un referto diverso.'), { statusCode: 409, code: 'FLBP_OPERATION_COLLISION' });
+      }
+      return { ...existing, idempotent: true };
+    }
     const current = this.getCurrent();
     if (!current) throw new Error('Snapshot locale non inizializzato');
     const patched = applyMatchResultPatch({
@@ -260,15 +388,21 @@ export class LocalStore {
       baseVersion: current.version,
       source,
       kind: 'match-result',
-      operationPayload: { tournamentId, matchId, matches },
+      operationPayload,
     });
   }
 
-  #commit({ state, publicState, operationId, baseVersion, source, kind, operationPayload, force = false, requestedVersion = null, cloudUpdatedAt = null, enqueue = true }) {
+  #commit({ state, publicState, operationId, baseVersion, source, kind, operationPayload, idempotencyKind = kind, idempotencyPayload = operationPayload, force = false, requestedVersion = null, cloudUpdatedAt = null, enqueue = true }) {
     if (!operationId || !String(operationId).trim()) throw new Error('operationId obbligatorio');
     const safeOperationId = String(operationId).trim();
     const existing = this.getSnapshotByOperationId(safeOperationId);
-    if (existing) return { ...existing, idempotent: true };
+    const requestedOperationChecksum = operationChecksum(idempotencyKind, idempotencyPayload);
+    if (existing) {
+      if (existing.operationChecksum && existing.operationChecksum !== requestedOperationChecksum) {
+        throw Object.assign(new Error('operationId già usato con un payload diverso.'), { statusCode: 409, code: 'FLBP_OPERATION_COLLISION' });
+      }
+      return { ...existing, idempotent: true };
+    }
 
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -290,9 +424,9 @@ export class LocalStore {
       const primaryEpoch = Number.parseInt(primaryEpochRaw, 10) || 0;
 
       this.db.prepare(`
-        INSERT INTO snapshots(workspace_id, version, operation_id, source, state_json, public_state_json, checksum, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(this.workspaceId, nextVersion, safeOperationId, source, stateJson, publicStateJson, digest, createdAt);
+        INSERT INTO snapshots(workspace_id, version, operation_id, source, state_json, public_state_json, checksum, operation_checksum, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(this.workspaceId, nextVersion, safeOperationId, source, stateJson, publicStateJson, digest, requestedOperationChecksum, createdAt);
 
       this.db.prepare(`
         INSERT INTO current_workspace(workspace_id, version, operation_id, state_json, public_state_json, checksum, updated_at, cloud_updated_at, primary_epoch)
@@ -340,6 +474,19 @@ export class LocalStore {
     }));
   }
 
+  listPendingOutboxBatch({ maxOperations = 25, maxBytes = 512 * 1024 } = {}) {
+    const candidates = this.listPendingOutbox(Math.max(1, Math.min(Number(maxOperations) || 25, 100)));
+    const selected = [];
+    let bytes = 0;
+    for (const row of candidates) {
+      const rowBytes = Buffer.byteLength(json(row.payload), 'utf8');
+      if (selected.length && bytes + rowBytes > Math.max(1, Number(maxBytes) || 512 * 1024)) break;
+      selected.push(row);
+      bytes += rowBytes;
+    }
+    return selected;
+  }
+
   markOutboxSynced(ids) {
     const statement = this.db.prepare('UPDATE outbox SET synced_at = ?, last_error = NULL WHERE id = ?');
     const syncedAt = nowIso();
@@ -373,6 +520,30 @@ export class LocalStore {
     this.setMeta('last_backup_at', syncedAt);
   }
 
+  pruneHistory({ retentionDays = 90, minVersions = 2_000 } = {}) {
+    const days = Math.max(7, Math.min(Number(retentionDays) || 90, 3650));
+    const minimum = Math.max(100, Math.min(Number(minVersions) || 2_000, 100_000));
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const maxRow = this.db.prepare('SELECT max(version) AS version FROM snapshots WHERE workspace_id = ?').get(this.workspaceId);
+    const keepFromVersion = Math.max(0, Number(maxRow?.version || 0) - minimum + 1);
+    const result = this.db.prepare(`
+      DELETE FROM snapshots
+      WHERE workspace_id = ?
+        AND created_at < ?
+        AND version < ?
+        AND version <> coalesce((SELECT version FROM current_workspace WHERE workspace_id = ?), -1)
+        AND version NOT IN (
+          SELECT version FROM outbox WHERE workspace_id = ? AND synced_at IS NULL
+        )
+    `).run(this.workspaceId, cutoff, keepFromVersion, this.workspaceId, this.workspaceId);
+    this.db.prepare(`
+      DELETE FROM outbox
+      WHERE workspace_id = ? AND synced_at IS NOT NULL AND synced_at < ? AND version < ?
+    `).run(this.workspaceId, cutoff, keepFromVersion);
+    this.setMeta('last_history_prune_at', nowIso());
+    return { prunedSnapshots: Number(result.changes || 0), cutoff, keepFromVersion };
+  }
+
   status() {
     const current = this.getCurrent();
     return {
@@ -386,8 +557,12 @@ export class LocalStore {
       primaryEpoch: Number.parseInt(this.getMeta('primary_epoch', '0'), 10) || null,
       transition: this.getTransitionState(),
       lastBackupAt: this.getMeta('last_backup_at'),
+      lastPublicLiveAt: this.getMeta('last_public_live_at'),
+      lastPublicLiveVersion: Number(this.getMeta('last_public_live_version', '0')) || null,
       lastSecondaryBackupAt: this.getMeta('last_secondary_backup_at'),
       lastSecondaryBackupVersion: Number(this.getMeta('last_secondary_backup_version', '0')) || null,
+      adminWriterLease: this.getAdminWriterLease(),
+      lastHistoryPruneAt: this.getMeta('last_history_prune_at'),
       databaseFile: this.filename,
     };
   }

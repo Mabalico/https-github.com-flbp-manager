@@ -57,6 +57,10 @@ if (config.secondaryBackupDir) {
   } catch (error) {
     add('Replica SQLite secondaria', false, error?.message || error);
   }
+} else {
+  add('Replica SQLite secondaria', !config.requireSecondaryBackup, config.requireSecondaryBackup
+    ? 'Supporto USB/SSD obbligatorio non configurato.'
+    : 'Non configurata (consentito soltanto in sviluppo).');
 }
 
 if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
@@ -81,9 +85,81 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
       body: JSON.stringify({ p_workspace_id: config.workspaceId }),
     });
     const body = response.ok ? await response.json() : null;
-    add('RPC coordinatore', response.ok && ['cloud', 'local', 'recovery'].includes(body?.mode), response.ok ? `mode=${body?.mode}, epoch=${body?.epoch ?? 0}` : await safeResponseBody(response));
+    const authority = body?.mode === 'local' ? 'SQLite locale' : body?.mode === 'cloud' ? 'Supabase' : 'nessuna (recovery)';
+    const publicReads = body?.public_read_mode === 'local' ? 'nodo locale' : 'mirror Supabase';
+    add('RPC coordinatore', response.ok && ['cloud', 'local', 'recovery'].includes(body?.mode), response.ok
+      ? `autorità=${authority}, letture pubbliche=${publicReads}, epoch=${body?.epoch ?? 0}, lease=${body?.lease_expires_at || '—'}`
+      : await safeResponseBody(response));
   } catch (error) {
     add('RPC coordinatore', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_reconcile_data_plane`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      body: JSON.stringify({
+        p_workspace_id: config.workspaceId,
+        p_node_id: '',
+        p_epoch: 0,
+        p_local_version: 0,
+        p_local_operation_id: null,
+        p_ttl_seconds: 60,
+      }),
+    });
+    const detail = await safeResponseBody(response);
+    const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
+    const callable = !missing && detail.includes('node_id mancante');
+    add('RPC riconciliazione', callable, callable ? 'Funzione service-only presente; prova terminata prima di qualsiasi modifica.' : detail);
+  } catch (error) {
+    add('RPC riconciliazione', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_prune_workspace_history`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      body: JSON.stringify({
+        p_workspace_id: config.workspaceId,
+        p_node_id: 'preflight-non-writing-probe',
+        p_epoch: 0,
+        p_retention_days: 90,
+        p_min_versions: 2000,
+      }),
+    });
+    const detail = await safeResponseBody(response);
+    const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
+    const callable = !missing && (detail.includes('FLBP_EPOCH_FENCED') || detail.includes('retention rifiutata'));
+    add('RPC retention cloud', callable, callable ? 'Funzione service-only presente; epoch invalido, nessuna cancellazione eseguita.' : detail);
+  } catch (error) {
+    add('RPC retention cloud', false, error?.message || error);
+  }
+
+  try {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_activate_data_plane_v3`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+      body: JSON.stringify({
+        p_workspace_id: config.workspaceId,
+        p_node_id: '',
+        p_base_url: null,
+        p_public_read_mode: 'cloud',
+        p_expected_cloud_version: 0,
+        p_expected_cloud_operation_id: null,
+        p_expected_cloud_state: {},
+        p_expected_public_state: {},
+        p_expected_plane_epoch: 0,
+        p_expected_recovered_version: 0,
+        p_local_baseline_operation_id: 'preflight-baseline',
+        p_ttl_seconds: 60,
+      }),
+    });
+    const detail = await safeResponseBody(response);
+    const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
+    const callable = !missing && detail.includes('node_id mancante');
+    add('RPC attivazione locale v3', callable, callable ? 'Modalità senza tunnel e baseline legacy disponibili.' : detail);
+  } catch (error) {
+    add('RPC attivazione locale v3', false, error?.message || error);
   }
 
   try {
@@ -142,14 +218,14 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
 }
 
 if (!config.publicUrl) {
-  add('Named Tunnel HTTPS', false, 'FLBP_LOCAL_PUBLIC_URL assente.');
+  add('Instradamento pubblico', true, 'Mirror Supabase: tunnel non richiesto per Admin e TV sulla LAN.');
 } else {
   try {
     const response = await timedFetch(`${config.publicUrl}/health`, { headers: { Accept: 'application/json' } });
     const body = response.ok ? await response.json() : null;
-    add('Named Tunnel HTTPS', response.ok && body?.ok === true, response.ok ? `Nodo ${body?.nodeId || 'raggiungibile'}; active=${!!body?.active}` : await safeResponseBody(response));
+    add('Instradamento pubblico', response.ok && body?.ok === true, response.ok ? `Tunnel opzionale raggiungibile; nodo ${body?.nodeId || 'raggiungibile'}; active=${!!body?.active}` : await safeResponseBody(response));
   } catch (error) {
-    add('Named Tunnel HTTPS', false, error?.message || error);
+    add('Instradamento pubblico', false, error?.message || error);
   }
 }
 

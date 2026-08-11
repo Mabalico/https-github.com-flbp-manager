@@ -6,6 +6,13 @@
 
 import { getSupabaseAccessToken, getSupabaseConfig } from './supabaseRest';
 import { readAdminLeaseInfo, setAdminLeaseInfo } from './adminWriteLeaseState';
+import {
+  acquireLocalAdminWriteLease,
+  heartbeatLocalAdminWriteLease,
+  releaseLocalAdminWriteLease,
+  resolveDataPlane,
+  type DataPlaneRoute,
+} from './dataPlaneClient';
 
 const HEARTBEAT_MS = 25_000;
 const TTL_SECONDS = 90;
@@ -17,6 +24,8 @@ let holderId: string | null = null;
 let sessionUuid: string | null = null;
 let holderLabel = 'Finestra Admin';
 let pagehideInstalled = false;
+let activeBackend: 'cloud' | 'local' | null = null;
+let activeLocalRoute: DataPlaneRoute | null = null;
 
 const makeUuid = (): string => {
   try {
@@ -104,14 +113,41 @@ const acquireOnce = async (takeover: boolean): Promise<{ acquired: boolean; out:
   return { acquired: !!out?.acquired, out };
 };
 
+const acquireForCurrentPlane = async (takeover: boolean): Promise<{ acquired: boolean; out: any }> => {
+  const route = await resolveDataPlane({ force: true });
+  if (route.mode === 'recovery') {
+    throw new Error('Data plane in recovery: impossibile acquisire il controllo Admin.');
+  }
+  if (route.mode === 'local') {
+    if (!holderId) throw new Error('Identità finestra Admin mancante.');
+    const canHeartbeat = !takeover
+      && activeBackend === 'local'
+      && activeLocalRoute?.baseUrl === route.baseUrl
+      && readAdminLeaseInfo().status === 'active';
+    const out = canHeartbeat
+      ? await heartbeatLocalAdminWriteLease(route, holderId)
+      : await acquireLocalAdminWriteLease(route, {
+        holderId,
+        holderLabel,
+        takeover,
+      });
+    activeBackend = 'local';
+    activeLocalRoute = route;
+    return { acquired: !!out?.acquired, out };
+  }
+  activeBackend = 'cloud';
+  activeLocalRoute = null;
+  return acquireOnce(takeover);
+};
+
 const tick = async (takeover = false): Promise<void> => {
   if (!inited || !holderId) return;
   try {
-    let { acquired, out } = await acquireOnce(takeover);
+    let { acquired, out } = await acquireForCurrentPlane(takeover);
     // Il detentore e' una vita precedente di QUESTA scheda (reload: stesso
     // sessionStorage, nonce diverso): riprendi il testimone senza chiedere.
     if (!acquired && sessionUuid && String(out?.holder_id || '').startsWith(`${sessionUuid}:`)) {
-      ({ acquired, out } = await acquireOnce(true));
+      ({ acquired, out } = await acquireForCurrentPlane(true));
     }
     if (acquired) {
       setAdminLeaseInfo({ status: 'active', holderId, otherLabel: null, otherSince: null, lastError: null });
@@ -133,8 +169,8 @@ const tick = async (takeover = false): Promise<void> => {
       setAdminLeaseInfo({ status: 'off', holderId: null, otherLabel: null, otherSince: null, lastError: null });
       return;
     }
-    // Errore transitorio (rete/auth): non bloccare il client, il server
-    // resta l'arbitro. Riprova al prossimo heartbeat.
+    // Errore transitorio (rete/auth): blocco fail-closed finché un server non
+    // conferma nuovamente il testimone di questa finestra.
     setAdminLeaseInfo({ lastError: message, status: readAdminLeaseInfo().status === 'passive' ? 'passive' : 'error' });
   }
 };
@@ -199,11 +235,20 @@ export const releaseAdminWriteLease = async (opts?: { keepalive?: boolean }): Pr
   const wasActive = readAdminLeaseInfo().status === 'active';
   const cfg = getSupabaseConfig();
   const releasingHolder = holderId;
+  const releasingBackend = activeBackend;
+  const releasingLocalRoute = activeLocalRoute;
   stopTimer();
   inited = false;
+  activeBackend = null;
+  activeLocalRoute = null;
   setAdminLeaseInfo({ status: 'off', holderId: null, otherLabel: null, otherSince: null, lastError: null });
-  if (!wasActive || !releasingHolder || !cfg) return;
+  if (!wasActive || !releasingHolder) return;
   try {
+    if (releasingBackend === 'local' && releasingLocalRoute) {
+      await releaseLocalAdminWriteLease(releasingLocalRoute, releasingHolder);
+      return;
+    }
+    if (!cfg) return;
     await leaseRpc(
       'flbp_admin_release_write_lease',
       { p_workspace_id: cfg.workspaceId, p_holder_id: releasingHolder },

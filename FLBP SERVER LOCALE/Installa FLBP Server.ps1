@@ -4,7 +4,7 @@ $serverRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $serverRoot
 $onlineRoot = Join-Path $workspaceRoot 'FLBP ONLINE'
 $distIndex = Join-Path $onlineRoot 'dist\index.html'
-$launcher = Join-Path $serverRoot 'Avvia FLBP Server.cmd'
+$windowsAppBuilder = Join-Path $serverRoot 'windows-app\Build-WindowsApp.ps1'
 
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCommand) {
@@ -32,16 +32,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $serverRoot '.env'))) {
     throw 'Configurazione annullata: .env non creato.'
 }
 
-$desktop = [Environment]::GetFolderPath('Desktop')
-$shortcutPath = Join-Path $desktop 'FLBP Server Locale.lnk'
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $launcher
-$shortcut.WorkingDirectory = $serverRoot
-$shortcut.Description = 'FLBP Server Locale - database torneo SQLite'
-$shortcut.Save()
+$requiredBackup = Get-Content -LiteralPath (Join-Path $serverRoot '.env') | Where-Object { $_ -match '^FLBP_REQUIRE_SECONDARY_BACKUP=1$' }
+if (-not $requiredBackup) {
+    throw 'La configurazione non impone ancora il backup esterno. Rieseguire "Configura FLBP Server.cmd" con il supporto USB/SSD collegato.'
+}
+
+if (-not (Test-Path -LiteralPath $windowsAppBuilder)) {
+    throw 'Programma di compilazione dell app Windows non trovato.'
+}
+& $windowsAppBuilder -InstallShortcut
+if ($LASTEXITCODE -ne 0) {
+    throw 'Compilazione dell app Windows non riuscita.'
+}
 
 Write-Host ''
 Write-Host 'Installazione locale completata.' -ForegroundColor Green
-Write-Host "Collegamento creato: $shortcutPath"
+Write-Host 'Collegamento creato sul Desktop: FLBP Manager Locale.'
 Write-Host 'Per il riavvio automatico opzionale usare "Installa avvio automatico.cmd".'

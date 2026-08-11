@@ -23,6 +23,8 @@ const app = createLocalServer({
   host: '127.0.0.1',
   port: 8799,
   dataDir,
+  secondaryBackupDir: '',
+  requireSecondaryBackup: false,
   workspaceId: 'default',
   adminToken: 'browser-qa-token-longer-than-thirty-two-characters',
   allowedOrigins: ['http://127.0.0.1:8799'],

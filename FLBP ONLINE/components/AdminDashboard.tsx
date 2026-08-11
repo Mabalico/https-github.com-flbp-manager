@@ -4653,22 +4653,24 @@ while (guard < 5000) {
 
             {tab === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} />}
             </React.Suspense>
-{adminLeaseInfo.status === 'passive' && (
+{adminLeaseInfo.status !== 'off' && adminLeaseInfo.status !== 'active' && (
     <div className="fixed inset-0 z-[300] flex items-start justify-center bg-slate-900/40 p-4">
         <div className="mt-20 w-full max-w-lg rounded-2xl border-2 border-amber-300 bg-white shadow-2xl p-5 space-y-3">
             <div className="flex items-center gap-2 text-amber-700 font-black text-sm uppercase tracking-wide">
                 <Lock className="w-4 h-4" /> Sola lettura
             </div>
             <p className="text-sm text-slate-700 font-semibold">
-                Un'altra sessione Admin sta scrivendo in questo momento
-                {adminLeaseInfo.otherLabel ? <> (<span className="font-black">{adminLeaseInfo.otherLabel}</span>)</> : null}.
-                Questa finestra è bloccata per evitare conflitti e sovrascritture.
+                {adminLeaseInfo.status === 'passive' ? <>Un'altra sessione Admin sta scrivendo in questo momento
+                {adminLeaseInfo.otherLabel ? <> (<span className="font-black">{adminLeaseInfo.otherLabel}</span>)</> : null}.</> :
+                adminLeaseInfo.status === 'acquiring' ? <>Verifica dell'autorità di scrittura in corso.</> :
+                <>Impossibile verificare in sicurezza l'autorità di scrittura{adminLeaseInfo.lastError ? <>: {adminLeaseInfo.lastError}</> : null}.</>}
+                {' '}Questa finestra è bloccata per evitare conflitti e sovrascritture.
             </p>
             {adminLeaseInfo.otherSince && (
                 <p className="text-xs text-slate-500">Sessione attiva da: {new Date(adminLeaseInfo.otherSince).toLocaleString()}</p>
             )}
             <div className="flex flex-wrap gap-2 pt-1">
-                <button
+                {adminLeaseInfo.status === 'passive' && <button
                     type="button"
                     onClick={async () => {
                         try { await takeoverAdminWriteLease(); } catch { /* ricarico comunque */ }
@@ -4677,7 +4679,7 @@ while (guard < 5000) {
                     className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-black hover:bg-slate-800 transition-colors"
                 >
                     Prendi il controllo qui
-                </button>
+                </button>}
                 <button
                     type="button"
                     onClick={() => window.location.reload()}

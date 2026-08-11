@@ -13,6 +13,7 @@ import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDia
 import { isAutoStructuredSyncEnabled, isLocalOnlyMode } from './services/repository/featureFlags';
 import { hasRemoteDraftCache } from './services/repository/remoteDraftCache';
 import { readVitePublicDbRead } from './services/viteEnv';
+import { resolveDataPlane } from './services/dataPlaneClient';
 import {
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
@@ -1057,7 +1058,6 @@ const App: React.FC = () => {
         document.addEventListener('visibilitychange', onVisiblePollLive);
         window.addEventListener('focus', onVisiblePollLive);
 
-        const intervalMs = tvMode != null ? 90000 : (view === 'tournament_detail' ? 15000 : 60000);
         const isTvMode = tvMode != null;
         const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
         let lastActivityAt = Date.now();
@@ -1071,10 +1071,23 @@ const App: React.FC = () => {
         if (!isTvMode) {
             activityEvents.forEach((ev) => window.addEventListener(ev, onUserActivity, { passive: true }));
         }
-        const id = window.setInterval(() => {
-            if (isCurrentlyIdle()) return;
-            void pullLiveSnapshot();
-        }, intervalMs);
+        let pollTimer: number | null = null;
+        const scheduleNextPoll = async () => {
+            const route = await resolveDataPlane();
+            if (cancelled) return;
+            // TV e viste pubbliche aperte dal server del PC seguono SQLite quasi
+            // in tempo reale. Il sito Internet legge invece il mirror Supabase
+            // con un jitter che distribuisce le richieste dei visitatori.
+            const delayMs = route.mode === 'local'
+                ? 1000
+                : 120_000 + Math.floor(Math.random() * 20_000);
+            pollTimer = window.setTimeout(runPollLoop, delayMs);
+        };
+        const runPollLoop = async () => {
+            if (!isCurrentlyIdle()) await pullLiveSnapshot();
+            if (!cancelled) void scheduleNextPoll();
+        };
+        void scheduleNextPoll();
         return () => {
             cancelled = true;
             document.removeEventListener('visibilitychange', onVisiblePollLive);
@@ -1082,7 +1095,7 @@ const App: React.FC = () => {
             if (!isTvMode) {
                 activityEvents.forEach((ev) => window.removeEventListener(ev, onUserActivity));
             }
-            window.clearInterval(id);
+            if (pollTimer !== null) window.clearTimeout(pollTimer);
         };
     }, [repo.source, tvMode, view, selectedTournament?.isLive]);
 

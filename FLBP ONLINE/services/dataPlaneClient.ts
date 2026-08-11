@@ -4,6 +4,8 @@ export type DataPlaneMode = 'cloud' | 'local' | 'recovery';
 
 export type DataPlaneRoute = {
   mode: DataPlaneMode;
+  authority?: 'cloud' | 'local' | null;
+  publicReadMode?: 'cloud' | 'local' | null;
   baseUrl?: string | null;
   epoch?: number | null;
   leaseExpiresAt?: string | null;
@@ -11,7 +13,7 @@ export type DataPlaneRoute = {
   resolvedAt: number;
 };
 
-type LocalWorkspaceRow = {
+export type LocalWorkspaceRow = {
   workspace_id: string;
   state: any;
   updated_at?: string | null;
@@ -24,7 +26,6 @@ const LAST_ROUTE_LS_KEY = 'flbp_last_data_plane_route_v1';
 export const DATA_PLANE_CHANGE_LS_KEY = 'flbp_data_plane_change_v1';
 export const DATA_PLANE_CHANGE_EVENT = 'flbp-data-plane-change';
 const LOCAL_ADMIN_TOKEN_SS_KEY = 'flbp_local_control_token';
-const LOCAL_BASE_VERSION_LS_KEY = 'flbp_local_base_version_v1';
 
 let cachedRoute: DataPlaneRoute | null = null;
 let resolveInFlight: Promise<DataPlaneRoute> | null = null;
@@ -58,6 +59,8 @@ const timeoutFetch = async (input: RequestInfo | URL, init?: RequestInit, timeou
 
 const normalizeRoute = (raw: any): DataPlaneRoute => ({
   mode: raw?.mode === 'local' ? 'local' : raw?.mode === 'recovery' ? 'recovery' : 'cloud',
+  authority: raw?.authority === 'local' ? 'local' : raw?.authority === 'cloud' ? 'cloud' : null,
+  publicReadMode: raw?.public_read_mode === 'local' ? 'local' : raw?.public_read_mode === 'cloud' ? 'cloud' : null,
   baseUrl: typeof raw?.base_url === 'string' ? raw.base_url.replace(/\/$/, '') : (typeof raw?.baseUrl === 'string' ? raw.baseUrl.replace(/\/$/, '') : null),
   epoch: Number.isFinite(Number(raw?.epoch)) ? Number(raw.epoch) : null,
   leaseExpiresAt: raw?.lease_expires_at || raw?.leaseExpiresAt || null,
@@ -187,7 +190,8 @@ export const ensureLocalAdminToken = async (
   try {
     const response = await timeoutFetch(`${route.baseUrl}/control/local-session`, {
       method: 'POST',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: '{}',
     }, 2500);
     if (!response.ok) return getLocalAdminToken();
     const out = await response.json();
@@ -196,30 +200,6 @@ export const ensureLocalAdminToken = async (
     return token;
   } catch {
     return getLocalAdminToken();
-  }
-};
-
-export const getLocalBaseVersion = (): number | null => {
-  try {
-    const parsed = Number.parseInt(localStorage.getItem(LOCAL_BASE_VERSION_LS_KEY) || '', 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-export const setLocalBaseVersion = (version?: number | null): void => {
-  try {
-    if (version == null || !Number.isFinite(Number(version))) localStorage.removeItem(LOCAL_BASE_VERSION_LS_KEY);
-    else {
-      const next = Number(version);
-      const current = getLocalBaseVersion();
-      // An idempotent retry can refer to an older, already committed
-      // operation. It must never move the Admin concurrency cursor backwards.
-      if (current == null || next >= current) localStorage.setItem(LOCAL_BASE_VERSION_LS_KEY, String(next));
-    }
-  } catch {
-    // ignore
   }
 };
 
@@ -260,23 +240,64 @@ export const pullLocalWorkspace = async (route: DataPlaneRoute, admin: boolean):
   const row = await response.json() as LocalWorkspaceRow;
   cache.etag = response.headers.get('etag');
   cache.row = row;
-  if (row.version != null) setLocalBaseVersion(row.version);
   return row;
 };
+
+const localAdminJson = async (
+  route: DataPlaneRoute,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<any> => {
+  let token = await ensureLocalAdminToken(route);
+  if (!token) throw new Error('Token Admin del server locale assente.');
+  const request = () => timeoutFetch(localUrl(route, path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-flbp-local-token': token },
+    body: JSON.stringify(body),
+  }, 5000);
+  let response = await request();
+  if (response.status === 401) {
+    setLocalAdminToken('');
+    token = await ensureLocalAdminToken(route, { force: true });
+    if (token) response = await request();
+  }
+  if (!response.ok) return localError(response);
+  return response.json();
+};
+
+export const acquireLocalAdminWriteLease = async (
+  route: DataPlaneRoute,
+  input: { holderId: string; holderLabel: string; takeover?: boolean },
+): Promise<any> => localAdminJson(route, '/api/v1/admin/write-lease/acquire', input);
+
+export const heartbeatLocalAdminWriteLease = async (
+  route: DataPlaneRoute,
+  holderId: string,
+): Promise<any> => localAdminJson(route, '/api/v1/admin/write-lease/heartbeat', { holderId });
+
+export const releaseLocalAdminWriteLease = async (
+  route: DataPlaneRoute,
+  holderId: string,
+): Promise<any> => localAdminJson(route, '/api/v1/admin/write-lease/release', { holderId });
 
 export const commitLocalWorkspace = async (route: DataPlaneRoute, input: {
   state: any;
   publicState: any;
   operationId: string;
-  baseVersion?: number | null;
-  force?: boolean;
+  baseVersion: number;
+  writerId: string;
 }): Promise<LocalWorkspaceRow & { ok: boolean }> => {
   let token = await ensureLocalAdminToken(route);
   if (!token) throw new Error('Token Admin del server locale assente.');
   const request = () => timeoutFetch(localUrl(route, `/api/v1/admin/workspace/${encodeURIComponent(workspaceId())}/commit`), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-flbp-local-token': token },
-    body: JSON.stringify({ ...input, baseVersion: input.baseVersion ?? getLocalBaseVersion() }),
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'x-flbp-local-token': token,
+      'x-flbp-writer-id': input.writerId,
+    },
+    body: JSON.stringify(input),
   }, 12_000);
   let response = await request();
   if (response.status === 401) {
@@ -286,7 +307,6 @@ export const commitLocalWorkspace = async (route: DataPlaneRoute, input: {
   }
   if (!response.ok) return localError(response);
   const out = await response.json();
-  if (out.version != null) setLocalBaseVersion(out.version);
   return { ...out, workspace_id: workspaceId(), state: input.state };
 };
 
@@ -305,6 +325,7 @@ export const commitLocalMatchResult = async (route: DataPlaneRoute, input: {
   matches: any[];
   operationId?: string;
   admin?: boolean;
+  writerId?: string | null;
 }): Promise<any> => {
   const primary = input.matches.find((match) => String(match?.id || '') === String(input.matchId || ''));
   const stableId = input.operationId || primary?.refereeReportFinalId || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -312,7 +333,11 @@ export const commitLocalMatchResult = async (route: DataPlaneRoute, input: {
   const endpoint = input.admin ? 'admin-match-result' : 'match-result';
   const request = () => timeoutFetch(localUrl(route, `/api/v1/referee/workspace/${encodeURIComponent(workspaceId())}/${endpoint}`), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { 'x-flbp-local-token': token } : {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'x-flbp-local-token': token } : {}),
+      ...(input.admin && input.writerId ? { 'x-flbp-writer-id': input.writerId } : {}),
+    },
     body: JSON.stringify({ ...input, operationId: stableId }),
   }, 12_000);
   let response = await request();
@@ -322,9 +347,7 @@ export const commitLocalMatchResult = async (route: DataPlaneRoute, input: {
     if (token) response = await request();
   }
   if (!response.ok) return localError(response);
-  const out = await response.json();
-  if (out.version != null) setLocalBaseVersion(out.version);
-  return out;
+  return response.json();
 };
 
 export const makeDataOperationId = (): string => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;

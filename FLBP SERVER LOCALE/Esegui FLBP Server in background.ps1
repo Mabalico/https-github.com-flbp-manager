@@ -9,6 +9,8 @@ if (-not (Test-Path -LiteralPath $logsDir)) {
 }
 
 $logPath = Join-Path $logsDir 'server.log'
-& node --disable-warning=ExperimentalWarning 'src/server.mjs' *>> $logPath
+$nodeCommand = Get-Command node -ErrorAction Stop
+$nodePath = $nodeCommand.Source
+& $nodePath --use-system-ca --disable-warning=ExperimentalWarning 'src/server.mjs' *>> $logPath
 $nodeExitCode = $LASTEXITCODE
 if ($nodeExitCode -ne 0) { exit $nodeExitCode }

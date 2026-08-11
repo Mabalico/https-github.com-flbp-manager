@@ -7,12 +7,26 @@ import { createLocalServer } from '../src/server.mjs';
 
 const TOKEN = 'test-token-that-is-longer-than-thirty-two-characters';
 
+const acquireWriter = async (base, token = TOKEN, holderId = `writer-${crypto.randomUUID()}`, takeover = false) => {
+  const response = await fetch(`${base}/api/v1/admin/write-lease/acquire`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-flbp-local-token': token },
+    body: JSON.stringify({ holderId, holderLabel: 'Test Admin', takeover }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.acquired, true);
+  return holderId;
+};
+
 const startServer = async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-http-'));
   const app = createLocalServer({
     host: '127.0.0.1',
     port: 0,
     dataDir,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
     workspaceId: 'default',
     adminToken: TOKEN,
     allowedOrigins: ['http://test.local'],
@@ -75,7 +89,11 @@ test('public discovery does not expose the Windows database path', async () => {
 test('the server PC receives a temporary local admin session without exposing the master token', async () => {
   const ctx = await startServer();
   try {
-    const issued = await fetch(`${ctx.base}/control/local-session`, { method: 'POST' });
+    const issued = await fetch(`${ctx.base}/control/local-session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
     assert.equal(issued.status, 200);
     const session = await issued.json();
     assert.match(session.token, /^local-/);
@@ -88,9 +106,72 @@ test('the server PC receives a temporary local admin session without exposing th
 
     const tunnelSpoof = await fetch(`${ctx.base}/control/local-session`, {
       method: 'POST',
-      headers: { 'x-forwarded-for': '203.0.113.10' },
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
+      body: '{}',
     });
     assert.equal(tunnelSpoof.status, 403);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('POST endpoints require JSON and local sessions are rate limited per origin', async () => {
+  const ctx = await startServer();
+  try {
+    const missingType = await fetch(`${ctx.base}/control/local-session`, { method: 'POST' });
+    assert.equal(missingType.status, 415);
+    assert.equal((await missingType.json()).code, 'FLBP_JSON_REQUIRED');
+
+    let limited = null;
+    for (let index = 0; index < 11; index += 1) {
+      limited = await fetch(`${ctx.base}/control/local-session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Origin: 'http://test.local' },
+        body: '{}',
+      });
+    }
+    assert.equal(limited.status, 429);
+    assert.ok(Number(limited.headers.get('retry-after')) >= 1);
+    assert.equal((await limited.json()).code, 'FLBP_RATE_LIMITED');
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('only one Admin writer lease can commit and takeover is explicit', async () => {
+  const ctx = await startServer();
+  try {
+    const firstWriter = await acquireWriter(ctx.base, TOKEN, 'writer-first');
+    const secondAttempt = await fetch(`${ctx.base}/api/v1/admin/write-lease/acquire`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN },
+      body: JSON.stringify({ holderId: 'writer-second', holderLabel: 'Seconda finestra', takeover: false }),
+    });
+    assert.equal(secondAttempt.status, 200);
+    assert.equal((await secondAttempt.json()).acquired, false);
+
+    const state = { tournament: { id: 't1', matches: [{ id: 'm1' }] }, tournamentMatches: [{ id: 'm1' }], marker: 'lease-test' };
+    const blocked = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': 'writer-second' },
+      body: JSON.stringify({ operationId: 'writer-second-blocked', baseVersion: 1, state, publicState: state }),
+    });
+    assert.equal(blocked.status, 423);
+
+    await acquireWriter(ctx.base, TOKEN, 'writer-second', true);
+    const oldWriterBlocked = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': firstWriter },
+      body: JSON.stringify({ operationId: 'writer-first-revoked', baseVersion: 1, state, publicState: state }),
+    });
+    assert.equal(oldWriterBlocked.status, 423);
+
+    const accepted = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': 'writer-second' },
+      body: JSON.stringify({ operationId: 'writer-second-accepted', baseVersion: 1, state, publicState: state }),
+    });
+    assert.equal(accepted.status, 200);
   } finally {
     await cleanup(ctx);
   }
@@ -124,9 +205,10 @@ test('control panel uses a CSP-compatible external script', async () => {
     const scriptResponse = await fetch(`${ctx.base}/control.js`);
     assert.equal(scriptResponse.status, 200);
     assert.match(scriptResponse.headers.get('content-type') || '', /javascript/);
-      const script = await scriptResponse.text();
-      assert.match(script, /fetch\('\/health'\)/);
-      assert.doesNotThrow(() => new Function(script));
+    const script = await scriptResponse.text();
+    assert.match(script, /fetch\('\/health'\)/);
+    assert.doesNotThrow(() => new Function(script));
+    assert.doesNotMatch(script, /\?\.|\?\?/);
   } finally {
     await cleanup(ctx);
   }
@@ -135,7 +217,8 @@ test('control panel uses a CSP-compatible external script', async () => {
 test('HTTP commit rejects stale baseVersion and accepts idempotent retry', async () => {
   const ctx = await startServer();
   try {
-    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN };
+    const writerId = await acquireWriter(ctx.base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
     const state = { tournament: { id: 't1', name: 'Aggiornato', matches: [{ id: 'm1' }] }, tournamentMatches: [{ id: 'm1' }] };
     const body = JSON.stringify({ operationId: 'http-op-1', baseVersion: 1, state, publicState: state });
     const first = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, { method: 'POST', headers, body });
@@ -155,7 +238,8 @@ test('HTTP commit rejects stale baseVersion and accepts idempotent retry', async
 test('write endpoints reject missing or oversized operation IDs before touching SQLite', async () => {
   const ctx = await startServer();
   try {
-    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN };
+    const writerId = await acquireWriter(ctx.base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
     const state = { tournament: { id: 't1', matches: [{ id: 'm1' }] }, tournamentMatches: [{ id: 'm1' }] };
     const beforeVersion = ctx.app.store.getCurrent().version;
     for (const invalidOperationId of ['', 'x'.repeat(201), 'id non valido']) {
@@ -184,6 +268,35 @@ test('referee match endpoint is authenticated and idempotent', async () => {
     assert.equal((await repeated.json()).idempotent, true);
     const privateRow = ctx.app.store.getCurrent();
     assert.equal(privateRow.state.tournamentMatches[0].scoreA, 7);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('a stale Admin snapshot cannot regress a newer referee report', async () => {
+  const ctx = await startServer();
+  try {
+    const writerId = await acquireWriter(ctx.base, TOKEN, 'writer-referee-race');
+    const staleState = structuredClone(ctx.app.store.getCurrent().state);
+    const reportedMatch = { id: 'm1', scoreA: 10, scoreB: 8, played: true, status: 'finished', refereeReportSavedAt: '2026-08-11T12:00:00.000Z' };
+    const referee = await fetch(`${ctx.base}/api/v1/referee/workspace/default/match-result`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'race-referee-v2', tournamentId: 't1', matchId: 'm1', refereePassword: 'ref-secret', matches: [reportedMatch] }),
+    });
+    assert.equal(referee.status, 200);
+
+    staleState.marker = 'stale-admin';
+    const staleAdmin = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId },
+      body: JSON.stringify({ operationId: 'race-admin-stale', baseVersion: 1, state: staleState, publicState: staleState }),
+    });
+    assert.equal(staleAdmin.status, 409);
+    const current = ctx.app.store.getCurrent();
+    assert.equal(current.version, 2);
+    assert.equal(current.state.tournamentMatches[0].scoreA, 10);
+    assert.equal(current.state.tournamentMatches[0].refereeReportSavedAt, reportedMatch.refereeReportSavedAt);
   } finally {
     await cleanup(ctx);
   }
@@ -256,9 +369,10 @@ test('a restored active database remains read-only until Supabase reconfirms its
 
     let heartbeatCalls = 0;
     ctx.app.sync.isConfigured = () => true;
-    ctx.app.sync.heartbeat = async () => {
+    ctx.app.sync.reconcileTransition = async () => {
       heartbeatCalls += 1;
-      return { ok: true, accepted: true, epoch: 1 };
+      ctx.app.store.setTransitionState('idle');
+      return { ok: true, action: 'resume-local', node_id: ctx.app.sync.nodeId, epoch: 1 };
     };
     const resumed = await fetch(`${ctx.base}/control/resume-restored`, { method: 'POST', headers, body: '{}' });
     assert.equal(resumed.status, 200);
@@ -266,9 +380,10 @@ test('a restored active database remains read-only until Supabase reconfirms its
     assert.equal(heartbeatCalls, 1);
     assert.equal(ctx.app.store.getTransitionState(), 'idle');
 
+    const writerId = await acquireWriter(ctx.base);
     const accepted = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
       method: 'POST',
-      headers,
+      headers: { ...headers, 'x-flbp-writer-id': writerId },
       body: JSON.stringify({ operationId: 'restore-accepted-v2', baseVersion: 1, state }),
     });
     assert.equal(accepted.status, 200);
@@ -283,6 +398,8 @@ test('an Admin SQLite commit propagates to public readers and survives a server 
     host: '127.0.0.1',
     port: 0,
     dataDir,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
     workspaceId: 'default',
     adminToken: TOKEN,
     allowedOrigins: ['http://test.local'],
@@ -304,13 +421,18 @@ test('an Admin SQLite commit propagates to public readers and survives a server 
     first.store.setActive(true, 7);
     let address = await first.listen();
     let base = `http://127.0.0.1:${address.port}`;
-    const session = await (await fetch(`${base}/control/local-session`, { method: 'POST' })).json();
+    const session = await (await fetch(`${base}/control/local-session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })).json();
+    const writerId = await acquireWriter(base, session.token);
 
     const nextState = structuredClone(initialState);
     nextState.tournament.name = 'Gestito in Admin locale';
     const committed = await fetch(`${base}/api/v1/admin/workspace/default/commit`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-flbp-local-token': session.token },
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': session.token, 'x-flbp-writer-id': writerId },
       body: JSON.stringify({ operationId: 'admin-propagation-1', baseVersion: 1, state: nextState, publicState: nextState }),
     });
     assert.equal(committed.status, 200);
@@ -339,6 +461,8 @@ test('deactivation drains writes and keeps them blocked across a restart until t
     host: '127.0.0.1',
     port: 0,
     dataDir,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
     workspaceId: 'default',
     adminToken: TOKEN,
     allowedOrigins: ['http://test.local'],
@@ -440,6 +564,7 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
     port: 0,
     dataDir,
     secondaryBackupDir,
+    requireSecondaryBackup: false,
     secondaryBackupRetention: 4,
     workspaceId: 'default',
     adminToken: TOKEN,
@@ -467,7 +592,8 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
     };
     const address = await app.listen();
     const base = `http://127.0.0.1:${address.port}`;
-    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN };
+    const writerId = await acquireWriter(base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
     const next = { ...state, marker: 'durable-on-two-disks' };
     const body = JSON.stringify({ operationId: 'secondary-retry-v2', baseVersion: 1, state: next, publicState: next });
 
