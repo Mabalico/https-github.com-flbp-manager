@@ -283,6 +283,38 @@ const adminRpc = async (name: string, body: Record<string, unknown>): Promise<an
   try { return JSON.parse(text); } catch { return text; }
 };
 
+const deleteVerifiedSimTournamentParent = async (tournamentId: string, expectedName: string): Promise<void> => {
+  if (!expectedName.startsWith('Torneo Sim')) throw new Error('Eliminazione riga torneo bloccata: nome non sintetico.');
+  const cfg = getSupabaseConfig();
+  if (!cfg) throw new Error('Supabase non configurato');
+  const baseUrl = cfg.url.replace(/\/$/, '');
+  const headers = {
+    apikey: cfg.anonKey,
+    Authorization: `Bearer ${adminAccessToken || cfg.anonKey}`,
+  };
+  const filter = `workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&id=eq.${encodeURIComponent(tournamentId)}`;
+  const verifyResponse = await fetch(`${baseUrl}/rest/v1/tournaments?${filter}&select=id,name,status`, { headers });
+  const rows = verifyResponse.ok ? await verifyResponse.json() : [];
+  if (rows.length !== 1 || rows[0]?.id !== tournamentId || rows[0]?.name !== expectedName) {
+    throw new Error(`Eliminazione riga torneo bloccata: verifica remota fallita per ${tournamentId}.`);
+  }
+  const fantaResponse = await fetch(
+    `${baseUrl}/rest/v1/fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}` +
+      `&tournament_id=eq.${encodeURIComponent(tournamentId)}&select=id&limit=1`,
+    { headers }
+  );
+  const fantaRows = fantaResponse.ok ? await fantaResponse.json() : [true];
+  if (fantaRows.length) throw new Error(`Eliminazione riga torneo bloccata: esistono ancora dati Fanta per ${tournamentId}.`);
+  const deleteResponse = await fetch(`${baseUrl}/rest/v1/tournaments?${filter}`, {
+    method: 'DELETE',
+    headers: { ...headers, Prefer: 'return=representation' },
+  });
+  const deletedRows = deleteResponse.ok ? await deleteResponse.json() : [];
+  if (!deleteResponse.ok || deletedRows.length !== 1 || deletedRows[0]?.id !== tournamentId) {
+    throw new Error(`Eliminazione riga torneo non confermata per ${tournamentId} (HTTP ${deleteResponse.status}).`);
+  }
+};
+
 // Statistiche locali accumulate (fonte di verita' del simulatore) per i
 // confronti con le viste fanta lato DB.
 const localPlayerGoals = new Map<string, number>(); // player_name normalizzato -> canestri totali
@@ -494,6 +526,7 @@ const main = async () => {
         const res = removeArchivedTournamentDeep(state, ed.id);
         state = res.state;
         await delFanta(ed.id, 'edizione');
+        await deleteVerifiedSimTournamentParent(ed.id, ed.name);
       }
     }
     if (orphanFantaIds.length) {
@@ -972,7 +1005,7 @@ const main = async () => {
   if (!issues.length) console.log('  nessuno');
   const failedOps = opStats.filter((s) => !s.ok);
   console.log(`\nEsito: ${issues.length === 0 && failedOps.length === 0 ? 'TUTTO VERDE' : 'CON ANOMALIE (vedi sopra)'}`);
-  console.log('Nota: il torneo simulato resta archiviato per ispezione; le "Sim Squadra" restano in lista iscritti (rimuovibili dall\'app).');
+  console.log('Nota: il torneo simulato resta archiviato per ispezione; le squadre sintetiche sono state rimosse dalla lista iscritti.');
 
   process.exitCode = issues.length === 0 && failedOps.length === 0 ? 0 : 1;
   await releaseAdminWriteLease();

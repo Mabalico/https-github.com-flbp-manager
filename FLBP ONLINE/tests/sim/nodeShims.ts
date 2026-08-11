@@ -49,7 +49,11 @@ if (typeof g.fetch === 'function' && !g.__flbpSimFetchInstrumented) {
   };
   const classify = (rawUrl: string): string => {
     try {
-      const path = new URL(rawUrl).pathname;
+      const url = new URL(rawUrl);
+      const host = url.hostname.toLowerCase();
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'local';
+      if (!host.endsWith('.supabase.co')) return 'other';
+      const path = url.pathname;
       if (path.startsWith('/auth/v1/')) return 'auth';
       if (path.startsWith('/rest/v1/rpc/')) return 'rpc';
       if (path.startsWith('/rest/v1/')) return 'rest';
@@ -111,7 +115,12 @@ if (typeof g.window === 'undefined') {
     addEventListener: noop,
     removeEventListener: noop,
     dispatchEvent: () => true,
-    setTimeout: (fn: any, ms?: number, ...args: any[]) => setTimeout(fn, ms, ...args),
+    setTimeout: (fn: any, ms?: number, ...args: any[]) => {
+      const timer = setTimeout(fn, ms, ...args);
+      // Usage-flush/retry timers must not keep a completed CLI simulation alive.
+      timer.unref?.();
+      return timer;
+    },
     clearTimeout: (id: any) => clearTimeout(id),
     setInterval: () => 0,
     clearInterval: noop,
