@@ -32,6 +32,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $serverRoot '.env'))) {
     throw 'Configurazione annullata: .env non creato.'
 }
 
+$requiredBackup = Get-Content -LiteralPath (Join-Path $serverRoot '.env') | Where-Object { $_ -match '^FLBP_REQUIRE_SECONDARY_BACKUP=1$' }
+if (-not $requiredBackup) {
+    throw 'La configurazione non impone ancora il backup esterno. Rieseguire "Configura FLBP Server.cmd" con il supporto USB/SSD collegato.'
+}
+
 if (-not (Test-Path -LiteralPath $windowsAppBuilder)) {
     throw 'Programma di compilazione dell app Windows non trovato.'
 }

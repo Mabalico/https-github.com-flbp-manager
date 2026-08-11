@@ -5,6 +5,23 @@ import { buildPublicWorkspaceLiveState } from './publicSanitizer.mjs';
 
 const nowIso = () => new Date().toISOString();
 
+const canonicalize = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((out, key) => {
+      out[key] = canonicalize(value[key]);
+      return out;
+    }, {});
+  }
+  return value;
+};
+
+const canonicalSnapshotChecksum = (state, publicState) => crypto.createHash('sha256')
+  .update(JSON.stringify(canonicalize(state || {})))
+  .update('\n')
+  .update(JSON.stringify(canonicalize(publicState || {})))
+  .digest('hex');
+
 const errorBody = async (response) => {
   try {
     return (await response.text()) || `${response.status} ${response.statusText}`;
@@ -78,7 +95,7 @@ export class SupabaseSync {
     this.store = store;
     this.nodeId = config.nodeId || store.getMeta('node_id') || `windows-${crypto.randomUUID()}`;
     store.setMeta('node_id', this.nodeId);
-    this.epoch = Number(store.getMeta('primary_epoch', '0')) || null;
+    this.epoch = Number(store.getMeta('pending_primary_epoch', store.getMeta('primary_epoch', '0'))) || null;
     this.syncInFlight = null;
     this.syncRequested = false;
     this.syncTimer = null;
@@ -157,10 +174,24 @@ export class SupabaseSync {
     return replayCloudOperationJournal({ ...snapshot, primaryEpoch: planeEpoch }, journalRows);
   }
 
+  async verifyCloudSnapshot(expected = this.store.getCurrent()) {
+    if (!expected) throw new Error('Snapshot locale mancante durante la verifica cloud.');
+    const cloud = await this.pullCloudSnapshot();
+    const localChecksum = canonicalSnapshotChecksum(expected.state, expected.publicState);
+    const cloudChecksum = canonicalSnapshotChecksum(cloud?.state, cloud?.publicState);
+    const verified = !!cloud
+      && Number(cloud.version || 0) === Number(expected.version)
+      && String(cloud.operationId || '') === String(expected.operationId || '')
+      && cloudChecksum === localChecksum;
+    return { verified, cloud, localChecksum, cloudChecksum };
+  }
+
   async activate(snapshot) {
     if (!snapshot?.state || !snapshot?.publicState) throw new Error('Snapshot cloud verificabile mancante: attivazione locale rifiutata.');
     const localBaselineOperationId = snapshot.operationId || `legacy-cloud-v${Number(snapshot.version || 0)}`;
     snapshot.operationId = localBaselineOperationId;
+    const predictedEpoch = Number(snapshot.sourcePlaneEpoch || 0) + 1;
+    this.store.setMeta('pending_primary_epoch', String(predictedEpoch));
     const out = await this.rpc('flbp_local_activate_data_plane_v3', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
@@ -177,6 +208,8 @@ export class SupabaseSync {
     });
     this.epoch = Number(out?.epoch || 0);
     if (!this.epoch) throw new Error('Supabase non ha restituito un epoch di leadership valido.');
+    if (this.epoch !== predictedEpoch) throw new Error('Supabase ha restituito un epoch diverso da quello previsto: attivazione da riconciliare.');
+    this.store.setMeta('pending_primary_epoch', String(this.epoch));
     this.store.setMeta('last_public_live_version', '0');
     this.store.setMeta('last_public_live_at', '');
     return out;
@@ -217,11 +250,83 @@ export class SupabaseSync {
       p_operation_id: current.operationId,
     });
     if (!out?.deactivated) throw new Error('Il coordinatore non ha accettato la disattivazione: leadership cambiata.');
+    const reconciliation = await this.reconcileTransition();
+    if (reconciliation?.action !== 'standby-cloud') {
+      throw new Error('Supabase non ha confermato in modo verificabile il ritorno al cloud.');
+    }
     const updatedAt = out?.updated_at || nowIso();
     this.store.markSnapshotSynced(current.version, updatedAt);
     this.store.markOutboxSyncedThroughVersion(current.version);
     this.store.setActive(false);
     return out;
+  }
+
+  async reconcileTransition() {
+    if (!this.isConfigured()) throw new Error('Supabase non configurato: transizione non riconciliabile.');
+    const current = this.store.getCurrent();
+    if (!current) throw new Error('Snapshot locale mancante: transizione non riconciliabile.');
+    if (!this.epoch) {
+      this.epoch = Number(this.store.getMeta('pending_primary_epoch', this.store.getMeta('primary_epoch', '0'))) || null;
+    }
+    if (!this.epoch) throw new Error('Epoch locale mancante: transizione non riconciliabile.');
+    const transition = this.store.getTransitionState();
+    const out = await this.rpc('flbp_local_reconcile_data_plane', {
+      p_workspace_id: this.config.workspaceId,
+      p_node_id: this.nodeId,
+      p_epoch: this.epoch,
+      p_local_version: current.version,
+      p_local_operation_id: current.operationId,
+      p_ttl_seconds: this.config.leaseTtlSeconds,
+    });
+    if (out?.action === 'resume-local' && out?.accepted) {
+      if (String(out?.node_id || '') !== this.nodeId || Number(out?.epoch || 0) !== Number(this.epoch)) {
+        throw new Error('Riconciliazione locale non verificabile: nodo o epoch non corrispondente. Scritture ancora bloccate.');
+      }
+      if (transition === 'activation-error' || transition === 'activating') {
+        const cloud = await this.pullCloudSnapshot();
+        if (!cloud) throw new Error('Snapshot cloud mancante durante il recupero attivazione.');
+        this.store.validateCloudSnapshotImport(cloud);
+        this.store.importCloudSnapshot(cloud);
+      }
+      this.store.setActive(true, this.epoch);
+      this.store.setMeta('pending_primary_epoch', '');
+      this.store.setTransitionState('idle');
+      return out;
+    }
+    if (out?.action === 'standby-cloud' && out?.accepted) {
+      const exactCloudCommit = String(out?.node_id || '') === this.nodeId
+        && Number(out?.epoch || 0) === Number(this.epoch)
+        && Number(out?.version || 0) === Number(current.version)
+        && String(out?.operation_id || '') === String(current.operationId || '');
+      if (!exactCloudCommit) {
+        throw new Error('Riconciliazione cloud non verificabile: nodo, epoch, versione o operationId non corrispondente. Scritture ancora bloccate.');
+      }
+      const finalVerification = await this.verifyCloudSnapshot(current);
+      if (!finalVerification.verified) {
+        throw new Error('Riconciliazione cloud non verificata: checksum dello snapshot Supabase non corrispondente. Scritture ancora bloccate.');
+      }
+      this.store.markSnapshotSynced(current.version, nowIso());
+      this.store.markOutboxSyncedThroughVersion(current.version);
+      this.store.setActive(false, this.epoch);
+      this.store.setMeta('pending_primary_epoch', '');
+      this.store.setTransitionState('idle');
+      return out;
+    }
+    this.store.setActive(false);
+    this.store.setTransitionState('leadership-revoked');
+    return out;
+  }
+
+  async pruneCloudHistory({ retentionDays = 90, minVersions = 2_000 } = {}) {
+    if (!this.isConfigured() || !this.store.isActive()) return { ok: false, reason: 'inactive' };
+    if (!this.epoch) this.epoch = Number(this.store.getMeta('primary_epoch', '0')) || null;
+    return this.rpc('flbp_local_prune_workspace_history', {
+      p_workspace_id: this.config.workspaceId,
+      p_node_id: this.nodeId,
+      p_epoch: this.epoch,
+      p_retention_days: retentionDays,
+      p_min_versions: minVersions,
+    });
   }
 
   async syncOutbox() {
@@ -278,12 +383,17 @@ export class SupabaseSync {
       p_operation_id: current.operationId,
     });
     const updatedAt = out?.updated_at || nowIso();
-    this.store.markSnapshotSynced(current.version, updatedAt);
-    this.store.markOutboxSyncedThroughVersion(current.version);
     // The full-backup RPC also touches the live row for backward compatibility;
     // immediately rewrite it through the compact live-state sanitizer.
     await this.publishLiveSnapshot({ force: true });
-    return { backedUp: true, version: current.version, updatedAt };
+    const latestLocal = this.store.getCurrent();
+    const verification = await this.verifyCloudSnapshot(latestLocal);
+    if (!verification.verified) {
+      throw new Error('Backup Supabase non verificato: versione, operationId o checksum non corrispondono al DB locale corrente.');
+    }
+    this.store.markSnapshotSynced(latestLocal.version, updatedAt);
+    this.store.markOutboxSyncedThroughVersion(latestLocal.version);
+    return { backedUp: true, verified: true, version: latestLocal.version, operationId: latestLocal.operationId, checksum: verification.localChecksum, updatedAt };
   }
 
   publishLiveSnapshot({ force = false } = {}) {

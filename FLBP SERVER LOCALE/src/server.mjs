@@ -12,6 +12,7 @@ import { controlPage, controlPageScript } from './controlPage.mjs';
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 const MAX_BODY_BYTES = 12 * 1024 * 1024;
+const RATE_WINDOW_MS = 60_000;
 
 const safeEqual = (left, right) => {
   const a = Buffer.from(String(left || ''));
@@ -81,6 +82,47 @@ export const createLocalServer = (overrides = {}) => {
   let secondaryBackedVersion = 0;
   const localAdminSessions = new Map();
   const localAdminSessionTtlMs = 12 * 60 * 60 * 1000;
+  const rateBuckets = new Map();
+  let maintenanceTimer = null;
+
+  const cleanupEphemeralState = () => {
+    const now = Date.now();
+    for (const [token, expiresAt] of localAdminSessions) {
+      if (Number(expiresAt || 0) <= now) localAdminSessions.delete(token);
+    }
+    for (const [key, bucket] of rateBuckets) {
+      if (Number(bucket?.resetAt || 0) <= now) rateBuckets.delete(key);
+    }
+  };
+
+  const requestIdentity = (request) => String(request.socket?.remoteAddress || 'unknown').toLowerCase();
+
+  const consumeRateLimit = (request, bucketName, limit, suffix = '') => {
+    const now = Date.now();
+    const key = `${bucketName}:${requestIdentity(request)}:${String(suffix || '').slice(0, 160)}`;
+    let bucket = rateBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    bucket.count += 1;
+    rateBuckets.set(key, bucket);
+    if (bucket.count > limit) {
+      const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      throw Object.assign(new Error('Troppe richieste: riprova tra poco.'), {
+        statusCode: 429,
+        code: 'FLBP_RATE_LIMITED',
+        retryAfter,
+      });
+    }
+  };
+
+  const requireJsonRequest = (request) => {
+    const contentType = String(request.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase();
+    if (contentType !== 'application/json') {
+      throw Object.assign(new Error('Content-Type application/json obbligatorio.'), {
+        statusCode: 415,
+        code: 'FLBP_JSON_REQUIRED',
+      });
+    }
+  };
 
   const originHeaders = (request) => {
     const origin = String(request.headers.origin || '');
@@ -136,8 +178,32 @@ export const createLocalServer = (overrides = {}) => {
     }
   };
 
+  const requireAdminWriter = (request) => store.requireAdminWriterLease(request.headers['x-flbp-writer-id']);
+
+  const ensureSecondaryTargetAvailable = () => {
+    if (!config.secondaryBackupDir) {
+      if (config.requireSecondaryBackup) {
+        throw Object.assign(new Error('Collega il disco secondario configurato prima di salvare.'), { statusCode: 503, code: 'FLBP_SECONDARY_REQUIRED' });
+      }
+      return { available: false, disabled: true };
+    }
+    const dataRoot = path.parse(path.resolve(config.dataDir)).root.toLowerCase();
+    const backupRoot = path.parse(path.resolve(config.secondaryBackupDir)).root.toLowerCase();
+    if (config.requireSecondaryBackup && dataRoot === backupRoot) {
+      throw Object.assign(new Error('La replica deve trovarsi su un volume diverso dal database principale.'), { statusCode: 503, code: 'FLBP_SECONDARY_SAME_VOLUME' });
+    }
+    try {
+      fs.mkdirSync(config.secondaryBackupDir, { recursive: true });
+      fs.accessSync(config.secondaryBackupDir, fs.constants.R_OK | fs.constants.W_OK);
+      return { available: true };
+    } catch {
+      throw Object.assign(new Error('Disco secondario non disponibile o non scrivibile.'), { statusCode: 503, code: 'FLBP_SECONDARY_UNAVAILABLE' });
+    }
+  };
+
   const ensureSecondaryBackup = (requiredVersion = null) => {
-    if (!config.secondaryBackupDir) return Promise.resolve({ backedUp: false, disabled: true });
+    const target = ensureSecondaryTargetAvailable();
+    if (!target.available) return Promise.resolve({ backedUp: false, disabled: true });
     const requested = Number(requiredVersion ?? store.getCurrent()?.version ?? 0);
     const work = secondaryBackupChain.then(async () => {
       if (secondaryBackedVersion >= requested) return { backedUp: true, version: secondaryBackedVersion, reused: true };
@@ -154,7 +220,14 @@ export const createLocalServer = (overrides = {}) => {
     const firstStart = !heartbeatTimer && !backupTimer;
     if (!heartbeatTimer) heartbeatTimer = setInterval(() => void sync.heartbeat().catch((error) => console.error('[heartbeat]', error.message)), config.heartbeatIntervalMs);
     if (!backupTimer) backupTimer = setInterval(() => {
-      if (store.isActive()) void sync.backupSnapshot().catch((error) => console.error('[backup]', error.message));
+      if (store.isActive()) void (async () => {
+        const cloudBackup = await sync.backupSnapshot();
+        const secondary = await ensureSecondaryBackup(store.getCurrent()?.version);
+        if (cloudBackup?.backedUp && cloudBackup?.verified && store.pendingOutboxCount() === 0 && (!config.requireSecondaryBackup || secondary?.backedUp)) {
+          store.pruneHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions });
+          await sync.pruneCloudHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions });
+        }
+      })().catch((error) => console.error('[backup]', error.message));
     }, config.fullBackupIntervalMs);
     if (!publicLiveTimer) publicLiveTimer = setInterval(() => {
       if (store.isActive()) void sync.publishLiveSnapshot().catch((error) => console.error('[public-live]', error.message));
@@ -162,11 +235,24 @@ export const createLocalServer = (overrides = {}) => {
     if (!secondaryBackupTimer && config.secondaryBackupDir) secondaryBackupTimer = setInterval(() => {
       void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup]', error.message));
     }, config.secondaryBackupIntervalMs);
-    if (firstStart && store.isActive()) {
-      void sync.heartbeat().catch((error) => console.error('[heartbeat:startup]', error.message));
-      void sync.scheduleOutboxSync({ immediate: true });
-      void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
-      void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
+    if (!maintenanceTimer) maintenanceTimer = setInterval(cleanupEphemeralState, 60_000);
+    if (firstStart) {
+      const transition = store.getTransitionState();
+      const ambiguous = ['activating', 'deactivating', 'deactivation-error', 'activation-error', 'restore-pending'].includes(transition);
+      if (ambiguous && sync.isConfigured()) {
+        void sync.reconcileTransition().then((result) => {
+          if (result?.action === 'resume-local') {
+            void sync.scheduleOutboxSync({ immediate: true });
+            void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
+            void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
+          }
+        }).catch((error) => console.error('[reconcile:startup]', error.message));
+      } else if (store.isActive()) {
+        void sync.heartbeat().catch((error) => console.error('[heartbeat:startup]', error.message));
+        void sync.scheduleOutboxSync({ immediate: true });
+        void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
+        void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
+      }
     }
   };
 
@@ -199,12 +285,14 @@ export const createLocalServer = (overrides = {}) => {
     const cors = originHeaders(request);
     if (cors == null) return sendJson(response, 403, { error: 'Origine non autorizzata' });
     if (request.method === 'OPTIONS') {
-      response.writeHead(204, { ...cors, 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-flbp-local-token,x-flbp-operation-id' });
+      response.writeHead(204, { ...cors, 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-flbp-local-token,x-flbp-operation-id,x-flbp-writer-id' });
       return response.end();
     }
 
     try {
+      if (request.method === 'POST') requireJsonRequest(request);
       if (request.method === 'POST' && url.pathname === '/control/local-session') {
+        consumeRateLimit(request, 'local-session', 10, request.headers.origin || request.headers.host || 'loopback');
         if (!isTrustedLoopbackRequest(request)) {
           return sendJson(response, 403, { error: 'Sessione locale disponibile solo dal PC server.' }, cors);
         }
@@ -251,11 +339,35 @@ export const createLocalServer = (overrides = {}) => {
         }
         return sendJson(response, 200, { workspace_id: config.workspaceId, state: current.state, updated_at: current.updatedAt, version: current.version, primary_epoch: current.primaryEpoch }, { ...cors, etag, 'cache-control': 'no-cache' });
       }
+      if (request.method === 'POST' && url.pathname.startsWith('/api/v1/admin/write-lease/')) {
+        if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
+        consumeRateLimit(request, 'admin-write-lease', 240);
+        const body = await readBody(request);
+        if (url.pathname.endsWith('/acquire')) {
+          const out = store.acquireAdminWriterLease({
+            holderId: body.holderId,
+            holderLabel: body.holderLabel,
+            takeover: body.takeover === true,
+            ttlMs: 90_000,
+          });
+          return sendJson(response, 200, out, cors);
+        }
+        if (url.pathname.endsWith('/heartbeat')) {
+          const out = store.acquireAdminWriterLease({ holderId: body.holderId, holderLabel: '', takeover: false, ttlMs: 90_000 });
+          return sendJson(response, 200, out, cors);
+        }
+        if (url.pathname.endsWith('/release')) {
+          return sendJson(response, 200, store.releaseAdminWriterLease(body.holderId), cors);
+        }
+      }
       if (request.method === 'POST' && url.pathname === `/api/v1/admin/workspace/${encodeURIComponent(config.workspaceId)}/commit`) {
         requireWritable();
         if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
+        requireAdminWriter(request);
+        consumeRateLimit(request, 'authenticated-write', 240);
+        ensureSecondaryTargetAvailable();
         const body = await readBody(request);
-        const committed = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: body.force === true, source: 'admin' });
+        const committed = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: false, source: 'admin' });
         void sync.scheduleOutboxSync();
         await ensureSecondaryBackup(committed.version);
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, operation_id: committed.operationId, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
@@ -263,6 +375,7 @@ export const createLocalServer = (overrides = {}) => {
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/auth`) {
         requireActive();
         const body = await readBody(request);
+        consumeRateLimit(request, 'referee-auth', 20, body.tournamentId);
         const current = store.getCurrent();
         const expected = resolveRefereeSecret(current?.state, process.env.FLBP_REFEREE_PASSWORD || '');
         const tournamentOk = String(current?.state?.tournament?.id || '') === String(body.tournamentId || '');
@@ -274,6 +387,8 @@ export const createLocalServer = (overrides = {}) => {
         const current = store.getCurrent();
         const expected = resolveRefereeSecret(current?.state, process.env.FLBP_REFEREE_PASSWORD || '');
         if (!safeEqual(body.refereePassword, expected)) return sendJson(response, 401, { error: 'Password arbitri non valida' }, cors);
+        consumeRateLimit(request, 'authenticated-write', 240, body.tournamentId);
+        ensureSecondaryTargetAvailable();
         const committed = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'referee' });
         void sync.scheduleOutboxSync();
         await ensureSecondaryBackup(committed.version);
@@ -282,6 +397,9 @@ export const createLocalServer = (overrides = {}) => {
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/admin-match-result`) {
         requireWritable();
         if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
+        requireAdminWriter(request);
+        consumeRateLimit(request, 'authenticated-write', 240);
+        ensureSecondaryTargetAvailable();
         const body = await readBody(request);
         const committed = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'admin' });
         void sync.scheduleOutboxSync();
@@ -290,6 +408,7 @@ export const createLocalServer = (overrides = {}) => {
       }
       if (request.method === 'POST' && url.pathname.startsWith('/control/')) {
         if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
+        consumeRateLimit(request, 'control', 30);
         if (configErrors.length) return sendJson(response, 400, { error: configErrors.join('\n') }, cors);
         if (url.pathname === '/control/resume-restored') {
           if (!store.isActive() || store.getTransitionState() !== 'restore-pending') {
@@ -298,11 +417,20 @@ export const createLocalServer = (overrides = {}) => {
           if (!sync.isConfigured()) {
             throw Object.assign(new Error('Supabase deve essere raggiungibile per riconfermare il nodo ripristinato.'), { statusCode: 503, code: 'FLBP_RESTORE_NEEDS_CLOUD' });
           }
-          const heartbeat = await sync.heartbeat();
-          if (!heartbeat?.accepted) throw new Error('Supabase non ha riconfermato la leadership del backup.');
-          store.setTransitionState('idle');
+          const reconciliation = await sync.reconcileTransition();
+          if (reconciliation?.action !== 'resume-local') throw new Error('Supabase non ha riconfermato la leadership del backup.');
           void sync.scheduleOutboxSync();
-          return sendJson(response, 200, { ok: true, resumed: true, heartbeat, ...store.status() }, cors);
+          return sendJson(response, 200, { ok: true, resumed: true, reconciliation, ...store.status() }, cors);
+        }
+        if (url.pathname === '/control/reconcile') {
+          const transition = store.getTransitionState();
+          if (transition === 'idle') return sendJson(response, 200, { ok: true, alreadyResolved: true, ...store.status() }, cors);
+          const reconciliation = await sync.reconcileTransition();
+          if (reconciliation?.action === 'resume-local') {
+            void sync.scheduleOutboxSync({ immediate: true });
+            void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:reconcile]', error.message));
+          }
+          return sendJson(response, 200, { ok: true, reconciliation, ...store.status() }, cors);
         }
         if (url.pathname === '/control/activate') {
           const currentTransition = store.getTransitionState();
@@ -310,6 +438,7 @@ export const createLocalServer = (overrides = {}) => {
             if (currentTransition === 'idle') return sendJson(response, 200, { ok: true, alreadyActive: true, ...store.status() }, cors);
             throw Object.assign(new Error(`Impossibile attivare durante la transizione ${currentTransition}.`), { statusCode: 409, code: 'FLBP_LOCAL_TRANSITION' });
           }
+          ensureSecondaryTargetAvailable();
           store.setTransitionState('activating');
           try {
             let activated;
@@ -321,6 +450,7 @@ export const createLocalServer = (overrides = {}) => {
               store.importCloudSnapshot(cloud);
               await ensureSecondaryBackup(store.getCurrent()?.version);
               store.setActive(true, activated.epoch);
+              store.setMeta('pending_primary_epoch', '');
             } else {
               if (!store.getCurrent()) throw new Error('DB locale vuoto: importa prima uno snapshot iniziale.');
               await ensureSecondaryBackup(store.getCurrent()?.version);
@@ -341,12 +471,23 @@ export const createLocalServer = (overrides = {}) => {
         if (url.pathname === '/control/backup') {
           const result = await sync.backupSnapshot();
           const secondary = await ensureSecondaryBackup(store.getCurrent()?.version);
-          return sendJson(response, 200, { ok: true, result, secondary, ...store.status() }, cors);
+          const canPrune = !!result?.backedUp && !!result?.verified && store.pendingOutboxCount() === 0 && (!config.requireSecondaryBackup || !!secondary?.backedUp);
+          const retention = canPrune
+            ? store.pruneHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions })
+            : { skipped: true, reason: 'backup-completo-non-verificato' };
+          const cloudRetention = canPrune
+            ? await sync.pruneCloudHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions })
+            : { skipped: true, reason: 'backup-completo-non-verificato' };
+          return sendJson(response, 200, { ok: true, result, secondary, retention, cloudRetention, ...store.status() }, cors);
         }
         if (url.pathname === '/control/deactivate') {
           const currentTransition = store.getTransitionState();
           if (!store.isActive() && currentTransition === 'idle') {
             return sendJson(response, 200, { ok: true, alreadyInactive: true, ...store.status() }, cors);
+          }
+          if (sync.isConfigured()) {
+            const heartbeat = await sync.heartbeat();
+            if (!heartbeat?.accepted) throw new Error('Supabase non ha confermato la leadership locale: disattivazione non avviata.');
           }
           store.setTransitionState('deactivating');
           try {
@@ -364,7 +505,10 @@ export const createLocalServer = (overrides = {}) => {
       return sendJson(response, 404, { error: 'Endpoint non trovato' }, cors);
     } catch (error) {
       const status = error instanceof VersionConflictError ? 409 : Number(error?.statusCode || 500);
-      return sendJson(response, status, { error: error?.message || String(error), code: error?.code || null, currentVersion: error?.currentVersion ?? null }, cors || {});
+      return sendJson(response, status, { error: error?.message || String(error), code: error?.code || null, currentVersion: error?.currentVersion ?? null }, {
+        ...(cors || {}),
+        ...(error?.retryAfter ? { 'retry-after': String(error.retryAfter) } : {}),
+      });
     }
   });
 
@@ -383,6 +527,7 @@ export const createLocalServer = (overrides = {}) => {
       if (backupTimer) clearInterval(backupTimer);
       if (publicLiveTimer) clearInterval(publicLiveTimer);
       if (secondaryBackupTimer) clearInterval(secondaryBackupTimer);
+      if (maintenanceTimer) clearInterval(maintenanceTimer);
       sync.cancelScheduledOutboxSync();
       server.close(() => {
         void secondaryBackupChain.finally(() => {

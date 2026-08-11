@@ -3778,12 +3778,15 @@ export const pushAdminMatchResults = async (opts: {
     }
     const route = await resolveDataPlane();
     if (route.mode === 'local') {
+        const writerId = getAdminLeaseHolderForWrites();
+        if (!writerId) throw new Error('FLBP_LEASE_READONLY: controllo Admin locale non acquisito.');
         return await commitLocalMatchResult(route, {
             tournamentId: opts.tournamentId,
             matchId: opts.matchId,
             matches: opts.matches,
             operationId: (opts.matches || []).find((match) => String(match?.id || '') === String(opts.matchId || ''))?.refereeReportFinalId || makeDataOperationId(),
             admin: true,
+            writerId,
         }) as MatchResultPushResult;
     }
     if (route.mode === 'recovery') throw new Error('FLBP_DATA_PLANE_RECOVERY: scritture sospese finché il server locale non viene recuperato o disattivato in sicurezza.');
@@ -3996,12 +3999,18 @@ export const pushWorkspaceState = async (state: AppState, opts?: {
     }
     const route = await resolveDataPlane();
     if (route.mode === 'local') {
+        const baseVersion = Number(opts?.baseVersion);
+        const writerId = getAdminLeaseHolderForWrites();
+        if (!Number.isInteger(baseVersion) || baseVersion < 0) {
+            throw makeConflictError('Versione locale di partenza mancante: ricarica i dati prima di salvare.');
+        }
+        if (!writerId) throw new Error('FLBP_LEASE_READONLY: controllo Admin locale non acquisito.');
         const out = await commitLocalWorkspace(route, {
             state,
             publicState: sanitizeAppStateForPublic(state),
             operationId: opts?.operationId || makeDataOperationId(),
-            baseVersion: opts?.baseVersion,
-            force: !!opts?.force,
+            baseVersion,
+            writerId,
         });
         return {
             workspace_id: cfg.workspaceId,

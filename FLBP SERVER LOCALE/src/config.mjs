@@ -19,6 +19,12 @@ const csvFromEnv = (name, fallback = []) => {
   return raw.split(',').map((item) => item.trim()).filter(Boolean);
 };
 
+const boolFromEnv = (name, fallback = false) => {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!raw) return fallback;
+  return ['1', 'true', 'yes', 'si', 'sì', 'on'].includes(raw);
+};
+
 export const loadConfig = (overrides = {}) => {
   const cwd = process.cwd();
   return {
@@ -29,6 +35,7 @@ export const loadConfig = (overrides = {}) => {
     secondaryBackupDir: String(process.env.FLBP_SECONDARY_BACKUP_DIR || '').trim()
       ? path.resolve(cwd, String(process.env.FLBP_SECONDARY_BACKUP_DIR).trim())
       : '',
+    requireSecondaryBackup: boolFromEnv('FLBP_REQUIRE_SECONDARY_BACKUP', false),
     secondaryBackupRetention: intFromEnv('FLBP_SECONDARY_BACKUP_RETENTION', 24, 2, 500),
     secondaryBackupIntervalMs: intFromEnv('FLBP_SECONDARY_BACKUP_INTERVAL_MS', 300_000, 60_000, 86_400_000),
     webDist: path.resolve(cwd, process.env.FLBP_WEB_DIST || '../FLBP ONLINE/dist'),
@@ -51,6 +58,8 @@ export const loadConfig = (overrides = {}) => {
     outboxBatchMaxBytes: intFromEnv('FLBP_OUTBOX_BATCH_MAX_BYTES', 524_288, 16_384, 5_242_880),
     heartbeatIntervalMs: intFromEnv('FLBP_HEARTBEAT_INTERVAL_MS', 15_000, 5_000, 120_000),
     leaseTtlSeconds: intFromEnv('FLBP_LEASE_TTL_SECONDS', 60, 30, 300),
+    historyRetentionDays: intFromEnv('FLBP_HISTORY_RETENTION_DAYS', 90, 7, 3650),
+    historyMinVersions: intFromEnv('FLBP_HISTORY_MIN_VERSIONS', 2_000, 100, 100_000),
     nodeId: String(process.env.FLBP_NODE_ID || '').trim(),
     ...overrides,
   };
@@ -66,6 +75,12 @@ export const validateOperationalConfig = (config) => {
   }
   if (config.secondaryBackupDir && path.resolve(config.secondaryBackupDir) === path.resolve(config.dataDir)) {
     errors.push('FLBP_SECONDARY_BACKUP_DIR deve essere diverso da FLBP_DATA_DIR e preferibilmente su un altro disco.');
+  }
+  if (config.requireSecondaryBackup && !config.secondaryBackupDir) {
+    errors.push('FLBP_REQUIRE_SECONDARY_BACKUP=1 richiede FLBP_SECONDARY_BACKUP_DIR su un secondo disco.');
+  }
+  if (config.requireSecondaryBackup && config.secondaryBackupDir && path.parse(path.resolve(config.secondaryBackupDir)).root.toLowerCase() === path.parse(path.resolve(config.dataDir)).root.toLowerCase()) {
+    errors.push('FLBP_SECONDARY_BACKUP_DIR deve appartenere a un volume fisico diverso da FLBP_DATA_DIR.');
   }
   try {
     if (config.publicUrl && new URL(config.publicUrl).protocol !== 'https:') {

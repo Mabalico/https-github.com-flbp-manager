@@ -43,6 +43,13 @@ test('snapshot commits are durable, versioned and idempotent', () => withStore((
   const repeated = store.commitSnapshot({ ...changed, operationId: 'op-admin-1', baseVersion: 1 });
   assert.equal(repeated.version, 2);
   assert.equal(repeated.idempotent, true);
+
+  const collided = fixture();
+  collided.state.tournament.name = 'Payload differente';
+  assert.throws(
+    () => store.commitSnapshot({ ...collided, operationId: 'op-admin-1', baseVersion: 2 }),
+    (error) => error?.code === 'FLBP_OPERATION_COLLISION',
+  );
   assert.equal(store.pendingOutboxCount(), 1);
 }));
 
@@ -187,7 +194,10 @@ test('a secondary SQLite backup is complete, readable and versioned', () => with
   const secondaryDir = path.join(dataDir, 'secondary-drive');
   const result = await store.createSecondaryBackup(secondaryDir, 3);
   assert.equal(result.backedUp, true);
+  assert.equal(result.verified, true);
   assert.equal(result.version, 4);
+  assert.equal(result.operationId, 'cloud-v4');
+  assert.equal(result.checksum, store.getCurrent().checksum);
   assert.ok(fs.existsSync(result.filename));
 
   const copy = new DatabaseSync(result.filename, { readOnly: true });
@@ -198,6 +208,26 @@ test('a secondary SQLite backup is complete, readable and versioned', () => with
   } finally {
     copy.close();
   }
+}));
+
+test('history retention keeps the newest 100 versions, current state and pending outbox dependencies', () => withStore((store) => {
+  const initial = fixture();
+  store.importCloudSnapshot({ ...initial, version: 1, operationId: 'cloud-v1' });
+  for (let version = 2; version <= 106; version += 1) {
+    const next = fixture();
+    next.state.sequence = version;
+    next.publicState.sequence = version;
+    store.commitSnapshot({ ...next, operationId: `retention-v${version}`, baseVersion: version - 1 });
+  }
+  store.markOutboxSyncedThroughVersion(106);
+  store.db.prepare('UPDATE outbox SET synced_at = NULL WHERE workspace_id = ? AND version = 2').run('default');
+  store.db.prepare("UPDATE snapshots SET created_at = '2020-01-01T00:00:00.000Z' WHERE workspace_id = ?").run('default');
+
+  const result = store.pruneHistory({ retentionDays: 90, minVersions: 100 });
+  assert.equal(result.prunedSnapshots, 5);
+  assert.ok(store.db.prepare('SELECT 1 FROM snapshots WHERE workspace_id = ? AND version = 2').get('default'));
+  assert.ok(store.db.prepare('SELECT 1 FROM snapshots WHERE workspace_id = ? AND version = 106').get('default'));
+  assert.equal(store.getCurrent().version, 106);
 }));
 
 test('node identity and leadership epoch survive a process restart', () => {
@@ -259,6 +289,31 @@ test('activation is compare-and-switch and does not make SQLite writable before 
   assert.equal(called.body.p_expected_recovered_version, 12);
 }));
 
+test('startup reconciliation resumes an activation whose response was lost', () => withStore(async (store) => {
+  const baseline = { ...fixture(), version: 6, operationId: 'cloud-v6', sourcePlaneEpoch: 10 };
+  store.importCloudSnapshot(baseline);
+  store.setTransitionState('activating');
+  store.setMeta('pending_primary_epoch', '11');
+  const sync = new SupabaseSync({
+    nodeId: 'node-activation-restart',
+    publicUrl: '',
+    supabaseUrl: 'https://project.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    workspaceId: 'default',
+  }, store);
+  sync.rpc = async (name) => {
+    assert.equal(name, 'flbp_local_reconcile_data_plane');
+    return { ok: true, accepted: true, action: 'resume-local', node_id: 'node-activation-restart', epoch: 11 };
+  };
+  sync.pullCloudSnapshot = async () => baseline;
+
+  const result = await sync.reconcileTransition();
+  assert.equal(result.action, 'resume-local');
+  assert.equal(store.isActive(), true);
+  assert.equal(store.getTransitionState(), 'idle');
+  assert.equal(store.getCurrent().version, 6);
+}));
+
 test('an ambiguous final switch is retryable and clears the covered outbox only after confirmation', () => withStore(async (store) => {
   const initial = fixture();
   store.importCloudSnapshot({ ...initial, version: 3, operationId: 'cloud-v3' });
@@ -276,12 +331,16 @@ test('an ambiguous final switch is retryable and clears the covered outbox only 
   let attempts = 0;
   let finalBody = null;
   sync.rpc = async (name, body) => {
+    if (name === 'flbp_local_reconcile_data_plane') {
+      return { ok: true, action: 'standby-cloud', node_id: 'node-a', epoch: 8, version: 4, operation_id: 'local-v4' };
+    }
     assert.equal(name, 'flbp_local_deactivate_data_plane_v2');
     attempts += 1;
     finalBody = body;
     if (attempts === 1) throw new Error('risposta persa');
     return { ok: true, deactivated: true, idempotent: true, updated_at: '2026-08-01T12:00:00.000Z' };
   };
+  sync.verifyCloudSnapshot = async () => ({ verified: true });
 
   await assert.rejects(() => sync.deactivate(), /risposta persa/);
   assert.equal(store.isActive(), true);
@@ -293,6 +352,86 @@ test('an ambiguous final switch is retryable and clears the covered outbox only 
   assert.equal(finalBody.p_operation_id, 'local-v4');
   assert.equal(finalBody.p_state.tournament.name, 'Finale locale');
   assert.equal(store.isActive(), false);
+  assert.equal(store.pendingOutboxCount(), 0);
+}));
+
+test('startup reconciliation confirms a lost deactivation response only for the exact node, epoch and operation', () => withStore(async (store) => {
+  const initial = fixture();
+  store.importCloudSnapshot({ ...initial, version: 3, operationId: 'cloud-v3' });
+  store.setActive(true, 8);
+  const changed = fixture();
+  changed.state.tournament.name = 'Finale confermata dopo riavvio';
+  store.commitSnapshot({ ...changed, operationId: 'local-v4-restart', baseVersion: 3 });
+  store.setTransitionState('deactivation-error');
+  const sync = new SupabaseSync({
+    nodeId: 'node-restarted',
+    publicUrl: '',
+    supabaseUrl: 'https://project.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    workspaceId: 'default',
+  }, store);
+  sync.rpc = async (name) => {
+    assert.equal(name, 'flbp_local_reconcile_data_plane');
+    return { ok: true, accepted: true, action: 'standby-cloud', node_id: 'node-restarted', epoch: 8, version: 4, operation_id: 'local-v4-restart' };
+  };
+  sync.verifyCloudSnapshot = async () => ({ verified: true });
+
+  const result = await sync.reconcileTransition();
+  assert.equal(result.action, 'standby-cloud');
+  assert.equal(store.isActive(), false);
+  assert.equal(store.getTransitionState(), 'idle');
+  assert.equal(store.pendingOutboxCount(), 0);
+}));
+
+test('an unreachable or mismatching coordinator keeps an ambiguous transition fail-closed', () => withStore(async (store) => {
+  const initial = fixture();
+  store.importCloudSnapshot({ ...initial, version: 3, operationId: 'cloud-v3' });
+  store.setActive(true, 9);
+  store.setTransitionState('deactivation-error');
+  const sync = new SupabaseSync({
+    nodeId: 'node-fail-closed',
+    publicUrl: '',
+    supabaseUrl: 'https://project.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    workspaceId: 'default',
+  }, store);
+  sync.rpc = async () => { throw new Error('rete assente'); };
+  await assert.rejects(() => sync.reconcileTransition(), /rete assente/);
+  assert.equal(store.isActive(), true);
+  assert.equal(store.getTransitionState(), 'deactivation-error');
+
+  sync.rpc = async () => ({ ok: true, accepted: true, action: 'resume-local', node_id: 'altro-nodo', epoch: 9 });
+  await assert.rejects(() => sync.reconcileTransition(), /nodo o epoch non corrispondente/);
+  assert.equal(store.getTransitionState(), 'deactivation-error');
+}));
+
+test('a full cloud backup clears the outbox only after checksum verification', () => withStore(async (store) => {
+  const initial = fixture();
+  store.importCloudSnapshot({ ...initial, version: 1, operationId: 'cloud-v1' });
+  store.setActive(true, 4);
+  const changed = fixture();
+  changed.state.tournament.name = 'Backup verificabile';
+  store.commitSnapshot({ ...changed, operationId: 'local-v2-backup', baseVersion: 1 });
+  const sync = new SupabaseSync({
+    nodeId: 'node-backup',
+    publicUrl: '',
+    supabaseUrl: 'https://project.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    workspaceId: 'default',
+  }, store);
+  sync.rpc = async (name) => {
+    assert.equal(name, 'flbp_local_backup_data_plane_v2');
+    return { ok: true, updated_at: '2026-08-01T13:00:00.000Z' };
+  };
+  sync.publishLiveSnapshot = async () => ({ published: true });
+  sync.verifyCloudSnapshot = async () => ({ verified: false });
+
+  await assert.rejects(() => sync.backupSnapshot(), /non verificato/);
+  assert.equal(store.pendingOutboxCount(), 1);
+
+  sync.verifyCloudSnapshot = async () => ({ verified: true, localChecksum: 'verified-checksum' });
+  const result = await sync.backupSnapshot();
+  assert.equal(result.verified, true);
   assert.equal(store.pendingOutboxCount(), 0);
 }));
 
@@ -335,7 +474,7 @@ test('activation without a public URL keeps Internet readers on the Supabase mir
   let called = null;
   sync.rpc = async (name, body) => {
     called = { name, body };
-    return { ok: true, epoch: 5 };
+    return { ok: true, epoch: 1 };
   };
   await sync.activate({
     ...fixture(),

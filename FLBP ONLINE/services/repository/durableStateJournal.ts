@@ -7,6 +7,10 @@ export type DurableStateCheckpoint = {
   state: AppState;
   savedAt: string;
   baseUpdatedAt?: string | null;
+  baseVersion?: number | null;
+  workspaceId?: string | null;
+  ownerId?: string | null;
+  writerId?: string | null;
   status: DurableCheckpointStatus;
   completedAt?: string | null;
   remoteUpdatedAt?: string | null;
@@ -74,7 +78,7 @@ const pruneCompletedCheckpoints = async (db: IDBDatabase): Promise<void> => {
     for (const row of expired) store.delete(row.operationId);
     await transactionDone(deleteTx);
   } catch {
-    // The localStorage emergency copy remains the synchronous safety net.
+    // La bozza pending resta in IndexedDB; localStorage contiene solo il puntatore.
   }
 };
 
@@ -149,9 +153,15 @@ export const readDurableStateCheckpoint = async (operationId: string): Promise<D
   }
 };
 
-export const readLatestPendingDurableStateCheckpoint = async (): Promise<DurableStateCheckpoint | null> => {
+export const readLatestPendingDurableStateCheckpoint = async (opts?: {
+  workspaceId?: string | null;
+  ownerId?: string | null;
+  includeOtherOwners?: boolean;
+}): Promise<DurableStateCheckpoint | null> => {
   const rows = await listDurableStateCheckpoints();
   return rows
     .filter((row) => row?.status === 'pending' && row?.operationId && row?.state)
+    .filter((row) => !opts?.workspaceId || !row.workspaceId || row.workspaceId === opts.workspaceId)
+    .filter((row) => opts?.includeOtherOwners || !opts?.ownerId || !row.ownerId || row.ownerId === opts.ownerId)
     .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt))[0] || null;
 };

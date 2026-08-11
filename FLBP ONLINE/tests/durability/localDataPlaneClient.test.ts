@@ -13,7 +13,8 @@ import {
 import { RemoteRepository } from '../../services/repository/RemoteRepository';
 import { setSupabaseSession } from '../../services/supabaseRest';
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
-import { ensureRemoteDraftCacheDurable, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
+import { acknowledgeRemoteDraftCache, ensureRemoteDraftCacheDurable, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
+import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -81,6 +82,7 @@ class MemoryIndexedDb {
 
 const local = new MemoryStorage();
 const session = new MemoryStorage();
+const memoryIndexedDb = new MemoryIndexedDb();
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 let concurrentAdminSaves = false;
 const concurrentCommitBodies: any[] = [];
@@ -94,6 +96,7 @@ const secondCommitCompleted = new Promise<void>((resolve) => { signalSecondCommi
 Object.assign(globalThis, {
   localStorage: local,
   sessionStorage: session,
+  indexedDB: memoryIndexedDb,
   window: {
     location: { origin: 'http://127.0.0.1:8787' },
     setTimeout: globalThis.setTimeout.bind(globalThis),
@@ -124,6 +127,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
     if (headers.get('x-flbp-local-token') !== 'local-test-session') {
       return Response.json({ error: 'token missing' }, { status: 401 });
+    }
+    if (headers.get('x-flbp-writer-id') !== 'test-writer') {
+      return Response.json({ error: 'writer missing' }, { status: 423 });
     }
     const body = JSON.parse(String(init?.body || '{}'));
     if (concurrentAdminSaves) {
@@ -161,6 +167,8 @@ const committed = await commitLocalWorkspace(route, {
   state: nextState,
   publicState: nextState,
   operationId: 'admin-local-op-1',
+  baseVersion: 4,
+  writerId: 'test-writer',
 });
 assert(committed.version === 5, 'Admin commit must be accepted by the local node');
 
@@ -179,9 +187,11 @@ setSupabaseSession({
   userId: 'verified-admin-user',
   email: 'admin@example.test',
 });
+setAdminLeaseInfo({ status: 'active', holderId: 'test-writer' });
 concurrentAdminSaves = true;
 localStorage.setItem('flbp_view', 'admin');
 const repository = new RemoteRepository({} as any, { backgroundSync: false });
+await repository.refresh();
 const firstState = { tournament: { id: 't1', name: 'Prima modifica' } } as any;
 const secondState = { tournament: { id: 't1', name: 'Seconda modifica, più recente' } } as any;
 repository.save(firstState);
@@ -200,8 +210,19 @@ assert(concurrentCommitBodies[1].state.tournament.name === 'Seconda modifica, pi
 assert(concurrentCommitBodies[0].operationId !== concurrentCommitBodies[1].operationId, 'consecutive state revisions must not reuse an in-flight operationId');
 assert(concurrentCommitBodies[1].baseVersion === 6, 'the second commit must use the confirmed version of the first commit');
 
-const memoryIndexedDb = new MemoryIndexedDb();
-(globalThis as any).indexedDB = memoryIndexedDb;
+session.clear();
+const firstWindowDraft = writeRemoteDraftCache(firstState, '2026-08-01T12:02:00.000Z', 'window-a-operation', 7);
+const firstWindowPointer = JSON.parse(local.getItem(`${REMOTE_DRAFT_CACHE_V2_PREFIX}:default:${firstWindowDraft.ownerId}`) || '{}');
+assert(!('state' in firstWindowPointer), 'localStorage must contain only the emergency pointer, never the full Admin draft');
+session.clear();
+const secondWindowDraft = writeRemoteDraftCache(secondState, '2026-08-01T12:02:00.000Z', 'window-b-operation', 7);
+assert(firstWindowDraft.ownerId !== secondWindowDraft.ownerId, 'different Admin windows must have different draft owners');
+acknowledgeRemoteDraftCache('2026-08-01T12:03:00.000Z', secondWindowDraft.operationId);
+assert(
+  !!local.getItem(`${REMOTE_DRAFT_CACHE_V2_PREFIX}:default:${firstWindowDraft.ownerId}`),
+  'confirming one Admin operation must not delete another window draft',
+);
+
 local.failWrites = true;
 const indexedDbOnlyState = { tournament: { id: 't1', name: 'Bozza recuperata solo da IndexedDB' } } as any;
 writeRemoteDraftCache(indexedDbOnlyState, '2026-08-01T11:59:00.000Z', 'indexeddb-only-admin-op');
