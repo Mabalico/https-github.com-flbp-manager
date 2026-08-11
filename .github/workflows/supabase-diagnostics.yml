@@ -1,0 +1,142 @@
+name: Supabase diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Short label for this metrics snapshot
+        required: true
+        default: manual
+      confirm:
+        description: Type RUN to collect aggregate database metrics
+        required: true
+        default: 'NO'
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Collect aggregate PostgreSQL metrics
+    if: ${{ github.event.inputs.confirm == 'RUN' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+
+    steps:
+      - name: Validate connection secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || {
+            echo "::error::Missing GitHub secret SUPABASE_DB_URL"
+            exit 1
+          }
+
+      - name: Collect aggregate metrics
+        shell: bash
+        env:
+          SNAPSHOT_PHASE: ${{ github.event.inputs.phase }}
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -X -qAt -v ON_ERROR_STOP=1 \
+            -v phase="$SNAPSHOT_PHASE" <<'SQL' > supabase-metrics.json
+          select jsonb_pretty(jsonb_build_object(
+            'schemaVersion', 1,
+            'phase', :'phase',
+            'capturedAt', clock_timestamp(),
+            'database', (
+              select jsonb_build_object(
+                'sizeBytes', pg_database_size(current_database()),
+                'transactionsCommitted', xact_commit,
+                'transactionsRolledBack', xact_rollback,
+                'blocksRead', blks_read,
+                'blocksHit', blks_hit,
+                'tuplesReturned', tup_returned,
+                'tuplesFetched', tup_fetched,
+                'tuplesInserted', tup_inserted,
+                'tuplesUpdated', tup_updated,
+                'tuplesDeleted', tup_deleted,
+                'temporaryFiles', temp_files,
+                'temporaryBytes', temp_bytes,
+                'deadlocks', deadlocks,
+                'blockReadTimeMs', blk_read_time,
+                'blockWriteTimeMs', blk_write_time,
+                'statisticsResetAt', stats_reset
+              )
+              from pg_stat_database
+              where datname = current_database()
+            ),
+            'wal', (
+              select jsonb_build_object(
+                'records', wal_records,
+                'fullPageImages', wal_fpi,
+                'bytes', wal_bytes,
+                'buffersFull', wal_buffers_full,
+                'writeCount', wal_write,
+                'syncCount', wal_sync,
+                'writeTimeMs', wal_write_time,
+                'syncTimeMs', wal_sync_time,
+                'statisticsResetAt', stats_reset
+              )
+              from pg_stat_wal
+            ),
+            'io', (
+              select coalesce(jsonb_agg(row_to_json(io_rows) order by backend_type, object, context), '[]'::jsonb)
+              from (
+                select
+                  backend_type,
+                  object,
+                  context,
+                  coalesce(sum(reads), 0) as reads,
+                  coalesce(sum(reads * op_bytes), 0) as read_bytes,
+                  coalesce(sum(read_time), 0) as read_time_ms,
+                  coalesce(sum(writes), 0) as writes,
+                  coalesce(sum(writes * op_bytes), 0) as write_bytes,
+                  coalesce(sum(write_time), 0) as write_time_ms,
+                  coalesce(sum(hits), 0) as hits,
+                  coalesce(sum(evictions), 0) as evictions,
+                  min(stats_reset) as statistics_reset_at
+                from pg_stat_io
+                group by backend_type, object, context
+              ) io_rows
+            ),
+            'tables', (
+              select coalesce(jsonb_object_agg(relname, jsonb_build_object(
+                'totalBytes', pg_total_relation_size(relid),
+                'tableBytes', pg_relation_size(relid),
+                'indexBytes', pg_indexes_size(relid),
+                'estimatedLiveRows', n_live_tup,
+                'estimatedDeadRows', n_dead_tup,
+                'sequentialScans', seq_scan,
+                'indexScans', idx_scan,
+                'tuplesInserted', n_tup_ins,
+                'tuplesUpdated', n_tup_upd,
+                'tuplesDeleted', n_tup_del
+              )), '{}'::jsonb)
+              from pg_stat_user_tables
+              where schemaname = 'public'
+                and relname = any(array[
+                  'workspace_state', 'public_workspace_state',
+                  'tournaments', 'tournament_teams', 'tournament_groups',
+                  'tournament_group_teams', 'tournament_matches', 'tournament_match_stats',
+                  'public_tournaments', 'public_tournament_teams', 'public_tournament_groups',
+                  'public_tournament_group_teams', 'public_tournament_matches',
+                  'public_tournament_match_stats', 'app_supabase_usage_daily',
+                  'fanta_config', 'fanta_teams', 'fanta_rosters'
+                ])
+            )
+          ));
+          SQL
+
+          jq -e '.schemaVersion == 1 and .database.sizeBytes > 0' supabase-metrics.json >/dev/null
+
+      - name: Upload metrics artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-metrics-${{ github.event.inputs.phase }}-${{ github.run_id }}
+          path: supabase-metrics.json
+          if-no-files-found: error
+          retention-days: 14
