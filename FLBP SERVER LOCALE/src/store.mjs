@@ -19,6 +19,20 @@ const json = (value) => JSON.stringify(value ?? {});
 const parseJson = (value) => JSON.parse(String(value || '{}'));
 const nowIso = () => new Date().toISOString();
 const checksum = (stateJson, publicStateJson) => crypto.createHash('sha256').update(stateJson).update('\n').update(publicStateJson).digest('hex');
+const canonicalize = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = canonicalize(value[key]);
+    return out;
+  }
+  return value;
+};
+const semanticChecksum = (state, publicState) => crypto.createHash('sha256')
+  .update(json(canonicalize(state)))
+  .update('\n')
+  .update(json(canonicalize(publicState)))
+  .digest('hex');
 const operationChecksum = (kind, payload) => crypto.createHash('sha256').update(String(kind || '')).update('\n').update(json(payload)).digest('hex');
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PATCH_OPERATIONS = 5_000;
@@ -298,7 +312,13 @@ export class LocalStore {
         throw Object.assign(new Error(`Import cloud bloccato: versione cloud ${incomingVersion} precedente alla versione locale ${current.version}.`), { code: 'FLBP_DB_CONFLICT' });
       }
       if (incomingVersion === current.version) {
-        if (incomingChecksum !== current.checksum) {
+        // Supabase stores JSON as jsonb and may return object keys in a different
+        // order. Raw JSON checksums would therefore report a false conflict even
+        // when both snapshots are semantically identical. Arrays intentionally
+        // remain order-sensitive.
+        const currentSemanticChecksum = semanticChecksum(current.state, sanitizeAppStateForPublic(current.state));
+        const incomingSemanticChecksum = semanticChecksum(state, normalizedPublicState);
+        if (incomingSemanticChecksum !== currentSemanticChecksum) {
           throw Object.assign(new Error(`Import cloud bloccato: la versione ${incomingVersion} contiene dati diversi dal DB locale.`), { code: 'FLBP_DB_CONFLICT' });
         }
       }

@@ -145,6 +145,30 @@ test('cloud imports preserve the canonical version without creating an unjournal
   );
 }));
 
+test('same-version cloud import accepts jsonb object-key reordering but not semantic changes', () => withStore((store) => {
+  const initial = fixture();
+  initial.state.extra = { z: 1, nested: { b: 2, a: 3 } };
+  store.importCloudSnapshot({ ...initial, version: 7, operationId: 'cloud-v7' });
+
+  const reordered = {
+    ...initial,
+    state: {
+      extra: { nested: { a: 3, b: 2 }, z: 1 },
+      ...Object.fromEntries(Object.entries(initial.state).filter(([key]) => key !== 'extra').reverse()),
+    },
+  };
+  const repeated = store.importCloudSnapshot({ ...reordered, version: 7, operationId: 'cloud-v7' });
+  assert.equal(repeated.idempotent, true);
+  assert.equal(repeated.version, 7);
+
+  const changed = structuredClone(reordered);
+  changed.state.extra.nested.a = 99;
+  assert.throws(
+    () => store.importCloudSnapshot({ ...changed, version: 7, operationId: 'cloud-v7' }),
+    /contiene dati diversi/,
+  );
+}));
+
 test('match operations patch only requested matches and reject older reports', () => withStore((store) => {
   const initial = fixture();
   store.importCloudSnapshot(initial);
@@ -363,6 +387,9 @@ test('startup reconciliation confirms a lost deactivation response only for the 
   changed.state.tournament.name = 'Finale confermata dopo riavvio';
   store.commitSnapshot({ ...changed, operationId: 'local-v4-restart', baseVersion: 3 });
   store.setTransitionState('deactivation-error');
+  // A completed prior transition normally leaves the pending key present but
+  // empty. Reconciliation must then fall back to the durable primary epoch.
+  store.setMeta('pending_primary_epoch', '');
   const sync = new SupabaseSync({
     nodeId: 'node-restarted',
     publicUrl: '',

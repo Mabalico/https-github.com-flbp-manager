@@ -112,8 +112,13 @@ requirePattern(
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/supabaseSync.mjs',
-  /store\.getMeta\('node_id'\)[\s\S]{0,180}store\.getMeta\('primary_epoch'/,
+  /const storedEpoch = \(store\)[\s\S]{0,320}store\.getMeta\('pending_primary_epoch'[\s\S]{0,180}store\.getMeta\('primary_epoch'/,
   'identità del nodo ed epoch devono sopravvivere al riavvio',
+);
+requirePattern(
+  '../FLBP SERVER LOCALE/src/supabaseSync.mjs',
+  /this\.nodeId[\s\S]{0,220}store\.getMeta\('node_id'\)[\s\S]{0,220}this\.epoch = storedEpoch\(store\)/,
+  'il sincronizzatore deve ripristinare identità del nodo ed epoch persistiti',
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/supabaseSync.mjs',
