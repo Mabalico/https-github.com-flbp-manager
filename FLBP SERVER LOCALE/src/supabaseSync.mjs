@@ -22,6 +22,11 @@ const canonicalSnapshotChecksum = (state, publicState) => crypto.createHash('sha
   .update(JSON.stringify(canonicalize(publicState || {})))
   .digest('hex');
 
+const storedEpoch = (store) => Number(
+  String(store.getMeta('pending_primary_epoch', '') || '').trim()
+  || String(store.getMeta('primary_epoch', '0') || '0').trim(),
+) || null;
+
 const errorBody = async (response) => {
   try {
     return (await response.text()) || `${response.status} ${response.statusText}`;
@@ -95,7 +100,7 @@ export class SupabaseSync {
     this.store = store;
     this.nodeId = config.nodeId || store.getMeta('node_id') || `windows-${crypto.randomUUID()}`;
     store.setMeta('node_id', this.nodeId);
-    this.epoch = Number(store.getMeta('pending_primary_epoch', store.getMeta('primary_epoch', '0'))) || null;
+    this.epoch = storedEpoch(store);
     this.syncInFlight = null;
     this.syncRequested = false;
     this.syncTimer = null;
@@ -266,7 +271,7 @@ export class SupabaseSync {
     const current = this.store.getCurrent();
     if (!current) throw new Error('Snapshot locale mancante: transizione non riconciliabile.');
     if (!this.epoch) {
-      this.epoch = Number(this.store.getMeta('pending_primary_epoch', this.store.getMeta('primary_epoch', '0'))) || null;
+      this.epoch = storedEpoch(this.store);
     }
     if (!this.epoch) throw new Error('Epoch locale mancante: transizione non riconciliabile.');
     const transition = this.store.getTransitionState();
