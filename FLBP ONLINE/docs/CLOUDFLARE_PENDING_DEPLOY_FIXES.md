@@ -33,6 +33,11 @@ Effetto atteso:
 - le viste pubbliche e TV si basano sullo snapshot pubblico coerente
 - il referto arbitri salvato non deve piu' sparire dietro una vista stale
 
+Correzione aggiuntiva pubblicata il 13 agosto 2026:
+- un timestamp/cursore Admin conservato nel browser non viene piu' usato per scartare il mirror pubblico
+- appena `public_workspace_state` o `public_workspace_live` risponde, il mirror Supabase diventa autorevole per le viste pubbliche e TV
+- questo evita che un browser usato in precedenza durante la modalita' locale resti bloccato su un tabellone intermedio anche dopo refresh
+
 ### 2) TV bracket riallineata ai match live aggiornati
 
 Obiettivo:
