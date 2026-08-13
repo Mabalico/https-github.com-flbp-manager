@@ -3,7 +3,7 @@ import { Home } from './components/Home';
 import { PublicBrandStack } from './components/PublicBrandStack';
 import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
-import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
+import { getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
 import { acknowledgePlayerAppCall, clearPlayerSupabaseSession, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullPlayerAppCalls, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession, SUPABASE_AUTH_STATE_CHANGE_EVENT } from './services/supabaseRest';
 import { PLAYER_APP_CHANGE_EVENT, mapSupabaseCallRowToPlayerCallRequest, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerCallRequest, type PlayerPresenceSnapshot, clearPlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
@@ -17,6 +17,7 @@ import { resolveDataPlane } from './services/dataPlaneClient';
 import {
     writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
+import { mergePublicViewState } from './services/publicViewState';
 import { BadgeCheck, BellRing, Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut, Shield } from 'lucide-react';
 
 type UiErrorBoundaryProps = {
@@ -459,8 +460,6 @@ const App: React.FC = () => {
     const lastRemoteUpdatedAtRef = useRef<string | null>(null);
     const [remoteBootstrapStatus, setRemoteBootstrapStatus] = useState<'idle' | 'booting' | 'ready'>('idle');
     const [publicDbState, setPublicDbState] = useState<AppState | null>(null);
-    const [publicDbUpdatedAt, setPublicDbUpdatedAt] = useState<string | null>(null);
-    const publicDbUpdatedAtRef = useRef<string | null>(null);
     const VIEW_KEY = 'flbp_view';
     const POST_RELOAD_VIEW_KEY = 'flbp_post_reload_view';
     const LANG_KEY = 'flbp_lang';
@@ -747,43 +746,8 @@ const App: React.FC = () => {
     };
 
     const stateForPublicViews = React.useMemo<AppState>(() => {
-        if (!publicDbState) return state;
-
-        const remoteBaseUpdatedAt = getRemoteBaseUpdatedAt();
-        const publicDbTs = Date.parse(String(publicDbUpdatedAt || ''));
-        const remoteBaseTs = Date.parse(String(remoteBaseUpdatedAt || ''));
-        const publicSnapshotIsStale =
-            Number.isFinite(remoteBaseTs)
-            && (!Number.isFinite(publicDbTs) || remoteBaseTs > publicDbTs);
-
-        if (publicSnapshotIsStale) {
-            return state;
-        }
-
-        const publicHistory = Array.isArray(publicDbState.tournamentHistory) ? publicDbState.tournamentHistory : [];
-        const localHistory = Array.isArray(state.tournamentHistory) ? state.tournamentHistory : [];
-        const publicHall = Array.isArray(publicDbState.hallOfFame) ? publicDbState.hallOfFame : [];
-        const localHall = Array.isArray(state.hallOfFame) ? state.hallOfFame : [];
-        const publicScorers = Array.isArray(publicDbState.integrationsScorers) ? publicDbState.integrationsScorers : [];
-        const localScorers = Array.isArray(state.integrationsScorers) ? state.integrationsScorers : [];
-        const publicAliases = publicDbState.playerAliases && Object.keys(publicDbState.playerAliases).length
-            ? publicDbState.playerAliases
-            : state.playerAliases;
-
-        return {
-            ...state,
-            ...publicDbState,
-            tournament: publicDbState.tournament ?? state.tournament,
-            tournamentMatches: (publicDbState.tournamentMatches && publicDbState.tournamentMatches.length)
-                ? publicDbState.tournamentMatches
-                : state.tournamentMatches,
-            tournamentHistory: publicHistory.length ? publicHistory : localHistory,
-            hallOfFame: publicHall.length ? publicHall : localHall,
-            integrationsScorers: publicScorers.length ? publicScorers : localScorers,
-            playerAliases: publicAliases || {},
-            logo: publicDbState.logo || state.logo || '',
-        };
-    }, [publicDbState, publicDbUpdatedAt, state]);
+        return mergePublicViewState(state, publicDbState);
+    }, [publicDbState, state]);
 
     const hasAdminSnapshotSession = !!getSupabaseAccessToken();
     const stateForPlayerArea = React.useMemo<AppState>(() => (
@@ -927,8 +891,6 @@ const App: React.FC = () => {
     useEffect(() => {
         if (!publicDbReadEnabled()) {
             setPublicDbState(null);
-            setPublicDbUpdatedAt(null);
-            publicDbUpdatedAtRef.current = null;
             return;
         }
 
@@ -959,9 +921,6 @@ const App: React.FC = () => {
                 const next = await coerceLoadedAppState(row.state);
                 if (cancelled) return false;
                 setPublicDbState(next);
-                const nextUpdatedAt = row.updated_at || null;
-                publicDbUpdatedAtRef.current = nextUpdatedAt;
-                setPublicDbUpdatedAt(nextUpdatedAt);
             } catch {
                 // silent fallback to local state
                 return false;
@@ -990,9 +949,6 @@ const App: React.FC = () => {
                     }
                     return coerceAppState(next);
                 });
-                const nextUpdatedAt = row.updated_at || null;
-                publicDbUpdatedAtRef.current = nextUpdatedAt;
-                setPublicDbUpdatedAt(nextUpdatedAt);
             } catch {
                 return false;
             }

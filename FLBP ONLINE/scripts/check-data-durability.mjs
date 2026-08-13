@@ -37,6 +37,16 @@ if (!remoteRepository.includes('acknowledgeRemoteDraftCache')) {
 }
 
 const app = read('App.tsx');
+forbidPattern(
+  'App.tsx',
+  /getRemoteBaseUpdatedAt\(\)[\s\S]{0,500}publicSnapshotIsStale/,
+  'un cursore Admin persistito nel browser non deve scavalcare il mirror Supabase nelle viste pubbliche',
+);
+requirePattern(
+  'App.tsx',
+  /mergePublicViewState\(state, publicDbState\)/,
+  'le viste pubbliche devono adottare il mirror Supabase appena disponibile',
+);
 const checkpointStart = app.indexOf('const checkpointLocally');
 const checkpointEnd = app.indexOf('const onLiveStateCommitted', checkpointStart);
 const checkpointBlock = checkpointStart >= 0 && checkpointEnd > checkpointStart ? app.slice(checkpointStart, checkpointEnd) : '';
