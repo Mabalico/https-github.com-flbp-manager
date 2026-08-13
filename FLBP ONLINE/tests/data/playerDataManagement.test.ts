@@ -7,6 +7,7 @@ import { buildTitledHallOfFameRows } from '../../services/hallOfFameView';
 import { generateTournamentStructure } from '../../services/tournamentEngine';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../services/playerIdentity';
 import { __buildNormalizedTournamentRowsForTest } from '../../services/supabaseRest';
+import { mergePublicViewState } from '../../services/publicViewState';
 import sampleBackup from '../../docs/sample_backup.json';
 
 const makeBirthDate = (year: number) => `${year}-01-01`;
@@ -603,6 +604,33 @@ defineCase('normalized tournament row mapper matches the legacy export mapping f
   const legacyRows = buildLegacyTournamentRowsForTest(sampleState, entry, workspaceId, nowIso);
 
   assertEqual(JSON.stringify(nextRows), JSON.stringify(legacyRows));
+});
+
+defineCase('public mirror remains authoritative when the browser holds a newer stale admin cursor', () => {
+  const staleMatch = makeMatch('live-match', 'T1', 'T2', []);
+  staleMatch.status = 'scheduled';
+  staleMatch.played = false;
+  staleMatch.scoreA = 0;
+  staleMatch.scoreB = 0;
+
+  const freshMatch = { ...staleMatch, status: 'finished' as const, played: true, scoreA: 10, scoreB: 8 };
+  const staleTournament = { ...tournament, id: 'live', name: 'Stale browser copy', matches: [staleMatch], rounds: [[staleMatch]] };
+  const freshTournament = { ...staleTournament, name: 'Fresh public mirror', matches: [freshMatch], rounds: [[freshMatch]] };
+  const localState: AppState = {
+    ...baseState,
+    tournament: staleTournament,
+    tournamentMatches: [staleMatch],
+  };
+  const publicState: AppState = {
+    ...baseState,
+    tournament: freshTournament,
+    tournamentMatches: [freshMatch],
+  };
+
+  const merged = mergePublicViewState(localState, publicState);
+  assertEqual(merged.tournament?.name, 'Fresh public mirror');
+  assertEqual(merged.tournamentMatches[0]?.status, 'finished');
+  assertEqual(merged.tournamentMatches[0]?.scoreA, 10);
 });
 
 let failed = 0;
