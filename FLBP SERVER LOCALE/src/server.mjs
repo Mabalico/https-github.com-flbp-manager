@@ -244,6 +244,7 @@ export const createLocalServer = (overrides = {}) => {
           if (result?.action === 'resume-local') {
             void sync.scheduleOutboxSync({ immediate: true });
             void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
+            void sync.syncLiveNormalizedSnapshot().catch((error) => console.error('[normalized-live:startup]', error.message));
             void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
           }
         }).catch((error) => console.error('[reconcile:startup]', error.message));
@@ -251,6 +252,7 @@ export const createLocalServer = (overrides = {}) => {
         void sync.heartbeat().catch((error) => console.error('[heartbeat:startup]', error.message));
         void sync.scheduleOutboxSync({ immediate: true });
         void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
+        void sync.syncLiveNormalizedSnapshot().catch((error) => console.error('[normalized-live:startup]', error.message));
         void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
       }
     }
@@ -462,6 +464,7 @@ export const createLocalServer = (overrides = {}) => {
             void sync.heartbeat().catch((error) => console.error('[heartbeat:activation]', error.message));
             void sync.scheduleOutboxSync({ immediate: true });
             void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:activation]', error.message));
+            void sync.syncLiveNormalizedSnapshot().catch((error) => console.error('[normalized-live:activation]', error.message));
             return sendJson(response, 200, { ok: true, activated, ...store.status() }, cors);
           } catch (error) {
             store.setTransitionState('activation-error');
@@ -479,6 +482,10 @@ export const createLocalServer = (overrides = {}) => {
             ? await sync.pruneCloudHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions })
             : { skipped: true, reason: 'backup-completo-non-verificato' };
           return sendJson(response, 200, { ok: true, result, secondary, retention, cloudRetention, ...store.status() }, cors);
+        }
+        if (url.pathname === '/control/sync-normalized') {
+          const result = await sync.syncLiveNormalizedSnapshot();
+          return sendJson(response, 200, { ok: true, normalized: result, ...store.status() }, cors);
         }
         if (url.pathname === '/control/deactivate') {
           const currentTransition = store.getTransitionState();

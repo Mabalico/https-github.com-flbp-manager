@@ -646,14 +646,6 @@ export const syncTournamentRosterFromStructure = (
 ): TournamentStructureSnapshot => {
   const next = cloneSnapshot(snapshot);
   const catalogById = getCatalogTeamMap(next);
-  const keep = new Map<string, Team>();
-
-  for (const team of next.tournament.teams || []) {
-    const id = String(team.id || '').trim();
-    if (!id) continue;
-    keep.set(id, { ...team });
-  }
-
   const referencedIds = new Set<string>();
   for (const group of next.tournament.groups || []) {
     for (const team of group.teams || []) {
@@ -670,13 +662,26 @@ export const syncTournamentRosterFromStructure = (
     }
   }
 
+  // The live roster must mirror the structure, while catalogTeams remains the
+  // complete registration catalog. Keeping an unassigned team in
+  // tournament.teams makes CLEAR_BRACKET_SLOT impossible to apply because the
+  // validator correctly reports that roster member as excluded.
+  const keep = new Map<string, Team>();
+  for (const team of next.tournament.teams || []) {
+    const id = String(team.id || '').trim();
+    if (!id || !referencedIds.has(id)) continue;
+    keep.set(id, { ...team });
+  }
+
   for (const id of referencedIds) {
     if (keep.has(id)) continue;
     const fromCatalog = catalogById.get(id);
     if (fromCatalog) keep.set(id, { ...fromCatalog });
   }
 
-  const originalOrder = (next.tournament.teams || []).map((team) => String(team.id || '').trim());
+  const originalOrder = (next.tournament.teams || [])
+    .map((team) => String(team.id || '').trim())
+    .filter((id) => referencedIds.has(id));
   const extraOrder = (next.catalogTeams || [])
     .map((team) => String(team.id || '').trim())
     .filter((id) => referencedIds.has(id) && !originalOrder.includes(id));

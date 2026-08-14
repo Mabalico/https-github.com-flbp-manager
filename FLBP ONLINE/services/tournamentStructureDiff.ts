@@ -101,18 +101,27 @@ export const diffTournamentStructure = (
 
   const bracketChanges = buildBracketSlotDiffs(original, draft, false).filter((diff) => diff.round === 1);
   const futureBracketChanges = buildBracketSlotDiffs(original, draft, true);
+  const originalMatchIds = (original.matches || []).map((match) => String(match.id || ''));
+  const draftMatchIds = (draft.matches || []).map((match) => String(match.id || ''));
+  const structureChanged =
+    originalMatchIds.length !== draftMatchIds.length ||
+    originalMatchIds.some((matchId, index) => matchId !== draftMatchIds[index]);
   const changedGroupIds = Array.from(
     new Set(
       groupChanges.flatMap((change) => [change.from?.containerId, change.to?.containerId].filter(Boolean) as string[])
     )
   );
-  const changedMatchIds = Array.from(
-    new Set([...bracketChanges, ...futureBracketChanges].map((change) => change.matchId))
-  );
+  const changedMatchIds = Array.from(new Set([
+    ...[...bracketChanges, ...futureBracketChanges].map((change) => change.matchId),
+    ...(structureChanged
+      ? draftMatchIds.filter((matchId, index) => matchId && matchId !== originalMatchIds[index])
+      : []),
+  ]));
 
   return {
-    changed: groupChanges.length > 0 || bracketChanges.length > 0 || futureBracketChanges.length > 0,
-    operationsCount: groupChanges.length + bracketChanges.length + futureBracketChanges.length,
+    changed: structureChanged || groupChanges.length > 0 || bracketChanges.length > 0 || futureBracketChanges.length > 0,
+    structureChanged,
+    operationsCount: groupChanges.length + bracketChanges.length + futureBracketChanges.length + (structureChanged ? 1 : 0),
     groupChanges,
     bracketChanges,
     futureBracketChanges,

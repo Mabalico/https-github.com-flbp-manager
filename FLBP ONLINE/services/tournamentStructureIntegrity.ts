@@ -20,10 +20,16 @@ export interface TournamentStructureIntegritySummary {
 export const buildTournamentStructureIntegritySummary = (
   snapshot: TournamentStructureSnapshot
 ): TournamentStructureIntegritySummary => {
-  const rosterAllIds = (snapshot.catalogTeams || [])
+  const rosterAllIds = (snapshot.tournament.teams || [])
     .filter((team) => !team.hidden && !team.isBye)
     .map((team) => String(team.id || '').trim())
     .filter((id) => !!id && !isPlaceholderTeamId(id));
+
+  const catalogIds = new Set(
+    (snapshot.catalogTeams || [])
+      .map((team) => String(team.id || '').trim())
+      .filter((id) => !!id && !isPlaceholderTeamId(id))
+  );
 
   const rosterCount = new Map<string, number>();
   for (const id of rosterAllIds) rosterCount.set(id, (rosterCount.get(id) || 0) + 1);
@@ -43,7 +49,7 @@ export const buildTournamentStructureIntegritySummary = (
       occ.count += 1;
       occ.groups.add(group.name);
       groupOcc.set(id, occ);
-      if (!rosterCount.has(id)) unknown.add(id);
+      if (!catalogIds.has(id)) unknown.add(id);
     }
   }
 
@@ -54,7 +60,7 @@ export const buildTournamentStructureIntegritySummary = (
       if (!id || isPlaceholderTeamId(id)) continue;
       included.add(id);
       bracketOcc.set(id, (bracketOcc.get(id) || 0) + 1);
-      if (!rosterCount.has(id)) unknown.add(id);
+      if (!catalogIds.has(id)) unknown.add(id);
     }
   }
 
@@ -63,7 +69,7 @@ export const buildTournamentStructureIntegritySummary = (
       const id = String(idRaw || '').trim();
       if (!id || isPlaceholderTeamId(id)) continue;
       included.add(id);
-      if (!rosterCount.has(id)) unknown.add(id);
+      if (!catalogIds.has(id)) unknown.add(id);
     }
   }
 

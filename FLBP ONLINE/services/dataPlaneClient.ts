@@ -22,6 +22,13 @@ export type LocalWorkspaceRow = {
 };
 
 const ROUTE_CACHE_MS = 25_000;
+// A durable local write is acknowledged only after SQLite and the required
+// secondary replica contain the same version. On the tournament PC that copy
+// can legitimately take more than 12 seconds as history grows; aborting at the
+// old threshold produced a false UI failure even though the server completed
+// the idempotent commit. Keep the client window comfortably above the physical
+// backup time and let retries reuse the same operation id.
+const DURABLE_LOCAL_WRITE_TIMEOUT_MS = 60_000;
 const LAST_ROUTE_LS_KEY = 'flbp_last_data_plane_route_v1';
 export const DATA_PLANE_CHANGE_LS_KEY = 'flbp_data_plane_change_v1';
 export const DATA_PLANE_CHANGE_EVENT = 'flbp-data-plane-change';
@@ -298,7 +305,7 @@ export const commitLocalWorkspace = async (route: DataPlaneRoute, input: {
       'x-flbp-writer-id': input.writerId,
     },
     body: JSON.stringify(input),
-  }, 12_000);
+  }, DURABLE_LOCAL_WRITE_TIMEOUT_MS);
   let response = await request();
   if (response.status === 401) {
     setLocalAdminToken('');
@@ -339,7 +346,7 @@ export const commitLocalMatchResult = async (route: DataPlaneRoute, input: {
       ...(input.admin && input.writerId ? { 'x-flbp-writer-id': input.writerId } : {}),
     },
     body: JSON.stringify({ ...input, operationId: stableId }),
-  }, 12_000);
+  }, DURABLE_LOCAL_WRITE_TIMEOUT_MS);
   let response = await request();
   if (input.admin && response.status === 401) {
     setLocalAdminToken('');

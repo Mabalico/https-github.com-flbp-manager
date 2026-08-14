@@ -579,6 +579,8 @@ export class LocalStore {
       lastBackupAt: this.getMeta('last_backup_at'),
       lastPublicLiveAt: this.getMeta('last_public_live_at'),
       lastPublicLiveVersion: Number(this.getMeta('last_public_live_version', '0')) || null,
+      lastNormalizedSyncAt: this.getMeta('last_normalized_sync_at'),
+      lastNormalizedSyncVersion: Number(this.getMeta('last_normalized_sync_version', '0')) || null,
       lastSecondaryBackupAt: this.getMeta('last_secondary_backup_at'),
       lastSecondaryBackupVersion: Number(this.getMeta('last_secondary_backup_version', '0')) || null,
       adminWriterLease: this.getAdminWriterLease(),

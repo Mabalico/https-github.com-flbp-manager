@@ -257,6 +257,8 @@ Sync/diagnostica:
 - `services/dbDiagnostics.ts`
 - Feature flags: `services/repository/featureFlags.ts`
 - `RemoteRepository` mantiene una bozza locale pending e tenta il flush remoto solo quando è disponibile una sessione admin Supabase; in caso di errore/conflitto non perde le modifiche locali
+- Quando un referto Admin viene confermato tramite la patch dedicata `match-result`, il repository acquisisce immediatamente versione e timestamp della propria operazione e salta lo snapshot completo ridondante: il referto non genera quindi un falso conflitto sulla versione precedente.
+- Nel dettaglio del torneo live il conteggio squadre usa il roster del torneo corrente; il catalogo globale resta soltanto un fallback per dati legacy privi di roster.
 - le write admin dello snapshot completo non fanno più solo un preflight client: passano da `public.flbp_admin_push_workspace_state(...)`, che aggiorna `workspace_state` e `public_workspace_state` in modo atomico e blocca i conflitti salvo forzatura esplicita
 - Helper identità giocatore condivisi: `services/playerIdentity.ts` (`pickPlayerIdentityValue` per il modello corrente, `pickStoredPlayerIdentityValue` come fallback compatibile sui dati legacy con YoB)
 - Backup JSON: `services/backupJsonService.ts` (`parseBackupJsonState`, `mergeBackupJsonState`, `inspectBackupJsonState`)
@@ -313,6 +315,10 @@ In `components/AdminDashboard.tsx`:
     - i conteggi del pannello usano le squadre visibili del draft/live corrente quando disponibile, non il catalogo globale squadre
     - preliminari: ricavati da qualsiasi turno bracket incompleto con BYE (match real-vs-real), così l’aggiunta successiva di nuove squadre/preliminari aggiorna la story dedicata senza mescolare quei match negli slot normali
     - export PNG via Canvas API (senza dipendenze) + salvataggio config in localStorage (`flbp_social_graphics_v1`)
+- `components/admin/tabs/TournamentEditorTab.tsx`
+  - Editor strutturale live con bozza, Preview obbligatoria e Apply protetto.
+  - Il roster del torneo viene sincronizzato con le squadre realmente referenziate da gironi e match; una squadra rimossa da uno slot non resta quindi come partecipante esclusa. La squadra rimane nel catalogo generale e può essere reinserita senza perdere storico o iscrizione.
+  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone sul roster corrente; serve anche a compattare un bracket dopo rimozioni, eliminando livelli BYE non più necessari.
 - `components/admin/tabs/ReportsTab.tsx`
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`
   - simulazione: `services/simulationService.ts` (`simulateMatchResult`)

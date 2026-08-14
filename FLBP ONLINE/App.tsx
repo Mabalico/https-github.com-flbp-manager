@@ -1179,9 +1179,58 @@ const App: React.FC = () => {
         };
 
         const onLiveStateCommitted = (event: Event) => {
-            const detail = (event as CustomEvent<{ state?: AppState; skipStructuredSync?: boolean }>).detail;
+            const detail = (event as CustomEvent<{
+                state?: AppState;
+                skipStructuredSync?: boolean;
+                skipRepositoryPersist?: boolean;
+                requireDurableRepositoryCommit?: boolean;
+                committedUpdatedAt?: string | null;
+                committedVersion?: number | null;
+                committedOperationId?: string | null;
+                resolveDurableCommit?: () => void;
+                rejectDurableCommit?: (error: Error) => void;
+            }>).detail;
             const nextState = detail?.state;
             if (!nextState) return;
+            if (detail?.requireDurableRepositoryCommit) {
+                // Award/archive confirmations must be shown only after the
+                // repository has confirmed the durable local/cloud commit.
+                // Persist the supplied snapshot directly and suppress the
+                // normal React-state debounce that will follow on success.
+                skipNextPersistRef.current = true;
+                if (saveTimeoutRef.current) {
+                    window.clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                void (async () => {
+                    try {
+                        repo.save(nextState);
+                        await repo.flush?.();
+                        if (hasRemoteDraftCache()) {
+                            throw new Error('Il salvataggio resta nella coda durevole e non è ancora stato confermato.');
+                        }
+                        detail.resolveDurableCommit?.();
+                        if (!detail.skipStructuredSync) {
+                            await loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => (
+                                flushAutoStructuredSync(nextState, { force: true })
+                            ));
+                        }
+                    } catch (error) {
+                        detail.rejectDurableCommit?.(
+                            error instanceof Error ? error : new Error(String(error))
+                        );
+                    }
+                })();
+                return;
+            }
+            if (detail?.skipRepositoryPersist) {
+                skipNextPersistRef.current = true;
+                repo.acknowledgeExternalCommit?.(nextState, {
+                    updatedAt: detail.committedUpdatedAt || undefined,
+                    version: detail.committedVersion ?? null,
+                    operationId: detail.committedOperationId ?? null,
+                });
+            }
             if (detail?.skipStructuredSync) return;
             void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
                 return flushAutoStructuredSync(nextState, { force: true });
@@ -1224,6 +1273,14 @@ const App: React.FC = () => {
     useEffect(() => {
         try { localStorage.removeItem(VIEW_KEY); } catch {}
     }, []);
+
+    useEffect(() => {
+        // Window-scoped signal used by RemoteRepository to decide whether a
+        // full workspace draft is an intentional Admin edit. sessionStorage is
+        // deliberately per-window: a public/TV tab must not become a writer
+        // merely because another tab opened the Admin area.
+        try { sessionStorage.setItem('flbp_active_view_v1', String(view || 'home')); } catch {}
+    }, [view]);
 
     useEffect(() => {
         try { sessionStorage.removeItem(POST_RELOAD_VIEW_KEY); } catch {}
@@ -1524,7 +1581,11 @@ const App: React.FC = () => {
                     const snapshotMatches = snapshotTournament?.matches || (snapshotTournament?.rounds ? snapshotTournament.rounds.flat() : []);
                     const matches = (selectedTournament.isLive ? stateForPublicViews.tournamentMatches : (snapshotMatches || selectedTournament.data.matches || [])) || [];
 
-                    const teams = (selectedTournament.isLive ? stateForPublicViews.teams : (snapshotTournament?.teams || selectedTournament.data.teams || [])) || [];
+                    const teams = (selectedTournament.isLive
+                        ? ((snapshotTournament?.teams && snapshotTournament.teams.length)
+                            ? snapshotTournament.teams
+                            : stateForPublicViews.teams)
+                        : (snapshotTournament?.teams || selectedTournament.data.teams || [])) || [];
 
                     return (
                         <React.Suspense fallback={<RouteViewFallback /> }>

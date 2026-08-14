@@ -73,6 +73,11 @@ const deriveDefaultLabel = (): string => {
 const isMissingLeaseRpc = (message: string): boolean =>
   message.includes('PGRST202') || message.includes('Could not find the function');
 
+const isAbortLike = (error: unknown): boolean => {
+  const message = String((error as any)?.message || error || '').toLowerCase();
+  return (error as any)?.name === 'AbortError' || message.includes('signal is aborted') || message.includes('aborterror');
+};
+
 const leaseRpc = async (
   name: string,
   body: Record<string, unknown>,
@@ -162,6 +167,17 @@ const tick = async (takeover = false): Promise<void> => {
     }
   } catch (e: any) {
     const message = String(e?.message || e || '');
+    if (isAbortLike(e)) {
+      // Reload/pagehide can abort the obsolete request after the new page has
+      // already started. Keep the UI fail-closed while immediately asking the
+      // current page to verify its own lease again instead of surfacing a
+      // permanent, misleading write-authority error.
+      setAdminLeaseInfo({ status: 'acquiring', holderId, lastError: null });
+      setTimeout(() => {
+        if (inited) void tick(false);
+      }, 300);
+      return;
+    }
     if (isMissingLeaseRpc(message)) {
       // DB senza la migration del lease: feature disattivata, nessun gating.
       stopTimer();

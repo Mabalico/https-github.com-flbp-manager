@@ -33,6 +33,8 @@ Se Internet cade o la finestra viene riaperta, l’Admin può continuare per 36 
 2. Ogni operazione ha un ID stabile; un retry è idempotente.
 3. Un commit full-state richiede la versione base corrente.
 4. I referti aggiornano solo i match dichiarati e rifiutano una data referto precedente.
+5. Dopo una patch referto confermata, la stessa finestra Admin avanza il proprio cursore di versione senza inviare uno snapshot completo stale; la bozza browser viene chiusa solo per quell'operazione.
+6. Un `AbortError` prodotto dal reload della pagina non revoca da solo l'autorità Admin: la nuova pagina resta bloccata in acquisizione e ripete subito la verifica del lease.
 5. Nessuna scrittura di rete parte da `beforeunload`, `pagehide` o pagina nascosta.
 6. Una finestra Admin passiva non crea nemmeno una bozza ripristinabile.
 7. Supabase e server locale non sono mai scrivibili contemporaneamente per lo stesso workspace.

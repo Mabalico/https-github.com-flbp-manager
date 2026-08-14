@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LocalStore } from '../src/store.mjs';
 import { buildSupabaseServerHeaders, SupabaseSync } from '../src/supabaseSync.mjs';
 
@@ -54,7 +55,8 @@ test('outbox rows are cleared only after the transactional RPC confirms every op
   };
 
   const result = await sync.syncOutbox();
-  assert.equal(request.name, 'flbp_local_append_operations');
+  assert.equal(request.name, 'flbp_local_append_operations_v2');
+  assert.deepEqual(request.body.p_state, store.getCurrent().state);
   assert.equal(request.body.p_epoch, 7);
   assert.equal(request.body.p_operations[0].operation_id, 'local-v2');
   assert.equal(request.body.p_operations[0].local_version, 2);
@@ -133,3 +135,36 @@ test('live publication uploads only the compact public projection', () => withSy
   assert.equal(body.p_public_state.tournamentHistory, undefined);
   assert.ok(Array.isArray(body.p_public_state.tournamentMatches));
 }));
+
+test('the local normalized migration seals archived tournament projections', () => {
+  const migrationsDir = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'FLBP ONLINE',
+    'supabase',
+    'migrations',
+  );
+  const migration = fs.readFileSync(
+    path.join(migrationsDir, '20260815000200_local_archived_normalized_sync.sql'),
+    'utf8',
+  );
+  assert.match(migration, /flbp_local_sync_full_normalized_internal/);
+  assert.match(migration, /tournamentHistory/);
+  assert.match(migration, /set status = 'archived'/);
+  assert.match(migration, /v_full_sync then[\s\S]*flbp_local_sync_full_normalized_internal/);
+
+  const archiveRepair = fs.readFileSync(
+    path.join(migrationsDir, '20260815000300_local_hof_fanta_archive_sync.sql'),
+    'utf8',
+  );
+  assert.match(archiveRepair, /flbp_local_sync_hof_internal/);
+  assert.match(archiveRepair, /flbp_local_refresh_archived_fanta_internal/);
+
+  const scoringRepair = fs.readFileSync(
+    path.join(migrationsDir, '20260815000400_restore_fanta_live_scoring_views.sql'),
+    'utf8',
+  );
+  assert.match(scoringRepair, /for v_ordinal in 1\.\.15 loop/);
+  assert.match(scoringRepair, /points_from_awards/);
+});

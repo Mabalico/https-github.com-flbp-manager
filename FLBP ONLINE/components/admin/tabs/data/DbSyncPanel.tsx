@@ -56,7 +56,11 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
     }, [t]);
     const cfg = getSupabaseConfig();
     const [panel, setPanel] = React.useState<PanelState>({ kind: 'idle' });
-    const [downloaded, setDownloaded] = React.useState<{ updatedAt?: string; state?: AppState } | null>(null);
+    const [downloaded, setDownloaded] = React.useState<{
+        updatedAt?: string;
+        version?: number | null;
+        state?: AppState;
+    } | null>(null);
     const [downloadedStructured, setDownloadedStructured] = React.useState<{ updatedAt?: string | null; state?: AppState; summary?: any } | null>(null);
     const [token, setToken] = React.useState<string>(getSupabaseAccessToken() || '');
     const [authEmail, setAuthEmail] = React.useState<string>(getSupabaseSession()?.email || getConfiguredAdminEmail());
@@ -261,7 +265,11 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
             setPanel({ kind: 'error', message: t('db_no_state_found') });
             return;
         }
-        setDownloaded({ updatedAt: row.updated_at, state: row.state as AppState });
+        setDownloaded({
+            updatedAt: row.updated_at,
+            version: row.version ?? null,
+            state: row.state as AppState,
+        });
         markRemoteVersions({ remoteUpdatedAt: row.updated_at || null, remoteBaseUpdatedAt: getRemoteBaseUpdatedAt() });
         clearDbSyncCurrentIssue();
         setDiagTick((x) => x + 1);
@@ -308,6 +316,20 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         const ok = window.confirm(t('db_apply_download_confirm'));
         if (!ok) return;
         clearRemoteDraftCache();
+        // Applying an authoritative download is a hydration, not a new Admin
+        // edit. Acknowledge its cursor before React updates the app state so
+        // the normal persistence effect cannot recreate the discarded draft
+        // or send a redundant full-workspace commit.
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: {
+                state: downloaded.state,
+                skipRepositoryPersist: true,
+                skipStructuredSync: true,
+                committedUpdatedAt: downloaded.updatedAt || null,
+                committedVersion: downloaded.version ?? null,
+                committedOperationId: null,
+            },
+        }));
         setState(downloaded.state);
         setRemoteBaseUpdatedAt(downloaded.updatedAt || null);
         markRemoteVersions({ remoteUpdatedAt: downloaded.updatedAt || null, remoteBaseUpdatedAt: downloaded.updatedAt || null });
