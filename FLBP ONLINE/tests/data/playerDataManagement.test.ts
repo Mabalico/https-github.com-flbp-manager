@@ -633,6 +633,31 @@ defineCase('public mirror remains authoritative when the browser holds a newer s
   assertEqual(merged.tournamentMatches[0]?.scoreA, 10);
 });
 
+defineCase('public live mirror clears a tournament archived after the last full backup', () => {
+  const staleMatch = makeMatch('stale-live-match', 'T1', 'T2', []);
+  const staleTournament = {
+    ...tournament,
+    id: 'stale-live',
+    name: 'Torneo già archiviato',
+    matches: [staleMatch],
+    rounds: [[staleMatch]],
+  };
+  const staleBrowserState: AppState = {
+    ...baseState,
+    tournament: staleTournament,
+    tournamentMatches: [staleMatch],
+  };
+  const compactLiveMirror: AppState = {
+    ...baseState,
+    tournament: null,
+    tournamentMatches: [],
+  };
+
+  const merged = mergePublicViewState(staleBrowserState, compactLiveMirror);
+  assertEqual(merged.tournament, null);
+  assertEqual(merged.tournamentMatches.length, 0);
+});
+
 let failed = 0;
 for (const entry of cases) {
   try {

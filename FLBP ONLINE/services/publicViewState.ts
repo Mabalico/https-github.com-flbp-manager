@@ -25,10 +25,13 @@ export const mergePublicViewState = (
   return {
     ...localState,
     ...publicState,
-    tournament: publicState.tournament ?? localState.tournament,
-    tournamentMatches: (publicState.tournamentMatches && publicState.tournamentMatches.length)
+    // Once the public mirror answered, null/empty are authoritative too: they
+    // are how an archived tournament clears the previous live card. Falling
+    // back on null or [] resurrected the stale browser/Admin snapshot.
+    tournament: publicState.tournament || null,
+    tournamentMatches: Array.isArray(publicState.tournamentMatches)
       ? publicState.tournamentMatches
-      : localState.tournamentMatches,
+      : [],
     tournamentHistory: publicHistory.length ? publicHistory : localHistory,
     hallOfFame: publicHall.length ? publicHall : localHall,
     integrationsScorers: publicScorers.length ? publicScorers : localScorers,

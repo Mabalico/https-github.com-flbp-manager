@@ -995,7 +995,15 @@ const App: React.FC = () => {
             }
         };
 
-        void pullFullSnapshot();
+        // The compact live row is the authoritative overlay for the current
+        // tournament, including the meaningful "no live tournament" state
+        // after an archive. Always apply it once after the full public
+        // snapshot; otherwise non-polling routes (Home and Albo d'Oro) can
+        // keep showing the last tournament from an older 30-minute backup.
+        void (async () => {
+            await pullFullSnapshot();
+            if (!cancelled) await pullLiveSnapshot();
+        })();
 
         const shouldKeepPolling = tvMode != null
             || view === 'tournament'
