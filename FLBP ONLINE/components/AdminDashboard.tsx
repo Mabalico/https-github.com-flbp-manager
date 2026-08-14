@@ -287,6 +287,32 @@ const preloadAdminContentChunk = (target: AdminChunkTarget) => {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState, onEnterTv }) => {
     const { t } = useTranslation();
+    const commitAdminStateDurably = (
+        nextState: AppState,
+        source: string,
+        options?: { skipStructuredSync?: boolean },
+    ) => new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (callback: () => void) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeoutId);
+            callback();
+        };
+        const timeoutId = window.setTimeout(() => {
+            finish(() => reject(new Error('Conferma del salvataggio non ricevuta entro 70 secondi. La bozza resta recuperabile.')));
+        }, 70_000);
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: {
+                state: nextState,
+                source,
+                skipStructuredSync: options?.skipStructuredSync === true,
+                requireDurableRepositoryCommit: true,
+                resolveDurableCommit: () => finish(resolve),
+                rejectDurableCommit: (error: Error) => finish(() => reject(error)),
+            },
+        }));
+    });
     const commitLiveMatches = (matches: Match[], tournamentOverride?: TournamentData | null) => {
         const nextTournamentBase = tournamentOverride === undefined ? state.tournament : tournamentOverride;
         const nextTournament = nextTournamentBase
@@ -3018,6 +3044,13 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     const prepareRefereeCounterEmailDraft = (snapshot: AppState) => {
         const rows = buildRefereeReportCounterRows(snapshot.tournamentMatches || []);
         if (!rows.length) return;
+        // The Windows tournament app hosts this page directly from the local
+        // server. Navigating that WebView to a mailto: URL aborts the local page
+        // before the archive autosave can reach SQLite. Keep the optional email
+        // draft for the normal web app, but never navigate away from a local
+        // tournament session.
+        const hostname = String(window.location.hostname || '').trim().toLowerCase();
+        if (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') return;
         const tournamentName = snapshot.tournament?.name || 'Torneo FLBP';
         const body = [
             `Riepilogo arbitraggi - ${tournamentName}`,
@@ -3707,11 +3740,22 @@ while (guard < 5000) {
         const reportMatchesToPersist = collectChangedMatchResults(matchesBeforeReportSave, finalMatches, reportMatchId);
         try {
             try {
-                await pushAdminMatchResults({
+                const committed = await pushAdminMatchResults({
                     tournamentId: workingState.tournament?.id || state.tournament.id,
                     matchId: reportMatchId,
                     matches: reportMatchesToPersist,
                 });
+                window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+                    detail: {
+                        state: nextState,
+                        source: 'admin-save-report',
+                        skipStructuredSync: true,
+                        skipRepositoryPersist: true,
+                        committedUpdatedAt: committed.updated_at || null,
+                        committedVersion: committed.version ?? null,
+                        committedOperationId: committed.operation_id ?? null,
+                    }
+                }));
                 window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
             } catch (matchResultError) {
                 if (!isMatchResultRpcMissingError(matchResultError)) {
@@ -3739,9 +3783,13 @@ while (guard < 5000) {
             return;
         }
         setState(nextState);
-        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
-            detail: { state: nextState, source: 'admin-save-report', skipStructuredSync: true }
-        }));
+        const committedMatch = finalMatches.find((match) => match.id === reportMatchId);
+        if (committedMatch) {
+            // Keep the open report card consistent with the durable state.
+            // Previously the player inputs showed the saved values while the
+            // header stayed at the pre-save 0-0 until the match was reopened.
+            initReportFormFromMatch(committedMatch);
+        }
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
         alert(t('alert_report_saved'));
     };
@@ -4724,11 +4772,17 @@ while (guard < 5000) {
             await snapshotFantaBeforeArchive(archivedTournamentId);
             closeLiveCallsForTournament(archivedTournamentId);
             const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
-            await pushFullStructuredExportBestEffort(next, 'archive without MVP');
-            setState(next);
-            void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
-            setMvpModalOpen(false);
-            setMvpModalForArchive(false);
+            try {
+                await commitAdminStateDurably(next, 'archive-without-mvp', { skipStructuredSync: true });
+                setState(next);
+                await pushFullStructuredExportBestEffort(next, 'archive without MVP');
+                void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
+                setMvpModalOpen(false);
+                setMvpModalForArchive(false);
+                alert(t('alert_tournament_ended'));
+            } catch (error) {
+                alert(error instanceof Error ? error.message : String(error));
+            }
         }}
         onSave={async () => {
             if (!state.tournament) {
@@ -4743,18 +4797,28 @@ while (guard < 5000) {
                 await snapshotFantaBeforeArchive(archivedTournamentId);
                 closeLiveCallsForTournament(archivedTournamentId);
                 next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
-                await pushFullStructuredExportBestEffort(next, 'archive with MVP');
-                setState(next);
-                void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
-                alert(t('alert_tournament_ended'));
+                try {
+                    await commitAdminStateDurably(next, 'archive-with-mvp', { skipStructuredSync: true });
+                    setState(next);
+                    await pushFullStructuredExportBestEffort(next, 'archive with MVP');
+                    void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
+                    setMvpModalOpen(false);
+                    setMvpModalForArchive(false);
+                    alert(t('alert_tournament_ended'));
+                } catch (error) {
+                    alert(error instanceof Error ? error.message : String(error));
+                }
             } else {
                 const next = applyMvpsToState(state, mvpSelectedIds);
-                setState(next);
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
-                alert(t('alert_mvp_set'));
+                try {
+                    await commitAdminStateDurably(next, 'set-mvp');
+                    setState(next);
+                    setMvpModalOpen(false);
+                    setMvpModalForArchive(false);
+                    alert(t('alert_mvp_set'));
+                } catch (error) {
+                    alert(error instanceof Error ? error.message : String(error));
+                }
             }
         }}
         saveLabel={mvpModalForArchive ? t('save_mvp_and_archive') : t('admin_set')}

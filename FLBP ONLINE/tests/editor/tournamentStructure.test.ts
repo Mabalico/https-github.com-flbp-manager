@@ -193,6 +193,50 @@ defineCase('move to placeholder preserves original placeholder type in source sl
   assertEqual(getSlotValue(result.nextSnapshot!, 'r1m2|A'), 'TBD');
 });
 
+defineCase('clearing an unplayed bracket slot prunes only the live tournament roster', () => {
+  const a = makeTeam('A', 'Alpha');
+  const b = makeTeam('B', 'Bravo');
+  const tournament = makeTournament(
+    'elim-prune',
+    'elimination',
+    [a, b],
+    [],
+    [makeBracketMatch('r1m1', 1, 'A', 'B')]
+  );
+  const snapshot = makeSnapshot(tournament, tournament.matches || [], [a, b]);
+
+  const result = applyStructuralOperation(snapshot, {
+    type: 'CLEAR_BRACKET_SLOT',
+    slotKey: 'r1m1|B',
+  });
+
+  assertEqual(result.ok, true);
+  assertEqual(result.nextSnapshot!.tournament.teams.map((team) => team.id).join(','), 'A');
+  assertOk(result.nextSnapshot!.catalogTeams.some((team) => team.id === 'B'));
+  assertEqual(validateDraftBeforeApply(snapshot, result.nextSnapshot!).canApply, true);
+});
+
+defineCase('rebuilding a 128-team elimination roster produces seven rounds and 127 matches', () => {
+  const teams = Array.from({ length: 128 }, (_, index) => makeTeam(`T${index + 1}`));
+  const oversized = generateTournamentStructure(teams, {
+    mode: 'elimination',
+    tournamentName: '128 teams',
+  });
+  const snapshot = makeSnapshot(oversized.tournament, oversized.matches, teams);
+
+  const result = applyStructuralOperation(snapshot, { type: 'REBUILD_ELIMINATION_BRACKET' });
+
+  assertEqual(result.ok, true);
+  assertEqual(result.nextSnapshot!.matches.length, 127);
+  assertEqual(new Set(result.nextSnapshot!.matches.map((match) => match.round)).size, 7);
+  assertEqual(result.nextSnapshot!.tournament.teams.length, 128);
+  const diff = diffTournamentStructure(snapshot, result.nextSnapshot!);
+  assertEqual(diff.changed, true);
+  assertEqual(diff.structureChanged, true);
+  assertOk(diff.operationsCount >= 1);
+  assertEqual(validateDraftBeforeApply(snapshot, result.nextSnapshot!).canApply, true);
+});
+
 defineCase('validateDraftBeforeApply blocks duplicates and locked structural changes', () => {
   const a = makeTeam('A', 'Alpha');
   const b = makeTeam('B', 'Bravo');

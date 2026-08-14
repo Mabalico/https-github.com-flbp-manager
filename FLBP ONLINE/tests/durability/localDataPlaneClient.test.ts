@@ -13,7 +13,7 @@ import {
 import { RemoteRepository } from '../../services/repository/RemoteRepository';
 import { setSupabaseSession } from '../../services/supabaseRest';
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
-import { acknowledgeRemoteDraftCache, ensureRemoteDraftCacheDurable, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
+import { acknowledgeRemoteDraftCache, ensureRemoteDraftCacheDurable, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 
 class MemoryStorage {
@@ -85,6 +85,7 @@ const session = new MemoryStorage();
 const memoryIndexedDb = new MemoryIndexedDb();
 const calls: Array<{ url: string; init?: RequestInit }> = [];
 let concurrentAdminSaves = false;
+let rejectNextAdminSaveAsOperationCollision = false;
 const concurrentCommitBodies: any[] = [];
 let signalFirstCommit: (() => void) | null = null;
 let releaseFirstCommit: (() => void) | null = null;
@@ -134,13 +135,25 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}'));
     if (concurrentAdminSaves) {
       concurrentCommitBodies.push(body);
+      if (rejectNextAdminSaveAsOperationCollision) {
+        rejectNextAdminSaveAsOperationCollision = false;
+        return Response.json({
+          error: 'operationId già usato con un payload diverso.',
+          code: 'FLBP_OPERATION_COLLISION',
+        }, { status: 409 });
+      }
       if (concurrentCommitBodies.length === 1) {
         signalFirstCommit?.();
         await firstCommitGate;
         return Response.json({ ok: true, workspace_id: 'default', version: 6, updated_at: '2026-08-01T12:01:00.000Z' });
       }
       signalSecondCommit?.();
-      return Response.json({ ok: true, workspace_id: 'default', version: 7, updated_at: '2026-08-01T12:02:00.000Z' });
+      return Response.json({
+        ok: true,
+        workspace_id: 'default',
+        version: Number(body.baseVersion || 0) + 1,
+        updated_at: '2026-08-01T12:02:00.000Z',
+      });
     }
     if (body.baseVersion !== 4 || body.operationId !== 'admin-local-op-1') {
       return Response.json({ error: 'bad version or operation id' }, { status: 400 });
@@ -189,7 +202,7 @@ setSupabaseSession({
 });
 setAdminLeaseInfo({ status: 'active', holderId: 'test-writer' });
 concurrentAdminSaves = true;
-localStorage.setItem('flbp_view', 'admin');
+sessionStorage.setItem('flbp_active_view_v1', 'admin');
 const repository = new RemoteRepository({} as any, { backgroundSync: false });
 await repository.refresh();
 const firstState = { tournament: { id: 't1', name: 'Prima modifica' } } as any;
@@ -209,6 +222,64 @@ assert(concurrentCommitBodies[0].state.tournament.name === 'Prima modifica', 'th
 assert(concurrentCommitBodies[1].state.tournament.name === 'Seconda modifica, più recente', 'the newer draft was lost after the first response');
 assert(concurrentCommitBodies[0].operationId !== concurrentCommitBodies[1].operationId, 'consecutive state revisions must not reuse an in-flight operationId');
 assert(concurrentCommitBodies[1].baseVersion === 6, 'the second commit must use the confirmed version of the first commit');
+
+const externallyCommittedState = { tournament: { id: 't1', name: 'Referto confermato con patch dedicata' } } as any;
+repository.acknowledgeExternalCommit?.(externallyCommittedState, {
+  updatedAt: '2026-08-01T12:03:00.000Z',
+  version: 8,
+  operationId: 'match-result-op-1',
+});
+
+const unrelatedDraft = writeRemoteDraftCache(
+  { tournament: { id: 't1', name: 'Modifica indipendente ancora da salvare' } } as any,
+  '2026-08-01T12:03:00.000Z',
+  'unrelated-full-draft-op',
+  8,
+);
+repository.acknowledgeExternalCommit?.(externallyCommittedState, {
+  updatedAt: '2026-08-01T12:03:01.000Z',
+  version: 8,
+  operationId: 'different-match-result-op',
+});
+assert(
+  readRemoteDraftPointer()?.operationId === unrelatedDraft.operationId,
+  'a match patch must not clear a durable draft owned by another operation',
+);
+acknowledgeRemoteDraftCache('2026-08-01T12:03:01.000Z', unrelatedDraft.operationId);
+
+const commitsBeforeEquivalentSave = concurrentCommitBodies.length;
+repository.save(externallyCommittedState);
+await repository.flush();
+assert(
+  concurrentCommitBodies.length === commitsBeforeEquivalentSave,
+  'a confirmed match patch must not trigger a redundant full-workspace snapshot',
+);
+const postPatchEdit = { tournament: { id: 't1', name: 'Modifica successiva al referto' } } as any;
+repository.save(postPatchEdit);
+await repository.flush();
+assert(
+  concurrentCommitBodies.at(-1)?.baseVersion === 8,
+  `the next Admin edit must use the version confirmed by the match patch (${JSON.stringify(concurrentCommitBodies.at(-1))})`,
+);
+
+const commitsBeforeCollision = concurrentCommitBodies.length;
+rejectNextAdminSaveAsOperationCollision = true;
+const collisionRecoveryState = { tournament: { id: 't1', name: 'Retry con nuova operation id' } } as any;
+repository.save(collisionRecoveryState);
+await repository.flush();
+await Promise.race([
+  (async () => {
+    while (concurrentCommitBodies.length < commitsBeforeCollision + 2) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  })(),
+  new Promise((_, reject) => setTimeout(() => reject(new Error('operation collision retry timeout')), 2_000)),
+]);
+const collidedBody = concurrentCommitBodies[commitsBeforeCollision];
+const collisionRetryBody = concurrentCommitBodies[commitsBeforeCollision + 1];
+assert(collidedBody.baseVersion === 9 && collisionRetryBody.baseVersion === 9, 'operation collision retry must preserve the confirmed base version');
+assert(collidedBody.operationId !== collisionRetryBody.operationId, 'operation collision retry must mint a fresh idempotency key');
+assert(JSON.stringify(collidedBody.state) === JSON.stringify(collisionRetryBody.state), 'operation collision retry must preserve the exact pending state');
 
 session.clear();
 const firstWindowDraft = writeRemoteDraftCache(firstState, '2026-08-01T12:02:00.000Z', 'window-a-operation', 7);

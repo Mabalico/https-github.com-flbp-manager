@@ -3687,6 +3687,8 @@ type RefereePushStateResult = {
 type MatchResultPushResult = {
     ok: boolean;
     updated_at?: string | null;
+    version?: number | null;
+    operation_id?: string | null;
     auth_version?: string | null;
     matches_count?: number | null;
 };

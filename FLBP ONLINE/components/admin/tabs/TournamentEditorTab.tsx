@@ -949,6 +949,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     applyOperation({ type: 'ADD_PRELIMINARY_BRACKET_ROUND' }, 'success');
   }, [applyOperation]);
 
+  const handleRebuildEliminationBracket = React.useCallback(() => {
+    applyOperation({ type: 'REBUILD_ELIMINATION_BRACKET' }, 'success');
+  }, [applyOperation]);
+
   // Pannello azioni sullo slot bracket selezionato: inserisci una squadra della
   // sezione Squadre in uno slot libero, sostituisci o rimuovi quella presente,
   // senza dover passare dal pannello pool.
@@ -2194,6 +2198,15 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     >
                       <Brackets className="h-4 w-4" />
                       {t('editor_add_preliminary_round')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRebuildEliminationBracket}
+                      disabled={draft.state.present.tournament.type !== 'elimination' || hasRealBracketStarted(draft.state.present)}
+                      className={editorOutlineButtonClass}
+                    >
+                      <RefreshCcw className="h-4 w-4" />
+                      {t('monitor_bracket_regenerate_random_button')}
                     </button>
                   </div>
                 </div>

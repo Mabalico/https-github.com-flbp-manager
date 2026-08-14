@@ -351,11 +351,13 @@ export class SupabaseSync {
     try {
       if (!this.epoch) this.epoch = Number(this.store.getMeta('primary_epoch', '0')) || null;
       if (!this.epoch) throw new Error('Epoch locale mancante: journal remoto non sincronizzato.');
-      const result = await this.rpc('flbp_local_append_operations', {
+      const current = this.store.getCurrent();
+      const result = await this.rpc('flbp_local_append_operations_v2', {
         p_workspace_id: this.config.workspaceId,
         p_node_id: this.nodeId,
         p_epoch: this.epoch,
         p_operations: operations,
+        p_state: current?.state || {},
       });
       if (!result?.ok || Number(result?.confirmed || 0) !== rows.length) {
         throw new Error(`Supabase non ha confermato tutte le operazioni (${Number(result?.confirmed || 0)}/${rows.length}).`);
@@ -371,6 +373,29 @@ export class SupabaseSync {
       this.store.markOutboxFailed(rows.map((row) => row.id), error?.message || error);
       throw error;
     }
+  }
+
+  async syncLiveNormalizedSnapshot() {
+    if (!this.isConfigured() || !this.store.isActive()) return { ok: false, reason: 'inactive' };
+    const current = this.store.getCurrent();
+    const hasLiveTournament = !!current?.state?.tournament;
+    const hasArchivedTournaments = Array.isArray(current?.state?.tournamentHistory)
+      && current.state.tournamentHistory.length > 0;
+    if (!hasLiveTournament && !hasArchivedTournaments) {
+      return { ok: true, skipped: true, reason: 'no_tournaments' };
+    }
+    if (!this.epoch) this.epoch = Number(this.store.getMeta('primary_epoch', '0')) || null;
+    if (!this.epoch) throw new Error('Epoch locale mancante: mirror normalizzato non sincronizzato.');
+    const result = await this.rpc('flbp_local_sync_live_normalized', {
+      p_workspace_id: this.config.workspaceId,
+      p_node_id: this.nodeId,
+      p_epoch: this.epoch,
+      p_state: current.state,
+    });
+    if (!result?.ok) throw new Error('Supabase non ha confermato il mirror normalizzato dei tornei.');
+    this.store.setMeta('last_normalized_sync_at', nowIso());
+    this.store.setMeta('last_normalized_sync_version', String(current.version));
+    return { ...result, version: current.version };
   }
 
   async backupSnapshot() {
@@ -396,6 +421,7 @@ export class SupabaseSync {
     if (!verification.verified) {
       throw new Error('Backup Supabase non verificato: versione, operationId o checksum non corrispondono al DB locale corrente.');
     }
+    await this.syncLiveNormalizedSnapshot();
     this.store.markSnapshotSynced(latestLocal.version, updatedAt);
     this.store.markOutboxSyncedThroughVersion(latestLocal.version);
     return { backedUp: true, verified: true, version: latestLocal.version, operationId: latestLocal.operationId, checksum: verification.localChecksum, updatedAt };

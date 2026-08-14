@@ -447,7 +447,8 @@ test('a full cloud backup clears the outbox only after checksum verification', (
     workspaceId: 'default',
   }, store);
   sync.rpc = async (name) => {
-    assert.equal(name, 'flbp_local_backup_data_plane_v2');
+    assert.ok(['flbp_local_backup_data_plane_v2', 'flbp_local_sync_live_normalized'].includes(name));
+    if (name === 'flbp_local_sync_live_normalized') return { ok: true, matches: 1 };
     return { ok: true, updated_at: '2026-08-01T13:00:00.000Z' };
   };
   sync.publishLiveSnapshot = async () => ({ published: true });
