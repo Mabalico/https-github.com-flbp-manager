@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { backup as backupDatabase, DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { applyMatchResultPatch } from './statePatch.mjs';
 import { sanitizeAppStateForPublic } from './publicSanitizer.mjs';
 import { buildStatePatch } from './stateDelta.mjs';
@@ -103,7 +103,7 @@ export class LocalStore {
   }
 
   async createSecondaryBackup(destinationDir, retention = 24) {
-    const current = this.getCurrent();
+    const current = this.getCurrentMetadata();
     if (!current || !destinationDir) return { backedUp: false, version: current?.version || 0 };
     const resolvedDir = path.resolve(destinationDir);
     fs.mkdirSync(resolvedDir, { recursive: true });
@@ -112,7 +112,85 @@ export class LocalStore {
     const partialPath = path.join(resolvedDir, `${baseName}.partial`);
     const finalPath = path.join(resolvedDir, `${baseName}.sqlite`);
     try {
-      await backupDatabase(this.db, partialPath);
+      // The operational replica only needs the complete current application
+      // state, pending journal entries and metadata. Copying every historical
+      // snapshot made a single referee save replicate hundreds of MB and the
+      // synchronous integrity check could temporarily starve public reads.
+      // Historical versions remain protected in the primary SQLite database;
+      // the 24 external replicas are independently restorable current states.
+      const compactReplica = new LocalStore({
+        dataDir: resolvedDir,
+        workspaceId: this.workspaceId,
+        filename: path.basename(partialPath),
+      });
+      try {
+        const metadataRows = this.db.prepare('SELECT key, value FROM metadata').all();
+        const currentRow = this.db.prepare('SELECT * FROM current_workspace WHERE workspace_id = ?').get(this.workspaceId);
+        const snapshotRow = this.db.prepare(`
+          SELECT workspace_id, version, operation_id, source, state_json, public_state_json,
+                 checksum, operation_checksum, created_at, synced_at
+          FROM snapshots
+          WHERE workspace_id = ? AND version = ?
+        `).get(this.workspaceId, current.version);
+        const pendingRows = this.db.prepare(`
+          SELECT workspace_id, operation_id, version, kind, payload_json, created_at,
+                 synced_at, attempts, last_error
+          FROM outbox
+          WHERE workspace_id = ? AND synced_at IS NULL
+          ORDER BY id
+        `).all(this.workspaceId);
+        if (!currentRow || !snapshotRow) throw new Error('Snapshot corrente non disponibile per la replica secondaria.');
+
+        const insertMeta = compactReplica.db.prepare('INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)');
+        const insertCurrent = compactReplica.db.prepare(`
+          INSERT INTO current_workspace(
+            workspace_id, version, operation_id, state_json, public_state_json,
+            checksum, updated_at, cloud_updated_at, primary_epoch
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertSnapshot = compactReplica.db.prepare(`
+          INSERT INTO snapshots(
+            workspace_id, version, operation_id, source, state_json, public_state_json,
+            checksum, operation_checksum, created_at, synced_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertOutbox = compactReplica.db.prepare(`
+          INSERT INTO outbox(
+            workspace_id, operation_id, version, kind, payload_json, created_at,
+            synced_at, attempts, last_error
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        compactReplica.db.exec('BEGIN IMMEDIATE');
+        try {
+          for (const row of metadataRows) insertMeta.run(row.key, row.value);
+          insertMeta.run('last_secondary_backup_at', nowIso());
+          insertMeta.run('last_secondary_backup_version', String(current.version));
+          insertCurrent.run(
+            currentRow.workspace_id, currentRow.version, currentRow.operation_id,
+            currentRow.state_json, currentRow.public_state_json, currentRow.checksum,
+            currentRow.updated_at, currentRow.cloud_updated_at, currentRow.primary_epoch,
+          );
+          insertSnapshot.run(
+            snapshotRow.workspace_id, snapshotRow.version, snapshotRow.operation_id,
+            snapshotRow.source, snapshotRow.state_json, snapshotRow.public_state_json,
+            snapshotRow.checksum, snapshotRow.operation_checksum, snapshotRow.created_at,
+            snapshotRow.synced_at,
+          );
+          for (const row of pendingRows) {
+            insertOutbox.run(
+              row.workspace_id, row.operation_id, row.version, row.kind, row.payload_json,
+              row.created_at, row.synced_at, row.attempts, row.last_error,
+            );
+          }
+          compactReplica.db.exec('COMMIT');
+          compactReplica.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+        } catch (error) {
+          compactReplica.db.exec('ROLLBACK');
+          throw error;
+        }
+      } finally {
+        compactReplica.close();
+      }
       const replica = new DatabaseSync(partialPath, { readOnly: true });
       try {
         const integrity = replica.prepare('PRAGMA integrity_check').all().map((row) => String(Object.values(row)[0] || ''));
@@ -145,9 +223,57 @@ export class LocalStore {
       this.setMeta('last_secondary_backup_version', String(current.version));
       return { backedUp: true, verified: true, version: current.version, checksum: current.checksum, operationId: current.operationId, filename: finalPath };
     } catch (error) {
-      try { fs.rmSync(partialPath, { force: true }); } catch { /* ignore cleanup */ }
+      for (const candidate of [partialPath, `${partialPath}-wal`, `${partialPath}-shm`]) {
+        try { fs.rmSync(candidate, { force: true }); } catch { /* ignore cleanup */ }
+      }
       throw error;
     }
+  }
+
+  findReusableSecondaryBackup(destinationDir) {
+    const current = this.getCurrentMetadata();
+    if (!current || !destinationDir) return null;
+    const resolvedDir = path.resolve(destinationDir);
+    if (!fs.existsSync(resolvedDir) || !fs.statSync(resolvedDir).isDirectory()) return null;
+    const prefix = `flbp-local-v${current.version}-`;
+    const candidates = fs.readdirSync(resolvedDir)
+      .filter((name) => name.startsWith(prefix) && name.endsWith('.sqlite'))
+      .map((name) => ({
+        filename: path.join(resolvedDir, name),
+        modified: fs.statSync(path.join(resolvedDir, name)).mtimeMs,
+      }))
+      .sort((left, right) => right.modified - left.modified);
+    for (const candidate of candidates) {
+      let replica = null;
+      try {
+        replica = new DatabaseSync(candidate.filename, { readOnly: true });
+        const row = replica.prepare(`
+          SELECT version, operation_id, checksum
+          FROM current_workspace
+          WHERE workspace_id = ?
+        `).get(this.workspaceId);
+        if (row
+          && Number(row.version) === current.version
+          && String(row.operation_id || '') === String(current.operationId || '')
+          && String(row.checksum || '') === String(current.checksum || '')) {
+          return {
+            backedUp: true,
+            verified: true,
+            reused: true,
+            version: current.version,
+            operationId: current.operationId,
+            checksum: current.checksum,
+            filename: candidate.filename,
+          };
+        }
+      } catch {
+        // A completed candidate that cannot be read is ignored; a later save
+        // will atomically create a fresh replica without deleting this file.
+      } finally {
+        replica?.close();
+      }
+    }
+    return null;
   }
 
   getMeta(key, fallback = null) {
@@ -259,6 +385,44 @@ export class LocalStore {
       version: Number(row.version),
       operationId: row.operation_id,
       state: parseJson(row.state_json),
+      publicState: parseJson(row.public_state_json),
+      checksum: row.checksum,
+      updatedAt: row.updated_at,
+      cloudUpdatedAt: row.cloud_updated_at || null,
+      primaryEpoch: row.primary_epoch == null ? null : Number(row.primary_epoch),
+    };
+  }
+
+  getCurrentMetadata() {
+    const row = this.db.prepare(`
+      SELECT workspace_id, version, operation_id, checksum, updated_at, cloud_updated_at, primary_epoch
+      FROM current_workspace
+      WHERE workspace_id = ?
+    `).get(this.workspaceId);
+    if (!row) return null;
+    return {
+      workspaceId: row.workspace_id,
+      version: Number(row.version),
+      operationId: row.operation_id,
+      checksum: row.checksum,
+      updatedAt: row.updated_at,
+      cloudUpdatedAt: row.cloud_updated_at || null,
+      primaryEpoch: row.primary_epoch == null ? null : Number(row.primary_epoch),
+    };
+  }
+
+  getPublicCurrent() {
+    const row = this.db.prepare(`
+      SELECT workspace_id, version, operation_id, public_state_json, checksum,
+             updated_at, cloud_updated_at, primary_epoch
+      FROM current_workspace
+      WHERE workspace_id = ?
+    `).get(this.workspaceId);
+    if (!row) return null;
+    return {
+      workspaceId: row.workspace_id,
+      version: Number(row.version),
+      operationId: row.operation_id,
       publicState: parseJson(row.public_state_json),
       checksum: row.checksum,
       updatedAt: row.updated_at,
@@ -565,7 +729,7 @@ export class LocalStore {
   }
 
   status() {
-    const current = this.getCurrent();
+    const current = this.getCurrentMetadata();
     return {
       active: this.isActive(),
       workspaceId: this.workspaceId,

@@ -15,7 +15,7 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - attivazione compare-and-switch: versione, contenuto, journal ed epoch cloud devono essere ancora identici allo snapshot scaricato;
 - nessun fallback automatico scrivibile dopo il crash del PC: si entra in `recovery` per evitare split-brain;
 - backup completo dello snapshot privato/pubblico in una sola transazione Supabase ogni 30 minuti e alla disattivazione;
-- replica SQLite obbligatoria su un secondo disco/USB: la risposta al commit arriva solo dopo che la stessa versione è leggibile nella copia secondaria;
+- replica SQLite compatta e obbligatoria su un secondo disco/USB: la risposta al commit arriva solo dopo che stato applicativo corrente, metadati e outbox della stessa versione sono leggibili nella copia secondaria; lo storico versionato resta nel DB primario e non viene ricopiato a ogni referto;
 - disattivazione in draining persistente: backup finale e ritorno al cloud sono una singola RPC atomica e ritentabile;
 - journal in piccoli batch (default 15 secondi, massimo 25 operazioni/512 KiB) quando Internet è disponibile;
 - mirror live pubblico compatto accodato dopo ogni commit e ritentato ogni 15 secondi: la conferma del salvataggio locale non attende mai Supabase;
@@ -74,7 +74,7 @@ Dal primo istante della procedura il server rifiuta nuove scritture. Se la chiam
 - PC e disco definitivamente persi: solo dopo la scadenza della lease, un Admin Supabase può usare il pulsante di failover d’emergenza; l’epoch viene incrementato e il vecchio processo resta revocato se ricompare.
 - Guasto fisico del disco prima che l’outbox sia arrivata a Supabase: nessun software su un solo disco può garantire zero perdita. Per il torneo usare UPS e un secondo supporto/backup del folder `data`.
 
-La replica sincrona è obbligatoria. Vengono conservate le ultime 24 copie complete. Se il supporto viene scollegato dopo il commit SQLite ma prima della copia, la risposta resta di errore ritentabile: lo stesso `operationId` completerà la replica senza duplicare la modifica. Proteggere il disco secondario con BitLocker perché contiene lo snapshot privato del torneo.
+La replica sincrona è obbligatoria. Vengono conservate le ultime 24 copie autonomamente ripristinabili dello stato applicativo corrente, ciascuna con snapshot privato/pubblico, metadati e operazioni pending; le vecchie righe di audit restano nel DB primario. Questo evita di copiare centinaia di MB a ogni referto e mantiene libere le letture pubbliche anche durante una raffica. Al riavvio una copia già verificata della medesima versione viene riutilizzata, senza duplicarla. Se il supporto viene scollegato dopo il commit SQLite ma prima della copia, la risposta resta di errore ritentabile: lo stesso `operationId` completerà la replica senza duplicare la modifica. Proteggere il disco secondario con BitLocker perché contiene lo snapshot privato del torneo.
 
 ## Ripristino dalla replica secondaria
 
