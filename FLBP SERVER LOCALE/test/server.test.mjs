@@ -340,6 +340,17 @@ test('concurrent durable writes wait for the previous secondary replica before c
       body: JSON.stringify({ operationId: 'queued-write-1', baseVersion: 1, state: { marker: 'first' } }),
     });
     await replicaStarted;
+    const publicWhileReplicaIsPending = await Promise.race([
+      fetch(`${base}/api/v1/public/workspace/default`),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('public read blocked by secondary replica')), 250)),
+    ]);
+    assert.equal(publicWhileReplicaIsPending.status, 200);
+    assert.equal((await publicWhileReplicaIsPending.json()).state.marker, 'first');
+    const healthWhileReplicaIsPending = await Promise.race([
+      fetch(`${base}/health`),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('health blocked by secondary replica')), 250)),
+    ]);
+    assert.equal(healthWhileReplicaIsPending.status, 200);
     const second = fetch(`${base}/api/v1/admin/workspace/default/commit`, {
       method: 'POST', headers,
       body: JSON.stringify({ operationId: 'queued-write-2', baseVersion: 2, state: { marker: 'second' } }),

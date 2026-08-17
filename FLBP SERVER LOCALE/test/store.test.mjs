@@ -215,23 +215,35 @@ test('WAL survives process-style close and reopen with pending outbox intact', (
 test('a secondary SQLite backup is complete, readable and versioned', () => withStore(async (store, dataDir) => {
   const initial = fixture();
   store.importCloudSnapshot({ ...initial, version: 4, operationId: 'cloud-v4' });
+  const changed = fixture();
+  changed.state.sequence = 5;
+  changed.publicState.sequence = 5;
+  store.commitSnapshot({ ...changed, operationId: 'local-v5', baseVersion: 4 });
   const secondaryDir = path.join(dataDir, 'secondary-drive');
   const result = await store.createSecondaryBackup(secondaryDir, 3);
   assert.equal(result.backedUp, true);
   assert.equal(result.verified, true);
-  assert.equal(result.version, 4);
-  assert.equal(result.operationId, 'cloud-v4');
+  assert.equal(result.version, 5);
+  assert.equal(result.operationId, 'local-v5');
   assert.equal(result.checksum, store.getCurrent().checksum);
   assert.ok(fs.existsSync(result.filename));
 
   const copy = new DatabaseSync(result.filename, { readOnly: true });
   try {
     const row = copy.prepare('SELECT version, operation_id FROM current_workspace WHERE workspace_id = ?').get('default');
-    assert.equal(Number(row.version), 4);
-    assert.equal(row.operation_id, 'cloud-v4');
+    assert.equal(Number(row.version), 5);
+    assert.equal(row.operation_id, 'local-v5');
+    assert.equal(Number(copy.prepare('SELECT count(*) AS count FROM snapshots').get().count), 1);
+    assert.equal(Number(copy.prepare('SELECT count(*) AS count FROM outbox WHERE synced_at IS NULL').get().count), 1);
   } finally {
     copy.close();
   }
+
+  const reusable = store.findReusableSecondaryBackup(secondaryDir);
+  assert.equal(reusable?.verified, true);
+  assert.equal(reusable?.reused, true);
+  assert.equal(reusable?.version, 5);
+  assert.equal(reusable?.filename, result.filename);
 }));
 
 test('history retention keeps the newest 100 versions, current state and pending outbox dependencies', () => withStore((store) => {

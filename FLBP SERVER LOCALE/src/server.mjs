@@ -81,6 +81,14 @@ export const createLocalServer = (overrides = {}) => {
   let secondaryBackupChain = Promise.resolve();
   let durableWriteChain = Promise.resolve();
   let secondaryBackedVersion = 0;
+  if (config.secondaryBackupDir) {
+    try {
+      const reusable = store.findReusableSecondaryBackup(config.secondaryBackupDir);
+      secondaryBackedVersion = Number(reusable?.version || 0);
+    } catch {
+      // Missing/unreadable media is handled fail-closed before the next write.
+    }
+  }
   const localAdminSessions = new Map();
   const localAdminSessionTtlMs = 12 * 60 * 60 * 1000;
   const rateBuckets = new Map();
@@ -205,7 +213,7 @@ export const createLocalServer = (overrides = {}) => {
   const ensureSecondaryBackup = (requiredVersion = null) => {
     const target = ensureSecondaryTargetAvailable();
     if (!target.available) return Promise.resolve({ backedUp: false, disabled: true });
-    const requested = Number(requiredVersion ?? store.getCurrent()?.version ?? 0);
+    const requested = Number(requiredVersion ?? store.getCurrentMetadata()?.version ?? 0);
     const work = secondaryBackupChain.then(async () => {
       if (secondaryBackedVersion >= requested) return { backedUp: true, version: secondaryBackedVersion, reused: true };
       const result = await store.createSecondaryBackup(config.secondaryBackupDir, config.secondaryBackupRetention);
@@ -325,13 +333,14 @@ export const createLocalServer = (overrides = {}) => {
       }
       if (request.method === 'GET' && url.pathname === `/api/v1/public/workspace/${encodeURIComponent(config.workspaceId)}`) {
         requireActive();
-        const current = store.getCurrent();
-        if (!current) return sendJson(response, 404, { error: 'Snapshot non inizializzato' }, cors);
-        const etag = `"${current.checksum}-${current.version}"`;
+        const metadata = store.getCurrentMetadata();
+        if (!metadata) return sendJson(response, 404, { error: 'Snapshot non inizializzato' }, cors);
+        const etag = `"${metadata.checksum}-${metadata.version}"`;
         if (request.headers['if-none-match'] === etag) {
           response.writeHead(304, { ...cors, etag, 'cache-control': 'no-cache' });
           return response.end();
         }
+        const current = store.getPublicCurrent();
         return sendJson(response, 200, { workspace_id: config.workspaceId, state: current.publicState, updated_at: current.updatedAt, version: current.version, primary_epoch: current.primaryEpoch }, { ...cors, etag, 'cache-control': 'no-cache' });
       }
       if (request.method === 'GET' && url.pathname === `/api/v1/admin/workspace/${encodeURIComponent(config.workspaceId)}`) {
