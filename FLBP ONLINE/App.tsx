@@ -1042,9 +1042,14 @@ const App: React.FC = () => {
             // TV e viste pubbliche aperte dal server del PC seguono SQLite quasi
             // in tempo reale. Il sito Internet legge invece il mirror Supabase
             // con un jitter che distribuisce le richieste dei visitatori.
-            const delayMs = route.mode === 'local'
+            const readsDirectlyFromLocal = route.mode === 'local'
+                && route.publicReadMode !== 'cloud'
+                && !!route.baseUrl;
+            const delayMs = readsDirectlyFromLocal
                 ? 1000
-                : 120_000 + Math.floor(Math.random() * 20_000);
+                : route.mode === 'local'
+                    ? 12_000 + Math.floor(Math.random() * 6_000)
+                    : 120_000 + Math.floor(Math.random() * 20_000);
             pollTimer = window.setTimeout(runPollLoop, delayMs);
         };
         const runPollLoop = async () => {

@@ -235,6 +235,64 @@ test('HTTP commit rejects stale baseVersion and accepts idempotent retry', async
   }
 });
 
+test('explicit local recovery rebases on the current version and preserves newer referee reports', async () => {
+  const ctx = await startServer();
+  try {
+    const writerId = await acquireWriter(ctx.base, TOKEN, 'writer-local-recovery');
+    const headers = {
+      'content-type': 'application/json',
+      'x-flbp-local-token': TOKEN,
+      'x-flbp-writer-id': writerId,
+    };
+    const staleLocalState = structuredClone(ctx.app.store.getCurrent().state);
+    staleLocalState.marker = 'browser-draft-to-keep';
+    const reportedMatch = {
+      id: 'm1', scoreA: 10, scoreB: 6, played: true, status: 'finished',
+      refereeReportFinalId: 'report-authoritative',
+      refereeReportSavedAt: '2026-08-17T12:00:00.000Z',
+    };
+    const referee = await fetch(`${ctx.base}/api/v1/referee/workspace/default/match-result`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operationId: 'recovery-referee-first',
+        tournamentId: 't1',
+        matchId: 'm1',
+        refereePassword: 'ref-secret',
+        matches: [reportedMatch],
+      }),
+    });
+    assert.equal(referee.status, 200);
+
+    const missingConfirmation = await fetch(`${ctx.base}/api/v1/admin/workspace/default/recover-local`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ operationId: 'recovery-no-confirm', baseVersion: 2, state: staleLocalState }),
+    });
+    assert.equal(missingConfirmation.status, 400);
+    assert.equal(ctx.app.store.getCurrent().version, 2);
+
+    const recovered = await fetch(`${ctx.base}/api/v1/admin/workspace/default/recover-local`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        operationId: 'recovery-confirmed',
+        baseVersion: 2,
+        confirmLocalRecovery: true,
+        state: staleLocalState,
+      }),
+    });
+    assert.equal(recovered.status, 200);
+    const body = await recovered.json();
+    assert.equal(body.previous_version, 2);
+    assert.equal(body.version, 3);
+    assert.deepEqual(body.preserved_referee_match_ids, ['m1']);
+    assert.equal(body.state.marker, 'browser-draft-to-keep');
+    assert.equal(body.state.tournamentMatches[0].refereeReportFinalId, 'report-authoritative');
+    assert.equal(ctx.app.store.getCurrent().state.tournamentMatches[0].scoreA, 10);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
 test('concurrent durable writes wait for the previous secondary replica before committing', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-http-write-queue-'));
   const secondaryBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-http-write-replica-'));

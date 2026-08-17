@@ -18,7 +18,7 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - replica SQLite obbligatoria su un secondo disco/USB: la risposta al commit arriva solo dopo che la stessa versione è leggibile nella copia secondaria;
 - disattivazione in draining persistente: backup finale e ritorno al cloud sono una singola RPC atomica e ritentabile;
 - journal in piccoli batch (default 15 secondi, massimo 25 operazioni/512 KiB) quando Internet è disponibile;
-- mirror live pubblico compatto ogni 60 secondi e letture Internet da Supabase, senza mettere i visitatori in competizione con i commit locali;
+- mirror live pubblico compatto accodato dopo ogni commit e ritentato ogni 15 secondi: la conferma del salvataggio locale non attende mai Supabase;
 - append remoto transazionale: SQLite elimina una voce dall'outbox solo quando Supabase conferma tutte le versioni, senza collisioni o buchi nel journal;
 - drain continuo dell'outbox: una commit arrivata durante un upload viene inviata nello stesso ciclo, senza attendere il backup periodico;
 - sessione Admin automatica esclusivamente dal loopback del PC server: il master token non viene esposto alla web app remota;
@@ -27,7 +27,7 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - bozze browser separate per workspace, finestra e operationId; una conferma chiude soltanto la propria operazione e un conflitto offre ricarica/riconciliazione o export JSON;
 - scritture Admin cloud idempotenti tramite `operationId`: un retry dopo risposta persa non crea una seconda versione e un'operazione già superata non può sovrascrivere il DB;
 - commit Admin unico per snapshot privato e pubblico, propagato entro circa un secondo alle TV aperte dal PC/LAN;
-- sync normalizzata Supabase sospesa mentre SQLite è primario e riattivata al ritorno cloud.
+- nessuna ricostruzione normalizzata completa all'avvio o ai backup periodici: i referti usano upsert per singola partita, le modifiche estranee al torneo non toccano le tabelle torneo e il rebuild completo avviene soltanto per archivio/fallback o prima del ritorno cloud.
 - riconciliazione idempotente delle transizioni ambigue all'avvio, con verifica di nodo, epoch, versione e operationId e blocco fail-closed se Supabase non è raggiungibile;
 - richieste POST solo JSON, rate limiting per sessioni/autenticazioni/controlli/scritture e pulizia periodica delle sessioni scadute;
 - retention dopo backup verificato: almeno 2.000 versioni e tutte quelle degli ultimi 90 giorni, senza eliminare stato corrente o dipendenze dell'outbox.

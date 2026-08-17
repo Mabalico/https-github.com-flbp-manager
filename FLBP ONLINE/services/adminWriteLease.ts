@@ -37,7 +37,24 @@ const makeUuid = (): string => {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
+const readNativeWindowUuid = (): string | null => {
+  try {
+    const value = String((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID || '').trim();
+    return /^[a-zA-Z0-9_-]{16,128}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
 const readSessionUuid = (): string => {
+  // The Windows host injects a per-window id before every document loads.
+  // Unlike sessionStorage it survives WebView2 Reload/Navigate, while a
+  // second native window/process receives a different id.
+  const nativeWindowUuid = readNativeWindowUuid();
+  if (nativeWindowUuid) {
+    try { sessionStorage.setItem(HOLDER_SESSION_KEY, nativeWindowUuid); } catch { /* best effort */ }
+    return nativeWindowUuid;
+  }
   try {
     const stored = sessionStorage.getItem(HOLDER_SESSION_KEY);
     if (stored) return stored;
@@ -51,6 +68,7 @@ const readSessionUuid = (): string => {
 
 const deriveDefaultLabel = (): string => {
   try {
+    if (readNativeWindowUuid()) return 'FLBP Manager Locale su Windows';
     const ua = String((globalThis as any).navigator?.userAgent || '');
     const browser = /Edg\//.test(ua) ? 'Edge'
       : /OPR\//.test(ua) ? 'Opera'
@@ -172,7 +190,16 @@ const tick = async (takeover = false): Promise<void> => {
       // already started. Keep the UI fail-closed while immediately asking the
       // current page to verify its own lease again instead of surfacing a
       // permanent, misleading write-authority error.
-      setAdminLeaseInfo({ status: 'acquiring', holderId, lastError: null });
+      // Se questa pagina era gia' il writer attivo, un singolo heartbeat
+      // abortito non revoca la lease server (TTL 90 s). Mantieni l'interfaccia
+      // operativa durante il retry breve: qualunque commit resta comunque
+      // protetto e rifiutabile dal server tramite x-flbp-writer-id.
+      const previous = readAdminLeaseInfo();
+      if (previous.status === 'active') {
+        setAdminLeaseInfo({ holderId, lastError: null });
+      } else {
+        setAdminLeaseInfo({ status: 'acquiring', holderId, lastError: null });
+      }
       setTimeout(() => {
         if (inited) void tick(false);
       }, 300);

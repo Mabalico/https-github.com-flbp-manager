@@ -10,6 +10,7 @@ import {
     pullWorkspaceState,
     pullNormalizedState,
     pushWorkspaceState,
+    recoverWorkspaceFromLocalState,
     testSupabaseConnection,
     runDbHealthChecks,
     pushNormalizedFromState,
@@ -62,6 +63,11 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         state?: AppState;
     } | null>(null);
     const [downloadedStructured, setDownloadedStructured] = React.useState<{ updatedAt?: string | null; state?: AppState; summary?: any } | null>(null);
+    const [localRecoveryCandidate, setLocalRecoveryCandidate] = React.useState<{
+        state: AppState;
+        savedAt: string;
+        draftOperationId?: string | null;
+    } | null>(null);
     const [token, setToken] = React.useState<string>(getSupabaseAccessToken() || '');
     const [authEmail, setAuthEmail] = React.useState<string>(getSupabaseSession()?.email || getConfiguredAdminEmail());
     const [authPassword, setAuthPassword] = React.useState<string>('');
@@ -259,6 +265,12 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
     });
 
     const onDownload = () => run(t('db_download_state'), async () => {
+        const draft = await readCurrentRemoteDraftCache();
+        setLocalRecoveryCandidate({
+            state: structuredClone(draft?.state || state),
+            savedAt: draft?.savedAt || new Date().toISOString(),
+            draftOperationId: draft?.operationId || null,
+        });
         const row = await pullWorkspaceState();
         if (!row) {
             setDownloaded(null);
@@ -274,6 +286,85 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         clearDbSyncCurrentIssue();
         setDiagTick((x) => x + 1);
         setPanel({ kind: 'ok', message: t('db_download_done') });
+    });
+
+    const summarizeRecoveryState = (candidate: AppState) => {
+        const liveMatches = Array.isArray(candidate.tournamentMatches) ? candidate.tournamentMatches : [];
+        return {
+            teams: Array.isArray(candidate.teams) ? candidate.teams.length : 0,
+            matches: liveMatches.length,
+            finished: liveMatches.filter((match) => match?.played || match?.status === 'finished').length,
+            tournament: candidate.tournament?.name || 'nessun torneo live',
+        };
+    };
+
+    const onKeepLocalVersion = () => run('Recupero versione locale', async () => {
+        const draft = await readCurrentRemoteDraftCache();
+        const candidate = localRecoveryCandidate || (draft?.state ? {
+            state: structuredClone(draft.state),
+            savedAt: draft.savedAt,
+            draftOperationId: draft.operationId,
+        } : {
+            state: structuredClone(state),
+            savedAt: new Date().toISOString(),
+            draftOperationId: null,
+        });
+        const currentDb = await pullWorkspaceState();
+        if (!currentDb?.state) throw new Error('Versione del DB non disponibile: il recupero locale resta bloccato.');
+        setDownloaded({
+            updatedAt: currentDb.updated_at,
+            version: currentDb.version ?? null,
+            state: currentDb.state as AppState,
+        });
+        const localSummary = summarizeRecoveryState(candidate.state);
+        const dbSummary = summarizeRecoveryState(currentDb.state as AppState);
+        const confirmed = window.confirm(
+            'MANTIENI VERSIONE LOCALE\n\n' +
+            `Locale (${candidate.savedAt}): ${localSummary.teams} squadre, ${localSummary.finished}/${localSummary.matches} partite concluse, ${localSummary.tournament}.\n` +
+            `DB (versione ${currentDb.version ?? 'N/D'}): ${dbSummary.teams} squadre, ${dbSummary.finished}/${dbSummary.matches} partite concluse, ${dbSummary.tournament}.\n\n` +
+            'Verrà prima verificata la copia sul disco esterno, poi la versione locale diventerà una NUOVA versione del DB. ' +
+            'I referti arbitro più recenti già presenti nel DB saranno conservati. Continuare?'
+        );
+        if (!confirmed) {
+            setPanel({ kind: 'idle' });
+            return;
+        }
+        const recovered = await recoverWorkspaceFromLocalState(candidate.state);
+        const recoveredState = recovered.state as AppState;
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: {
+                state: recoveredState,
+                skipRepositoryPersist: true,
+                skipStructuredSync: true,
+                committedUpdatedAt: recovered.updated_at || null,
+                committedVersion: recovered.version ?? null,
+                // Close only this window's conflicted draft. The server uses
+                // a fresh idempotency key for the recovery commit itself.
+                committedOperationId: candidate.draftOperationId || recovered.operation_id || null,
+            },
+        }));
+        setState(recoveredState);
+        setRemoteBaseUpdatedAt(recovered.updated_at || null);
+        markRemoteVersions({
+            remoteUpdatedAt: recovered.updated_at || null,
+            remoteBaseUpdatedAt: recovered.updated_at || null,
+        });
+        markDbSyncOk('snapshot', {
+            recovery: 'local',
+            previousVersion: recovered.previous_version ?? null,
+            version: recovered.version ?? null,
+            preservedRefereeReports: recovered.preserved_referee_match_ids?.length || 0,
+        });
+        setLocalRecoveryCandidate(null);
+        setDownloaded(null);
+        setDiagTick((x) => x + 1);
+        setPanel({
+            kind: 'ok',
+            message: `Versione locale recuperata e salvata come versione ${recovered.version ?? 'N/D'}.` +
+                (recovered.preserved_referee_match_ids?.length
+                    ? ` Conservati ${recovered.preserved_referee_match_ids.length} referti più recenti del DB.`
+                    : ''),
+        });
     });
 
     const onExportPendingDraft = async () => {
@@ -334,6 +425,7 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         setRemoteBaseUpdatedAt(downloaded.updatedAt || null);
         markRemoteVersions({ remoteUpdatedAt: downloaded.updatedAt || null, remoteBaseUpdatedAt: downloaded.updatedAt || null });
         clearDbSyncCurrentIssue();
+        setLocalRecoveryCandidate(null);
         setDiagTick((x) => x + 1);
         setPanel({ kind: 'ok', message: t('db_apply_download_done') });
     };
@@ -615,7 +707,15 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 onClick={onDownload}
                                 className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                             >
-                                Ricarica e riconcilia
+                                Ricarica e confronta
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isBusy || !cfg}
+                                onClick={onKeepLocalVersion}
+                                className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                            >
+                                Mantieni versione locale
                             </button>
                             <button
                                 type="button"
@@ -848,8 +948,34 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                             </button>
                         </div>
                         {downloaded?.updatedAt ? (
-                            <div className="text-xs text-slate-700 mt-3">
-                                {t('db_db_updated_at')}: <span className="font-mono">{downloaded.updatedAt}</span>
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                                <div>
+                                    {t('db_db_updated_at')}: <span className="font-mono">{downloaded.updatedAt}</span>
+                                    {' · '}versione <span className="font-mono">{downloaded.version ?? 'N/D'}</span>
+                                </div>
+                                {localRecoveryCandidate ? (
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <span className="font-bold text-slate-600">
+                                            Scegli quale stato deve diventare quello di riferimento:
+                                        </span>
+                                        <button
+                                            type="button"
+                                            disabled={isBusy}
+                                            onClick={onApply}
+                                            className="rounded-xl bg-emerald-700 px-3 py-2 font-black text-white disabled:opacity-50"
+                                        >
+                                            Usa versione DB
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isBusy || !cfg}
+                                            onClick={onKeepLocalVersion}
+                                            className="rounded-xl bg-amber-700 px-3 py-2 font-black text-white disabled:opacity-50"
+                                        >
+                                            Mantieni versione locale
+                                        </button>
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
                     </div>

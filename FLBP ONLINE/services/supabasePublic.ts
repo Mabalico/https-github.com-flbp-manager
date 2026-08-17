@@ -283,7 +283,7 @@ export const pullPublicWorkspaceUpdatedAt = async (perf?: RequestPerfHint): Prom
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const route = await resolveDataPlane();
-    if (route.mode === 'local') {
+    if (shouldReadPublicWorkspaceFromLocal(route)) {
         const row = await pullLocalWorkspace(route, false);
         return row.updated_at || null;
     }
@@ -336,7 +336,7 @@ export const pullPublicHallOfFameEntries = async (perf?: RequestPerfHint): Promi
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const route = await resolveDataPlane();
-    const row = route.mode === 'local'
+    const row = shouldReadPublicWorkspaceFromLocal(route)
         ? await pullLocalWorkspace(route, false)
         : await pullPublicWorkspaceState(perf);
     return Array.isArray(row?.state?.hallOfFame) ? row.state.hallOfFame : [];
@@ -393,7 +393,7 @@ export const pullPublicTournamentsList = async (perf?: RequestPerfHint): Promise
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const route = await resolveDataPlane();
-    const row = route.mode === 'local'
+    const row = shouldReadPublicWorkspaceFromLocal(route)
         ? await pullLocalWorkspace(route, false)
         : await pullPublicWorkspaceState(perf);
     const live = row?.state?.tournament || null;
@@ -412,7 +412,7 @@ export const pullPublicTournamentBundle = async (
     if (!cfg) throw new Error('Supabase non configurato');
     const route = await resolveDataPlane();
     {
-        const row = route.mode === 'local'
+        const row = shouldReadPublicWorkspaceFromLocal(route)
             ? await pullLocalWorkspace(route, false)
             : await pullPublicWorkspaceState(perf);
         const live = row?.state?.tournament;

@@ -353,10 +353,15 @@ test('an ambiguous final switch is retryable and clears the covered outbox only 
     workspaceId: 'default',
   }, store);
   let attempts = 0;
+  let normalizedCalls = 0;
   let finalBody = null;
   sync.rpc = async (name, body) => {
     if (name === 'flbp_local_reconcile_data_plane') {
       return { ok: true, action: 'standby-cloud', node_id: 'node-a', epoch: 8, version: 4, operation_id: 'local-v4' };
+    }
+    if (name === 'flbp_local_sync_live_normalized') {
+      normalizedCalls += 1;
+      return { ok: true, matches: 1 };
     }
     assert.equal(name, 'flbp_local_deactivate_data_plane_v2');
     attempts += 1;
@@ -372,6 +377,7 @@ test('an ambiguous final switch is retryable and clears the covered outbox only 
 
   const retried = await sync.deactivate();
   assert.equal(retried.idempotent, true);
+  assert.equal(normalizedCalls, 1);
   assert.equal(finalBody.p_version, 4);
   assert.equal(finalBody.p_operation_id, 'local-v4');
   assert.equal(finalBody.p_state.tournament.name, 'Finale locale');
@@ -446,9 +452,10 @@ test('a full cloud backup clears the outbox only after checksum verification', (
     supabaseServiceRoleKey: 'service-role-test',
     workspaceId: 'default',
   }, store);
+  let normalizedCalls = 0;
   sync.rpc = async (name) => {
-    assert.ok(['flbp_local_backup_data_plane_v2', 'flbp_local_sync_live_normalized'].includes(name));
-    if (name === 'flbp_local_sync_live_normalized') return { ok: true, matches: 1 };
+    assert.equal(name, 'flbp_local_backup_data_plane_v2');
+    normalizedCalls += Number(name === 'flbp_local_sync_live_normalized');
     return { ok: true, updated_at: '2026-08-01T13:00:00.000Z' };
   };
   sync.publishLiveSnapshot = async () => ({ published: true });
@@ -460,6 +467,7 @@ test('a full cloud backup clears the outbox only after checksum verification', (
   sync.verifyCloudSnapshot = async () => ({ verified: true, localChecksum: 'verified-checksum' });
   const result = await sync.backupSnapshot();
   assert.equal(result.verified, true);
+  assert.equal(normalizedCalls, 0);
   assert.equal(store.pendingOutboxCount(), 0);
 }));
 

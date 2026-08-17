@@ -58,11 +58,13 @@ namespace Flbp.ManagerLocale
         private readonly Button retryButton;
         private readonly Label serverLabel;
         private readonly string serverRoot;
+        private readonly string nativeWriterWindowId;
         private bool initializing;
 
         public MainForm()
         {
             serverRoot = FindServerRoot();
+            nativeWriterWindowId = Guid.NewGuid().ToString("N");
             AppLog.ServerRoot = serverRoot;
 
             Text = "FLBP Manager Locale";
@@ -241,7 +243,7 @@ namespace Flbp.ManagerLocale
                     Directory.CreateDirectory(userData);
                     var environment = await CoreWebView2Environment.CreateAsync(null, userData);
                     await browser.EnsureCoreWebView2Async(environment);
-                    ConfigureBrowser();
+                    await ConfigureBrowserAsync();
                 }
 
                 browser.CoreWebView2.Navigate(PanelUrl);
@@ -262,12 +264,20 @@ namespace Flbp.ManagerLocale
             }
         }
 
-        private void ConfigureBrowser()
+        private async Task ConfigureBrowserAsync()
         {
             browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
             browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
             browser.CoreWebView2.Settings.IsZoomControlEnabled = true;
+
+            // Stable for the lifetime of this native window and injected
+            // before every document. This lets the Admin write lease survive
+            // WebView2 Reload/Navigate without making two app processes share
+            // the same writer identity.
+            await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                "Object.defineProperty(window,'__FLBP_NATIVE_WRITER_WINDOW_ID'," +
+                "{value:'" + nativeWriterWindowId + "',configurable:false,enumerable:false,writable:false});");
 
             browser.CoreWebView2.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs args)
             {
