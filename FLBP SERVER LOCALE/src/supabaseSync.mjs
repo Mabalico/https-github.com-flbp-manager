@@ -107,6 +107,7 @@ export class SupabaseSync {
     this.livePublishInFlight = null;
     this.livePublishRequested = false;
     this.livePublishForce = false;
+    this.livePublishTimer = null;
   }
 
   isConfigured() {
@@ -242,9 +243,15 @@ export class SupabaseSync {
       return { ok: true, cloud: false };
     }
     this.cancelScheduledOutboxSync();
+    this.cancelScheduledLivePublish();
     if (this.syncInFlight) await this.syncInFlight;
     const current = this.store.getCurrent();
     if (!current) throw new Error('Snapshot locale non inizializzato: disattivazione rifiutata.');
+    // The normalized tournament/Fanta projection is intentionally excluded
+    // from periodic backups and ordinary non-tournament Admin commits. Rebuild
+    // it once, while this node still owns the fenced local epoch, before the
+    // atomic switch back to cloud authority.
+    const normalized = await this.syncLiveNormalizedSnapshot();
     const out = await this.rpc('flbp_local_deactivate_data_plane_v2', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
@@ -263,7 +270,7 @@ export class SupabaseSync {
     this.store.markSnapshotSynced(current.version, updatedAt);
     this.store.markOutboxSyncedThroughVersion(current.version);
     this.store.setActive(false);
-    return out;
+    return { ...out, normalized };
   }
 
   async reconcileTransition() {
@@ -375,7 +382,7 @@ export class SupabaseSync {
     }
   }
 
-  async syncLiveNormalizedSnapshot() {
+  async syncLiveNormalizedSnapshot({ force = false } = {}) {
     if (!this.isConfigured() || !this.store.isActive()) return { ok: false, reason: 'inactive' };
     const current = this.store.getCurrent();
     const hasLiveTournament = !!current?.state?.tournament;
@@ -383,6 +390,10 @@ export class SupabaseSync {
       && current.state.tournamentHistory.length > 0;
     if (!hasLiveTournament && !hasArchivedTournaments) {
       return { ok: true, skipped: true, reason: 'no_tournaments' };
+    }
+    const lastVersion = Number(this.store.getMeta('last_normalized_sync_version', '0')) || 0;
+    if (!force && Number(current?.version || 0) <= lastVersion) {
+      return { ok: true, skipped: true, reason: 'unchanged', version: current.version };
     }
     if (!this.epoch) this.epoch = Number(this.store.getMeta('primary_epoch', '0')) || null;
     if (!this.epoch) throw new Error('Epoch locale mancante: mirror normalizzato non sincronizzato.');
@@ -421,7 +432,6 @@ export class SupabaseSync {
     if (!verification.verified) {
       throw new Error('Backup Supabase non verificato: versione, operationId o checksum non corrispondono al DB locale corrente.');
     }
-    await this.syncLiveNormalizedSnapshot();
     this.store.markSnapshotSynced(latestLocal.version, updatedAt);
     this.store.markOutboxSyncedThroughVersion(latestLocal.version);
     return { backedUp: true, verified: true, version: latestLocal.version, operationId: latestLocal.operationId, checksum: verification.localChecksum, updatedAt };
@@ -445,6 +455,21 @@ export class SupabaseSync {
       if (this.livePublishRequested) queueMicrotask(() => void this.publishLiveSnapshot({ force: this.livePublishForce }));
     });
     return this.livePublishInFlight;
+  }
+
+  scheduleLivePublish({ delayMs = 1_000 } = {}) {
+    if (!this.isConfigured() || !this.store.isActive()) return null;
+    if (this.livePublishTimer) return this.livePublishTimer;
+    this.livePublishTimer = setTimeout(() => {
+      this.livePublishTimer = null;
+      void this.publishLiveSnapshot().catch(() => null);
+    }, Math.max(0, Number(delayMs) || 0));
+    return this.livePublishTimer;
+  }
+
+  cancelScheduledLivePublish() {
+    if (this.livePublishTimer) clearTimeout(this.livePublishTimer);
+    this.livePublishTimer = null;
   }
 
   async publishLiveSnapshotOnce({ force = false } = {}) {

@@ -6,7 +6,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, validateOperationalConfig } from './config.mjs';
 import { LocalStore, VersionConflictError } from './store.mjs';
-import { resolveRefereeSecret } from './statePatch.mjs';
+import { preserveAuthoritativeRefereeReports, resolveRefereeSecret } from './statePatch.mjs';
 import { SupabaseSync } from './supabaseSync.mjs';
 import { controlPage, controlPageScript } from './controlPage.mjs';
 
@@ -251,7 +251,6 @@ export const createLocalServer = (overrides = {}) => {
           if (result?.action === 'resume-local') {
             void sync.scheduleOutboxSync({ immediate: true });
             void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
-            void sync.syncLiveNormalizedSnapshot().catch((error) => console.error('[normalized-live:startup]', error.message));
             void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
           }
         }).catch((error) => console.error('[reconcile:startup]', error.message));
@@ -259,7 +258,6 @@ export const createLocalServer = (overrides = {}) => {
         void sync.heartbeat().catch((error) => console.error('[heartbeat:startup]', error.message));
         void sync.scheduleOutboxSync({ immediate: true });
         void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
-        void sync.syncLiveNormalizedSnapshot().catch((error) => console.error('[normalized-live:startup]', error.message));
         void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
       }
     }
@@ -379,10 +377,57 @@ export const createLocalServer = (overrides = {}) => {
         const committed = await runDurableWrite(async () => {
           const result = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: false, source: 'admin' });
           void sync.scheduleOutboxSync();
+          sync.scheduleLivePublish();
           await ensureSecondaryBackup(result.version);
           return result;
         });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, operation_id: committed.operationId, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
+      }
+      if (request.method === 'POST' && url.pathname === `/api/v1/admin/workspace/${encodeURIComponent(config.workspaceId)}/recover-local`) {
+        requireWritable();
+        if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
+        requireAdminWriter(request);
+        consumeRateLimit(request, 'authenticated-write', 30, 'recover-local');
+        ensureSecondaryTargetAvailable();
+        const body = await readBody(request);
+        if (body.confirmLocalRecovery !== true) {
+          return sendJson(response, 400, { error: 'Conferma esplicita del recupero locale mancante', code: 'FLBP_LOCAL_RECOVERY_CONFIRM_REQUIRED' }, cors);
+        }
+        const before = store.getCurrent();
+        if (!before) return sendJson(response, 404, { error: 'Snapshot non inizializzato' }, cors);
+        const committed = await runDurableWrite(async () => {
+          // The pre-recovery snapshot must be independently readable before
+          // creating the replacement version. Snapshot history remains in
+          // SQLite as an additional rollback point.
+          await ensureSecondaryBackup(before.version);
+          const protectedRecovery = preserveAuthoritativeRefereeReports({
+            currentState: before.state,
+            incomingState: body.state,
+          });
+          const result = store.commitSnapshot({
+            state: protectedRecovery.state,
+            publicState: body.publicState,
+            operationId: operationId(body),
+            baseVersion: body.baseVersion,
+            force: false,
+            source: 'admin-local-recovery',
+          });
+          void sync.scheduleOutboxSync();
+          sync.scheduleLivePublish();
+          await ensureSecondaryBackup(result.version);
+          return { result, preservedMatchIds: protectedRecovery.preservedMatchIds };
+        });
+        return sendJson(response, 200, {
+          ok: true,
+          state: committed.result.state,
+          updated_at: committed.result.updatedAt,
+          version: committed.result.version,
+          operation_id: committed.result.operationId,
+          idempotent: committed.result.idempotent,
+          primary_epoch: committed.result.primaryEpoch,
+          previous_version: before.version,
+          preserved_referee_match_ids: committed.preservedMatchIds,
+        }, cors);
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/auth`) {
         requireActive();
@@ -404,6 +449,7 @@ export const createLocalServer = (overrides = {}) => {
         const committed = await runDurableWrite(async () => {
           const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'referee' });
           void sync.scheduleOutboxSync();
+          sync.scheduleLivePublish();
           await ensureSecondaryBackup(result.version);
           return result;
         });
@@ -419,6 +465,7 @@ export const createLocalServer = (overrides = {}) => {
         const committed = await runDurableWrite(async () => {
           const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'admin' });
           void sync.scheduleOutboxSync();
+          sync.scheduleLivePublish();
           await ensureSecondaryBackup(result.version);
           return result;
         });
@@ -480,7 +527,6 @@ export const createLocalServer = (overrides = {}) => {
             void sync.heartbeat().catch((error) => console.error('[heartbeat:activation]', error.message));
             void sync.scheduleOutboxSync({ immediate: true });
             void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:activation]', error.message));
-            void sync.syncLiveNormalizedSnapshot().catch((error) => console.error('[normalized-live:activation]', error.message));
             return sendJson(response, 200, { ok: true, activated, ...store.status() }, cors);
           } catch (error) {
             store.setTransitionState('activation-error');
@@ -552,6 +598,7 @@ export const createLocalServer = (overrides = {}) => {
       if (secondaryBackupTimer) clearInterval(secondaryBackupTimer);
       if (maintenanceTimer) clearInterval(maintenanceTimer);
       sync.cancelScheduledOutboxSync();
+      sync.cancelScheduledLivePublish();
       server.close(() => {
         void durableWriteChain.finally(() => {
           store.close();

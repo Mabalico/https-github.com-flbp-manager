@@ -12,7 +12,7 @@ Il coordinatore distingue ora l'autorità di scrittura dalla sorgente delle lett
 
 Supabase resta il control plane e continua a gestire Auth, account giocatori, push, Fantabeerpong e dati non critici. Questi sottosistemi non vengono spostati su SQLite: replicarli in modo bidirezionale produrrebbe conflitti e indebolirebbe l’Auth. Lo snapshot `AppState` contiene comunque l’intero stato applicativo necessario a far proseguire il torneo.
 
-I visitatori del sito Internet leggono sempre il mirror Supabase. Il server pubblica il documento live compatto ogni 60 secondi; i browser online lo aggiornano ogni 120–140 secondi con jitter. Un ritardo pubblico di pochi minuti non influenza mai il commit locale. Un tunnel o un dominio dedicato non sono necessari per questa modalità.
+I visitatori del sito Internet leggono il mirror Supabase, mentre PC e dispositivi LAN che aprono direttamente il server leggono SQLite. Dopo ogni commit il server accoda la pubblicazione del solo documento live compatto, con debounce di circa un secondo e retry periodico entro 15 secondi; durante la modalità locale i browser Internet lo rileggono ogni 12–18 secondi con jitter. La propagazione cloud resta asincrona e non influenza mai la conferma del commit locale. Un tunnel o un dominio dedicato non sono necessari; se in futuro si configura un URL HTTPS del nodo, anche i lettori Internet possono essere instradati direttamente al PC.
 
 Nel client questa separazione è vincolante: `mode=local` indica chi può scrivere, mentre `public_read_mode=cloud` impone alle viste pubbliche Internet di leggere `public_workspace_live` su Supabase. Il client tenta l'origine locale soltanto quando il coordinatore richiede esplicitamente letture locali e fornisce una `base_url`; in questo modo un tunnel disabilitato non può far ricadere il sito su uno snapshot completo meno recente.
 
@@ -24,10 +24,18 @@ Nel client questa separazione è vincolante: `mode=local` indica chi può scrive
    Il push attende la conferma del checkpoint locale; se nel frattempo arriva un’altra modifica, questa riceve un nuovo `operationId` e la risposta precedente non può cancellarla.
 4. Lo stesso commit aggiorna nella medesima transazione snapshot privato e snapshot pubblico sanitizzato.
 5. Il server serializza commit e replica esterna: la scrittura successiva non parte finché la stessa versione del commit precedente non è leggibile sul supporto secondario. Admin, arbitri e TV sulla LAN leggono quindi la stessa versione dal server locale; dopo un riavvio WAL e versione restano invariati.
-6. L'outbox viene accorpata per circa 15 secondi e inviata in batch limitati; il mirror pubblico compatto segue un timer separato e il checkpoint completo resta ogni 30 minuti.
-7. Durante la leadership locale la sincronizzazione normalizzata periodica verso Supabase è sospesa. Dopo la disattivazione sicura, la ricostruzione del mirror viene eseguita una sola volta dall'Admin già aperto oppure alla sua successiva apertura; lo snapshot completo è già stato caricato atomicamente dal server.
+6. L'outbox viene accorpata per circa 15 secondi e inviata in batch limitati; il mirror pubblico compatto viene accodato dopo ogni commit e ha un retry separato ogni 15 secondi, mentre il checkpoint completo resta ogni 30 minuti.
+7. Durante la leadership locale non viene mai eseguita una ricostruzione completa periodica delle tabelle torneo. I referti aggiornano soltanto le righe della partita interessata; una modifica al catalogo generale delle squadre viene solo journalizzata e non riscrive tornei o archivi. Le sole modifiche strutturali aggiornano il torneo live, l'archiviazione aggiorna una volta le proiezioni complete e la disattivazione esegue un'ultima ricostruzione verificata prima del passaggio atomico al cloud.
 
 Se Internet cade o la finestra viene riaperta, l’Admin può continuare per 36 ore solo quando sono presenti insieme una sessione Supabase realmente verificata in precedenza e la sessione rilasciata dal nodo locale. Non viene introdotta una password Admin fittizia nel frontend.
+
+## Recupero di un conflitto scegliendo la versione locale
+
+Nella scheda **Persistenza online**, un conflitto offre due scelte esplicite. **Usa versione DB** applica lo snapshot autorevole scaricato; **Mantieni versione locale** conserva invece la bozza durevole della finestra e la pubblica come una nuova versione. Prima della conferma vengono mostrati, per entrambi gli stati, versione/timestamp, torneo live, numero di squadre e partite concluse.
+
+Il recupero locale non usa `force` contro SQLite. Il client legge la versione corrente, il server verifica lease e `x-flbp-writer-id`, rende leggibile sul secondo disco lo snapshot pre-recupero, quindi esegue un normale commit con quella versione come `baseVersion`. Se il DB cambia ancora durante la conferma, il commit riceve `409` e la bozza resta recuperabile. Dopo il commit, anche la nuova versione deve risultare leggibile sulla replica esterna prima della risposta positiva; Supabase viene aggiornato dall’outbox come per ogni altra operazione.
+
+I referti arbitro più recenti presenti nello snapshot autorevole vengono conservati. Se la bozza ha eliminato completamente una partita dotata di referto, il server rifiuta il recupero automatico e richiede l’esportazione/riconciliazione manuale: non reinserisce silenziosamente una partita in un tabellone potenzialmente diverso. La modalità `recovery` del data plane resta fail-closed e non consente nessuna delle due sovrascritture.
 
 ## Invarianti
 
@@ -39,6 +47,7 @@ Se Internet cade o la finestra viene riaperta, l’Admin può continuare per 36 
 6. Un `AbortError` prodotto dal reload della pagina non revoca da solo l'autorità Admin: la nuova pagina resta bloccata in acquisizione e ripete subito la verifica del lease.
 5. Nessuna scrittura di rete parte da `beforeunload`, `pagehide` o pagina nascosta.
 6. Una finestra Admin passiva non crea nemmeno una bozza ripristinabile.
+7. Nell'app Windows il processo host assegna alla finestra un'identità stabile, reiniettata prima di ogni navigazione WebView2: un reload riprende immediatamente la propria lease senza attendere i 90 secondi del TTL. Una seconda istanza dell'app riceve invece un'identità diversa e resta correttamente in sola lettura. Un singolo heartbeat abortito viene ritentato senza bloccare una finestra che possiede ancora una lease valida; il server continua comunque a verificare `x-flbp-writer-id` su ogni commit.
 7. Supabase e server locale non sono mai scrivibili contemporaneamente per lo stesso workspace.
 8. La scadenza della leadership locale produce `recovery`, non un failover cloud automatico.
 9. La disattivazione locale riesce solo dopo il backup finale atomico.

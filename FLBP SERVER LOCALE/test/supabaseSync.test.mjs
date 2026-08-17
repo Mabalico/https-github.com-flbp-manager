@@ -136,6 +136,20 @@ test('live publication uploads only the compact public projection', () => withSy
   assert.ok(Array.isArray(body.p_public_state.tournamentMatches));
 }));
 
+test('live publication scheduling coalesces rapid local commits', () => withSync(async ({ sync }) => {
+  let calls = 0;
+  sync.publishLiveSnapshot = async () => {
+    calls += 1;
+    return { published: true };
+  };
+  const firstTimer = sync.scheduleLivePublish({ delayMs: 1 });
+  for (let index = 0; index < 100; index += 1) {
+    assert.equal(sync.scheduleLivePublish({ delayMs: 1 }), firstTimer);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(calls, 1);
+}));
+
 test('the local normalized migration seals archived tournament projections', () => {
   const migrationsDir = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -167,4 +181,16 @@ test('the local normalized migration seals archived tournament projections', () 
   );
   assert.match(scoringRepair, /for v_ordinal in 1\.\.15 loop/);
   assert.match(scoringRepair, /points_from_awards/);
+
+  const ioReduction = fs.readFileSync(
+    path.join(migrationsDir, '20260817000100_reduce_local_normalized_io.sql'),
+    'utf8',
+  );
+  assert.match(ioReduction, /v_root in \('tournament', 'tournamentMatches'\)/);
+  assert.match(ioReduction, /v_root = 'tournamentHistory'/);
+  assert.match(ioReduction, /'unrelated_state_patch'/);
+  assert.doesNotMatch(
+    ioReduction,
+    /where coalesce\(op\.value ->> 'operation_kind', ''\) <> 'match-result'/,
+  );
 });

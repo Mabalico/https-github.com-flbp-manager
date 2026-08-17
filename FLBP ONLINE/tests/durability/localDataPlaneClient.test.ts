@@ -2,6 +2,7 @@ import {
   commitLocalWorkspace,
   getLocalAdminToken,
   pullLocalWorkspace,
+  recoverLocalWorkspace,
   resolveDataPlane,
   setLocalAdminToken,
 } from '../../services/dataPlaneClient';
@@ -16,6 +17,8 @@ import { setSupabaseSession } from '../../services/supabaseRest';
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
 import { acknowledgeRemoteDraftCache, ensureRemoteDraftCacheDurable, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { readAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { initAdminWriteLease, releaseAdminWriteLease } from '../../services/adminWriteLease';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -91,6 +94,8 @@ const concurrentCommitBodies: any[] = [];
 let signalFirstCommit: (() => void) | null = null;
 let releaseFirstCommit: (() => void) | null = null;
 let signalSecondCommit: (() => void) | null = null;
+let simulatedLeaseHolder: string | null = null;
+let simulatedLeaseTakeovers = 0;
 const firstCommitEntered = new Promise<void>((resolve) => { signalFirstCommit = resolve; });
 const firstCommitGate = new Promise<void>((resolve) => { releaseFirstCommit = resolve; });
 const secondCommitCompleted = new Promise<void>((resolve) => { signalSecondCommit = resolve; });
@@ -99,6 +104,7 @@ Object.assign(globalThis, {
   localStorage: local,
   sessionStorage: session,
   indexedDB: memoryIndexedDb,
+  __FLBP_NATIVE_WRITER_WINDOW_ID: 'native-test-window-0001',
   window: {
     location: { origin: 'http://127.0.0.1:8787' },
     setTimeout: globalThis.setTimeout.bind(globalThis),
@@ -117,6 +123,26 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (url.endsWith('/control/local-session')) {
     return Response.json({ ok: true, token: 'local-test-session', expiresAt: '2026-08-02T00:00:00.000Z' });
+  }
+  if (url.endsWith('/api/v1/admin/write-lease/acquire')) {
+    const body = JSON.parse(String(init?.body || '{}'));
+    const holder = String(body.holderId || '');
+    if (!simulatedLeaseHolder || simulatedLeaseHolder === holder || body.takeover) {
+      if (body.takeover && simulatedLeaseHolder && simulatedLeaseHolder !== holder) simulatedLeaseTakeovers += 1;
+      simulatedLeaseHolder = holder;
+      return Response.json({ acquired: true, holder_id: holder, holder_label: body.holderLabel || 'Test native', acquired_at: '2026-08-17T20:00:00.000Z' });
+    }
+    return Response.json({ acquired: false, holder_id: simulatedLeaseHolder, holder_label: 'Precedente reload', acquired_at: '2026-08-17T20:00:00.000Z' });
+  }
+  if (url.endsWith('/api/v1/admin/write-lease/heartbeat')) {
+    const body = JSON.parse(String(init?.body || '{}'));
+    return Response.json({ acquired: simulatedLeaseHolder === String(body.holderId || ''), holder_id: simulatedLeaseHolder });
+  }
+  if (url.endsWith('/api/v1/admin/write-lease/release')) {
+    // Simula il keepalive della vecchia pagina perso durante un reload: la
+    // lease precedente resta viva e la nuova pagina deve riconoscerla come
+    // appartenente alla stessa finestra nativa.
+    return Response.json({ released: false });
   }
   if (url.endsWith('/api/v1/admin/workspace/default') && String(init?.method || 'GET') === 'GET') {
     const headers = new Headers(init?.headers);
@@ -161,6 +187,25 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }
     return Response.json({ ok: true, workspace_id: 'default', version: 5, updated_at: '2026-08-01T12:00:00.000Z' });
   }
+  if (url.endsWith('/api/v1/admin/workspace/default/recover-local')) {
+    const headers = new Headers(init?.headers);
+    const body = JSON.parse(String(init?.body || '{}'));
+    if (headers.get('x-flbp-local-token') !== 'local-test-session'
+      || headers.get('x-flbp-writer-id') !== 'test-writer'
+      || body.baseVersion !== 4
+      || body.confirmLocalRecovery !== true) {
+      return Response.json({ error: 'unsafe local recovery request' }, { status: 400 });
+    }
+    return Response.json({
+      ok: true,
+      state: body.state,
+      version: 5,
+      previous_version: 4,
+      operation_id: body.operationId,
+      preserved_referee_match_ids: ['m-protected'],
+      updated_at: '2026-08-01T12:00:01.000Z',
+    });
+  }
   return Response.json({ error: `unexpected ${url}` }, { status: 500 });
 }) as typeof fetch;
 
@@ -190,6 +235,17 @@ const committed = await commitLocalWorkspace(route, {
   writerId: 'test-writer',
 });
 assert(committed.version === 5, 'Admin commit must be accepted by the local node');
+
+const recovered = await recoverLocalWorkspace(route, {
+  state: { tournament: { name: 'Bozza locale recuperata' } },
+  publicState: { tournament: { name: 'Bozza locale recuperata' } },
+  operationId: 'admin-local-recovery-1',
+  baseVersion: 4,
+  writerId: 'test-writer',
+});
+assert(recovered.version === 5, 'local recovery must create a new SQLite version');
+assert(recovered.previous_version === 4, 'local recovery must report the protected pre-recovery version');
+assert(recovered.preserved_referee_match_ids?.[0] === 'm-protected', 'local recovery must report preserved referee results');
 
 const realSession = { accessToken: 'real-supabase-jwt', userId: 'verified-admin-user', email: 'admin@example.test' };
 rememberVerifiedAdminSession(realSession);
@@ -343,4 +399,17 @@ try {
   local.failWrites = false;
 }
 assert(storageFailureWasBlocked, 'a referee report must not be sent when no durable browser storage is available');
+
+await initAdminWriteLease();
+const firstNativeHolder = readAdminLeaseInfo().holderId;
+assert(readAdminLeaseInfo().status === 'active', 'the native Admin window must acquire its first write lease');
+assert(firstNativeHolder?.startsWith('native-test-window-0001:'), 'the native host id must scope the writer identity');
+await releaseAdminWriteLease();
+await initAdminWriteLease();
+const reloadedNativeHolder = readAdminLeaseInfo().holderId;
+assert(readAdminLeaseInfo().status === 'active', 'the same native window must reacquire after reload without waiting for TTL');
+assert(reloadedNativeHolder?.startsWith('native-test-window-0001:'), 'reload must preserve the native writer scope');
+assert(reloadedNativeHolder !== firstNativeHolder, 'a reloaded document must still receive a fresh operation nonce');
+assert(simulatedLeaseTakeovers === 1, 'the new document must reclaim only the stale lease from the same native window');
+await releaseAdminWriteLease();
 console.log('PASS local Admin data plane client flow');

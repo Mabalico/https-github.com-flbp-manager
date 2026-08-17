@@ -317,6 +317,45 @@ export const commitLocalWorkspace = async (route: DataPlaneRoute, input: {
   return { ...out, workspace_id: workspaceId(), state: input.state };
 };
 
+export const recoverLocalWorkspace = async (route: DataPlaneRoute, input: {
+  state: any;
+  publicState: any;
+  operationId: string;
+  baseVersion: number;
+  writerId: string;
+}): Promise<LocalWorkspaceRow & {
+  ok: boolean;
+  operation_id?: string | null;
+  previous_version?: number | null;
+  preserved_referee_match_ids?: string[];
+}> => {
+  let token = await ensureLocalAdminToken(route);
+  if (!token) throw new Error('Token Admin del server locale assente.');
+  const request = () => timeoutFetch(localUrl(route, `/api/v1/admin/workspace/${encodeURIComponent(workspaceId())}/recover-local`), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'x-flbp-local-token': token,
+      'x-flbp-writer-id': input.writerId,
+    },
+    body: JSON.stringify({ ...input, confirmLocalRecovery: true }),
+  }, DURABLE_LOCAL_WRITE_TIMEOUT_MS);
+  let response = await request();
+  if (response.status === 401) {
+    setLocalAdminToken('');
+    token = await ensureLocalAdminToken(route, { force: true });
+    if (token) response = await request();
+  }
+  if (!response.ok) return localError(response);
+  const out = await response.json();
+  return {
+    ...out,
+    workspace_id: workspaceId(),
+    state: out?.state ?? input.state,
+  };
+};
+
 export const verifyLocalReferee = async (route: DataPlaneRoute, tournamentId: string, refereePassword: string): Promise<any> => {
   const response = await timeoutFetch(localUrl(route, `/api/v1/referee/workspace/${encodeURIComponent(workspaceId())}/auth`), {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tournamentId, refereePassword }),

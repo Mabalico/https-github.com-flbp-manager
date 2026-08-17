@@ -5,7 +5,7 @@ import { buildRealSimPoolFromState } from './simPool';
 import { readViteSupabaseAdminEmail, readViteSupabaseAnonKey, readViteSupabaseUrl, readViteWorkspaceId } from './viteEnv';
 import { fetchWithDevRequestPerf, type DevRequestPerfKind, type DevRequestPerfMeta } from './devRequestPerf';
 import { getAdminLeaseHolderForWrites, isAdminWriteBlockedByLease, setAdminLeaseInfo } from './adminWriteLeaseState';
-import { commitLocalMatchResult, commitLocalWorkspace, makeDataOperationId, pullLocalWorkspace, resolveDataPlane, verifyLocalReferee } from './dataPlaneClient';
+import { commitLocalMatchResult, commitLocalWorkspace, makeDataOperationId, pullLocalWorkspace, recoverLocalWorkspace, resolveDataPlane, verifyLocalReferee } from './dataPlaneClient';
 import { clearVerifiedAdminSession, rememberVerifiedAdminSession } from './localAdminContinuity';
 
 type Json = any;
@@ -4115,6 +4115,125 @@ export const pushWorkspaceState = async (state: AppState, opts?: {
     };
     setRemoteBaseUpdatedAt(out.updated_at || payload.updated_at);
     return out;
+};
+
+export type WorkspaceLocalRecoveryResult = SupabaseWorkspaceStateRow & {
+    operation_id?: string | null;
+    previous_version?: number | null;
+    preserved_referee_match_ids?: string[];
+};
+
+const preserveCloudRefereeReportsForRecovery = (
+    currentState: AppState,
+    incomingState: AppState,
+): { state: AppState; preservedMatchIds: string[] } => {
+    if (!currentState.tournament?.id || currentState.tournament.id !== incomingState.tournament?.id) {
+        return { state: coerceAppState(structuredClone(incomingState)), preservedMatchIds: [] };
+    }
+    const currentMatches = new Map<string, Match>();
+    for (const match of [...(currentState.matches || []), ...(currentState.tournamentMatches || [])]) {
+        if (match?.id && !currentMatches.has(match.id)) currentMatches.set(match.id, match);
+    }
+    const incomingMatches = new Map<string, Match>();
+    for (const match of [...(incomingState.matches || []), ...(incomingState.tournamentMatches || [])]) {
+        if (match?.id && !incomingMatches.has(match.id)) incomingMatches.set(match.id, match);
+    }
+    const replacements = new Map<string, Match>();
+    for (const [id, current] of currentMatches) {
+        const currentFinalId = String(current.refereeReportFinalId || '').trim();
+        const currentSavedAt = Date.parse(String(current.refereeReportSavedAt || ''));
+        if (!currentFinalId && !Number.isFinite(currentSavedAt)) continue;
+        const incoming = incomingMatches.get(id);
+        if (!incoming) {
+            const error: any = new Error(`La versione locale non contiene il referto autorevole della partita ${id}. Esporta la bozza e riconciliala manualmente.`);
+            error.code = 'FLBP_LOCAL_RECOVERY_REQUIRES_RECONCILIATION';
+            throw error;
+        }
+        const incomingSavedAt = Date.parse(String(incoming.refereeReportSavedAt || ''));
+        const incomingFinalId = String(incoming.refereeReportFinalId || '').trim();
+        if ((Number.isFinite(currentSavedAt) && (!Number.isFinite(incomingSavedAt) || currentSavedAt > incomingSavedAt))
+            || (!Number.isFinite(currentSavedAt) && currentFinalId !== incomingFinalId)) {
+            replacements.set(id, current);
+        }
+    }
+    if (!replacements.size) return { state: coerceAppState(structuredClone(incomingState)), preservedMatchIds: [] };
+    const state = coerceAppState(structuredClone(incomingState));
+    const replace = (matches: Match[]) => matches.map((match) => replacements.get(match.id) || match);
+    state.matches = replace(state.matches || []);
+    state.tournamentMatches = replace(state.tournamentMatches || []);
+    if (state.tournament && Array.isArray((state.tournament as any).matches)) {
+        (state.tournament as any).matches = replace((state.tournament as any).matches);
+    }
+    return { state, preservedMatchIds: [...replacements.keys()] };
+};
+
+/**
+ * Explicit conflict recovery that keeps the durable browser/local snapshot.
+ * The local data plane never receives a force flag: it rebases on the newest
+ * SQLite version and the server creates/validates the external backup before
+ * acknowledging the new version. Cloud mode still uses the versioned Admin
+ * RPC and remains fenced by the active writer lease.
+ */
+export const recoverWorkspaceFromLocalState = async (
+    state: AppState,
+    operationId = makeDataOperationId(),
+): Promise<WorkspaceLocalRecoveryResult> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    if (isAdminWriteBlockedByLease()) {
+        throw new Error('FLBP_LEASE_READONLY: questa finestra Admin non possiede il controllo di scrittura.');
+    }
+    const writerId = getAdminLeaseHolderForWrites();
+    if (!writerId) throw new Error('FLBP_LEASE_READONLY: controllo Admin non acquisito.');
+
+    const route = await resolveDataPlane({ force: true });
+    if (route.mode === 'recovery') {
+        throw new Error('FLBP_DATA_PLANE_RECOVERY: autorità del database ambigua; il recupero locale resta bloccato per sicurezza.');
+    }
+    if (route.mode === 'local') {
+        const current = await pullLocalWorkspace(route, true);
+        const baseVersion = Number(current?.version);
+        if (!Number.isInteger(baseVersion) || baseVersion < 0) {
+            throw makeConflictError('Impossibile determinare la versione SQLite corrente. Riprova il download dal DB.');
+        }
+        const out = await recoverLocalWorkspace(route, {
+            state,
+            publicState: sanitizeAppStateForPublic(state),
+            operationId,
+            baseVersion,
+            writerId,
+        });
+        const recovered: WorkspaceLocalRecoveryResult = {
+            workspace_id: cfg.workspaceId,
+            state: coerceAppState(out.state),
+            updated_at: out.updated_at || new Date().toISOString(),
+            version: out.version ?? null,
+            primary_epoch: out.primary_epoch ?? null,
+            operation_id: out.operation_id || operationId,
+            previous_version: out.previous_version ?? baseVersion,
+            preserved_referee_match_ids: out.preserved_referee_match_ids || [],
+        };
+        setRemoteBaseUpdatedAt(recovered.updated_at || null);
+        return recovered;
+    }
+
+    const current = await pullWorkspaceState({ source: 'recoverWorkspaceFromLocalState.preview', kind: 'admin' });
+    const protectedRecovery = preserveCloudRefereeReportsForRecovery(
+        coerceAppState(current?.state),
+        state,
+    );
+    const recovered = await pushWorkspaceState(protectedRecovery.state, {
+        force: true,
+        operationId,
+        baseUpdatedAt: current?.updated_at || null,
+    }, { source: 'recoverWorkspaceFromLocalState', kind: 'admin' });
+    return {
+        ...recovered,
+        operation_id: operationId,
+        previous_version: current?.version ?? null,
+        state: protectedRecovery.state,
+        preserved_referee_match_ids: protectedRecovery.preservedMatchIds,
+    };
 };
 
 // -----------------------------

@@ -56,9 +56,9 @@ const DUPLICATE_WINDOW_MS = 2_000;
 const MAX_ENTRIES = 1500;
 const LEGACY_USAGE_PENDING_LS_KEY = 'flbp_supabase_usage_pending_v1';
 const USAGE_PENDING_LS_KEY = 'flbp_supabase_usage_pending_v2';
-const USAGE_FLUSH_INTERVAL_MS = 120_000;
-const USAGE_FLUSH_REQUEST_THRESHOLD = 20;
-const USAGE_FLUSH_BYTES_THRESHOLD = 128 * 1024;
+const USAGE_FLUSH_INTERVAL_MS = 15 * 60_000;
+const USAGE_FLUSH_REQUEST_THRESHOLD = 500;
+const USAGE_FLUSH_BYTES_THRESHOLD = 2 * 1024 * 1024;
 const TRACKED_TEXT_WIRE_RATIO = 0.24;
 const MAX_SINGLE_REQUEST_BYTES = 32 * 1024 * 1024;
 const MAX_SINGLE_RESPONSE_BYTES = 64 * 1024 * 1024;
@@ -231,14 +231,10 @@ const flushSupabaseUsagePending = async (options?: { keepalive?: boolean }) => {
 const attachUsageLifecycleListeners = () => {
   if (usageListenersAttached || typeof window === 'undefined') return;
   usageListenersAttached = true;
-  window.addEventListener('pagehide', () => {
-    void flushSupabaseUsagePending({ keepalive: true });
-  });
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      void flushSupabaseUsagePending({ keepalive: true });
-    }
-  });
+  // Pending counters are durable in localStorage. Flushing every page hide or
+  // tab switch turned the diagnostic itself into a high-frequency database
+  // writer, especially on public live views. The next timer/online event will
+  // upload the aggregate without affecting application data.
   window.addEventListener('online', () => {
     void flushSupabaseUsagePending();
   });
