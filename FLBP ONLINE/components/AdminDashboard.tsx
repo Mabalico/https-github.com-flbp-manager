@@ -1124,6 +1124,8 @@ const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } |
     const [reportImageBusy, setReportImageBusy] = useState<boolean>(false);
     const [reportOcrText, setReportOcrText] = useState<string>('');
     const [reportOcrBusy, setReportOcrBusy] = useState<boolean>(false);
+    const [reportSaveBusy, setReportSaveBusy] = useState<boolean>(false);
+    const reportSaveInFlightRef = useRef(false);
     const reportFileRef = useRef<HTMLInputElement | null>(null);
     const backupRef = useRef<HTMLInputElement | null>(null);
 
@@ -3555,7 +3557,7 @@ while (guard < 5000) {
         }
     };
 
-    const handleSaveReport = async () => {
+    const handleSaveReportOnce = async () => {
         if (!state.tournament) {
             alert(t('alert_no_live_active'));
             return;
@@ -3792,6 +3794,18 @@ while (guard < 5000) {
         }
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
         alert(t('alert_report_saved'));
+    };
+
+    const handleSaveReport = async () => {
+        if (reportSaveInFlightRef.current) return;
+        reportSaveInFlightRef.current = true;
+        setReportSaveBusy(true);
+        try {
+            await handleSaveReportOnce();
+        } finally {
+            reportSaveInFlightRef.current = false;
+            setReportSaveBusy(false);
+        }
     };
 
     // Known-safe Admin landing (used only when recovering from a render crash).
@@ -4647,6 +4661,7 @@ while (guard < 5000) {
                     reportStatsForm={reportStatsForm}
                     setReportStatsForm={setReportStatsForm}
                     handleSaveReport={handleSaveReport}
+                    reportSaveBusy={reportSaveBusy}
                     reportFileRef={reportFileRef}
                     handleReportFile={handleReportFile}
                     reportImageBusy={reportImageBusy}

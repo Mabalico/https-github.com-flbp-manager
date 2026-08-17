@@ -92,6 +92,7 @@ interface PoolEntry {
   reasonCode: string;
   humanMessage: string;
   placementLabel: string;
+  placement?: CurrentPlacement;
   badgeLabel: string;
   disabled: boolean;
 }
@@ -554,6 +555,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           reasonCode: String(eligibility.reasonCode || 'unknown'),
           humanMessage: eligibility.humanMessage,
           placementLabel,
+          placement: eligibility.currentPlacement,
           badgeLabel: badgeLabelByStatus[eligibility.status],
           disabled: eligibility.status !== 'eligible',
         };
@@ -960,7 +962,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const [slotPickerQuery, setSlotPickerQuery] = React.useState('');
 
   const selectedBracketSlot = React.useMemo(() => {
-    if (dragSource || selection?.kind !== 'bracket-slot') return null;
+    if (selection?.kind !== 'bracket-slot') return null;
     const slotKey = selection.slotKey;
     const matchId = slotKey.split('|')[0] || '';
     const match = getMatchById(draft.state.present, matchId);
@@ -991,7 +993,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       locked: isLockedBracketMatchForStructureEdit(match),
       clearCheck,
     };
-  }, [dragSource, selection, draft.state.present, slotDisplayLabel]);
+  }, [selection, draft.state.present, slotDisplayLabel]);
 
   React.useEffect(() => {
     setSlotPickerOpen(false);
@@ -1033,11 +1035,25 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       setInteractionMessage(selectedBracketSlot.clearCheck.humanMessage || t('editor_invalid_target'));
       return;
     }
-    applyOperation({ type: 'CLEAR_BRACKET_SLOT', slotKey: selectedBracketSlot.removeSlotKey }, 'success');
+    const removed = applyOperation({ type: 'CLEAR_BRACKET_SLOT', slotKey: selectedBracketSlot.removeSlotKey }, 'success');
+    if (!removed) return;
     setSlotPickerOpen(false);
     setSlotPickerQuery('');
     clearInteraction();
   }, [applyOperation, clearInteraction, selectedBracketSlot, t]);
+
+  React.useEffect(() => {
+    const handleSelectedSlotDelete = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete' || !selectedBracketSlot || selectedBracketSlot.isFree) return;
+      const target = event.target as HTMLElement | null;
+      const tagName = String(target?.tagName || '').toUpperCase();
+      if (target?.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return;
+      event.preventDefault();
+      handleRemoveSelectedSlotTeam();
+    };
+    window.addEventListener('keydown', handleSelectedSlotDelete);
+    return () => window.removeEventListener('keydown', handleSelectedSlotDelete);
+  }, [handleRemoveSelectedSlotTeam, selectedBracketSlot]);
 
   const toggleBracketFullscreen = React.useCallback(async () => {
     const node = bracketWorkspaceRef.current;
@@ -1512,6 +1528,69 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     );
   };
 
+  // Render the selected-slot actions at the page root. Keeping the overlay
+  // outside the horizontally scrolling bracket prevents transformed/overflow
+  // ancestors from clipping it on very large tournaments.
+  const floatingSelectedSlotPanel = selectedBracketSlot ? (
+    <div className="fixed left-1/2 top-40 z-[90] w-[min(960px,calc(100vw-2rem))] -translate-x-1/2 rounded-[18px] border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)] backdrop-blur">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{selectedBracketSlot.slotLabel}</div>
+          <div className="truncate text-base font-black text-slate-950">
+            {selectedBracketSlot.isFree ? 'Slot libero selezionato' : selectedBracketSlot.teamName}
+          </div>
+          <div className="mt-0.5 text-xs font-bold text-slate-500">
+            {selectedBracketSlot.isFree
+              ? 'Inserisci una squadra iscritta in Squadre, oppure tocca un altro slot per spostare qui una squadra.'
+              : selectedBracketSlot.removeSlotKey !== selectedBracketSlot.slotKey
+                ? `Rimozione collegata allo slot origine: ${selectedBracketSlot.removeSlotLabel}.`
+                : 'Tocca un altro slot per spostare o scambiare, oppure usa le azioni qui accanto.'}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setSlotPickerOpen((open) => !open); setSlotPickerQuery(''); }}
+            disabled={selectedBracketSlot.locked}
+            title={selectedBracketSlot.locked ? t('editor_bracket_slot_locked_started') : undefined}
+            className={editorOutlineButtonClass}
+          >
+            <Users className="h-4 w-4" />
+            {selectedBracketSlot.isFree ? 'Inserisci squadra' : 'Sostituisci con…'}
+          </button>
+          {!selectedBracketSlot.isFree ? (
+            <button
+              type="button"
+              onClick={handleRemoveSelectedSlotTeam}
+              disabled={!!selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed}
+              title={selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed ? selectedBracketSlot.clearCheck.humanMessage : undefined}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white/90 px-4 py-2 text-sm font-bold text-red-700 shadow-sm transition-all duration-300 hover:bg-red-50 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="h-4 w-4" />
+              Rimuovi dal tabellone
+            </button>
+          ) : null}
+          <button type="button" onClick={clearInteraction} className={editorGhostButtonClass}>
+            {t('editor_cancel_action')}
+          </button>
+        </div>
+      </div>
+      {slotPickerOpen && !selectedBracketSlot.locked ? (
+        <div className="mt-3 max-w-xl">
+          <TeamPickerCombobox
+            label={selectedBracketSlot.isFree ? 'Squadra da inserire' : 'Nuova squadra per questo slot'}
+            query={slotPickerQuery}
+            onQueryChange={setSlotPickerQuery}
+            items={slotPickerOptions}
+            selectedId={null}
+            onSelect={handleSlotPickerSelect}
+            placeholder="Cerca tra le squadre iscritte…"
+          />
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
   if (!hasLiveTournament) {
     return (
       <div className="rounded-3xl border border-slate-200 bg-white p-6">
@@ -1525,6 +1604,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
   return (
     <div className="mx-auto max-w-[1760px] space-y-6 text-[var(--editor-text-primary)]" style={editorThemeVars}>
+      {floatingSelectedSlotPanel}
       <div className={`${editorPanelClass} xl:sticky xl:top-3 z-20 overflow-hidden`}>
         <div className="border-b border-[color:var(--editor-border-subtle)] bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))] px-5 py-5 md:px-6 backdrop-blur-sm">
           <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-start 2xl:justify-between">
@@ -1771,13 +1851,15 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           <div className="max-h-[62vh] overflow-y-auto space-y-2 pr-1">
             {filteredPoolEntries.map((entry) => {
               const isSelected = selection?.kind === 'pool-team' && selection.teamId === entry.team.id;
+              const canOpenAssignedBracketSlot = entry.status === 'already_assigned' && entry.placement?.phase === 'bracket' && !!entry.placement.slotKey;
+              const rowDisabled = entry.disabled && !canOpenAssignedBracketSlot;
               const canDrag = !entry.disabled;
               const isChanged = changedPoolTeamIds.has(entry.team.id);
               return (
                 <button
                   key={entry.team.id}
                   type="button"
-                  disabled={entry.disabled}
+                  disabled={rowDisabled}
                   draggable={canDrag}
                   onDragStart={() => {
                     if (!canDrag) return;
@@ -1789,9 +1871,19 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     setDragSource(null);
                     setHoverSlotKey('');
                   }}
-                  onClick={() => setSelectedPoolTeam(entry.team.id)}
+                  onClick={() => {
+                    if (canOpenAssignedBracketSlot && entry.placement?.slotKey) {
+                      const slotKey = entry.placement.slotKey;
+                      setSelection({ kind: 'bracket-slot', slotKey, teamId: getSlotValue(draft.state.present, slotKey) || undefined });
+                      setDragSource(null);
+                      setHoverSlotKey('');
+                      setInteractionMessage(t('editor_message_slot_selected'));
+                      return;
+                    }
+                    setSelectedPoolTeam(entry.team.id);
+                  }}
                 className={`relative w-full overflow-hidden rounded-[16px] border px-3 py-3 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 ${
-                    entry.disabled
+                    rowDisabled
                       ? 'cursor-not-allowed border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-disabled)] text-[var(--editor-text-disabled)] shadow-none opacity-100'
                       : isSelected
                         ? 'border-[color:var(--editor-border-brand)] bg-[var(--editor-bg-selected)] text-[var(--editor-text-primary)] shadow-[0_16px_34px_-26px_rgba(37,99,235,0.4)]'
@@ -1816,6 +1908,9 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                       ) : null}
                       {entry.disabled ? (
                         <div className="mt-1 text-[11px] font-medium text-[var(--editor-text-muted)]">{entry.humanMessage}</div>
+                      ) : null}
+                      {canOpenAssignedBracketSlot ? (
+                        <div className="mt-1 text-[11px] font-semibold text-[var(--editor-brand-700)]">Tocca per aprire le azioni dello slot assegnato.</div>
                       ) : null}
                     </div>
                   </div>
@@ -2281,8 +2376,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     )}
                   </div>
                 ) : null}
-                {selectedBracketSlot ? (
-                  <div className="sticky top-2 z-20 mb-3 rounded-[18px] border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
+                {selectedBracketSlot && false ? (
+                  <div className="fixed left-1/2 top-40 z-[80] mb-3 w-[min(960px,calc(100vw-2rem))] -translate-x-1/2 rounded-[18px] border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)] backdrop-blur">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
                         <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{selectedBracketSlot.slotLabel}</div>

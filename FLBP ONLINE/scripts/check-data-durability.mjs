@@ -152,8 +152,13 @@ requirePattern(
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /commitSnapshot[\s\S]{0,260}scheduleOutboxSync[\s\S]{0,160}ensureSecondaryBackup\(committed\.version\)/,
+  /const committed = await runDurableWrite[\s\S]{0,300}commitSnapshot[\s\S]{0,260}scheduleOutboxSync[\s\S]{0,160}ensureSecondaryBackup\(result\.version\)/,
   'il commit Admin deve avviare il journal remoto e attendere la replica SQLite configurata prima dell’ack',
+);
+requirePattern(
+  '../FLBP SERVER LOCALE/src/server.mjs',
+  /const runDurableWrite[\s\S]{0,320}durableWriteChain = current\.catch/,
+  'commit e replica secondaria devono essere serializzati in una sola coda durevole',
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/store.mjs',

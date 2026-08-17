@@ -216,6 +216,30 @@ defineCase('clearing an unplayed bracket slot prunes only the live tournament ro
   assertEqual(validateDraftBeforeApply(snapshot, result.nextSnapshot!).canApply, true);
 });
 
+defineCase('clearing an auto-finished bye seed removes its propagated successor', () => {
+  const a = makeTeam('A', 'Alpha');
+  const b = makeTeam('B', 'Bravo');
+  const tournament = makeTournament(
+    'elim-bye-prune',
+    'elimination',
+    [a, b],
+    [],
+    [
+      makeBracketMatch('r1m1', 1, 'A', 'BYE', { played: true, status: 'finished', hidden: true, isBye: true }),
+      makeBracketMatch('r1m2', 1, 'B', 'BYE', { played: true, status: 'finished', hidden: true, isBye: true }),
+      makeBracketMatch('r2m1', 2, 'A', 'B'),
+    ]
+  );
+  const snapshot = makeSnapshot(tournament, tournament.matches || [], [a, b]);
+
+  const result = applyStructuralOperation(snapshot, { type: 'CLEAR_BRACKET_SLOT', slotKey: 'r1m1|A' });
+
+  assertEqual(result.ok, true);
+  assertEqual(getSlotValue(result.nextSnapshot!, 'r1m1|A'), 'BYE');
+  assertOk(getSlotValue(result.nextSnapshot!, 'r2m1|A') !== 'A');
+  assertOk(!result.nextSnapshot!.tournament.teams.some((team) => team.id === 'A'));
+});
+
 defineCase('rebuilding a 128-team elimination roster produces seven rounds and 127 matches', () => {
   const teams = Array.from({ length: 128 }, (_, index) => makeTeam(`T${index + 1}`));
   const oversized = generateTournamentStructure(teams, {

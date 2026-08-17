@@ -5,6 +5,7 @@ import {
   resolveDataPlane,
   setLocalAdminToken,
 } from '../../services/dataPlaneClient';
+import { shouldReadPublicWorkspaceFromLocal } from '../../services/supabasePublic';
 import {
   canContinueVerifiedAdminOnLocalNode,
   hasRecentVerifiedAdminSession,
@@ -169,6 +170,11 @@ const assert = (condition: unknown, message: string) => {
 
 const route = await resolveDataPlane({ force: true });
 assert(route.mode === 'local', 'same-origin discovery must select the local data plane');
+assert(shouldReadPublicWorkspaceFromLocal(route), 'same-origin public views must read the local SQLite snapshot');
+assert(
+  !shouldReadPublicWorkspaceFromLocal({ ...route, publicReadMode: 'cloud' }),
+  'remote public views must honor public_read_mode=cloud and use the Supabase live mirror',
+);
 
 setLocalAdminToken('');
 const pulled = await pullLocalWorkspace(route, true);

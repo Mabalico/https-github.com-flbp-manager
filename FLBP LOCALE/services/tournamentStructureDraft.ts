@@ -1,4 +1,4 @@
-import { useMemo, useReducer } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { validateDraftBeforeApply } from './tournamentStructureEligibility';
 import { diffTournamentStructure } from './tournamentStructureDiff';
 import { applyStructuralOperation } from './tournamentStructureOperations';
@@ -14,6 +14,12 @@ import type {
   TournamentStructureDraftState,
   TournamentStructureSnapshot,
 } from './tournamentStructureTypes';
+import {
+  buildTournamentStructureSourceSignature,
+  clearTournamentStructureDraft,
+  readTournamentStructureDraft,
+  writeTournamentStructureDraft,
+} from './tournamentStructureDraftCache';
 
 const cloneMatchList = <T extends { [key: string]: any }>(matches: T[]) => matches.map((match) => ({ ...match }));
 
@@ -32,6 +38,7 @@ type DraftReducerAction =
   | { type: 'REDO' }
   | { type: 'RESET' }
   | { type: 'REBASE'; snapshot: TournamentStructureSnapshot }
+  | { type: 'RESTORE'; state: TournamentStructureDraftState }
   | { type: 'CLEAR_RESULT' };
 
 export const makeTournamentStructureApplyOperationAction = (result: ReturnType<typeof applyStructuralOperation>) => ({
@@ -83,6 +90,8 @@ export const tournamentStructureDraftReducer = (
       return createTournamentStructureDraftState(state.original);
     case 'REBASE':
       return createTournamentStructureDraftState(action.snapshot);
+    case 'RESTORE':
+      return action.state;
     case 'CLEAR_RESULT':
       return { ...state, lastResult: null };
     default:
@@ -106,6 +115,30 @@ export const resetTournamentStructureDraft = (state: TournamentStructureDraftSta
 
 export const useTournamentStructureDraft = (snapshot: TournamentStructureSnapshot) => {
   const [state, dispatch] = useReducer(tournamentStructureDraftReducer, snapshot, createTournamentStructureDraftState);
+  const [hydrated, setHydrated] = useState(false);
+  const sourceSignature = useMemo(() => buildTournamentStructureSourceSignature(snapshot), [snapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHydrated(false);
+    void readTournamentStructureDraft(snapshot, sourceSignature).then((restored) => {
+      if (cancelled) return;
+      if (restored) dispatch({ type: 'RESTORE', state: restored });
+      setHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, [snapshot.tournament?.id, sourceSignature]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const changed = buildTournamentStructureSourceSignature(state.original)
+      !== buildTournamentStructureSourceSignature(state.present);
+    const timer = window.setTimeout(() => {
+      if (changed) void writeTournamentStructureDraft(state, sourceSignature);
+      else void clearTournamentStructureDraft(state.original);
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [hydrated, sourceSignature, state.original, state.present, state.log]);
 
   const validation: DraftValidationResult = useMemo(
     () => validateDraftBeforeApply(state.original, state.present),
@@ -127,8 +160,14 @@ export const useTournamentStructureDraft = (snapshot: TournamentStructureSnapsho
     },
     undo: () => dispatch({ type: 'UNDO' }),
     redo: () => dispatch({ type: 'REDO' }),
-    reset: () => dispatch({ type: 'RESET' }),
-    rebase: (nextSnapshot: TournamentStructureSnapshot) => dispatch({ type: 'REBASE', snapshot: nextSnapshot }),
+    reset: () => {
+      void clearTournamentStructureDraft(state.original);
+      dispatch({ type: 'RESET' });
+    },
+    rebase: (nextSnapshot: TournamentStructureSnapshot) => {
+      void clearTournamentStructureDraft(state.original);
+      dispatch({ type: 'REBASE', snapshot: nextSnapshot });
+    },
     clearResult: () => dispatch({ type: 'CLEAR_RESULT' }),
   };
 };

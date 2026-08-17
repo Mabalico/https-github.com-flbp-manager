@@ -31,6 +31,7 @@ export interface ReportsTabProps {
     setReportStatsForm: React.Dispatch<React.SetStateAction<Record<string, { canestri: string; soffi: string }>>>;
 
     handleSaveReport: () => void;
+    reportSaveBusy: boolean;
 
     reportFileRef: React.RefObject<HTMLInputElement | null>;
     handleReportFile: (file: File) => void;
@@ -62,6 +63,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     reportStatsForm,
     setReportStatsForm,
     handleSaveReport,
+    reportSaveBusy,
     reportFileRef,
     handleReportFile,
     reportImageBusy,
@@ -150,7 +152,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     const isMulti = !!selected && selectedIds.length >= 3;
 
                     const selectedHasPlaceholder = !!selected && (selectedIds.length < 2 || selectedIds.some(isPlaceholderTeamId));
-                    const saveDisabled = selectedHasPlaceholder || (resultsOnly && !reportWinnerTeamId);
+                    const saveDisabled = reportSaveBusy || selectedHasPlaceholder || (resultsOnly && !reportWinnerTeamId);
 
                     const computeTeamScoreFromForm = (teamId: string, p1?: string, p2?: string) => {
                         const getCan = (playerName?: string) => {
@@ -518,7 +520,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                     : 'bg-beer-500 text-white hover:bg-beer-600'
                                             }`}
                                         >
-                                            <CheckCircle2 className="w-5 h-5" /> Salva Referto
+                                            <CheckCircle2 className="w-5 h-5" /> {reportSaveBusy ? 'Salvataggio…' : 'Salva Referto'}
                                         </button>
 
                                         {selectedHasPlaceholder && (
