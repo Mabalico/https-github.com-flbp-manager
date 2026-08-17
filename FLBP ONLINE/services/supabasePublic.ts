@@ -203,11 +203,14 @@ const isMissingPublicWorkspaceLiveError = (status: number, body: string) => {
         || (text.includes('relation') && text.includes('does not exist'));
 };
 
+export const shouldReadPublicWorkspaceFromLocal = (route: Awaited<ReturnType<typeof resolveDataPlane>>): boolean =>
+    route.mode === 'local' && route.publicReadMode !== 'cloud' && !!route.baseUrl;
+
 export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const route = await resolveDataPlane();
-    if (route.mode === 'local') return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceStateRow;
+    if (shouldReadPublicWorkspaceFromLocal(route)) return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceStateRow;
 
     const url = restUrl(
         cfg,
@@ -236,7 +239,7 @@ export const pullPublicWorkspaceState = async (perf?: RequestPerfHint): Promise<
 
 export const pullPublicWorkspaceLive = async (perf?: RequestPerfHint): Promise<SupabasePublicWorkspaceLiveRow | null> => {
     const route = await resolveDataPlane();
-    if (route.mode === 'local') return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceLiveRow;
+    if (shouldReadPublicWorkspaceFromLocal(route)) return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceLiveRow;
     if (pullPublicWorkspaceLiveUnavailable) {
         throw makePublicWorkspaceLiveUnavailableError();
     }

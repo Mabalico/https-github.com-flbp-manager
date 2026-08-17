@@ -14,6 +14,8 @@ Supabase resta il control plane e continua a gestire Auth, account giocatori, pu
 
 I visitatori del sito Internet leggono sempre il mirror Supabase. Il server pubblica il documento live compatto ogni 60 secondi; i browser online lo aggiornano ogni 120–140 secondi con jitter. Un ritardo pubblico di pochi minuti non influenza mai il commit locale. Un tunnel o un dominio dedicato non sono necessari per questa modalità.
 
+Nel client questa separazione è vincolante: `mode=local` indica chi può scrivere, mentre `public_read_mode=cloud` impone alle viste pubbliche Internet di leggere `public_workspace_live` su Supabase. Il client tenta l'origine locale soltanto quando il coordinatore richiede esplicitamente letture locali e fornisce una `base_url`; in questo modo un tunnel disabilitato non può far ricadere il sito su uno snapshot completo meno recente.
+
 ## Flusso Admin locale
 
 1. L’Admin effettua almeno una volta il login Supabase reale e viene verificato in `admin_users`.
@@ -21,7 +23,7 @@ I visitatori del sito Internet leggono sempre il mirror Supabase. Il server pubb
 3. Ogni modifica Admin viene prima salvata come bozza durevole nel browser e poi committata in SQLite con `operationId` e `baseVersion`.
    Il push attende la conferma del checkpoint locale; se nel frattempo arriva un’altra modifica, questa riceve un nuovo `operationId` e la risposta precedente non può cancellarla.
 4. Lo stesso commit aggiorna nella medesima transazione snapshot privato e snapshot pubblico sanitizzato.
-5. Admin, arbitri e TV sulla LAN leggono quindi la stessa versione dal server locale; dopo un riavvio WAL e versione restano invariati.
+5. Il server serializza commit e replica esterna: la scrittura successiva non parte finché la stessa versione del commit precedente non è leggibile sul supporto secondario. Admin, arbitri e TV sulla LAN leggono quindi la stessa versione dal server locale; dopo un riavvio WAL e versione restano invariati.
 6. L'outbox viene accorpata per circa 15 secondi e inviata in batch limitati; il mirror pubblico compatto segue un timer separato e il checkpoint completo resta ogni 30 minuti.
 7. Durante la leadership locale la sincronizzazione normalizzata periodica verso Supabase è sospesa. Dopo la disattivazione sicura, la ricostruzione del mirror viene eseguita una sola volta dall'Admin già aperto oppure alla sua successiva apertura; lo snapshot completo è già stato caricato atomicamente dal server.
 

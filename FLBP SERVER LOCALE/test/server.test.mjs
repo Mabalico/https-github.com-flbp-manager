@@ -235,6 +235,71 @@ test('HTTP commit rejects stale baseVersion and accepts idempotent retry', async
   }
 });
 
+test('concurrent durable writes wait for the previous secondary replica before committing', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-http-write-queue-'));
+  const secondaryBackupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-http-write-replica-'));
+  const app = createLocalServer({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir,
+    secondaryBackupDir,
+    requireSecondaryBackup: false,
+    workspaceId: 'default',
+    adminToken: TOKEN,
+    allowedOrigins: ['http://test.local'],
+    publicUrl: '',
+    supabaseUrl: '',
+    supabaseServiceRoleKey: '',
+    heartbeatIntervalMs: 60_000,
+    fullBackupIntervalMs: 60_000,
+    secondaryBackupIntervalMs: 60_000,
+    databaseFilename: 'test.sqlite',
+  });
+  app.store.importCloudSnapshot({ state: { marker: 'base' }, publicState: { marker: 'base' } });
+  app.store.setActive(true, 1);
+  const address = await app.listen();
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const writerId = await acquireWriter(base);
+    const headers = { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
+    let releaseReplica;
+    let signalReplicaStarted;
+    const replicaStarted = new Promise((resolve) => { signalReplicaStarted = resolve; });
+    const replicaGate = new Promise((resolve) => { releaseReplica = resolve; });
+    let replicaCalls = 0;
+    app.store.createSecondaryBackup = async () => {
+      replicaCalls += 1;
+      if (replicaCalls === 1) {
+        signalReplicaStarted();
+        await replicaGate;
+      }
+      const current = app.store.getCurrent();
+      return { backedUp: true, version: current.version, checksum: current.checksum, operationId: current.operationId };
+    };
+
+    const first = fetch(`${base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ operationId: 'queued-write-1', baseVersion: 1, state: { marker: 'first' } }),
+    });
+    await replicaStarted;
+    const second = fetch(`${base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ operationId: 'queued-write-2', baseVersion: 2, state: { marker: 'second' } }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(app.store.getCurrent().version, 2, 'the second commit ran before the first replica completed');
+    releaseReplica();
+    const [firstResponse, secondResponse] = await Promise.all([first, second]);
+    assert.equal(firstResponse.status, 200);
+    assert.equal(secondResponse.status, 200);
+    assert.equal(app.store.getCurrent().version, 3);
+  } finally {
+    await app.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(secondaryBackupDir, { recursive: true, force: true });
+  }
+});
+
 test('write endpoints reject missing or oversized operation IDs before touching SQLite', async () => {
   const ctx = await startServer();
   try {

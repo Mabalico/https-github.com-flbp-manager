@@ -79,6 +79,7 @@ export const createLocalServer = (overrides = {}) => {
   let publicLiveTimer = null;
   let secondaryBackupTimer = null;
   let secondaryBackupChain = Promise.resolve();
+  let durableWriteChain = Promise.resolve();
   let secondaryBackedVersion = 0;
   const localAdminSessions = new Map();
   const localAdminSessionTtlMs = 12 * 60 * 60 * 1000;
@@ -214,6 +215,12 @@ export const createLocalServer = (overrides = {}) => {
     });
     secondaryBackupChain = work.catch(() => {});
     return work;
+  };
+
+  const runDurableWrite = (work) => {
+    const current = durableWriteChain.then(work);
+    durableWriteChain = current.catch(() => {});
+    return current;
   };
 
   const startTimers = () => {
@@ -369,9 +376,12 @@ export const createLocalServer = (overrides = {}) => {
         consumeRateLimit(request, 'authenticated-write', 240);
         ensureSecondaryTargetAvailable();
         const body = await readBody(request);
-        const committed = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: false, source: 'admin' });
-        void sync.scheduleOutboxSync();
-        await ensureSecondaryBackup(committed.version);
+        const committed = await runDurableWrite(async () => {
+          const result = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: false, source: 'admin' });
+          void sync.scheduleOutboxSync();
+          await ensureSecondaryBackup(result.version);
+          return result;
+        });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, operation_id: committed.operationId, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/auth`) {
@@ -391,9 +401,12 @@ export const createLocalServer = (overrides = {}) => {
         if (!safeEqual(body.refereePassword, expected)) return sendJson(response, 401, { error: 'Password arbitri non valida' }, cors);
         consumeRateLimit(request, 'authenticated-write', 240, body.tournamentId);
         ensureSecondaryTargetAvailable();
-        const committed = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'referee' });
-        void sync.scheduleOutboxSync();
-        await ensureSecondaryBackup(committed.version);
+        const committed = await runDurableWrite(async () => {
+          const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'referee' });
+          void sync.scheduleOutboxSync();
+          await ensureSecondaryBackup(result.version);
+          return result;
+        });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, matches_count: Array.isArray(body.matches) ? body.matches.length : 0, auth_version: committed.state?.tournament?.refereesAuthVersion || null, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/admin-match-result`) {
@@ -403,9 +416,12 @@ export const createLocalServer = (overrides = {}) => {
         consumeRateLimit(request, 'authenticated-write', 240);
         ensureSecondaryTargetAvailable();
         const body = await readBody(request);
-        const committed = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'admin' });
-        void sync.scheduleOutboxSync();
-        await ensureSecondaryBackup(committed.version);
+        const committed = await runDurableWrite(async () => {
+          const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'admin' });
+          void sync.scheduleOutboxSync();
+          await ensureSecondaryBackup(result.version);
+          return result;
+        });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, matches_count: Array.isArray(body.matches) ? body.matches.length : 0, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
       }
       if (request.method === 'POST' && url.pathname.startsWith('/control/')) {
@@ -537,7 +553,7 @@ export const createLocalServer = (overrides = {}) => {
       if (maintenanceTimer) clearInterval(maintenanceTimer);
       sync.cancelScheduledOutboxSync();
       server.close(() => {
-        void secondaryBackupChain.finally(() => {
+        void durableWriteChain.finally(() => {
           store.close();
           resolve();
         });

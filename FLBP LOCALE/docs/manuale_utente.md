@@ -164,6 +164,8 @@ Il pannello **Strumenti** dell'header Admin si richiude automaticamente se clicc
 Nell’**Editor Torneo** puoi anche:
 - creare una nuova squadra al volo direttamente nel pool editor inserendo nome squadra e due giocatori;
 - usare **Aggiungi turno preliminare** quando il Round 1 è pieno e nessun match reale del bracket è ancora partito, così da ottenere un nuovo turno preliminare vuoto con slot BYE pronti a ricevere le squadre extra.
+- nei tabelloni molto grandi, dopo aver selezionato uno slot, usare la barra azioni che resta visibile nella parte alta della finestra per sostituire o rimuovere la squadra senza perdere la selezione durante lo scorrimento.
+- le modifiche strutturali non ancora applicate vengono salvate in IndexedDB e ripristinate automaticamente dopo refresh o riavvio della finestra, finché il torneo live di partenza non è cambiato.
 Se Supabase non e' configurato, l'area Admin non puo' essere aperta: il deploy pubblico richiede le env Vite corrette e un account Auth gia' registrato in `public.admin_users`.
 
 ### 3.1 Gestione Live
