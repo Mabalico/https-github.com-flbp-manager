@@ -50,4 +50,5 @@
 - Non accettare una falsa conferma di salvataggio quando la replica esterna non è disponibile.
 - Non attivare un secondo PC finché il primo non è fisicamente spento o revocato dal coordinatore: una partizione di rete non dimostra che il vecchio writer abbia smesso di lavorare.
 - Non copiare la cartella `data` su un altro PC: duplicheresti `node_id`, epoch e outbox. Usare `Ripristina backup FLBP Server.cmd`.
-- Non modificare `FLBP LOCALE` per correggere l'app desktop: il server compila e serve la sorgente canonica `FLBP ONLINE`.
+- Non modificare `FLBP LOCALE` per correggere l'app desktop: il server compila e serve la sorgente canonica `FLBP ONLINE`; il controllo operativo blocca l'avvio se `FLBP_WEB_DIST` punta per errore alla copia legacy.
+- Se Supabase rallenta o esaurisce il budget Disk I/O, non ripetere manualmente i comandi: le richieste hanno un limite temporale e l'outbox durevole applica retry progressivi fino a 60 secondi, mentre SQLite e TV LAN continuano a funzionare.

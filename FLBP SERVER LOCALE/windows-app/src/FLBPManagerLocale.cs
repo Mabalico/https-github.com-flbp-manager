@@ -297,10 +297,24 @@ namespace Flbp.ManagerLocale
                 "Object.defineProperty(window,'__FLBP_NATIVE_WRITER_WINDOW_ID'," +
                 "{value:'" + nativeWriterWindowId + "',configurable:false,enumerable:false,writable:false});");
 
-            browser.CoreWebView2.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs args)
+            browser.CoreWebView2.NavigationCompleted += async delegate(object sender, CoreWebView2NavigationCompletedEventArgs args)
             {
                 if (args.IsSuccess)
                 {
+                    // A service worker may render a cached page even while the
+                    // SQLite server is down. Never label that state as ready:
+                    // cached UI must remain covered until /health responds.
+                    if (!await IsHealthyAsync())
+                    {
+                        overlay.Visible = true;
+                        overlay.BringToFront();
+                        retryButton.Visible = false;
+                        serverLabel.Text = "SERVER: RIAVVIO...";
+                        serverLabel.ForeColor = Color.FromArgb(255, 193, 92);
+                        statusLabel.Text = "Avvio del server locale in corso...\n\nNuovo tentativo automatico.";
+                        ScheduleReconnect();
+                        return;
+                    }
                     reconnectAttempt = 0;
                     reconnectTimer.Stop();
                     RememberLastLocalUrl(browser.CoreWebView2.Source);
@@ -311,9 +325,21 @@ namespace Flbp.ManagerLocale
                 {
                     overlay.Visible = true;
                     overlay.BringToFront();
-                    statusLabel.Text = "La pagina locale non ha risposto.\n\nCodice: " + args.WebErrorStatus;
-                    retryButton.Visible = true;
-                    retryButton.BringToFront();
+                    if (!await IsHealthyAsync())
+                    {
+                        serverLabel.Text = "SERVER: RIAVVIO...";
+                        serverLabel.ForeColor = Color.FromArgb(255, 193, 92);
+                        statusLabel.Text = "Avvio del server locale in corso...\n\nNuovo tentativo automatico.";
+                        retryButton.Visible = false;
+                    }
+                    else
+                    {
+                        serverLabel.Text = "SERVER: PRONTO";
+                        serverLabel.ForeColor = Color.FromArgb(81, 220, 151);
+                        statusLabel.Text = "La pagina locale non ha risposto.\n\nCodice: " + args.WebErrorStatus;
+                        retryButton.Visible = true;
+                        retryButton.BringToFront();
+                    }
                     ScheduleReconnect();
                 }
             };
@@ -455,6 +481,21 @@ namespace Flbp.ManagerLocale
                     "Non trovo la cartella FLBP SERVER LOCALE. L'eseguibile deve restare nella sua cartella publish.");
             }
 
+            // Prefer the installed watchdog task so there is only one owner of
+            // the server process. This avoids a race between an app-spawned
+            // launcher and Task Scheduler's one-minute recovery trigger.
+            if (TryStartScheduledServerTask())
+            {
+                for (var attempt = 0; attempt < 24; attempt += 1)
+                {
+                    await Task.Delay(250);
+                    if (await IsHealthyAsync())
+                    {
+                        return;
+                    }
+                }
+            }
+
             var runner = Path.Combine(serverRoot, "Esegui FLBP Server in background.ps1");
             if (!File.Exists(runner))
             {
@@ -481,6 +522,27 @@ namespace Flbp.ManagerLocale
 
             throw new InvalidOperationException(
                 "Il server non e partito entro il tempo previsto. Controlla logs\\server.log.");
+        }
+
+        private static bool TryStartScheduledServerTask()
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo();
+                startInfo.FileName = "schtasks.exe";
+                startInfo.Arguments = "/Run /TN \"FLBP Server Locale\"";
+                startInfo.UseShellExecute = false;
+                startInfo.CreateNoWindow = true;
+                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                using (var process = Process.Start(startInfo))
+                {
+                    return process != null && process.WaitForExit(5000) && process.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static Task<bool> IsHealthyAsync()

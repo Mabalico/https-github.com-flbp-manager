@@ -13,8 +13,8 @@ if (-not $nodeCommand) {
 }
 
 # Task Scheduler has a reduced startup environment on some Windows systems.
-# Pass the absolute Node path to a non-interactive hidden launcher: Node keeps
-# its real exit code and persistent logs without opening a console window.
+# Pass the absolute Node path to the hidden launcher. The launcher places Node
+# in a kill-on-close Windows Job, so task stop/restart cannot leave an orphan.
 $nodePath = $nodeCommand.Source
 $runnerPath = Join-Path $serverRoot 'Esegui FLBP Server in background.ps1'
 $taskArguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runnerPath`" -NodePath `"$nodePath`""
@@ -38,6 +38,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 10 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Days 3650) `
+    -MultipleInstances IgnoreNew `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
@@ -97,6 +98,7 @@ if (-not $publicUrl) {
         -RestartCount 10 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
         -ExecutionTimeLimit (New-TimeSpan -Days 3650) `
+        -MultipleInstances IgnoreNew `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries
     Register-ScheduledTask `
