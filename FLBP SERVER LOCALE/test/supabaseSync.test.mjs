@@ -27,6 +27,33 @@ test('Supabase server headers support new secret keys without an invalid Bearer 
   );
 });
 
+test('Supabase requests are aborted at the configured deadline', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
+    options.signal?.addEventListener('abort', () => {
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+  });
+  const sync = new SupabaseSync({
+    workspaceId: 'default',
+    nodeId: 'timeout-test',
+    supabaseUrl: 'https://example.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    supabaseRequestTimeoutMs: 25,
+  }, {
+    getMeta: () => '',
+    setMeta: () => {},
+  });
+  try {
+    await assert.rejects(
+      () => sync.rpc('never_answers', {}),
+      /non ha risposto entro 25 ms \(RPC never_answers\)/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 const withSync = async (run) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-sync-'));
   const store = new LocalStore({ dataDir, workspaceId: 'default', filename: 'sync.sqlite' });
@@ -45,6 +72,28 @@ const withSync = async (run) => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 };
+
+test('slow heartbeat calls are coalesced and failures activate retry backoff', () => withSync(async ({ sync }) => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  sync.rpc = async () => {
+    calls += 1;
+    await gate;
+    throw new Error('upstream request timeout');
+  };
+
+  const first = sync.heartbeat();
+  const joined = Array.from({ length: 20 }, () => sync.heartbeat());
+  assert.equal(calls, 1);
+  release();
+  await assert.rejects(() => first, /upstream request timeout/);
+  await Promise.all(joined.map((pending) => assert.rejects(() => pending, /upstream request timeout/)));
+
+  const skipped = await sync.heartbeat();
+  assert.equal(skipped.skipped, true);
+  assert.equal(calls, 1);
+}));
 
 test('outbox rows are cleared only after the transactional RPC confirms every operation', () => withSync(async ({ store, sync }) => {
   store.commitSnapshot({ ...stateAt('Locale'), operationId: 'local-v2', baseVersion: 1 });
@@ -71,6 +120,22 @@ test('an incomplete or ambiguous RPC response keeps the outbox durable and retry
   await assert.rejects(() => sync.syncOutbox(), /non ha confermato tutte le operazioni/);
   assert.equal(store.pendingOutboxCount(), 1);
   assert.equal(store.listPendingOutbox()[0].attempts, 1);
+}));
+
+test('a failed outbox upload backs off without dropping the durable operation', () => withSync(async ({ store, sync }) => {
+  store.commitSnapshot({ ...stateAt('Locale'), operationId: 'local-v2-backoff', baseVersion: 1 });
+  let calls = 0;
+  sync.rpc = async () => {
+    calls += 1;
+    throw new Error('Supabase saturo');
+  };
+
+  await assert.rejects(() => sync.syncOutbox(), /Supabase saturo/);
+  assert.equal(store.pendingOutboxCount(), 1);
+  assert.ok(sync.outboxRetryAt > Date.now());
+  assert.equal(sync.scheduleOutboxSync({ immediate: true }), null);
+  assert.equal(calls, 1);
+  sync.cancelScheduledOutboxSync();
 }));
 
 test('a commit arriving during an upload is drained immediately without waiting for the 30-minute backup', () => withSync(async ({ store, sync }) => {

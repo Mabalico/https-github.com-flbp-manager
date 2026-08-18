@@ -93,10 +93,25 @@ const clearAdminSessionNavKeys = () => {
     try {
         keys.forEach((k) => {
             try { sessionStorage.removeItem(k); } catch { /* ignore */ }
+            try {
+                if ((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID) localStorage.removeItem(k);
+            } catch { /* ignore */ }
         });
     } catch {
         // ignore
     }
+};
+
+const NATIVE_ADMIN_NAV_KEYS = new Set([
+    'flbp_admin_section',
+    'flbp_admin_last_live_tab',
+    'flbp_admin_data_main_section',
+    'flbp_admin_data_subtab',
+    'flbp_admin_integrations_subtab',
+]);
+
+const isNativeWindowsShell = () => {
+    try { return Boolean((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID); } catch { return false; }
 };
 
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
@@ -370,13 +385,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournamentMatches]);
 
     const safeSessionGet = (key: string): string | null => {
-        try { return window.sessionStorage.getItem(key); } catch { return null; }
+        try {
+            const sessionValue = window.sessionStorage.getItem(key);
+            if (sessionValue !== null) return sessionValue;
+        } catch { /* ignore */ }
+        if (isNativeWindowsShell() && NATIVE_ADMIN_NAV_KEYS.has(key)) {
+            try { return window.localStorage.getItem(key); } catch { /* ignore */ }
+        }
+        return null;
     };
     const safeSessionSet = (key: string, value: string) => {
         try { window.sessionStorage.setItem(key, value); } catch {}
+        if (isNativeWindowsShell() && NATIVE_ADMIN_NAV_KEYS.has(key)) {
+            try { window.localStorage.setItem(key, value); } catch {}
+        }
     };
     const safeSessionRemove = (key: string) => {
         try { window.sessionStorage.removeItem(key); } catch {}
+        if (isNativeWindowsShell() && NATIVE_ADMIN_NAV_KEYS.has(key)) {
+            try { window.localStorage.removeItem(key); } catch {}
+        }
     };
 
     const initialSupabaseSession = useMemo(() => getSupabaseSession(), []);

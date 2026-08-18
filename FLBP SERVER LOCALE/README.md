@@ -9,7 +9,7 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - `baseVersion` obbligatoria e privata dell'istanza che ha realmente caricato lo stato: una scheda stale riceve `409` e non può cancellare referti più recenti;
 - lease Admin SQLite persistente (heartbeat 25 s, scadenza 90 s): una sola finestra scrive, le altre sono read-only e il takeover è sempre esplicito;
 - storico completo locale di ogni snapshot;
-- outbox append-only, ritentata senza duplicare operazioni;
+- outbox append-only, ritentata senza duplicare operazioni; timeout e backoff esponenziale impediscono a una Supabase lenta o satura di bloccare indefinitamente il worker o generare una raffica di retry;
 - patch per singola partita con protezione anti-regressione del referto;
 - epoch di leadership e heartbeat Supabase;
 - attivazione compare-and-switch: versione, contenuto, journal ed epoch cloud devono essere ancora identici allo snapshot scaricato;
@@ -18,6 +18,7 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - replica SQLite compatta e obbligatoria su un secondo disco/USB: la risposta al commit arriva solo dopo che stato applicativo corrente, metadati e outbox della stessa versione sono leggibili nella copia secondaria; lo storico versionato resta nel DB primario e non viene ricopiato a ogni referto;
 - disattivazione in draining persistente: backup finale e ritorno al cloud sono una singola RPC atomica e ritentabile;
 - journal in piccoli batch (default 15 secondi, massimo 25 operazioni/512 KiB) quando Internet è disponibile;
+- heartbeat Supabase non sovrapposti: una risposta lenta viene condivisa fra i timer concorrenti e gli errori attivano un backoff progressivo fino a 60 secondi, evitando raffiche durante l'esaurimento Disk I/O;
 - mirror live pubblico compatto accodato dopo ogni commit e ritentato ogni 15 secondi: la conferma del salvataggio locale non attende mai Supabase;
 - append remoto transazionale: SQLite elimina una voce dall'outbox solo quando Supabase conferma tutte le versioni, senza collisioni o buchi nel journal;
 - drain continuo dell'outbox: una commit arrivata durante un upload viene inviata nello stesso ciclo, senza attendere il backup periodico;
@@ -43,11 +44,13 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 7. Facoltativo ma consigliato sul PC del torneo: eseguire `Installa avvio automatico.cmd`. Il task Windows riavvia il processo al login e conserva l’output in `logs/server.log`.
 8. Prima del torneo eseguire `Verifica prontezza FLBP Server.cmd`: controlla build, SQLite, replica fisica, snapshot Supabase, autorità di scrittura, origine delle letture pubbliche, epoch, lease, riconciliazione e retention senza modificare dati.
 
+Per cambiare soltanto il disco USB/SSD senza rigenerare token o credenziali, eseguire `Configura backup secondario.cmd`, scegliere il nuovo volume e riavviare il server. La procedura aggiorna esclusivamente il percorso della replica e riapplica le ACL.
+
 La Secret key resta nel file locale `.env`, escluso da Git. Non va mai inserita in Cloudflare Pages o nel browser. È supportata anche la precedente `service_role`, ma per nuove installazioni usare una `sb_secret_...` dedicata al server locale.
 
 ## App Windows
 
-L'app viene compilata in `windows-app/publish` e usa il runtime Evergreen WebView2 installato in Windows. Non apre Chrome, Edge, Avast o un altro browser esterno. La barra nativa permette di passare tra **Pannello** e **FLBP Manager**, tornare indietro e aggiornare la pagina.
+L'app viene compilata in `windows-app/publish` e usa il runtime Evergreen WebView2 installato in Windows. Non apre Chrome, Edge, Avast o un altro browser esterno. La barra nativa permette di passare tra **Pannello** e **FLBP Manager**, tornare indietro e aggiornare la pagina. L'ultima schermata locale e, nell'Admin, la macro-sezione/tab corrente vengono ricordate sul PC senza salvare credenziali in `localStorage`: un riavvio del server o di WebView2 mostra uno stato di attesa, attiva retry progressivi e riapre la stessa area invece di riportare l'operatore alla home. Se il watchdog è installato, anche l'app avvia quel medesimo task invece di creare un secondo processo concorrente.
 
 Per rigenerare soltanto l'eseguibile e i collegamenti Desktop, avviare `Compila app Windows.cmd`. Chiudere la finestra dell'app non arresta il server e non disattiva il database locale: per concludere il torneo usare sempre **Chiudi modalità locale** dal pannello, così viene completato il backup finale su Supabase.
 
@@ -67,6 +70,7 @@ Dal primo istante della procedura il server rifiuta nuove scritture. Se la chiam
 - Internet assente: SQLite continua a ricevere referti; l’outbox resta sul disco e riparte al ritorno della rete.
 - Browser chiuso: IndexedDB conserva i checkpoint completi; lo storage sincrono contiene soltanto il puntatore della singola finestra e non parte alcun export di rete durante `pagehide`.
 - Processo terminato o PC riavviato: WAL e outbox vengono riaperti senza scartare operazioni.
+- Il task pianificato usa un host nascosto e inserisce Node in un Windows Job `kill-on-close`: arresto e riavvio chiudono anche il processo reale senza console visibili né figli orfani. Node scrive sempre un log persistente e ruotato in `logs/server.log`; i normali avvisi operativi (per esempio un disco secondario momentaneamente scollegato) non terminano il server.
 - Identità del nodo ed epoch restano nel DB: dopo un riavvio il server riprende subito lo stesso heartbeat.
 - Riavvio durante attivazione/disattivazione/ripristino: il server avvia automaticamente la riconciliazione. Se Supabase è irraggiungibile resta bloccato; non decide mai da solo di essere primario.
 - Heartbeat scaduto: Supabase espone `recovery`, non cloud scrivibile. Il pubblico continua a vedere l’ultimo mirror; le scritture restano sospese finché l’operatore recupera il PC o esegue un failover esplicito.
@@ -85,6 +89,12 @@ La replica sincrona è obbligatoria. Vengono conservate le ultime 24 copie auton
 5. Premere **Risolvi transizione**: la RPC service-only verifica nodo, epoch, versione e ultima operationId. Non esiste un reset manuale che possa forzare le scritture.
 
 Non confermare la ripresa se sul cloud è già stato eseguito il failover d'emergenza. In quel caso l'epoch precedente è revocato e i dati del backup devono essere riconciliati prima di una nuova attivazione.
+
+## Confine delle sorgenti e identità del nodo
+
+Il server desktop compila e serve esclusivamente `FLBP ONLINE/dist`: quella è la sorgente applicativa canonica sia per il sito sia per la finestra locale. La cartella storica `FLBP LOCALE` non viene caricata dal server e non va modificata aspettandosi effetti sull'app Windows. La validazione di avvio rifiuta esplicitamente una configurazione `FLBP_WEB_DIST` che punti alla cartella legacy.
+
+Non copiare mai la cartella `data` su un secondo PC per creare un clone: contiene `node_id`, epoch e outbox dell'autorità locale. Per sostituire il computer usare soltanto la procedura di ripristino verificato. Finché il PC primario non è fisicamente spento o revocato, non attivare un secondo server sullo stesso workspace, anche se la rete del primo sembra assente.
 
 ## Comandi
 

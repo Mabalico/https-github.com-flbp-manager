@@ -104,10 +104,15 @@ export class SupabaseSync {
     this.syncInFlight = null;
     this.syncRequested = false;
     this.syncTimer = null;
+    this.outboxFailures = 0;
+    this.outboxRetryAt = 0;
     this.livePublishInFlight = null;
     this.livePublishRequested = false;
     this.livePublishForce = false;
     this.livePublishTimer = null;
+    this.heartbeatInFlight = null;
+    this.heartbeatFailures = 0;
+    this.heartbeatRetryAt = 0;
   }
 
   isConfigured() {
@@ -122,32 +127,48 @@ export class SupabaseSync {
     return `${this.config.supabaseUrl}/rest/v1/${path}`;
   }
 
-  async rpc(name, body) {
+  async requestJson(url, options = {}, { timeoutMs, label = 'richiesta' } = {}) {
+    const effectiveTimeoutMs = Number(timeoutMs || this.config.supabaseRequestTimeoutMs || 15_000);
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, effectiveTimeoutMs);
+    timer.unref?.();
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      if (!response.ok) throw new Error(await errorBody(response));
+      const text = await response.text();
+      return text ? JSON.parse(text) : null;
+    } catch (error) {
+      if (timedOut) {
+        throw new Error(`Supabase non ha risposto entro ${effectiveTimeoutMs} ms (${label}).`, { cause: error });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async rpc(name, body, { timeoutMs } = {}) {
     if (!this.isConfigured()) throw new Error('Supabase non configurato nel server locale');
-    const response = await fetch(this.rest(`rpc/${name}`), {
+    return this.requestJson(this.rest(`rpc/${name}`), {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-    });
-    if (!response.ok) throw new Error(await errorBody(response));
-    const text = await response.text();
-    return text ? JSON.parse(text) : null;
+    }, { timeoutMs, label: `RPC ${name}` });
   }
 
   async pullCloudSnapshot() {
     if (!this.isConfigured()) return null;
     const workspace = encodeURIComponent(this.config.workspaceId);
-    const [privateResponse, publicResponse, planeResponse] = await Promise.all([
-      fetch(this.rest(`workspace_state?workspace_id=eq.${workspace}&select=state,updated_at,version,last_operation_id,primary_epoch&limit=1`), { headers: this.headers() }),
-      fetch(this.rest(`public_workspace_state?workspace_id=eq.${workspace}&select=state,updated_at&limit=1`), { headers: this.headers() }),
-      fetch(this.rest(`flbp_data_plane?workspace_id=eq.${workspace}&select=mode,epoch&limit=1`), { headers: this.headers() }),
+    const timeoutMs = this.config.supabaseTransitionTimeoutMs || 60_000;
+    const [privateRows, publicRows, planeRows] = await Promise.all([
+      this.requestJson(this.rest(`workspace_state?workspace_id=eq.${workspace}&select=state,updated_at,version,last_operation_id,primary_epoch&limit=1`), { headers: this.headers() }, { timeoutMs, label: 'lettura workspace cloud' }),
+      this.requestJson(this.rest(`public_workspace_state?workspace_id=eq.${workspace}&select=state,updated_at&limit=1`), { headers: this.headers() }, { timeoutMs, label: 'lettura workspace pubblico' }),
+      this.requestJson(this.rest(`flbp_data_plane?workspace_id=eq.${workspace}&select=mode,epoch&limit=1`), { headers: this.headers() }, { timeoutMs, label: 'lettura autorità dati' }),
     ]);
-    if (!privateResponse.ok) throw new Error(await errorBody(privateResponse));
-    if (!publicResponse.ok) throw new Error(await errorBody(publicResponse));
-    if (!planeResponse.ok) throw new Error(await errorBody(planeResponse));
-    const privateRows = await privateResponse.json();
-    const publicRows = await publicResponse.json();
-    const planeRows = await planeResponse.json();
     const privateRow = privateRows?.[0];
     if (!privateRow?.state) return null;
     const basePublicState = publicRows?.[0]?.state || privateRow.state;
@@ -168,15 +189,13 @@ export class SupabaseSync {
     const planeEpoch = sourcePlaneEpoch;
     if (!planeEpoch) return snapshot;
 
-    const journalResponse = await fetch(this.rest(
+    const journalRows = await this.requestJson(this.rest(
       `flbp_local_operation_log?workspace_id=eq.${workspace}`
       + `&primary_epoch=eq.${planeEpoch}`
       + `&local_version=gt.${snapshot.version}`
       + '&select=operation_id,local_version,operation_kind,payload,created_at,received_at'
       + '&order=local_version.asc,received_at.asc',
-    ), { headers: this.headers() });
-    if (!journalResponse.ok) throw new Error(await errorBody(journalResponse));
-    const journalRows = await journalResponse.json();
+    ), { headers: this.headers() }, { timeoutMs, label: 'lettura journal cloud' });
     return replayCloudOperationJournal({ ...snapshot, primaryEpoch: planeEpoch }, journalRows);
   }
 
@@ -211,7 +230,7 @@ export class SupabaseSync {
       p_expected_recovered_version: Number(snapshot.version || 0),
       p_local_baseline_operation_id: localBaselineOperationId,
       p_ttl_seconds: this.config.leaseTtlSeconds,
-    });
+    }, { timeoutMs: this.config.supabaseTransitionTimeoutMs });
     this.epoch = Number(out?.epoch || 0);
     if (!this.epoch) throw new Error('Supabase non ha restituito un epoch di leadership valido.');
     if (this.epoch !== predictedEpoch) throw new Error('Supabase ha restituito un epoch diverso da quello previsto: attivazione da riconciliare.');
@@ -221,20 +240,36 @@ export class SupabaseSync {
     return out;
   }
 
-  async heartbeat() {
+  async heartbeat({ force = false } = {}) {
     if (!this.store.isActive() || !this.epoch || !this.isConfigured()) return null;
-    const out = await this.rpc('flbp_local_heartbeat_data_plane', {
+    if (this.heartbeatInFlight) return this.heartbeatInFlight;
+    if (!force && Date.now() < this.heartbeatRetryAt) {
+      return { accepted: false, skipped: true, reason: 'backoff', retryAt: new Date(this.heartbeatRetryAt).toISOString() };
+    }
+    const work = this.rpc('flbp_local_heartbeat_data_plane', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
       p_epoch: this.epoch,
       p_ttl_seconds: this.config.leaseTtlSeconds,
+    }).then((out) => {
+      if (!out?.accepted) {
+        this.store.setTransitionState('leadership-revoked');
+        this.store.setActive(false);
+        throw new Error('Leadership locale revocata dal coordinatore Supabase. Il server è passato in standby.');
+      }
+      this.heartbeatFailures = 0;
+      this.heartbeatRetryAt = 0;
+      return out;
+    }).catch((error) => {
+      this.heartbeatFailures += 1;
+      const delayMs = Math.min(60_000, 5_000 * (2 ** Math.min(this.heartbeatFailures - 1, 4)));
+      this.heartbeatRetryAt = Date.now() + delayMs;
+      throw error;
+    }).finally(() => {
+      if (this.heartbeatInFlight === work) this.heartbeatInFlight = null;
     });
-    if (!out?.accepted) {
-      this.store.setTransitionState('leadership-revoked');
-      this.store.setActive(false);
-      throw new Error('Leadership locale revocata dal coordinatore Supabase. Il server è passato in standby.');
-    }
-    return out;
+    this.heartbeatInFlight = work;
+    return work;
   }
 
   async deactivate() {
@@ -260,7 +295,7 @@ export class SupabaseSync {
       p_public_state: current.publicState,
       p_version: current.version,
       p_operation_id: current.operationId,
-    });
+    }, { timeoutMs: this.config.supabaseTransitionTimeoutMs });
     if (!out?.deactivated) throw new Error('Il coordinatore non ha accettato la disattivazione: leadership cambiata.');
     const reconciliation = await this.reconcileTransition();
     if (reconciliation?.action !== 'standby-cloud') {
@@ -289,7 +324,7 @@ export class SupabaseSync {
       p_local_version: current.version,
       p_local_operation_id: current.operationId,
       p_ttl_seconds: this.config.leaseTtlSeconds,
-    });
+    }, { timeoutMs: this.config.supabaseTransitionTimeoutMs });
     if (out?.action === 'resume-local' && out?.accepted) {
       if (String(out?.node_id || '') !== this.nodeId || Number(out?.epoch || 0) !== Number(this.epoch)) {
         throw new Error('Riconciliazione locale non verificabile: nodo o epoch non corrispondente. Scritture ancora bloccate.');
@@ -347,7 +382,11 @@ export class SupabaseSync {
       maxOperations: this.config.outboxBatchMaxOperations || 25,
       maxBytes: this.config.outboxBatchMaxBytes || 512 * 1024,
     });
-    if (!rows.length) return { synced: 0 };
+    if (!rows.length) {
+      this.outboxFailures = 0;
+      this.outboxRetryAt = 0;
+      return { synced: 0 };
+    }
     const operations = rows.map((row) => ({
       operation_id: row.operationId,
       local_version: row.version,
@@ -370,6 +409,8 @@ export class SupabaseSync {
         throw new Error(`Supabase non ha confermato tutte le operazioni (${Number(result?.confirmed || 0)}/${rows.length}).`);
       }
       this.store.markOutboxSynced(rows.map((row) => row.id));
+      this.outboxFailures = 0;
+      this.outboxRetryAt = 0;
       return {
         synced: rows.length,
         inserted: Number(result?.inserted || 0),
@@ -378,6 +419,9 @@ export class SupabaseSync {
       };
     } catch (error) {
       this.store.markOutboxFailed(rows.map((row) => row.id), error?.message || error);
+      this.outboxFailures += 1;
+      const delayMs = Math.min(60_000, 5_000 * (2 ** Math.min(this.outboxFailures - 1, 4)));
+      this.outboxRetryAt = Date.now() + delayMs;
       throw error;
     }
   }
@@ -402,7 +446,7 @@ export class SupabaseSync {
       p_node_id: this.nodeId,
       p_epoch: this.epoch,
       p_state: current.state,
-    });
+    }, { timeoutMs: this.config.supabaseTransitionTimeoutMs });
     if (!result?.ok) throw new Error('Supabase non ha confermato il mirror normalizzato dei tornei.');
     this.store.setMeta('last_normalized_sync_at', nowIso());
     this.store.setMeta('last_normalized_sync_version', String(current.version));
@@ -422,7 +466,7 @@ export class SupabaseSync {
       p_public_state: current.publicState,
       p_version: current.version,
       p_operation_id: current.operationId,
-    });
+    }, { timeoutMs: this.config.supabaseTransitionTimeoutMs });
     const updatedAt = out?.updated_at || nowIso();
     // The full-backup RPC also touches the live row for backward compatibility;
     // immediately rewrite it through the compact live-state sanitizer.
@@ -499,6 +543,10 @@ export class SupabaseSync {
 
   flushOutboxNow() {
     if (!this.isConfigured()) return null;
+    if (Date.now() < this.outboxRetryAt) {
+      this.scheduleOutboxSync({ immediate: true });
+      return this.syncInFlight;
+    }
     this.cancelScheduledOutboxSync();
     this.syncRequested = true;
     if (this.syncInFlight) return this.syncInFlight;
@@ -515,8 +563,11 @@ export class SupabaseSync {
       .catch(() => null)
       .finally(() => {
         this.syncInFlight = null;
-        // Una commit può arrivare tra l'ultimo controllo e il finally.
-        if (this.syncRequested) queueMicrotask(() => this.flushOutboxNow());
+        // Una commit può arrivare tra l'ultimo controllo e il finally. Passare
+        // dallo scheduler conserva il backoff quando Supabase non risponde.
+        if (this.syncRequested || this.store.pendingOutboxCount() > 0) {
+          queueMicrotask(() => this.scheduleOutboxSync({ immediate: true }));
+        }
       });
     return this.syncInFlight;
   }
@@ -525,6 +576,17 @@ export class SupabaseSync {
     if (!this.isConfigured()) return null;
     const stats = this.store.pendingOutboxStats();
     if (!stats.count) return this.syncInFlight;
+    const retryDelayMs = Math.max(0, this.outboxRetryAt - Date.now());
+    if (retryDelayMs > 0) {
+      if (!this.syncTimer) {
+        this.syncTimer = setTimeout(() => {
+          this.syncTimer = null;
+          void this.flushOutboxNow();
+        }, retryDelayMs);
+        this.syncTimer.unref?.();
+      }
+      return this.syncInFlight;
+    }
     const shouldFlushNow = immediate
       || stats.count >= (this.config.outboxBatchMaxOperations || 25)
       || stats.bytes >= (this.config.outboxBatchMaxBytes || 512 * 1024);
@@ -534,6 +596,7 @@ export class SupabaseSync {
         this.syncTimer = null;
         void this.flushOutboxNow();
       }, this.config.outboxFlushIntervalMs || 15_000);
+      this.syncTimer.unref?.();
     }
     return null;
   }

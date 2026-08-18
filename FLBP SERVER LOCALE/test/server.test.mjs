@@ -138,6 +138,71 @@ test('POST endpoints require JSON and local sessions are rate limited per origin
   }
 });
 
+test('invalid Admin and referee credentials are rate limited before protected work', async () => {
+  const ctx = await startServer();
+  try {
+    let controlResponse = null;
+    for (let index = 0; index < 31; index += 1) {
+      controlResponse = await fetch(`${ctx.base}/control/backup`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-flbp-local-token': 'invalid-token' },
+        body: '{}',
+      });
+    }
+    assert.equal(controlResponse.status, 429);
+
+    let refereeResponse = null;
+    for (let index = 0; index < 21; index += 1) {
+      refereeResponse = await fetch(`${ctx.base}/api/v1/referee/workspace/default/match-result`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tournamentId: 't1',
+          matchId: 'm1',
+          refereePassword: 'wrong-password',
+        }),
+      });
+    }
+    assert.equal(refereeResponse.status, 429);
+    assert.ok(Number(refereeResponse.headers.get('retry-after')) >= 1);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('an unavailable periodic secondary backup is logged without stopping the server', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-secondary-timer-'));
+  const unavailablePath = path.join(dataDir, 'not-a-directory');
+  fs.writeFileSync(unavailablePath, 'blocks mkdir');
+  const app = createLocalServer({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir,
+    secondaryBackupDir: unavailablePath,
+    requireSecondaryBackup: false,
+    secondaryBackupIntervalMs: 10,
+    workspaceId: 'default',
+    adminToken: TOKEN,
+    allowedOrigins: ['http://test.local'],
+    publicUrl: '',
+    supabaseUrl: '',
+    supabaseServiceRoleKey: '',
+    heartbeatIntervalMs: 60_000,
+    fullBackupIntervalMs: 60_000,
+    databaseFilename: 'test.sqlite',
+  });
+  try {
+    const address = await app.listen();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).ok, true);
+  } finally {
+    await app.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('only one Admin writer lease can commit and takeover is explicit', async () => {
   const ctx = await startServer();
   try {
