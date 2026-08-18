@@ -108,6 +108,9 @@ export class SupabaseSync {
     this.livePublishRequested = false;
     this.livePublishForce = false;
     this.livePublishTimer = null;
+    this.heartbeatInFlight = null;
+    this.heartbeatFailures = 0;
+    this.heartbeatRetryAt = 0;
   }
 
   isConfigured() {
@@ -221,20 +224,36 @@ export class SupabaseSync {
     return out;
   }
 
-  async heartbeat() {
+  async heartbeat({ force = false } = {}) {
     if (!this.store.isActive() || !this.epoch || !this.isConfigured()) return null;
-    const out = await this.rpc('flbp_local_heartbeat_data_plane', {
+    if (this.heartbeatInFlight) return this.heartbeatInFlight;
+    if (!force && Date.now() < this.heartbeatRetryAt) {
+      return { accepted: false, skipped: true, reason: 'backoff', retryAt: new Date(this.heartbeatRetryAt).toISOString() };
+    }
+    const work = this.rpc('flbp_local_heartbeat_data_plane', {
       p_workspace_id: this.config.workspaceId,
       p_node_id: this.nodeId,
       p_epoch: this.epoch,
       p_ttl_seconds: this.config.leaseTtlSeconds,
+    }).then((out) => {
+      if (!out?.accepted) {
+        this.store.setTransitionState('leadership-revoked');
+        this.store.setActive(false);
+        throw new Error('Leadership locale revocata dal coordinatore Supabase. Il server è passato in standby.');
+      }
+      this.heartbeatFailures = 0;
+      this.heartbeatRetryAt = 0;
+      return out;
+    }).catch((error) => {
+      this.heartbeatFailures += 1;
+      const delayMs = Math.min(60_000, 5_000 * (2 ** Math.min(this.heartbeatFailures - 1, 4)));
+      this.heartbeatRetryAt = Date.now() + delayMs;
+      throw error;
+    }).finally(() => {
+      if (this.heartbeatInFlight === work) this.heartbeatInFlight = null;
     });
-    if (!out?.accepted) {
-      this.store.setTransitionState('leadership-revoked');
-      this.store.setActive(false);
-      throw new Error('Leadership locale revocata dal coordinatore Supabase. Il server è passato in standby.');
-    }
-    return out;
+    this.heartbeatInFlight = work;
+    return work;
   }
 
   async deactivate() {

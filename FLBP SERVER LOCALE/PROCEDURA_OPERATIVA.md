@@ -13,7 +13,7 @@
 ## Durante il torneo
 
 - Una modifica è confermata soltanto quando SQLite e replica esterna hanno la stessa versione leggibile.
-- Se compare un conflitto `409`, non forzare: scegliere `Ricarica e riconcilia` oppure `Esporta bozza`.
+- Se compare un conflitto `409`, non forzare: scegliere `Ricarica e confronta` oppure `Esporta bozza`; usare `Mantieni versione locale` soltanto dopo avere verificato il confronto mostrato dall'app.
 - La perdita di Internet non interrompe Admin e TV LAN. L'outbox resta su SQLite e riparte automaticamente; il sito pubblico può essere in ritardo fino al limite operativo previsto.
 - Se il supporto esterno viene scollegato, ricollegarlo e ripetere la stessa operazione. L'operationId rende il retry idempotente.
 - Non chiudere la modalità locale spegnendo il processo. Usare sempre `Chiudi modalità locale`.
@@ -48,3 +48,6 @@
 - Non riattivare il tunnel Cloudflare: le letture Internet arrivano dal mirror Supabase.
 - Non usare un backup sullo stesso volume del database principale.
 - Non accettare una falsa conferma di salvataggio quando la replica esterna non è disponibile.
+- Non attivare un secondo PC finché il primo non è fisicamente spento o revocato dal coordinatore: una partizione di rete non dimostra che il vecchio writer abbia smesso di lavorare.
+- Non copiare la cartella `data` su un altro PC: duplicheresti `node_id`, epoch e outbox. Usare `Ripristina backup FLBP Server.cmd`.
+- Non modificare `FLBP LOCALE` per correggere l'app desktop: il server compila e serve la sorgente canonica `FLBP ONLINE`.

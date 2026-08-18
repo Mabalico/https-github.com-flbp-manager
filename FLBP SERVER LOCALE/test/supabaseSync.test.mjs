@@ -46,6 +46,28 @@ const withSync = async (run) => {
   }
 };
 
+test('slow heartbeat calls are coalesced and failures activate retry backoff', () => withSync(async ({ sync }) => {
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  sync.rpc = async () => {
+    calls += 1;
+    await gate;
+    throw new Error('upstream request timeout');
+  };
+
+  const first = sync.heartbeat();
+  const joined = Array.from({ length: 20 }, () => sync.heartbeat());
+  assert.equal(calls, 1);
+  release();
+  await assert.rejects(() => first, /upstream request timeout/);
+  await Promise.all(joined.map((pending) => assert.rejects(() => pending, /upstream request timeout/)));
+
+  const skipped = await sync.heartbeat();
+  assert.equal(skipped.skipped, true);
+  assert.equal(calls, 1);
+}));
+
 test('outbox rows are cleared only after the transactional RPC confirms every operation', () => withSync(async ({ store, sync }) => {
   store.commitSnapshot({ ...stateAt('Locale'), operationId: 'local-v2', baseVersion: 1 });
   let request = null;

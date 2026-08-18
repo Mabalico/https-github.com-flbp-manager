@@ -322,7 +322,8 @@ In `components/AdminDashboard.tsx`:
 - `components/admin/tabs/ReportsTab.tsx`
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`
   - simulazione: `services/simulationService.ts` (`simulateMatchResult`)
-  - UX input numerici: campi statistici manuali con `0` iniziale selezionabile/sovrascrivibile al primo click
+  - UX input numerici: campi statistici manuali testuali con tastiera numerica, filtro delle sole cifre e `0` iniziale selezionabile/sovrascrivibile senza rischio di modifica tramite rotella
+  - il selettore `Prossimo turno` considera soltanto match `playing`/`scheduled`; a torneo concluso resta disabilitato e mostra `Completo`, senza tornare al primo referto storico
 - `components/admin/tabs/RefereesTab.tsx`
   - Stampa referti (browser → "Salva come PDF"):
     - turno corrente e prossimo turno
