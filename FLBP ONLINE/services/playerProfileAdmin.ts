@@ -1,7 +1,7 @@
 import type { AppState } from './storageService';
 import type { HallOfFameEntry, Match, Team, TournamentData } from '../types';
 import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
-import { buildPlayerProfileSnapshot } from './playerDataProvenance';
+import { buildPlayerProfileSnapshot, getHallOfFamePlayerRefs } from './playerDataProvenance';
 
 interface UpdatePlayerProfileIdentityInput {
   currentPlayerId: string;
@@ -99,15 +99,16 @@ const rewriteHallOfFameEntry = (
   nextYoB?: number
 ): HallOfFameEntry => {
   const nextPlayerId = getPlayerKey(nextPlayerName, pickPlayerIdentityValue(nextBirthDate, nextYoB));
-  const currentPlayerKey = getPlayerKey((entry.playerNames || [])[0] || '', pickPlayerIdentityValue(entry.playerBirthDate));
-  if (resolvePlayerKey(state, currentPlayerKey) !== currentPlayerId) return entry;
-  return {
-    ...entry,
-    playerId: nextPlayerId,
-    playerBirthDate: nextBirthDate,
-    playerNames: (entry.playerNames || []).length ? [nextPlayerName, ...(entry.playerNames || []).slice(1)] : [nextPlayerName],
-    manuallyEdited: true,
-  };
+  const refs = getHallOfFamePlayerRefs(state, entry);
+  const slots = new Set(refs.filter(ref => ref.playerId === currentPlayerId).map(ref => ref.slotIndex));
+  if (!slots.size) return entry;
+  const names = [...(entry.playerNames || [])];
+  const ids = names.map((name, i) => entry.playerIds?.[i] || refs.find(ref => ref.slotIndex === i)?.rawPlayerId || getPlayerKey(name, entry.playerBirthDates?.[i] || entry.playerBirthDate || 'ND'));
+  const dates = names.map((_, i) => entry.playerBirthDates?.[i] || entry.playerBirthDate || '');
+  slots.forEach(index => { if (index != null) { names[index] = nextPlayerName; ids[index] = nextPlayerId; dates[index] = nextBirthDate || ''; } });
+  return { ...entry, playerNames: names, playerIds: ids, playerBirthDates: dates,
+    ...(entry.type !== 'winner' ? { playerId: nextPlayerId, playerBirthDate: nextBirthDate } : {}), manuallyEdited: true };
+
 };
 
 interface SubstituteTeamSlotPlayerInput {

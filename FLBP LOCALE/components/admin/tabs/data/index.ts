@@ -1,6 +1,6 @@
 export { ArchiveSubTab } from './ArchiveSubTab';
 export { IntegrationsSubTab } from './IntegrationsSubTab';
-export { IntegrationsHof } from './IntegrationsHof';
+export { EditionEditor } from './EditionEditor';
 export { IntegrationsScorers } from './IntegrationsScorers';
 export { IntegrationsAliases } from './IntegrationsAliases';
 export { PlayersSubTab } from './PlayersSubTab';

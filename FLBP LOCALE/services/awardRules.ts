@@ -2,6 +2,7 @@ import type { HallOfFameEntry } from '../types';
 import { getPlayerKey } from './playerIdentity';
 
 export interface MetricAwardPlayer {
+    playerId?: string;
     name: string;
     yob?: number;
     birthDate?: string;
@@ -13,6 +14,14 @@ export interface MetricAwardPlayer {
 
 type MetricKey = 'points' | 'soffi';
 type AwardType = 'top_scorer' | 'defender' | 'top_scorer_u25' | 'defender_u25';
+
+/** Same displayed place when the selected total and games played are both equal. */
+export const scoringRankIndex = (players: Array<{ points: number; soffi: number; gamesPlayed: number }>, index: number, metric: string): number => {
+    if (metric !== 'points' && metric !== 'soffi') return index;
+    const player = players[index];
+    if (!player) return index;
+    return players.findIndex(row => row[metric] === player[metric] && row.gamesPlayed === player.gamesPlayed);
+};
 
 const sortPlayers = (players: MetricAwardPlayer[]) =>
     players.slice().sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
@@ -43,7 +52,7 @@ export const buildMetricAwardEntries = (opts: {
     if (!winners.length) return [];
 
     return winners.map((player) => {
-        const playerId = getPlayerKey(player.name, player.birthDate || 'ND');
+        const playerId = player.playerId || getPlayerKey(player.name, player.birthDate || 'ND');
         const suffix = winners.length === 1 ? '' : `_${playerId}`;
         return {
             id: `${opts.tournamentId}_${opts.type}${suffix}`,
@@ -55,6 +64,7 @@ export const buildMetricAwardEntries = (opts: {
             playerNames: [player.name],
             value: player[opts.metric],
             playerId,
+            playerBirthDate: player.birthDate,
             sourceType: 'archived_tournament',
             sourceTournamentId: opts.tournamentId,
             sourceTournamentName: opts.tournamentName,

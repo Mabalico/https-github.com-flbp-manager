@@ -1,3 +1,4 @@
+import { getHallOfFamePlayerRefs } from './playerDataProvenance';
 import type { AppState } from './storageService';
 import type { HallOfFameEntry } from '../types';
 import { getPlayerKey, normalizeBirthDateInput, pickStoredPlayerIdentityValue } from './playerIdentity';
@@ -98,8 +99,9 @@ export const reassignHallOfFameEntry = (
       )
     );
     const previousName = playerNames[slotIndex] || '';
-    const previousPlayerId = previousName ? getPlayerKey(previousName, 'ND') : null;
-    if (previousName.trim().toLowerCase() === nextName.trim().toLowerCase()) {
+    const refs = getHallOfFamePlayerRefs(state, current);
+    const previousPlayerId = refs.find(ref => ref.slotIndex === slotIndex)?.rawPlayerId || null;
+    if (previousPlayerId === nextPlayerId) {
       throw new Error('Il titolo è già assegnato a questo giocatore.');
     }
     if (!playerNames.length) playerNames.push(nextName);
@@ -107,6 +109,8 @@ export const reassignHallOfFameEntry = (
     updated = {
       ...current,
       playerNames,
+      playerIds: playerNames.map((name, i) => i === slotIndex ? nextPlayerId : current.playerIds?.[i] || refs.find(ref => ref.slotIndex === i)?.rawPlayerId || getPlayerKey(name, current.playerBirthDates?.[i] || current.playerBirthDate || 'ND')),
+      playerBirthDates: playerNames.map((_, i) => i === slotIndex ? nextBirthDate || '' : current.playerBirthDates?.[i] || current.playerBirthDate || ''),
       reassignedFromPlayerId: previousPlayerId,
       manuallyEdited: true,
     };
@@ -118,6 +122,8 @@ export const reassignHallOfFameEntry = (
     updated = {
       ...current,
       playerId: nextPlayerId,
+      playerIds: [nextPlayerId],
+      playerBirthDates: [nextBirthDate || ''],
       playerBirthDate: nextBirthDate,
       playerNames: [nextName],
       reassignedFromPlayerId: currentPlayerId || null,

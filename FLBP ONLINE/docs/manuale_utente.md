@@ -405,3 +405,7 @@ In TV Mode:
 - Nelle Grafiche Social, se una grafica selezionata non è esportabile, il pannello mostra subito il motivo preciso sotto al selettore export.
 - Se restano match fuori dagli slot, il pannello mostra una preview dei primi match rimasti fuori.
 - Negli import XLSX multi-sheet, gli alert elencano gli altri fogli controllati senza ripetere il foglio già letto.
+
+### Integrazioni — aggiornamento 7 settembre 2026
+
+La navigazione usa Edizioni, Marcatori e Giocatori. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).

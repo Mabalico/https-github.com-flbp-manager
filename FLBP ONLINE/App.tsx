@@ -1,3 +1,4 @@
+import { publicEditionHistory } from './services/editionData';
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { Home } from './components/Home';
 import { PublicBrandStack } from './components/PublicBrandStack';
@@ -1582,7 +1583,7 @@ const App: React.FC = () => {
             case 'tournament':
                 {
                     const liveTournament = stateForPublicViews.tournament || null;
-                    const history = stateForPublicViews.tournamentHistory || [];
+                    const history = publicEditionHistory(stateForPublicViews);
                     return (
                         <React.Suspense fallback={<RouteViewFallback /> }>
                             <PublicTournamentsLazy
@@ -1601,7 +1602,7 @@ const App: React.FC = () => {
                     const id = selectedTournament.data.id;
                     const snapshotTournament = selectedTournament.isLive
                         ? stateForPublicViews.tournament
-                        : (stateForPublicViews.tournamentHistory || []).find(t => t.id === id);
+                        : publicEditionHistory(stateForPublicViews).find(t => t.id === id);
 
                     const data = snapshotTournament || selectedTournament.data;
 

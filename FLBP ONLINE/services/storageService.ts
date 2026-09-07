@@ -6,6 +6,7 @@ import { buildMetricAwardEntries } from './awardRules';
 import { normalizeNameLower } from './textUtils';
 import { stripRefereeReportAuditFromMatch } from './refereeReportAudit';
 import { isResultsOnlyTournament } from './tournamentModes';
+import { hasCountedPlayerStats } from './matchUtils';
 
 const STORAGE_KEY = 'beer_pong_app_state';
 
@@ -173,14 +174,6 @@ export { getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from './play
 
 const normalizeName = (name: string) => normalizeNameLower(name);
 
-// NOTE: BirthDate is authoritative; YoB survives only as a compatibility derivative.
-const isUnder25Rule = (identity?: number | string) => {
-    const yob = typeof identity === 'string' ? deriveYoBFromBirthDate(identity) : identity;
-    if (!yob) return false;
-    const currentYear = new Date().getFullYear();
-    return (currentYear - yob) < 26;
-};
-
 const getWinnerTeamId = (m: Match): string | undefined => {
     if (!m) return undefined;
     if (m.teamAId === 'BYE' && m.teamBId && m.teamBId !== 'BYE') return m.teamBId;
@@ -289,8 +282,7 @@ export const buildTournamentAwards = (tournament: TournamentData, matches: Match
     const agg: Record<string, { name: string; yob?: number; birthDate?: string; teamName?: string; points: number; soffi: number; games: number }> = {};
 
     (matches || []).forEach(m => {
-        if (m.status !== 'finished') return;
-        if (!m.stats) return;
+        if (!hasCountedPlayerStats(m)) return;
         m.stats.forEach(s => {
             const team = teams.find(tt => tt.id === s.teamId);
             const birthDate = team
@@ -334,7 +326,7 @@ export const buildTournamentAwards = (tournament: TournamentData, matches: Match
 
     // MVP is selected manually by organizers (do not auto-assign here).
     if (tournament.includeU25Awards !== false) {
-        const u25Players = players.filter(p => isUnder25Rule(p.birthDate));
+        const u25Players = players.filter(p => isU25(p.birthDate, tournament.startDate || ''));
         entries.push(
             ...buildMetricAwardEntries({
                 tournamentId: tournament.id,
@@ -386,17 +378,10 @@ export const syncTournamentAwardsToHallOfFame = (
         .filter(isManualTournamentAwardEntry)
         .filter(entry => !isResultsOnlyTournament(tournament) || entry.type === 'mvp' || entry.type === 'winner');
     const manualMvps = manualOverrides.filter(entry => entry.type === 'mvp');
-    const manualOverridesByType = new Map<HallOfFameEntry['type'], HallOfFameEntry>();
-
-    manualOverrides
-        .filter(entry => entry.type !== 'mvp')
-        .forEach(entry => {
-            manualOverridesByType.set(entry.type, entry);
-        });
-
+    const manualTypes = new Set(manualOverrides.filter(entry => entry.type !== 'mvp').map(entry => entry.type));
     const mergedTournamentEntries = [
-        ...generatedAwards.filter(entry => !manualOverridesByType.has(entry.type)),
-        ...Array.from(manualOverridesByType.values()),
+        ...generatedAwards.filter(entry => !manualTypes.has(entry.type)),
+        ...manualOverrides.filter(entry => entry.type !== 'mvp'),
         ...manualMvps,
     ];
 

@@ -1,5 +1,7 @@
+import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
+import { scoringRankIndex } from '../services/awardRules';
 import React, { useId, useMemo, useState } from 'react';
-import { Team, Match, HallOfFameEntry, PlayerStats } from '../types';
+import { Team, Match, HallOfFameEntry, PlayerStats, IntegrationScorerEntry } from '../types';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
 import { Trophy, Medal, Search, Baby, ChevronDown, ChevronUp, ArrowDown, ArrowUpDown, Wind } from 'lucide-react';
@@ -8,6 +10,7 @@ import { deriveYoBFromBirthDate, pickPlayerIdentityValue } from '../services/pla
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
+import { hasCountedPlayerStats } from '../services/matchUtils';
 
 type TournamentLeaderboardVariant = 'sidebar' | 'page';
 type SortField = 'points' | 'soffi' | 'gamesPlayed' | 'winRate' | 'avgPoints' | 'avgSoffi';
@@ -21,6 +24,8 @@ interface TournamentLeaderboardProps {
     playerAliases?: Record<string, string>;
     publicState?: AppState;
     onOpenTournament?: (tournamentId: string) => void;
+    tournamentDate?: string;
+    integrations?: IntegrationScorerEntry[];
 }
 
 const getSortValue = (player: PlayerStats, field: SortField): number => {
@@ -80,6 +85,8 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
     playerAliases = {},
     publicState,
     onOpenTournament,
+    tournamentDate,
+    integrations = [],
 }) => {
     const { t } = useTranslation();
     const nativeShell = isEmbeddedNativeShell();
@@ -116,12 +123,13 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                     avgSoffi: 0,
                     birthDate,
                     yob,
+                    u25: idx === 0 ? (team as any).player1U25 : (team as any).player2U25,
                 };
             });
         });
 
         matches.forEach((match) => {
-            if (!match.stats || !(match.played || match.status === 'finished')) return;
+            if (!hasCountedPlayerStats(match)) return;
             const winningTeamId = getWinningTeamId(match, teams);
             match.stats.forEach((stat) => {
                 const team = teams.find((candidate) => candidate.id === stat.teamId);
@@ -162,6 +170,11 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
             });
         });
 
+        integrations.forEach(entry => {
+            const key = resolvePlayerKey({ playerAliases } as any, getPlayerKey(entry.name, entry.birthDate || 'ND'));
+            const player = playerMap[key] || (playerMap[key] = { id: key, name: entry.name, teamName: entry.teamName || '', birthDate: entry.birthDate, gamesPlayed: 0, points: 0, soffi: 0, avgPoints: 0, avgSoffi: 0, u25: entry.tournamentU25 });
+            player.gamesPlayed += entry.games || 0; player.points += entry.points || 0; player.soffi += entry.soffi || 0;
+        });
         return Object.values(playerMap)
             .filter((player) => player.points > 0 || player.soffi > 0 || player.gamesPlayed > 0)
             .map((player) => ({
@@ -172,17 +185,18 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                 avgPoints: player.gamesPlayed > 0 ? parseFloat((player.points / player.gamesPlayed).toFixed(2)) : 0,
                 avgSoffi: player.gamesPlayed > 0 ? parseFloat((player.soffi / player.gamesPlayed).toFixed(2)) : 0,
             }));
-    }, [matches, playerAliases, teams]);
+    }, [matches, playerAliases, teams, integrations]);
 
     const normalize = (name: string) => name.trim().toLowerCase();
 
     const filteredStats = useMemo(() => {
         return stats
-            .filter((player) => !onlyU25 || isU25(player.birthDate))
+            .filter((player) => !onlyU25 || (player.u25 ?? isU25(player.birthDate, tournamentDate || '')))
             .filter((player) => player.name.toLowerCase().includes(searchTerm.toLowerCase()))
             .sort((a, b) => {
                 const primary = getSortValue(b, sortField) - getSortValue(a, sortField);
                 if (primary !== 0) return primary;
+                if ((sortField === 'points' || sortField === 'soffi') && a.gamesPlayed !== b.gamesPlayed) return a.gamesPlayed - b.gamesPlayed;
                 const fallbackOrder: SortField[] = ['points', 'soffi', 'gamesPlayed', 'avgPoints', 'avgSoffi'];
                 for (const field of fallbackOrder) {
                     if (field === sortField) continue;
@@ -191,7 +205,7 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                 }
                 return a.name.localeCompare(b.name);
             });
-    }, [onlyU25, searchTerm, sortField, stats]);
+    }, [onlyU25, searchTerm, sortField, stats, tournamentDate]);
 
     const displayStats = variant === 'page'
         ? filteredStats
@@ -215,8 +229,12 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
         const playerKey = player.id;
 
         const playerAwards = awards.filter((award) => {
-            if (award.playerId && resolvePlayerKey({ playerAliases } as any, award.playerId) === playerKey) return true;
-            return award.playerNames.some((playerName) => normalize(playerName) === normalized);
+            const identityState = publicState || { tournamentHistory: [], playerAliases } as any;
+            const refs = getHallOfFamePlayerRefs(identityState, award);
+            if (refs.some(ref => ref.playerId === playerKey)) return true;
+            const explicitIdentity = award.playerId || award.playerIds?.length || award.playerBirthDate || award.playerBirthDates?.length;
+            return !explicitIdentity && stats.filter(candidate => normalize(candidate.name) === normalized).length === 1
+                && award.playerNames.some(name => normalize(name) === normalized);
         });
 
         const hasTitle = (type: string) => playerAwards.some((award) => award.type === type);
@@ -274,7 +292,7 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                 </span>
             );
         }
-        if (isU25(player.birthDate)) {
+        if ((player.u25 ?? isU25(player.birthDate, tournamentDate || ''))) {
             icons.push(
                 <span
                     key="u25"
@@ -290,11 +308,12 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
         return icons;
     };
 
+    const rankIndex = (index: number) => scoringRankIndex(filteredStats, index, sortField);
     const getRankIcon = (index: number) => {
-        if (index === 0) return <Trophy className="w-4 h-4 text-yellow-500 fill-yellow-500" />;
-        if (index === 1) return <Medal className="w-4 h-4 text-slate-400" />;
-        if (index === 2) return <Medal className="w-4 h-4 text-orange-700" />;
-        return <span className="font-bold text-slate-400 text-xs">{index + 1}</span>;
+        if (rankIndex(index) === 0) return <Trophy className="w-4 h-4 text-yellow-500 fill-yellow-500" />;
+        if (rankIndex(index) === 1) return <Medal className="w-4 h-4 text-slate-400" />;
+        if (rankIndex(index) === 2) return <Medal className="w-4 h-4 text-orange-700" />;
+        return <span className="font-bold text-slate-400 text-xs">{rankIndex(index) + 1}</span>;
     };
 
     if (variant === 'page') {
@@ -402,12 +421,12 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-2">
                                             <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-xs font-black text-white">
-                                                {index < 3 ? (
-                                                    index === 0 ? <Trophy className="h-4 w-4 text-yellow-400" /> :
-                                                    index === 1 ? <Medal className="h-4 w-4 text-slate-300" /> :
+                                                {rankIndex(index) < 3 ? (
+                                                    rankIndex(index) === 0 ? <Trophy className="h-4 w-4 text-yellow-400" /> :
+                                                    rankIndex(index) === 1 ? <Medal className="h-4 w-4 text-slate-300" /> :
                                                     <Medal className="h-4 w-4 text-orange-300" />
                                                 ) : (
-                                                    index + 1
+                                                    rankIndex(index) + 1
                                                 )}
                                             </span>
                                             <div className="min-w-0">
@@ -545,12 +564,12 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
                                         aria-label={publicState ? `Apri dati giocatore ${player.name}` : undefined}
                                     >
                                         <td className="px-4 py-3 text-center font-black text-slate-400">
-                                            {index < 3 ? (
-                                                index === 0 ? <Trophy className="mx-auto h-5 w-5 text-yellow-500" /> :
-                                                index === 1 ? <Medal className="mx-auto h-5 w-5 text-slate-400" /> :
+                                            {rankIndex(index) < 3 ? (
+                                                rankIndex(index) === 0 ? <Trophy className="mx-auto h-5 w-5 text-yellow-500" /> :
+                                                rankIndex(index) === 1 ? <Medal className="mx-auto h-5 w-5 text-slate-400" /> :
                                                 <Medal className="mx-auto h-5 w-5 text-orange-700" />
                                             ) : (
-                                                index + 1
+                                                rankIndex(index) + 1
                                             )}
                                         </td>
                                         <td className="px-4 py-3">

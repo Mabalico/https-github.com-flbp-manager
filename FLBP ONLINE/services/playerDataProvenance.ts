@@ -1,3 +1,5 @@
+import { hasCountedPlayerStats } from './matchUtils';
+import { countedIntegrations } from './editionData';
 import type { AppState } from './storageService';
 import type {
   HallOfFameEntry,
@@ -124,7 +126,7 @@ const findTeamForWinnerEntry = (state: AppState, entry: HallOfFameEntry): Team |
 export const getHallOfFamePlayerRefs = (state: AppState, entry: HallOfFameEntry): HallOfFamePlayerRef[] => {
   if (entry.type === 'winner') {
     const winnerTeam = findTeamForWinnerEntry(state, entry);
-    if (winnerTeam) {
+    if (winnerTeam && !entry.playerIds?.length && !entry.playerBirthDates?.length) {
       return [
         winnerTeam.player1
           ? {
@@ -147,7 +149,7 @@ export const getHallOfFamePlayerRefs = (state: AppState, entry: HallOfFameEntry)
 
     return (entry.playerNames || [])
       .map((playerName, index) => {
-        const rawPlayerId = getPlayerKey(playerName, pickPlayerIdentityValue(entry.playerBirthDate));
+        const rawPlayerId = entry.playerIds?.[index] || getPlayerKey(playerName, pickPlayerIdentityValue(entry.playerBirthDates?.[index] || entry.playerBirthDate));
         return {
           rawPlayerId,
           playerId: resolvePlayerKey(state, rawPlayerId),
@@ -160,7 +162,7 @@ export const getHallOfFamePlayerRefs = (state: AppState, entry: HallOfFameEntry)
 
   if (entry.playerId) {
     const playerName = entry.playerNames?.[0] || getPlayerKeyLabel(entry.playerId).name;
-    const rawPlayerId = getPlayerKey(playerName, pickPlayerIdentityValue(entry.playerBirthDate));
+    const rawPlayerId = entry.playerId;
     return [
       {
         rawPlayerId,
@@ -263,6 +265,7 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
 
     const teamById = new Map<string, Team>((tournament.teams || []).map((team) => [team.id, team]));
     matches.forEach((match) => {
+      if (!hasCountedPlayerStats(match)) return;
       (match.stats || []).forEach((row) => {
         const team = teamById.get(row.teamId);
         const birthDate = team && team.player1 === row.playerName ? (team as any).player1BirthDate : team && team.player2 === row.playerName ? (team as any).player2BirthDate : undefined;
@@ -293,7 +296,7 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
     });
   });
 
-  (state.integrationsScorers || []).forEach((entry) => {
+  countedIntegrations(state).forEach((entry) => {
     const rawPlayerId = getPlayerKey(entry.name, pickStoredPlayerIdentityValue((entry as any).birthDate, (entry as any).yob ?? undefined));
     const playerId = resolvePlayerKey(state, rawPlayerId);
     const profile = ensure(playerId, entry.name, getPlayerKeyLabel(rawPlayerId).yob || 'ND');
@@ -313,7 +316,7 @@ export const buildPlayerProfileSnapshots = (state: AppState): PlayerProfileSnaps
       sourceType: 'manual_integration',
       tournamentId: origin.sourceTournamentId,
       tournamentName: resolvedTournament.tournamentName,
-      tournamentYear: resolvedTournament.tournamentYear,
+      tournamentYear: resolvedTournament.tournamentYear || entry.sourceTournamentDate?.slice(0, 4) || null,
       matchId: null,
       teamId: null,
       teamName: resolvedTournament.teamName,

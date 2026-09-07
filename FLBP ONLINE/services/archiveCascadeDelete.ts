@@ -94,6 +94,7 @@ export const removeArchivedTournamentDeep = (
       ...state,
       tournamentHistory: (state.tournamentHistory || []).filter((entry) => entry.id !== tournamentId),
       hallOfFame: (state.hallOfFame || []).filter((entry) => entry.tournamentId !== tournamentId),
+      integrationsScorers: (state.integrationsScorers || []).filter(entry => entry.sourceTournamentId !== tournamentId),
     },
   };
 };

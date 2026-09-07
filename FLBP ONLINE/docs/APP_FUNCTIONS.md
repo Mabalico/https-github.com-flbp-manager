@@ -533,3 +533,7 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 
 - `components/admin/SocialGraphicsPanel.tsx`: il box export mostra ora anche il motivo bloccante della grafica selezionata e una preview dei primi match rimasti fuori dagli slot.
 - `components/AdminDashboard.tsx`: negli alert import multi-sheet gli “altri fogli controllati” escludono il foglio già letto, per evitare liste fuorvianti.
+
+### Integrazioni — aggiornamento 7 settembre 2026
+
+La navigazione usa Edizioni, Marcatori e Giocatori. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).

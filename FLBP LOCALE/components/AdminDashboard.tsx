@@ -29,6 +29,7 @@ import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverr
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
+import { renameTournamentInState } from '../services/tournamentRename';
 import {
     advanceWinner as advanceBracketWinner,
     autoResolveBracketByeMatch,
@@ -831,8 +832,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     });
 
     // Dentro "Integrazioni": Albo d'Oro (manuale) + Marcatori (import) + Alias (manutenzione)
-    const [integrationsSubTab, setIntegrationsSubTab] = useState<'hof'|'scorers'|'aliases'|'players'|'fanta'>(() => {
+    const [integrationsSubTab, setIntegrationsSubTab] = useState<'tournaments'|'hof'|'scorers'|'aliases'|'players'|'fanta'>(() => {
         const raw = safeSessionGet('flbp_admin_integrations_subtab');
+        if (raw === 'tournaments') return 'tournaments';
         if (raw === 'scorers') return 'scorers';
         if (raw === 'aliases') return 'aliases';
         if (raw === 'players') return 'players';
@@ -3013,6 +3015,22 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         commitLiveMatches(matches, tournament);
     };
 
+    const renameTournamentEdition = async (tournamentId: string, nextName: string): Promise<void> => {
+        const result = renameTournamentInState(state, tournamentId, nextName);
+        setState(result.state);
+        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+            detail: { state: result.state, source: 'rename-tournament', skipStructuredSync: true }
+        }));
+        try {
+            await flushAutoStructuredSync(result.state, { force: true });
+            if (result.historyUpdated) {
+                await archiveFantaTournamentEdition(result.tournamentId);
+            }
+        } catch (error) {
+            console.warn('FLBP tournament rename remote mirror refresh failed', error);
+        }
+    };
+
     const getTeamFromCatalog = (id?: string) => {
         if (!id) return undefined;
         const live = (state.tournament?.teams || []) as Team[];
@@ -3972,6 +3990,7 @@ while (guard < 5000) {
         setDataSubTab,
         integrationsSubTab,
         setIntegrationsSubTab,
+        renameTournamentEdition,
         aliasesSearch,
         setAliasesSearch,
         aliasToolSelections,

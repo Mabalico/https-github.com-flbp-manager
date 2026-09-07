@@ -1,3 +1,5 @@
+import { useIntegrationFeedback } from './useIntegrationFeedback';
+import { readScorersFile } from '../../../../services/scorersImport';
 import React from 'react';
 import { Upload, Download, Pencil, Trash2 } from 'lucide-react';
 
@@ -32,6 +34,7 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
         removeAlias,
     } = props;
 
+    const { notify, ask, feedbackUI } = useIntegrationFeedback(t);
     const [editId, setEditId] = React.useState('');
     const [manualName, setManualName] = React.useState('');
     const [manualBirthDate, setManualBirthDate] = React.useState('');
@@ -96,95 +99,7 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
         };
     };
 
-    const parseScorersRows = (rows: Array<Record<string, any>>, fileName: string): { entries: IntegrationScorerEntry[]; warnings: string[] } => {
-        const getField = (row: Record<string, any>, candidates: string[]) => {
-            const cand = new Set(candidates.map(normalizeCol));
-            for (const k of Object.keys(row)) {
-                if (cand.has(normalizeCol(k))) return row[k];
-            }
-            return '';
-        };
-
-        const profilesIndex = buildProfilesIndex();
-        const entries: IntegrationScorerEntry[] = [];
-        const warnings: string[] = [];
-
-        rows.forEach((r, idx) => {
-            const name = buildCanonicalPlayerNameFromParts(
-                String(getField(r, ['Nome', 'FirstName', 'First Name']) || '').trim(),
-                String(getField(r, ['Cognome', 'LastName', 'Last Name', 'Surname']) || '').trim(),
-            ) || String(getField(r, ['Nome', 'Giocatore', 'Player', 'CognomeNome', 'Cognome Nome', 'Name'])).trim();
-            if (!name) return;
-
-            const birthDate = normalizeBirthDateInput(String(getField(r, ['DataNascita', 'Data di nascita', 'BirthDate', 'DOB', 'NascitaCompleta']) || ''));
-            const yob = deriveYoBFromBirthDate(birthDate) ?? toInt(getField(r, ['Anno', 'AnnoNascita', 'Year', 'YoB', 'Nascita', 'BirthYear']));
-            const games = Math.max(0, toInt(getField(r, ['Partite', 'Gare', 'Games', 'Played'])) || 0);
-            const points = Math.max(0, toInt(getField(r, ['Canestri', 'Punti', 'Points', 'PT'])) || 0);
-            const soffi = Math.max(0, toInt(getField(r, ['Soffi', 'SF', 'Blows'])) || 0);
-            const teamName = String(getField(r, ['Squadra', 'Team', 'TeamName'])).trim();
-
-            const norm = normalizeName(name);
-            const yobStr = formatBirthDateDisplay(birthDate) || (yob ? String(yob) : 'ND');
-            const rawKey = getPlayerKey(name, pickPlayerIdentityValue(birthDate, yob));
-            const resolved = resolvePlayerKey(state, rawKey);
-
-            const existingKeys = profilesIndex.get(norm);
-            if (existingKeys && existingKeys.size > 0 && resolved === rawKey && !existingKeys.has(resolved)) {
-                const list = Array.from(existingKeys).map((k: any) => labelFromPlayerKey(String(k))).join(' | ');
-                warnings.push(`${name} · esistenti: ${list} · import: ${yobStr} (riga ${idx + 2})`);
-            }
-
-            entries.push({
-                id: `sc_${uuid()}`,
-                name,
-                yob,
-                birthDate,
-                games,
-                points,
-                soffi,
-                createdAt: Date.now(),
-                source: fileName,
-                sourceType: 'manual_integration',
-                sourceTournamentId: null,
-                sourceLabel: fileName,
-                teamName: teamName || undefined
-            });
-        });
-
-        return { entries, warnings };
-    };
-
-    const importScorersFromFile = async (file: File): Promise<{ entries: IntegrationScorerEntry[]; warnings: string[] }> => {
-        const name = (file.name || '').toLowerCase();
-        const isCsv = name.endsWith('.csv') || (file.type || '').includes('csv');
-
-        if (isCsv) {
-            const text = await decodeCsvText(file);
-            const sep = detectCsvSeparator(text);
-            const matrix = parseCsvRows(text, sep);
-            if (!matrix.length) return { entries: [], warnings: [] };
-
-            const header = matrix[0] || [];
-            const data = matrix.slice(1);
-            const objects: Array<Record<string, any>> = data.map(row => {
-                const obj: Record<string, any> = {};
-                header.forEach((h, i) => {
-                    obj[h || `COL_${i}`] = row[i] ?? '';
-                });
-                return obj;
-            });
-
-            return parseScorersRows(objects, file.name);
-        }
-
-        // Excel / fogli
-        const XLSX = await getXLSX();
-        const buf = await file.arrayBuffer();
-        const wb = XLSX.read(buf, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: '' });
-        return parseScorersRows(rows, file.name);
-    };
+    const importScorersFromFile = async (file: File) => ({ entries: await readScorersFile(file), warnings: [] as string[] });
 
     const entries = (state.integrationsScorers || [])
         .slice()
@@ -201,7 +116,7 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
         try {
             const { entries: imported, warnings } = await importScorersFromFile(f);
             if (!imported.length) {
-                alert(t('alert_no_valid_scorers_rows'));
+                notify(t('alert_no_valid_scorers_rows'));
                 return;
             }
 
@@ -229,7 +144,7 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
             });
         } catch (err) {
             console.error(err);
-            alert(t('alert_scorers_import_error'));
+            notify(t('alert_scorers_import_error'));
         }
     };
 
@@ -240,8 +155,8 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
         });
     };
 
-    const clearAll = () => {
-        if (!confirm(t('clear_all_scorers_confirm'))) return;
+    const clearAll = async () => {
+        if (!await ask(t('clear_all_scorers_confirm'))) return;
         setState({ ...state, integrationsScorers: [] });
         setScorersImportWarnings([]);
     };
@@ -259,16 +174,19 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
     const saveManualEntry = () => {
         const name = manualName.trim();
         if (!name) {
-            alert(t('alert_enter_player_name'));
+            notify(t('alert_enter_player_name'));
             return;
         }
         const birthDate = normalizeBirthDateInput(manualBirthDate);
         if (manualBirthDate.trim() && !birthDate) {
-            alert(t('birthdate_invalid'));
+            notify(t('birthdate_invalid'));
             return;
         }
+        if ([manualGames, manualPoints, manualSoffi].some(value => value.trim() && (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(Number(value))))) { notify(t('edition_import_invalid_number')); return; }
         const yob = deriveYoBFromBirthDate(birthDate);
+        const previous = (state.integrationsScorers || []).find(row => row.id === editId);
         const entry: IntegrationScorerEntry = {
+            ...previous,
             id: editId || `sc_${uuid()}`,
             name,
             yob,
@@ -280,8 +198,8 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
             createdAt: Date.now(),
             source: editId ? t('manual_edit_source') : t('manual_entry_source_label'),
             sourceType: 'manual_integration',
-            sourceTournamentId: null,
-            sourceLabel: editId ? t('manual_edit_source') : t('manual_entry_source_label'),
+            sourceTournamentId: previous?.sourceTournamentId || null,
+            sourceLabel: previous?.sourceLabel || (editId ? t('manual_edit_source') : t('manual_entry_source_label')),
         };
 
         const idxProfiles = buildProfilesIndex();
@@ -344,6 +262,8 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
 
     return (
         <div className="space-y-4">
+                {feedbackUI}
+                <p className="rounded-xl border bg-slate-50 p-3 text-sm text-slate-600">{t('edition_standalone_hint')}</p>
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>

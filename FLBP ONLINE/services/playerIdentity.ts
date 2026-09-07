@@ -123,9 +123,19 @@ export const getPlayerKeyLabel = (key: string): { name: string; yob: string } =>
     return { name: namePart, yob };
 };
 
-export const isU25 = (identity?: number | string) => {
+export const isU25 = (identity?: number | string, referenceDate?: string) => {
     const yob = typeof identity === 'string' ? deriveYoBFromBirthDate(identity) : identity;
     if (!yob) return false;
-    const currentYear = new Date().getFullYear();
-    return (currentYear - yob) < 26;
+    // Career views keep their current-year classification; edition views pass
+    // the tournament date so an archived award never ages with the viewer.
+    if (referenceDate === undefined) {
+        const age = new Date().getFullYear() - yob;
+        return age >= 0 && age < 26;
+    }
+    const date = normalizeBirthDateInput(referenceDate.slice(0, 10)) || normalizeBirthDateInput(referenceDate);
+    if (!date) return false;
+    const birthDate = typeof identity === 'string' ? normalizeBirthDateInput(identity) : undefined;
+    let age = Number(date.slice(0, 4)) - yob;
+    if (birthDate && date.slice(5) < birthDate.slice(5)) age -= 1;
+    return age >= 0 && age < 26;
 };
