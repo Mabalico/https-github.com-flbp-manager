@@ -1,5 +1,7 @@
+import { countedIntegrations, listEditions } from './editionData';
 import { coerceAppState, type AppState } from './storageService';
-import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
+import { hasCountedPlayerStats } from './matchUtils';
+import { deriveYoBFromBirthDate, isU25, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
 import type { TournamentData, Team, Match, Group, MatchStats, TournamentConfig, FinalRoundRobinConfig, FinalRoundRobinTopTeams } from '../types';
 import { buildRealSimPoolFromState } from './simPool';
 import { readViteSupabaseAdminEmail, readViteSupabaseAnonKey, readViteSupabaseUrl, readViteWorkspaceId } from './viteEnv';
@@ -2895,7 +2897,7 @@ export const pullPublicHallOfFameEntries = async (perf?: RequestPerfHint): Promi
     const url = restUrl(
         cfg,
         `public_hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}` +
-            `&select=id,year,tournament_id,tournament_name,type,team_name,player_names,value,created_at` +
+            `&select=id,year,tournament_id,tournament_name,type,team_name,player_names,value,source_tournament_date,created_at` +
             `&order=year.desc,created_at.desc`
     );
 
@@ -2910,6 +2912,7 @@ export const pullPublicHallOfFameEntries = async (perf?: RequestPerfHint): Promi
         type: r.type,
         teamName: r.team_name ?? undefined,
         playerNames: Array.isArray(r.player_names) ? r.player_names : [],
+        sourceTournamentDate: r.source_tournament_date || undefined,
         value: r.value ?? undefined
     }));
 };
@@ -3088,9 +3091,16 @@ export const pullPublicTournamentBundle = async (tournamentId: string, perf?: Re
     return { data, teams, matches };
 };
 
-const sanitizeTeamForPublic = (t: any) => {
+const sanitizeTeamForPublic = (t: any, tournamentDate?: string) => {
     if (!t || typeof t !== 'object') return t;
     const out = { ...t };
+    for (const slot of [1, 2]) {
+        const birth = out[`player${slot}BirthDate`];
+        if (birth) {
+            out[`player${slot}CareerU25`] = isU25(birth);
+            out[`player${slot}U25`] = isU25(birth, tournamentDate || '');
+        }
+    }
     delete (out as any).player1YoB;
     delete (out as any).player2YoB;
     delete (out as any).player1BirthDate;
@@ -3102,10 +3112,10 @@ const sanitizeTournamentForPublic = (t: any) => {
     if (!t || typeof t !== 'object') return t;
     const out: any = { ...t };
     delete out.refereesPassword;
-    out.teams = (Array.isArray(out.teams) ? out.teams : []).map(sanitizeTeamForPublic);
+    out.teams = (Array.isArray(out.teams) ? out.teams : []).map((team: any) => sanitizeTeamForPublic(team, out.startDate));
     out.groups = (Array.isArray(out.groups) ? out.groups : []).map((g: any) => {
         const gg: any = { ...g };
-        gg.teams = (Array.isArray(gg.teams) ? gg.teams : []).map(sanitizeTeamForPublic);
+        gg.teams = (Array.isArray(gg.teams) ? gg.teams : []).map((team: any) => sanitizeTeamForPublic(team, out.startDate));
         return gg;
     });
     return out;
@@ -3115,19 +3125,20 @@ export const sanitizeAppStateForPublic = (state: AppState): Json => {
     const safe: any = { ...state };
 
     // Remove identity metadata from all team shapes (draft roster + tournaments)
-    safe.teams = (Array.isArray(state.teams) ? state.teams : []).map(sanitizeTeamForPublic);
+    safe.teams = (Array.isArray(state.teams) ? state.teams : []).map((team: any) => sanitizeTeamForPublic(team, state.tournament?.startDate));
     safe.tournament = state.tournament ? sanitizeTournamentForPublic(state.tournament as any) : null;
     safe.tournamentHistory = (Array.isArray(state.tournamentHistory) ? state.tournamentHistory : []).map(sanitizeTournamentForPublic);
 
     // Remove sensitive fields from integrations scorers
     safe.integrationsScorers = (Array.isArray(state.integrationsScorers) ? state.integrationsScorers : []).map((s: any) => {
         const { yob, birthDate, ...rest } = s || {};
-        return rest;
+        const date = listEditions(state).find(row => row.id === s?.sourceTournamentId)?.date || s?.sourceTournamentDate || '';
+        return { ...rest, ...(birthDate ? { tournamentU25: isU25(birthDate, date), careerU25: isU25(birthDate) } : {}) };
     });
 
     // Remove playerKey-based identifiers from Hall of Fame entries
     safe.hallOfFame = (Array.isArray(state.hallOfFame) ? state.hallOfFame : []).map((h: any) => {
-        const { playerId, playerBirthDate, ...rest } = h || {};
+        const { playerId, playerBirthDate, playerIds, playerBirthDates, ...rest } = h || {};
         return rest;
     });
 
@@ -3142,7 +3153,7 @@ const buildPublicWorkspaceLiveState = (publicState: Json): Json => {
     const safe = publicState && typeof publicState === 'object' ? publicState : {};
     const live: any = {
         __schemaVersion: safe.__schemaVersion ?? 1,
-        teams: Array.isArray(safe.teams) ? safe.teams.map(sanitizeTeamForPublic) : [],
+        teams: Array.isArray(safe.teams) ? safe.teams.map((team: any) => sanitizeTeamForPublic(team)) : [],
         tournament: safe.tournament ? sanitizeTournamentForPublic(safe.tournament) : null,
         tournamentMatches: Array.isArray(safe.tournamentMatches) ? safe.tournamentMatches : [],
     };
@@ -4291,7 +4302,7 @@ const buildPublicCareerLeaderboardRows = async (cfg: SupabaseConfig, state: AppS
     };
 
     const processMatch = (m: any, teamsSource: any[]) => {
-        if (!m?.played || !Array.isArray(m.stats)) return;
+        if (!hasCountedPlayerStats(m)) return;
         for (const s of m.stats) {
             const team = teamsSource.find((tm: any) => tm.id === s.teamId);
             let birthDate: string | undefined;
@@ -4333,7 +4344,7 @@ const buildPublicCareerLeaderboardRows = async (cfg: SupabaseConfig, state: AppS
     }
 
     // External scorers (integrations)
-    (state.integrationsScorers || []).forEach((e: any) => {
+    countedIntegrations(state).forEach((e: any) => {
         const rawKey = getPlayerKey(e.name, pickPlayerIdentityValue(normalizeBirthDateInput(e.birthDate)));
         const p = initPlayer(rawKey, e.name, 'Integrazioni');
         p.games += (e.games || 0);
@@ -4927,6 +4938,7 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
             source_type: (s as any).sourceType ?? null,
             source_tournament_id: (s as any).sourceTournamentId ?? null,
             source_label: (s as any).sourceLabel ?? null,
+            source_tournament_date: s.sourceTournamentDate || null,
             team_name: (s as any).teamName ?? null,
             created_at: new Date(((s as any).createdAt ?? Date.now())).toISOString()
         };
@@ -4947,8 +4959,11 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
             team_name: h.teamName ?? null,
             player_names: h.playerNames ?? [],
             value: h.value ?? null,
-            player_id: singlePlayerAward && primaryPlayerName ? getPlayerKey(primaryPlayerName, pickPlayerIdentityValue(playerBirthDate)) : ((h as any).playerId ?? null),
+            player_id: h.playerId || (singlePlayerAward && primaryPlayerName ? getPlayerKey(primaryPlayerName, pickPlayerIdentityValue(playerBirthDate)) : null),
             player_birth_date: playerBirthDate ?? null,
+            player_ids: h.playerIds ?? null,
+            player_birth_dates: h.playerBirthDates ?? null,
+            source_tournament_date: h.sourceTournamentDate || null,
             source_type: (h as any).sourceType ?? null,
             source_tournament_id: (h as any).sourceTournamentId ?? null,
             source_tournament_name: (h as any).sourceTournamentName ?? null,
@@ -4975,6 +4990,7 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         source_type: (h as any).sourceType ?? null,
         source_tournament_id: (h as any).sourceTournamentId ?? null,
         source_tournament_name: (h as any).sourceTournamentName ?? null,
+        source_tournament_date: h.sourceTournamentDate || null,
         source_auto_generated: (h as any).sourceAutoGenerated ?? null,
         manually_edited: (h as any).manuallyEdited ?? null,
         created_at: new Date().toISOString()
@@ -5133,8 +5149,8 @@ export const pullNormalizedState = async (): Promise<NormalizedPullResult> => {
     const [settingsRows, aliasesRows, scorersRows, hofRows, tournamentRows] = await Promise.all([
         restGetJson<any[]>(cfg, `app_settings?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=logo,updated_at&limit=1`),
         restGetJson<any[]>(cfg, `player_aliases?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=from_key,to_key`),
-        restGetJson<any[]>(cfg, `integrations_scorers?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id,name,yob,birth_date,games,points,soffi,source,source_type,source_tournament_id,source_label,team_name,created_at&order=created_at.asc`),
-        restGetJson<any[]>(cfg, `hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id,year,tournament_id,tournament_name,type,team_name,player_names,value,player_id,player_birth_date,source_type,source_tournament_id,source_tournament_name,source_match_id,source_auto_generated,reassigned_from_player_id,manually_edited,created_at&order=year.asc,created_at.asc`),
+        restGetJson<any[]>(cfg, `integrations_scorers?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id,name,yob,birth_date,games,points,soffi,source,source_type,source_tournament_id,source_tournament_date,source_label,team_name,created_at&order=created_at.asc`),
+        restGetJson<any[]>(cfg, `hall_of_fame_entries?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id,year,tournament_id,tournament_name,type,team_name,player_names,value,player_id,player_birth_date,player_ids,player_birth_dates,source_tournament_date,source_type,source_tournament_id,source_tournament_name,source_match_id,source_auto_generated,reassigned_from_player_id,manually_edited,created_at&order=year.asc,created_at.asc`),
         restGetJson<any[]>(cfg, `tournaments?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id,name,start_date,type,config,is_manual,status,updated_at&order=start_date.asc`),
     ]);
 
@@ -5159,6 +5175,7 @@ export const pullNormalizedState = async (): Promise<NormalizedPullResult> => {
         sourceType: r.source_type == null ? undefined : 'manual_integration',
         sourceTournamentId: r.source_tournament_id == null ? null : String(r.source_tournament_id),
         sourceLabel: r.source_label == null ? undefined : String(r.source_label),
+        sourceTournamentDate: r.source_tournament_date || undefined,
         teamName: r.team_name == null ? undefined : String(r.team_name),
         createdAt: r.created_at ? Date.parse(String(r.created_at)) : undefined
     }));
@@ -5174,6 +5191,9 @@ export const pullNormalizedState = async (): Promise<NormalizedPullResult> => {
         value: r.value == null ? undefined : toInt(r.value, 0),
         playerId: r.player_id ?? undefined,
         playerBirthDate: r.player_birth_date == null ? undefined : String(r.player_birth_date),
+        playerIds: Array.isArray(r.player_ids) ? r.player_ids : undefined,
+        playerBirthDates: Array.isArray(r.player_birth_dates) ? r.player_birth_dates : undefined,
+        sourceTournamentDate: r.source_tournament_date || undefined,
         sourceType: r.source_type == null ? undefined : String(r.source_type),
         sourceTournamentId: r.source_tournament_id == null ? undefined : String(r.source_tournament_id),
         sourceTournamentName: r.source_tournament_name == null ? undefined : String(r.source_tournament_name),

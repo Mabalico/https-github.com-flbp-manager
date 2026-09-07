@@ -59,13 +59,24 @@ namespace Flbp.ManagerLocale
         private readonly Label serverLabel;
         private readonly string serverRoot;
         private readonly string nativeWriterWindowId;
+        private readonly Timer reconnectTimer;
+        private string lastLocalUrl;
+        private int reconnectAttempt;
         private bool initializing;
 
         public MainForm()
         {
             serverRoot = FindServerRoot();
             nativeWriterWindowId = Guid.NewGuid().ToString("N");
+            lastLocalUrl = LoadLastLocalUrl();
             AppLog.ServerRoot = serverRoot;
+
+            reconnectTimer = new Timer();
+            reconnectTimer.Tick += delegate
+            {
+                reconnectTimer.Stop();
+                BeginInitialization();
+            };
 
             Text = "FLBP Manager Locale";
             StartPosition = FormStartPosition.CenterScreen;
@@ -187,6 +198,11 @@ namespace Flbp.ManagerLocale
             Controls.Add(topBar);
 
             Shown += delegate { BeginInitialization(); };
+            FormClosed += delegate
+            {
+                reconnectTimer.Stop();
+                reconnectTimer.Dispose();
+            };
         }
 
         private static Button CreateNavButton(string text)
@@ -214,6 +230,7 @@ namespace Flbp.ManagerLocale
                 return;
             }
 
+            reconnectTimer.Stop();
             InitializeAsync();
         }
 
@@ -246,7 +263,7 @@ namespace Flbp.ManagerLocale
                     await ConfigureBrowserAsync();
                 }
 
-                browser.CoreWebView2.Navigate(PanelUrl);
+                browser.CoreWebView2.Navigate(lastLocalUrl);
             }
             catch (Exception exception)
             {
@@ -257,6 +274,7 @@ namespace Flbp.ManagerLocale
                     "\n\nDettagli: logs\\windows-app.log";
                 retryButton.Visible = true;
                 retryButton.BringToFront();
+                ScheduleReconnect();
             }
             finally
             {
@@ -279,10 +297,27 @@ namespace Flbp.ManagerLocale
                 "Object.defineProperty(window,'__FLBP_NATIVE_WRITER_WINDOW_ID'," +
                 "{value:'" + nativeWriterWindowId + "',configurable:false,enumerable:false,writable:false});");
 
-            browser.CoreWebView2.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs args)
+            browser.CoreWebView2.NavigationCompleted += async delegate(object sender, CoreWebView2NavigationCompletedEventArgs args)
             {
                 if (args.IsSuccess)
                 {
+                    // A service worker may render a cached page even while the
+                    // SQLite server is down. Never label that state as ready:
+                    // cached UI must remain covered until /health responds.
+                    if (!await IsHealthyAsync())
+                    {
+                        overlay.Visible = true;
+                        overlay.BringToFront();
+                        retryButton.Visible = false;
+                        serverLabel.Text = "SERVER: RIAVVIO...";
+                        serverLabel.ForeColor = Color.FromArgb(255, 193, 92);
+                        statusLabel.Text = "Avvio del server locale in corso...\n\nNuovo tentativo automatico.";
+                        ScheduleReconnect();
+                        return;
+                    }
+                    reconnectAttempt = 0;
+                    reconnectTimer.Stop();
+                    RememberLastLocalUrl(browser.CoreWebView2.Source);
                     overlay.Visible = false;
                     browser.Focus();
                 }
@@ -290,10 +325,30 @@ namespace Flbp.ManagerLocale
                 {
                     overlay.Visible = true;
                     overlay.BringToFront();
-                    statusLabel.Text = "La pagina locale non ha risposto.\n\nCodice: " + args.WebErrorStatus;
-                    retryButton.Visible = true;
-                    retryButton.BringToFront();
+                    if (!await IsHealthyAsync())
+                    {
+                        serverLabel.Text = "SERVER: RIAVVIO...";
+                        serverLabel.ForeColor = Color.FromArgb(255, 193, 92);
+                        statusLabel.Text = "Avvio del server locale in corso...\n\nNuovo tentativo automatico.";
+                        retryButton.Visible = false;
+                    }
+                    else
+                    {
+                        serverLabel.Text = "SERVER: PRONTO";
+                        serverLabel.ForeColor = Color.FromArgb(81, 220, 151);
+                        statusLabel.Text = "La pagina locale non ha risposto.\n\nCodice: " + args.WebErrorStatus;
+                        retryButton.Visible = true;
+                        retryButton.BringToFront();
+                    }
+                    ScheduleReconnect();
                 }
+            };
+
+            browser.CoreWebView2.SourceChanged += delegate
+            {
+                // Also catches SPA history changes that do not create a new
+                // document and therefore do not raise NavigationCompleted.
+                RememberLastLocalUrl(browser.CoreWebView2.Source);
             };
 
             browser.CoreWebView2.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs args)
@@ -301,7 +356,7 @@ namespace Flbp.ManagerLocale
                 args.Handled = true;
                 if (IsLocalUri(args.Uri))
                 {
-                    browser.CoreWebView2.Navigate(args.Uri);
+                    Navigate(args.Uri);
                 }
                 else
                 {
@@ -324,6 +379,7 @@ namespace Flbp.ManagerLocale
                 statusLabel.Text = "La finestra dell'app si e arrestata. Premi Riprova.";
                 retryButton.Visible = true;
                 retryButton.BringToFront();
+                ScheduleReconnect();
             };
         }
 
@@ -335,7 +391,68 @@ namespace Flbp.ManagerLocale
                 return;
             }
 
+            RememberLastLocalUrl(url);
             browser.CoreWebView2.Navigate(url);
+        }
+
+        private void ScheduleReconnect()
+        {
+            if (reconnectTimer.Enabled || IsDisposed)
+            {
+                return;
+            }
+
+            var delays = new[] { 2000, 5000, 15000, 30000 };
+            reconnectTimer.Interval = delays[Math.Min(reconnectAttempt, delays.Length - 1)];
+            reconnectAttempt += 1;
+            reconnectTimer.Start();
+        }
+
+        private static string NavigationStateFile()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FLBP Manager Locale",
+                "last-local-url.txt");
+        }
+
+        private static string LoadLastLocalUrl()
+        {
+            try
+            {
+                var stateFile = NavigationStateFile();
+                if (!File.Exists(stateFile))
+                {
+                    return PanelUrl;
+                }
+
+                var saved = File.ReadAllText(stateFile).Trim();
+                return IsLocalUri(saved) ? saved : PanelUrl;
+            }
+            catch
+            {
+                return PanelUrl;
+            }
+        }
+
+        private void RememberLastLocalUrl(string value)
+        {
+            if (!IsLocalUri(value))
+            {
+                return;
+            }
+
+            lastLocalUrl = value;
+            try
+            {
+                var stateFile = NavigationStateFile();
+                Directory.CreateDirectory(Path.GetDirectoryName(stateFile));
+                File.WriteAllText(stateFile, value);
+            }
+            catch (Exception exception)
+            {
+                AppLog.Write("Impossibile salvare l'ultima schermata locale: " + exception.Message);
+            }
         }
 
         private static bool IsLocalUri(string value)
@@ -364,6 +481,21 @@ namespace Flbp.ManagerLocale
                     "Non trovo la cartella FLBP SERVER LOCALE. L'eseguibile deve restare nella sua cartella publish.");
             }
 
+            // Prefer the installed watchdog task so there is only one owner of
+            // the server process. This avoids a race between an app-spawned
+            // launcher and Task Scheduler's one-minute recovery trigger.
+            if (TryStartScheduledServerTask())
+            {
+                for (var attempt = 0; attempt < 24; attempt += 1)
+                {
+                    await Task.Delay(250);
+                    if (await IsHealthyAsync())
+                    {
+                        return;
+                    }
+                }
+            }
+
             var runner = Path.Combine(serverRoot, "Esegui FLBP Server in background.ps1");
             if (!File.Exists(runner))
             {
@@ -390,6 +522,27 @@ namespace Flbp.ManagerLocale
 
             throw new InvalidOperationException(
                 "Il server non e partito entro il tempo previsto. Controlla logs\\server.log.");
+        }
+
+        private static bool TryStartScheduledServerTask()
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo();
+                startInfo.FileName = "schtasks.exe";
+                startInfo.Arguments = "/Run /TN \"FLBP Server Locale\"";
+                startInfo.UseShellExecute = false;
+                startInfo.CreateNoWindow = true;
+                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                using (var process = Process.Start(startInfo))
+                {
+                    return process != null && process.WaitForExit(5000) && process.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static Task<bool> IsHealthyAsync()

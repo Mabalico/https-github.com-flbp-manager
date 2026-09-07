@@ -13,25 +13,39 @@ if (-not $nodeCommand) {
 }
 
 # Task Scheduler has a reduced startup environment on some Windows systems.
-# Launch Node directly so the service cannot remain stuck inside a hidden
-# PowerShell wrapper before opening the local HTTP port.
+# Pass the absolute Node path to the hidden launcher. The launcher places Node
+# in a kill-on-close Windows Job, so task stop/restart cannot leave an orphan.
 $nodePath = $nodeCommand.Source
+$runnerPath = Join-Path $serverRoot 'Esegui FLBP Server in background.ps1'
+$taskArguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runnerPath`" -NodePath `"$nodePath`""
 $action = New-ScheduledTaskAction `
-    -Execute $nodePath `
-    -Argument '--use-system-ca --disable-warning=ExperimentalWarning src/server.mjs' `
+    -Execute 'powershell.exe' `
+    -Argument $taskArguments `
     -WorkingDirectory $serverRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+# Il riavvio nativo di Task Scheduler interviene soltanto quando Windows
+# classifica l'uscita del processo come errore. Un arresto inatteso con exit
+# code 0 lascerebbe quindi il server spento fino al login successivo. Questo
+# trigger periodico funge da watchdog: con MultipleInstances=IgnoreNew non
+# crea duplicati mentre il server e' attivo, ma lo rilancia entro un minuto
+# quando il task torna nello stato Ready.
+$watchdogTrigger = New-ScheduledTaskTrigger `
+    -Once `
+    -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 1) `
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 10 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Days 3650) `
+    -MultipleInstances IgnoreNew `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
-    -Trigger $trigger `
+    -Trigger @($trigger, $watchdogTrigger) `
     -Settings $settings `
     -Description 'Server dati locale FLBP con SQLite e sincronizzazione Supabase.' `
     -Force | Out-Null
@@ -84,6 +98,7 @@ if (-not $publicUrl) {
         -RestartCount 10 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
         -ExecutionTimeLimit (New-TimeSpan -Days 3650) `
+        -MultipleInstances IgnoreNew `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries
     Register-ScheduledTask `

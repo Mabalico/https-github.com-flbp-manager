@@ -12,6 +12,7 @@ interface AdminDataConfirmModalProps {
     label: string;
     value: React.ReactNode;
   }>;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
   children?: React.ReactNode;
@@ -43,6 +44,7 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
   confirmLabel,
   cancelLabel = 'Annulla',
   summaryItems = [],
+  confirmDisabled = false,
   onConfirm,
   onClose,
   children,
@@ -135,7 +137,7 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
           <button ref={cancelRef} type="button" onClick={onClose} className={cancelButtonClass}>
             {cancelLabel}
           </button>
-          <button type="button" onClick={onConfirm} className={confirmButtonClass}>
+          <button type="button" disabled={confirmDisabled} onClick={onConfirm} className={`${confirmButtonClass} disabled:cursor-not-allowed disabled:opacity-45`}>
             {confirmLabel}
           </button>
         </div>

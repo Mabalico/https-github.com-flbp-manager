@@ -1,3 +1,4 @@
+import { publicEditionHistory } from './services/editionData';
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { Home } from './components/Home';
 import { PublicBrandStack } from './components/PublicBrandStack';
@@ -469,6 +470,10 @@ const App: React.FC = () => {
     const SITE_VISIT_DAY_KEY = 'flbp_site_visit_tracked_day_v1';
     const SITE_VISIT_PENDING_KEY = 'flbp_site_visit_pending_v1';
 
+    const isNativeWindowsShell = () => {
+        try { return Boolean((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID); } catch { return false; }
+    };
+
     const safeView = (v: string | null | undefined) => {
         if (!v) return 'home';
         if (['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'admin', 'referees_area', 'fantabeerpong'].includes(v)) return v;
@@ -496,6 +501,9 @@ const App: React.FC = () => {
             if (postReloadView) return safeView(postReloadView);
         } catch {
             // ignore
+        }
+        if (isNativeWindowsShell()) {
+            try { return safeView(localStorage.getItem('flbp_active_view_v1')); } catch { /* ignore */ }
         }
         return 'home';
     });
@@ -1292,7 +1300,14 @@ const App: React.FC = () => {
         // full workspace draft is an intentional Admin edit. sessionStorage is
         // deliberately per-window: a public/TV tab must not become a writer
         // merely because another tab opened the Admin area.
-        try { sessionStorage.setItem('flbp_active_view_v1', String(view || 'home')); } catch {}
+        const activeView = String(view || 'home');
+        try { sessionStorage.setItem('flbp_active_view_v1', activeView); } catch {}
+        // The native Windows shell may be restarted by an operator or by an
+        // update. Persist navigation only there; browser tabs remain isolated
+        // and no authentication material is written to localStorage.
+        if (isNativeWindowsShell()) {
+            try { localStorage.setItem('flbp_active_view_v1', activeView); } catch {}
+        }
     }, [view]);
 
     useEffect(() => {
@@ -1568,7 +1583,7 @@ const App: React.FC = () => {
             case 'tournament':
                 {
                     const liveTournament = stateForPublicViews.tournament || null;
-                    const history = stateForPublicViews.tournamentHistory || [];
+                    const history = publicEditionHistory(stateForPublicViews);
                     return (
                         <React.Suspense fallback={<RouteViewFallback /> }>
                             <PublicTournamentsLazy
@@ -1587,7 +1602,7 @@ const App: React.FC = () => {
                     const id = selectedTournament.data.id;
                     const snapshotTournament = selectedTournament.isLive
                         ? stateForPublicViews.tournament
-                        : (stateForPublicViews.tournamentHistory || []).find(t => t.id === id);
+                        : publicEditionHistory(stateForPublicViews).find(t => t.id === id);
 
                     const data = snapshotTournament || selectedTournament.data;
 

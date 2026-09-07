@@ -1,3 +1,4 @@
+import { registerEditionManagementCases } from './editionManagementCases';
 import { archiveTournamentV2, coerceAppState, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
 import type { HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentData } from '../../types';
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
@@ -605,10 +606,12 @@ defineCase('normalized tournament row mapper matches the legacy export mapping f
   assertEqual(JSON.stringify(nextRows), JSON.stringify(legacyRows));
 });
 
+registerEditionManagementCases(defineCase);
+
 let failed = 0;
 for (const entry of cases) {
   try {
-    entry.run();
+    await entry.run();
     console.log(`PASS ${entry.name}`);
   } catch (error) {
     failed += 1;

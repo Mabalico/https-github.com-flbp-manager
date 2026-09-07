@@ -1,3 +1,4 @@
+import { registerEditionManagementCases } from './editionManagementCases';
 import { archiveTournamentV2, coerceAppState, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
 import type { HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentData } from '../../types';
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
@@ -8,6 +9,7 @@ import { generateTournamentStructure } from '../../services/tournamentEngine';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../services/playerIdentity';
 import { __buildNormalizedTournamentRowsForTest } from '../../services/supabaseRest';
 import { mergePublicViewState } from '../../services/publicViewState';
+import { renameTournamentInState } from '../../services/tournamentRename';
 import sampleBackup from '../../docs/sample_backup.json';
 
 const makeBirthDate = (year: number) => `${year}-01-01`;
@@ -157,6 +159,17 @@ const assertOk = (value: unknown, message?: string) => {
   if (!value) {
     throw new Error(message || 'Expected truthy value.');
   }
+};
+
+const assertThrows = (run: () => void, expectedMessage: string) => {
+  let error: unknown;
+  try {
+    run();
+  } catch (caught) {
+    error = caught;
+  }
+  assertOk(error instanceof Error, 'Expected function to throw an Error.');
+  assertEqual((error as Error).message, expectedMessage);
 };
 
 const buildLegacyTournamentRowsForTest = (state: AppState, entry: { t: any; status: 'live' | 'archived'; matches: any[] }, workspaceId: string, nowIso: () => string) => {
@@ -658,10 +671,160 @@ defineCase('public live mirror clears a tournament archived after the last full 
   assertEqual(merged.tournamentMatches.length, 0);
 });
 
+defineCase('tournament rename updates the live edition and linked display labels without changing competition data', () => {
+  const previousName = 'XII Torneo Beer Pong';
+  const liveMatch = makeMatch('live-match', 'T1', 'T2', []);
+  const liveTournament: TournamentData = {
+    ...tournament,
+    id: 'live_2026',
+    name: previousName,
+    startDate: '2026-09-12',
+    matches: [liveMatch],
+    rounds: [[liveMatch]],
+  };
+  const ownedEntry: HallOfFameEntry = {
+    ...hallOfFame[0],
+    id: 'live-owned-title',
+    tournamentId: liveTournament.id,
+    tournamentName: previousName,
+    sourceTournamentId: undefined,
+    sourceTournamentName: 'Etichetta origine indipendente',
+  };
+  const referencedEntry: HallOfFameEntry = {
+    ...hallOfFame[2],
+    id: 'live-referenced-title',
+    tournamentId: 'manual_other',
+    tournamentName: 'Premio manuale',
+    sourceTournamentId: liveTournament.id,
+    sourceTournamentName: previousName,
+  };
+  const sourceNamedLikeTournament: IntegrationScorerEntry = {
+    ...integrationsScorers[0],
+    id: 'sc_live_label',
+    sourceTournamentId: liveTournament.id,
+    source: `  ${previousName.toLocaleLowerCase('it')}  `,
+    sourceLabel: previousName,
+  };
+  const sourceNamedLikeFile: IntegrationScorerEntry = {
+    ...integrationsScorers[0],
+    id: 'sc_live_file',
+    sourceTournamentId: liveTournament.id,
+    source: 'marcatori-settembre.csv',
+    sourceLabel: previousName,
+  };
+  const unrelatedScorer: IntegrationScorerEntry = {
+    ...integrationsScorers[0],
+    id: 'sc_unrelated',
+    sourceTournamentId: 'other_tournament',
+    source: 'Altro torneo',
+    sourceLabel: 'Altro torneo',
+  };
+  const input: AppState = {
+    ...baseState,
+    tournament: liveTournament,
+    tournamentMatches: [liveMatch],
+    tournamentHistory: [],
+    hallOfFame: [ownedEntry, referencedEntry],
+    integrationsScorers: [sourceNamedLikeTournament, sourceNamedLikeFile, unrelatedScorer],
+  };
+  const serializedInput = JSON.stringify(input);
+
+  const result = renameTournamentInState(input, '  live_2026  ', '  XIII Torneo Beer Pong  ');
+
+  assertEqual(result.previousName, previousName);
+  assertEqual(result.nextName, 'XIII Torneo Beer Pong');
+  assertEqual(result.tournamentId, liveTournament.id);
+  assertEqual(result.liveUpdated, true);
+  assertEqual(result.historyUpdated, false);
+  assertEqual(result.hallOfFameUpdated, 2);
+  assertEqual(result.integrationsScorersUpdated, 2);
+  assertEqual(result.state.tournament?.name, 'XIII Torneo Beer Pong');
+  assertEqual(result.state.tournament?.id, liveTournament.id);
+  assertEqual(JSON.stringify(result.state.tournament?.teams), JSON.stringify(liveTournament.teams));
+  assertEqual(JSON.stringify(result.state.tournament?.matches), JSON.stringify(liveTournament.matches));
+  assertEqual(JSON.stringify(result.state.tournament?.rounds), JSON.stringify(liveTournament.rounds));
+  assertEqual(JSON.stringify(result.state.tournament?.config), JSON.stringify(liveTournament.config));
+  assertEqual(JSON.stringify(result.state.tournamentMatches), JSON.stringify(input.tournamentMatches));
+
+  const renamedOwnedEntry = result.state.hallOfFame.find((entry) => entry.id === ownedEntry.id);
+  const renamedReferencedEntry = result.state.hallOfFame.find((entry) => entry.id === referencedEntry.id);
+  assertEqual(renamedOwnedEntry?.tournamentName, 'XIII Torneo Beer Pong');
+  assertEqual(renamedOwnedEntry?.sourceTournamentName, 'Etichetta origine indipendente');
+  assertEqual(renamedOwnedEntry?.id, ownedEntry.id);
+  assertEqual(renamedOwnedEntry?.sourceAutoGenerated, ownedEntry.sourceAutoGenerated);
+  assertEqual(renamedReferencedEntry?.tournamentName, 'Premio manuale');
+  assertEqual(renamedReferencedEntry?.sourceTournamentName, 'XIII Torneo Beer Pong');
+  assertEqual(renamedReferencedEntry?.id, referencedEntry.id);
+  assertEqual(renamedReferencedEntry?.manuallyEdited, referencedEntry.manuallyEdited);
+  assertEqual(JSON.stringify(renamedReferencedEntry?.playerNames), JSON.stringify(referencedEntry.playerNames));
+
+  const renamedLabelScorer = result.state.integrationsScorers.find((entry) => entry.id === sourceNamedLikeTournament.id);
+  const renamedFileScorer = result.state.integrationsScorers.find((entry) => entry.id === sourceNamedLikeFile.id);
+  const preservedUnrelatedScorer = result.state.integrationsScorers.find((entry) => entry.id === unrelatedScorer.id);
+  assertEqual(renamedLabelScorer?.sourceLabel, 'XIII Torneo Beer Pong');
+  assertEqual(renamedLabelScorer?.source, 'XIII Torneo Beer Pong');
+  assertEqual(renamedFileScorer?.sourceLabel, 'XIII Torneo Beer Pong');
+  assertEqual(renamedFileScorer?.source, 'marcatori-settembre.csv');
+  assertEqual(preservedUnrelatedScorer?.sourceLabel, 'Altro torneo');
+  assertEqual(JSON.stringify(input), serializedInput, 'Rename must not mutate the input state.');
+});
+
+defineCase('tournament rename updates one archived edition and all of its Hall of Fame labels only', () => {
+  const otherTournament: TournamentData = {
+    ...tournament,
+    id: 'arch_other',
+    name: 'Torneo distinto',
+    matches: [],
+    groups: [],
+  };
+  const input: AppState = {
+    ...baseState,
+    tournament: null,
+    tournamentHistory: [tournament, otherTournament],
+  };
+  const serializedInput = JSON.stringify(input);
+
+  const result = renameTournamentInState(input, tournament.id, 'XIII Torneo Beer Pong');
+
+  assertEqual(result.liveUpdated, false);
+  assertEqual(result.historyUpdated, true);
+  assertEqual(result.hallOfFameUpdated, 2);
+  assertEqual(result.integrationsScorersUpdated, 0);
+  assertEqual(result.state.tournament, null);
+  assertEqual(result.state.tournamentHistory.find((entry) => entry.id === tournament.id)?.name, 'XIII Torneo Beer Pong');
+  assertEqual(result.state.tournamentHistory.find((entry) => entry.id === otherTournament.id)?.name, 'Torneo distinto');
+  assertEqual(result.state.tournamentHistory.find((entry) => entry.id === tournament.id)?.id, tournament.id);
+  assertOk(result.state.hallOfFame
+    .filter((entry) => entry.tournamentId === tournament.id)
+    .every((entry) => entry.tournamentName === 'XIII Torneo Beer Pong' && entry.sourceTournamentName === 'XIII Torneo Beer Pong'));
+  assertEqual(result.state.hallOfFame.find((entry) => entry.id === 'manual_mvp_2024')?.tournamentName, 'Winter Cup');
+  assertEqual(JSON.stringify(input), serializedInput, 'Archived rename must not mutate the input state.');
+});
+
+defineCase('tournament rename rejects blank names, missing ids and tournaments that no longer exist', () => {
+  const serializedInput = JSON.stringify(baseState);
+
+  assertThrows(
+    () => renameTournamentInState(baseState, tournament.id, '   '),
+    'Inserisci il nome del torneo.'
+  );
+  assertThrows(
+    () => renameTournamentInState(baseState, '   ', 'XIII Torneo Beer Pong'),
+    'Seleziona un torneo da rinominare.'
+  );
+  assertThrows(
+    () => renameTournamentInState(baseState, 'missing_tournament', 'XIII Torneo Beer Pong'),
+    'Il torneo selezionato non esiste più. Ricarica i dati e riprova.'
+  );
+  assertEqual(JSON.stringify(baseState), serializedInput, 'Rejected rename must not mutate the input state.');
+});
+
+registerEditionManagementCases(defineCase);
+
 let failed = 0;
 for (const entry of cases) {
   try {
-    entry.run();
+    await entry.run();
     console.log(`PASS ${entry.name}`);
   } catch (error) {
     failed += 1;

@@ -21,8 +21,9 @@ export interface DataTabProps {
     dataSubTab: 'archive' | 'integrations';
     setDataSubTab: (v: 'archive' | 'integrations') => void;
 
-    integrationsSubTab: 'hof' | 'scorers' | 'aliases' | 'players' | 'fanta';
-    setIntegrationsSubTab: (v: 'hof' | 'scorers' | 'aliases' | 'players' | 'fanta') => void;
+    integrationsSubTab: 'tournaments' | 'hof' | 'scorers' | 'aliases' | 'players' | 'fanta';
+    setIntegrationsSubTab: (v: 'tournaments' | 'hof' | 'scorers' | 'aliases' | 'players' | 'fanta') => void;
+    renameTournamentEdition: (tournamentId: string, nextName: string) => Promise<void>;
 
     // Alias globale
     aliasesSearch: string;
@@ -441,49 +442,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1" role="toolbar" aria-label={t('data_integrations_subsections_aria')}>
-                        <button type="button"
-                            onClick={() => {
-                                setDataSubTab('archive');
-                                try { sessionStorage.setItem('flbp_admin_data_subtab', 'archive'); } catch {}
-                            }}
-                            className={`${tabBtnBase} ${dataSubTab === 'archive' ? tabBtnActive : tabBtnInactive}`}
-                        >
-                            <Archive className="w-4 h-4" />
-                            {t('edit')}
-                        </button>
-                        <button type="button"
-                            onClick={() => {
-                                setDataSubTab('integrations');
-                                try { sessionStorage.setItem('flbp_admin_data_subtab', 'integrations'); } catch {}
-                            }}
-                            className={`${tabBtnBase} ${dataSubTab === 'integrations' ? tabBtnActive : tabBtnInactive}`}
-                        >
-                            <PlusCircle className="w-4 h-4" />
-                            {t('data_add')}
-                        </button>
-                        <button type="button"
-                            onClick={() => {
-                                setDataSubTab('integrations');
-                                props.setIntegrationsSubTab('fanta');
-                                try {
-                                    sessionStorage.setItem('flbp_admin_data_subtab', 'integrations');
-                                    sessionStorage.setItem('flbp_admin_integrations_subtab', 'fanta');
-                                } catch {}
-                            }}
-                            className={`${tabBtnBase} ${dataSubTab === 'integrations' && props.integrationsSubTab === 'fanta' ? 'bg-rose-700 text-white border-rose-700 hover:bg-rose-800' : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'}`}
-                            title="Apri la manutenzione dei dati Fanta rimasti senza torneo collegato"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                            Fanta orfani
-                        </button>
-                    </div>
-
-                    {dataSubTab === 'archive' ? (
-                        <ArchiveSubTab {...props} />
-                    ) : (
-                        <IntegrationsSubTab {...props} />
-                    )}
+                    <IntegrationsSubTab {...props} />
                 </div>
             ) : null}
 

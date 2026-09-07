@@ -1,5 +1,6 @@
 param(
-    [switch]$InstallShortcut
+    [switch]$InstallShortcut,
+    [string]$OutputDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,7 +19,11 @@ $source = Join-Path $appRoot 'src\FLBPManagerLocale.cs'
 $manifest = Join-Path $appRoot 'app.manifest'
 $config = Join-Path $appRoot 'app.config'
 $obj = Join-Path $appRoot 'obj'
-$publish = Join-Path $appRoot 'publish'
+$publish = if ($OutputDirectory) {
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
+} else {
+    Join-Path $appRoot 'publish'
+}
 $outputExe = Join-Path $publish 'FLBP Manager Locale.exe'
 $iconSource = Join-Path $workspaceRoot 'FLBP ONLINE\public\icons\icon-192.png'
 $iconFile = Join-Path $obj 'flbp-manager-locale.ico'

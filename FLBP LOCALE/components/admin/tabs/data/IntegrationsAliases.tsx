@@ -1,3 +1,4 @@
+import { useIntegrationFeedback } from './useIntegrationFeedback';
 import React from 'react';
 import type { DataTabProps } from '../DataTab';
 import { getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from '../../../../services/storageService';
@@ -120,6 +121,7 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
     const btnSmPrimary = `${btnSmBase} border border-blue-700 bg-blue-700 text-white hover:bg-blue-800 focus-visible:ring-blue-500`;
     const btnSmDanger = `${btnSmBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-400`;
 
+    const { notify, ask, feedbackUI } = useIntegrationFeedback(t);
     return (() => {
     const normalizeName = (name: string) => normalizeNameLower(name);
 
@@ -133,26 +135,26 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
                                 // Alias globale: vista unica per conflitti Nome+data di nascita e gestione manuale degli alias
                                 const aliases = Object.entries((state.playerAliases || {}) as Record<string, string>) as Array<[string, string]>;
 
-                                const removeAlias = (sourceKey: string) => {
-                                    if (!confirm(t('remove_alias_confirm'))) return;
+                                const removeAlias = async (sourceKey: string) => {
+                                    if (!await ask(t('remove_alias_confirm'))) return;
                                     const next = { ...(state.playerAliases || {}) };
                                     delete (next as any)[sourceKey];
                                     setState({ ...state, playerAliases: next });
                                 };
 
-                                const setAlias = (fromKey: string, toKey: string) => {
+                                const setAlias = async (fromKey: string, toKey: string) => {
                                     const from = (fromKey || '').trim();
                                     const toRaw = (toKey || '').trim();
                                     if (!from || !toRaw) return;
                                     if (from === toRaw) {
-                                        alert(t('select_different_target_profile'));
+                                        notify(t('select_different_target_profile'));
                                         return;
                                     }
 
                                     const to = resolvePlayerKey(state, toRaw);
 
                                     if (/_ND$/i.test(from) && /_\d{4}-\d{2}-\d{2}$/i.test(to)) {
-                                        const confirmed = window.confirm(
+                                        const confirmed = await ask(
                                             t('alias_birthdate_merge_confirm')
                                                 .replace('{from}', labelFromPlayerKey(from))
                                                 .replace('{to}', labelFromPlayerKey(to))
@@ -170,7 +172,7 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
                                                 return n;
                                             });
                                         } catch (error: any) {
-                                            alert(String(error?.message || error || t('players_snackbar_profile_update_error')));
+                                            notify(String(error?.message || error || t('players_snackbar_profile_update_error')));
                                         }
                                         return;
                                     }
@@ -179,7 +181,7 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
                                     // prevenzione cicli (alias A->B e B->A)
                                     const resolvedTo = resolvePlayerKey({ playerAliases: nextAliases }, to);
                                     if (resolvedTo === from) {
-                                        alert(t('invalid_alias_cycle'));
+                                        notify(t('invalid_alias_cycle'));
                                         return;
                                     }
 
@@ -272,6 +274,7 @@ export const IntegrationsAliases: React.FC<DataTabProps> = ({
 
                                 return (
                                     <div className="space-y-4">
+                {feedbackUI}
                                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                                             <div className="flex items-center justify-between gap-3 flex-wrap">
                                                 <div>

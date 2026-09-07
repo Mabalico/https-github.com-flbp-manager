@@ -1,3 +1,4 @@
+import { useIntegrationFeedback } from './useIntegrationFeedback';
 import React from 'react';
 import { AlertTriangle, RefreshCw, Trash2, Trophy } from 'lucide-react';
 
@@ -11,7 +12,8 @@ import { FANTA_APP_CHANGE_EVENT } from '../../../../services/playerAppService';
 
 const PRE_TOURNAMENT_ID = '__pre_tournament__';
 
-export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
+export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state, t }) => {
+    const { ask, feedbackUI } = useIntegrationFeedback(t);
     const [rows, setRows] = React.useState<FantaTournamentDataSummary[]>([]);
     const [loading, setLoading] = React.useState(false);
     const [deletingId, setDeletingId] = React.useState<string | null>(null);
@@ -59,7 +61,7 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
     };
 
     const deleteOrphan = async (row: FantaTournamentDataSummary) => {
-        const ok = window.confirm(
+        const ok = await ask(
             `Eliminare definitivamente i dati Fanta non collegati allo storico locale di "${row.tournamentName}"?\n\n` +
             `Verranno cancellate ${row.archivedEditions} edizioni archivio, ${row.archivedStandings} righe classifica, ` +
             `${row.archivedPlayers} righe giocatori e ${row.fantaTeams} squadre Fanta.\n\n` +
@@ -92,6 +94,7 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state }) => {
 
     return (
         <div className="space-y-5">
+                {feedbackUI}
             <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>

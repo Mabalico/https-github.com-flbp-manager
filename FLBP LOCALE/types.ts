@@ -142,6 +142,9 @@ export interface HallOfFameEntry {
     value?: number;
     playerId?: string;
     playerBirthDate?: string;
+    /** Private identities aligned with playerNames, including both champions. */
+    playerBirthDates?: string[];
+    playerIds?: string[];
     sourceType?: 'archived_tournament' | 'manual';
     sourceTournamentId?: string;
     sourceTournamentName?: string;
@@ -166,6 +169,9 @@ export interface IntegrationScorerEntry {
     sourceType?: 'manual_integration';
     sourceTournamentId?: string | null;
     sourceLabel?: string;
+    sourceTournamentDate?: string;
+    /** Public eligibility at the linked tournament date; no birth date exposed. */
+    tournamentU25?: boolean;
     teamName?: string;
 }
 

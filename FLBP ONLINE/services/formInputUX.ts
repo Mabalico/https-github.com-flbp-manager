@@ -22,11 +22,10 @@ export const handleZeroValueFocus = (
   const input = event.currentTarget;
   if (!isZeroLikeValue(input.value)) return;
   input.dataset.zeroOverwriteReady = 'true';
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => selectWholeValue(input));
-    return;
-  }
-  setTimeout(() => selectWholeValue(input), 0);
+  // Keyboard focus can be followed immediately by a keypress. Selecting in a
+  // later animation frame created a race where "5" occasionally became "05".
+  // Mouse focus is still protected by the mouse-up handler below.
+  selectWholeValue(input);
 };
 
 export const handleZeroValueMouseUp = (

@@ -1,3 +1,4 @@
+import { countedIntegrations } from '../services/editionData';
 import React, { useState, useEffect } from 'react';
 import { Team, TournamentData, Match, HallOfFameEntry } from '../types';
 import type { AppState } from '../services/storageService';
@@ -504,6 +505,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
     return () => clearInterval(interval);
   }, [isLive]);
 
+  const linkedScorers = React.useMemo(() => publicState ? countedIntegrations(publicState).filter(row => row.sourceTournamentId === data.id) : [], [publicState, data.id]);
   const hasGroups = !!(data.groups && data.groups.length > 0);
   const isStructurelessManualArchive = !isLive && !!data.isManual && !hasGroups && (matches?.length || 0) === 0;
   const advancingPerGroup = typeof data.config?.advancingPerGroup === 'number' ? data.config.advancingPerGroup : undefined;
@@ -516,6 +518,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
 
     if (isStructurelessManualArchive) {
       views.push({ key: 'overview', label: t('history_label'), icon: Archive });
+      if (linkedScorers.length && !dataResultsOnly) views.push({ key: 'leaderboard', label: t('scorers_label'), icon: Medal });
       return views;
     }
 
@@ -523,9 +526,9 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
       views.push({ key: 'groups', label: t('groups_label'), icon: LayoutList });
       if (!data.isManual) {
         views.push({ key: 'bracket', label: t('bracket_finale'), icon: GitBranch });
-        if (!dataResultsOnly) {
-          views.push({ key: 'leaderboard', label: t('scorers_label'), icon: Medal });
-        }
+      }
+      if (!dataResultsOnly && (!data.isManual || linkedScorers.length > 0 || matches.some(match => (match.played || match.status === 'finished') && !!match.stats?.length))) {
+        views.push({ key: 'leaderboard', label: t('scorers_label'), icon: Medal });
       }
       return views;
     }
@@ -535,7 +538,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
       ...(!dataResultsOnly ? [{ key: 'leaderboard' as const, label: t('scorers_label'), icon: Medal }] : [])
     );
     return views;
-  }, [data.isManual, dataResultsOnly, hasGroups, isStructurelessManualArchive, t]);
+  }, [data.isManual, dataResultsOnly, hasGroups, isStructurelessManualArchive, linkedScorers.length, matches, t]);
 
   useEffect(() => {
     if (!availableViews.some((item) => item.key === view)) {
@@ -1105,6 +1108,8 @@ const visibleTeamsCount = React.useMemo(() => {
                   teams={teams}
                   matches={matches}
                   awards={tournamentAwards}
+                  tournamentDate={data.startDate}
+                  integrations={linkedScorers}
                   playerAliases={playerAliases}
                   publicState={publicState}
                 />

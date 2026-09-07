@@ -24,7 +24,7 @@ Nel client questa separazione è vincolante: `mode=local` indica chi può scrive
    Il push attende la conferma del checkpoint locale; se nel frattempo arriva un’altra modifica, questa riceve un nuovo `operationId` e la risposta precedente non può cancellarla.
 4. Lo stesso commit aggiorna nella medesima transazione snapshot privato e snapshot pubblico sanitizzato.
 5. Il server serializza commit e replica esterna: la scrittura successiva non parte finché stato applicativo corrente, metadati e outbox della stessa versione non sono leggibili in una copia SQLite autonoma sul supporto secondario. Lo storico versionato resta nel DB primario, perciò ogni referto replica circa il solo stato corrente invece dell'intero archivio; le letture pubbliche non vengono affamate dalla copia. Al riavvio viene riutilizzata la replica verificata della stessa versione. Admin, arbitri e TV sulla LAN leggono quindi la stessa versione dal server locale; dopo un riavvio WAL e versione restano invariati.
-6. L'outbox viene accorpata per circa 15 secondi e inviata in batch limitati; il mirror pubblico compatto viene accodato dopo ogni commit e ha un retry separato ogni 15 secondi, mentre il checkpoint completo resta ogni 30 minuti.
+6. L'outbox viene accorpata per circa 15 secondi e inviata in batch limitati; il mirror pubblico compatto viene accodato dopo ogni commit e ha un retry separato ogni 15 secondi, mentre il checkpoint completo resta ogni 30 minuti. Ogni richiesta Supabase ha una deadline finita (più ampia per le transizioni); dopo un errore l'outbox resta durevole e applica backoff 5/10/20/40/60 secondi per non consumare Disk I/O con retry continui.
 7. Durante la leadership locale non viene mai eseguita una ricostruzione completa periodica delle tabelle torneo. I referti aggiornano soltanto le righe della partita interessata; una modifica al catalogo generale delle squadre viene solo journalizzata e non riscrive tornei o archivi. Le sole modifiche strutturali aggiornano il torneo live, l'archiviazione aggiorna una volta le proiezioni complete e la disattivazione esegue un'ultima ricostruzione verificata prima del passaggio atomico al cloud.
 
 Se Internet cade o la finestra viene riaperta, l’Admin può continuare per 36 ore solo quando sono presenti insieme una sessione Supabase realmente verificata in precedenza e la sessione rilasciata dal nodo locale. Non viene introdotta una password Admin fittizia nel frontend.
@@ -47,7 +47,7 @@ I referti arbitro più recenti presenti nello snapshot autorevole vengono conser
 6. Un `AbortError` prodotto dal reload della pagina non revoca da solo l'autorità Admin: la nuova pagina resta bloccata in acquisizione e ripete subito la verifica del lease.
 5. Nessuna scrittura di rete parte da `beforeunload`, `pagehide` o pagina nascosta.
 6. Una finestra Admin passiva non crea nemmeno una bozza ripristinabile.
-7. Nell'app Windows il processo host assegna alla finestra un'identità stabile, reiniettata prima di ogni navigazione WebView2: un reload riprende immediatamente la propria lease senza attendere i 90 secondi del TTL. Una seconda istanza dell'app riceve invece un'identità diversa e resta correttamente in sola lettura. Un singolo heartbeat abortito viene ritentato senza bloccare una finestra che possiede ancora una lease valida; il server continua comunque a verificare `x-flbp-writer-id` su ogni commit.
+7. Nell'app Windows il processo host assegna alla finestra un'identità stabile, reiniettata prima di ogni navigazione WebView2: un reload riprende immediatamente la propria lease senza attendere i 90 secondi del TTL. Una seconda istanza dell'app riceve invece un'identità diversa e resta correttamente in sola lettura. Un singolo heartbeat abortito viene ritentato senza bloccare una finestra che possiede ancora una lease valida; il server continua comunque a verificare `x-flbp-writer-id` su ogni commit. La rotta locale e la navigazione Admin non sensibile vengono salvate e ripristinate dopo un errore o riavvio WebView2, con stato di attesa e retry progressivi; token e password non vengono persistiti da questo meccanismo.
 7. Supabase e server locale non sono mai scrivibili contemporaneamente per lo stesso workspace.
 8. La scadenza della leadership locale produce `recovery`, non un failover cloud automatico.
 9. La disattivazione locale riesce solo dopo il backup finale atomico.
@@ -61,6 +61,7 @@ I referti arbitro più recenti presenti nello snapshot autorevole vengono conser
 17. In modalità cloud il push Admin usa una RPC v2 idempotente: lo stesso `operationId` con gli stessi dati restituisce la conferma originaria; collisioni o operazioni già superate diventano conflitti, mai overwrite.
 18. Se `localStorage` esaurisce la quota ma IndexedDB ha confermato la bozza, al reload il repository rilegge il checkpoint IndexedDB, conserva il timestamp base e lo ripropone prima di scaricare lo stato remoto.
 19. Il drain remoto resta attivo finché l'outbox non è vuota: una commit concorrente arrivata durante un upload viene raccolta nello stesso ciclo e non aspetta il backup dei 30 minuti.
+20. Il processo Node registra startup, warning ed errori fatali in un log ruotato anche quando Task Scheduler lo avvia senza una console; un errore periodico del supporto secondario diventa una promise rifiutata gestita e non può terminare il server. I heartbeat Supabase lenti sono coalesciati e, dopo errori, usano backoff progressivo: non possono accumulare chiamate concorrenti mentre il database cloud è saturo.
 
 ## Sequenza di attivazione
 
@@ -107,6 +108,8 @@ Con Internet assente il PC continua a conservare le modifiche in SQLite e nel jo
 
 Se il PC è soltanto spento o riavviato, non va eseguito alcun failover: al login ripartono server e tunnel, lo stesso `node_id` riprende l’heartbeat e l’outbox viene ritentata. Se invece PC e disco sono definitivamente indisponibili, dopo la scadenza della lease l’Admin web mostra **Failover emergenza a Supabase**. L’azione richiede una sessione Admin reale, verifica l’epoch atteso e lo incrementa per revocare definitivamente il vecchio nodo.
 
+Una perdita di rete non autorizza l'avvio di un secondo PC: il vecchio writer potrebbe continuare a salvare offline. Il server sostitutivo può essere attivato soltanto dopo spegnimento fisico/revoca del primario e non deve ricevere una copia manuale della cartella `data`, perché essa duplicherebbe identità del nodo, epoch e outbox. Il passaggio corretto usa il ripristino verificato descritto sotto.
+
 Il failover diretto è consentito soltanto se il journal remoto non contiene versioni successive all’ultimo snapshot completo. Se le contiene, Supabase rifiuta l’azione: va avviato un server sostitutivo, che riproduce il journal con il codice applicativo e poi esegue la disattivazione normale. L’interfaccia avverte inoltre che operazioni presenti esclusivamente sul disco perso non sono recuperabili; per eliminare anche questo rischio fisico servono UPS e replica su un secondo disco/nodo.
 
 ## Ripristino verificato dal secondo disco
@@ -126,5 +129,6 @@ Se la copia risultava attiva, il ripristino conserva nodo, epoch e outbox ma imp
 - ripristinare una replica su un DB di prova, verificare `restore-pending` e riconfermare l'epoch;
 - interrompere il heartbeat e verificare che `flbp_resolve_data_plane()` restituisca `recovery`;
 - completare backup e disattivazione, poi verificare che Supabase contenga checksum e versione locali.
+- eseguire `Verifica prontezza FLBP Server.cmd` e controllare anche ACL di `.env`, database e replica, più la presenza della RPC journal v2 effettivamente usata dal runtime.
 
 “Zero perdita” è garantibile per crash del browser, timeout, retry, conflitti, rete intermittente e riavvio del processo se almeno una copia durevole sopravvive. Per coprire anche rottura fisica contemporanea del PC e assenza Internet servono UPS e replica su un secondo disco/nodo.

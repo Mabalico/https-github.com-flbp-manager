@@ -1,5 +1,9 @@
 import type { Match } from '../types';
 
+/** Shared eligibility for player statistics, including legacy completed matches. */
+export const hasCountedPlayerStats = (match?: Pick<Match, 'played' | 'status' | 'stats'> | null): boolean =>
+  !!match && (match.played || match.status === 'finished') && Array.isArray(match.stats);
+
 /** Placeholder team id helpers (pure). */
 export const isByeTeamId = (id?: string) => String(id || '').trim().toUpperCase() === 'BYE';
 

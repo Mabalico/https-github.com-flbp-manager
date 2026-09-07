@@ -9,6 +9,7 @@ import { LocalStore, VersionConflictError } from './store.mjs';
 import { preserveAuthoritativeRefereeReports, resolveRefereeSecret } from './statePatch.mjs';
 import { SupabaseSync } from './supabaseSync.mjs';
 import { controlPage, controlPageScript } from './controlPage.mjs';
+import { installRuntimeLogging } from './runtimeLogger.mjs';
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 const MAX_BODY_BYTES = 12 * 1024 * 1024;
@@ -78,6 +79,7 @@ export const createLocalServer = (overrides = {}) => {
   let backupTimer = null;
   let publicLiveTimer = null;
   let secondaryBackupTimer = null;
+  let heartbeatLoopInFlight = null;
   let secondaryBackupChain = Promise.resolve();
   let durableWriteChain = Promise.resolve();
   let secondaryBackedVersion = 0;
@@ -210,9 +212,9 @@ export const createLocalServer = (overrides = {}) => {
     }
   };
 
-  const ensureSecondaryBackup = (requiredVersion = null) => {
+  const ensureSecondaryBackup = async (requiredVersion = null) => {
     const target = ensureSecondaryTargetAvailable();
-    if (!target.available) return Promise.resolve({ backedUp: false, disabled: true });
+    if (!target.available) return { backedUp: false, disabled: true };
     const requested = Number(requiredVersion ?? store.getCurrentMetadata()?.version ?? 0);
     const work = secondaryBackupChain.then(async () => {
       if (secondaryBackedVersion >= requested) return { backedUp: true, version: secondaryBackedVersion, reused: true };
@@ -231,9 +233,21 @@ export const createLocalServer = (overrides = {}) => {
     return current;
   };
 
+  const runBackgroundHeartbeat = (label) => {
+    if (heartbeatLoopInFlight) return heartbeatLoopInFlight;
+    const work = Promise.resolve()
+      .then(() => sync.heartbeat())
+      .catch((error) => console.error(label, error.message))
+      .finally(() => {
+        if (heartbeatLoopInFlight === work) heartbeatLoopInFlight = null;
+      });
+    heartbeatLoopInFlight = work;
+    return work;
+  };
+
   const startTimers = () => {
     const firstStart = !heartbeatTimer && !backupTimer;
-    if (!heartbeatTimer) heartbeatTimer = setInterval(() => void sync.heartbeat().catch((error) => console.error('[heartbeat]', error.message)), config.heartbeatIntervalMs);
+    if (!heartbeatTimer) heartbeatTimer = setInterval(() => void runBackgroundHeartbeat('[heartbeat]'), config.heartbeatIntervalMs);
     if (!backupTimer) backupTimer = setInterval(() => {
       if (store.isActive()) void (async () => {
         const cloudBackup = await sync.backupSnapshot();
@@ -263,7 +277,7 @@ export const createLocalServer = (overrides = {}) => {
           }
         }).catch((error) => console.error('[reconcile:startup]', error.message));
       } else if (store.isActive()) {
-        void sync.heartbeat().catch((error) => console.error('[heartbeat:startup]', error.message));
+        void runBackgroundHeartbeat('[heartbeat:startup]');
         void sync.scheduleOutboxSync({ immediate: true });
         void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:startup]', error.message));
         void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup:startup]', error.message));
@@ -356,8 +370,8 @@ export const createLocalServer = (overrides = {}) => {
         return sendJson(response, 200, { workspace_id: config.workspaceId, state: current.state, updated_at: current.updatedAt, version: current.version, primary_epoch: current.primaryEpoch }, { ...cors, etag, 'cache-control': 'no-cache' });
       }
       if (request.method === 'POST' && url.pathname.startsWith('/api/v1/admin/write-lease/')) {
-        if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         consumeRateLimit(request, 'admin-write-lease', 240);
+        if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         const body = await readBody(request);
         if (url.pathname.endsWith('/acquire')) {
           const out = store.acquireAdminWriterLease({
@@ -377,10 +391,10 @@ export const createLocalServer = (overrides = {}) => {
         }
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/admin/workspace/${encodeURIComponent(config.workspaceId)}/commit`) {
+        consumeRateLimit(request, 'authenticated-write', 240);
         requireWritable();
         if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         requireAdminWriter(request);
-        consumeRateLimit(request, 'authenticated-write', 240);
         ensureSecondaryTargetAvailable();
         const body = await readBody(request);
         const committed = await runDurableWrite(async () => {
@@ -393,10 +407,10 @@ export const createLocalServer = (overrides = {}) => {
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, operation_id: committed.operationId, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/admin/workspace/${encodeURIComponent(config.workspaceId)}/recover-local`) {
+        consumeRateLimit(request, 'authenticated-write', 30, 'recover-local');
         requireWritable();
         if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         requireAdminWriter(request);
-        consumeRateLimit(request, 'authenticated-write', 30, 'recover-local');
         ensureSecondaryTargetAvailable();
         const body = await readBody(request);
         if (body.confirmLocalRecovery !== true) {
@@ -452,7 +466,10 @@ export const createLocalServer = (overrides = {}) => {
         const body = await readBody(request);
         const current = store.getCurrent();
         const expected = resolveRefereeSecret(current?.state, process.env.FLBP_REFEREE_PASSWORD || '');
-        if (!safeEqual(body.refereePassword, expected)) return sendJson(response, 401, { error: 'Password arbitri non valida' }, cors);
+        if (!safeEqual(body.refereePassword, expected)) {
+          consumeRateLimit(request, 'referee-auth', 20, body.tournamentId);
+          return sendJson(response, 401, { error: 'Password arbitri non valida' }, cors);
+        }
         consumeRateLimit(request, 'authenticated-write', 240, body.tournamentId);
         ensureSecondaryTargetAvailable();
         const committed = await runDurableWrite(async () => {
@@ -465,10 +482,10 @@ export const createLocalServer = (overrides = {}) => {
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, matches_count: Array.isArray(body.matches) ? body.matches.length : 0, auth_version: committed.state?.tournament?.refereesAuthVersion || null, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/admin-match-result`) {
+        consumeRateLimit(request, 'authenticated-write', 240);
         requireWritable();
         if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         requireAdminWriter(request);
-        consumeRateLimit(request, 'authenticated-write', 240);
         ensureSecondaryTargetAvailable();
         const body = await readBody(request);
         const committed = await runDurableWrite(async () => {
@@ -481,8 +498,8 @@ export const createLocalServer = (overrides = {}) => {
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, matches_count: Array.isArray(body.matches) ? body.matches.length : 0, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
       }
       if (request.method === 'POST' && url.pathname.startsWith('/control/')) {
-        if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         consumeRateLimit(request, 'control', 30);
+        if (!requireAdmin(request)) return sendJson(response, 401, { error: 'Token Admin locale non valido' }, cors);
         if (configErrors.length) return sendJson(response, 400, { error: configErrors.join('\n') }, cors);
         if (url.pathname === '/control/resume-restored') {
           if (!store.isActive() || store.getTransitionState() !== 'restore-pending') {
@@ -533,7 +550,7 @@ export const createLocalServer = (overrides = {}) => {
             }
             store.setTransitionState('idle');
             startTimers();
-            void sync.heartbeat().catch((error) => console.error('[heartbeat:activation]', error.message));
+            void runBackgroundHeartbeat('[heartbeat:activation]');
             void sync.scheduleOutboxSync({ immediate: true });
             void sync.publishLiveSnapshot().catch((error) => console.error('[public-live:activation]', error.message));
             return sendJson(response, 200, { ok: true, activated, ...store.status() }, cors);
@@ -564,7 +581,7 @@ export const createLocalServer = (overrides = {}) => {
             return sendJson(response, 200, { ok: true, alreadyInactive: true, ...store.status() }, cors);
           }
           if (sync.isConfigured()) {
-            const heartbeat = await sync.heartbeat();
+            const heartbeat = await sync.heartbeat({ force: true });
             if (!heartbeat?.accepted) throw new Error('Supabase non ha confermato la leadership locale: disattivazione non avviata.');
           }
           store.setTransitionState('deactivating');
@@ -620,6 +637,10 @@ export const createLocalServer = (overrides = {}) => {
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isMain) {
+  const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  installRuntimeLogging({
+    logFile: process.env.FLBP_RUNTIME_LOG_FILE || path.join(serverRoot, 'logs', 'server.log'),
+  });
   const app = createLocalServer();
   app.listen().then(() => {
     console.log(`FLBP Server Locale: http://localhost:${app.config.port}`);
@@ -627,6 +648,9 @@ if (isMain) {
     if (validateOperationalConfig(app.config).length) console.log('Configurazione incompleta: apri il pannello per i dettagli.');
   }).catch((error) => {
     console.error(error);
-    process.exitCode = 1;
+    // startTimers() is initialized before listen so recovery can begin at
+    // startup. If the HTTP port cannot be acquired those timers would keep a
+    // dead, unreachable process alive and Task Scheduler could not restart it.
+    process.exit(1);
   });
 }

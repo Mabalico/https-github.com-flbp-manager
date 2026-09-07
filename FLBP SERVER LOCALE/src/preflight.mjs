@@ -22,11 +22,18 @@ const safeResponseBody = async (response) => {
 
 const serviceHeaders = () => buildSupabaseServerHeaders(config.supabaseServiceRoleKey);
 
+let supabaseCircuitOpen = false;
 const timedFetch = async (url, init = {}, timeoutMs = 8_000) => {
+  if (supabaseCircuitOpen) {
+    throw new Error('Controllo saltato: Supabase non ha risposto al primo probe entro 8 secondi.');
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') supabaseCircuitOpen = true;
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -173,7 +180,7 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
   }
 
   try {
-    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_append_operations`, {
+    const response = await timedFetch(`${config.supabaseUrl}/rest/v1/rpc/flbp_local_append_operations_v2`, {
       method: 'POST',
       headers: serviceHeaders(),
       // Epoch 0 viene rifiutato prima di qualsiasi scrittura: qui interessa
@@ -183,14 +190,15 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
         p_node_id: 'preflight-non-writing-probe',
         p_epoch: 0,
         p_operations: [],
+        p_state: {},
       }),
     });
     const detail = await safeResponseBody(response);
     const missing = response.status === 404 || detail.includes('PGRST202') || detail.includes('Could not find the function');
     const callable = !missing && detail.includes('primary_epoch mancante');
-    add('RPC journal transazionale', callable, callable ? 'Funzione caricata e invocabile con chiave server.' : detail);
+    add('RPC journal transazionale v2', callable, callable ? 'Funzione caricata e invocabile con chiave server.' : detail);
   } catch (error) {
-    add('RPC journal transazionale', false, error?.message || error);
+    add('RPC journal transazionale v2', false, error?.message || error);
   }
 
   try {

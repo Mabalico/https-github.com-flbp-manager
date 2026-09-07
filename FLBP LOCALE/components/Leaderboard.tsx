@@ -1,3 +1,6 @@
+import { scoringRankIndex } from '../services/awardRules';
+import { countedIntegrations, listEditions, editionMatches } from '../services/editionData';
+import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, loadState, getPlayerKey, resolvePlayerKey, isU25 } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
@@ -10,6 +13,7 @@ import { normalizeNameLower } from '../services/textUtils';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
+import { hasCountedPlayerStats } from '../services/matchUtils';
 import { readVitePublicDbRead } from '../services/viteEnv';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import {
@@ -105,10 +109,10 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
             if (!Number.isFinite(ts)) return;
             years.add(String(new Date(ts).getFullYear()));
         };
-        (state.tournamentHistory || []).forEach(tn => pushYear(tn.startDate));
+        listEditions(state).forEach(row => pushYear(row.date || row.year));
         if (state.tournament?.startDate) pushYear(state.tournament.startDate);
         return Array.from(years).sort((a, b) => Number(b) - Number(a));
-    }, [state.tournamentHistory, state.tournament?.startDate]);
+    }, [state]);
 
     // Keep UI selection safe if history changes.
     useEffect(() => {
@@ -205,7 +209,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
         };
 
 const processMatch = (m: Match, teamsSource: Team[]) => {
-            if (!m.played || !m.stats) return;
+            if (!hasCountedPlayerStats(m)) return;
             const winningTeamId = getWinningTeamId(m, teamsSource);
             m.stats.forEach(s => {
                 const t = teamsSource.find(tm => tm.id === s.teamId);
@@ -216,6 +220,8 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                 }
                 const rawKey = getPlayerKey(s.playerName, pickPlayerIdentityValue(birthDate));
                 const p = initPlayer(rawKey, s.playerName, t?.name || s.teamId || '?', birthDate);
+                const slot = t?.player1 === s.playerName ? 1 : 2;
+                if (!birthDate && typeof (t as any)?.[`player${slot}CareerU25`] === 'boolean') p.u25 = (t as any)[`player${slot}CareerU25`];
                 p.gamesPlayed++;
                 if (winningTeamId && isCompetitiveTeamId(s.teamId, teamsSource)) {
                     if (s.teamId === winningTeamId) p.wins = (p.wins || 0) + 1;
@@ -236,23 +242,24 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
             state.tournamentHistory.forEach(tn => {
                 const y = yearOfIso((tn as any)?.startDate);
                 if (selectedYear && y !== selectedYear) return;
-                (tn.matches || []).forEach(m => processMatch(m, tn.teams || []));
+                if (tn.config?.resultsOnly) return;
+                editionMatches(state, tn.id).forEach(m => processMatch(m, tn.teams || []));
             });
         }
         if (state.tournament) {
             const y = yearOfIso(state.tournament.startDate);
-            if (!selectedYear || y === selectedYear) {
+            if ((!selectedYear || y === selectedYear) && !state.tournament.config?.resultsOnly) {
                 (state.tournamentMatches || []).forEach(m => processMatch(m, state.teams));
             }
         }
 
-        // Integrazioni manuali (marcatori esterni ai tornei archiviati)
-        // Only in all-years mode.
-        if (!selectedYear) {
-            (state.integrationsScorers || []).forEach(e => {
+        // Edition imports are attributable to the tournament year.
+        {
+            countedIntegrations(state, selectedYear ? String(selectedYear) : undefined).forEach(e => {
                 const birthDate = (e as any).birthDate;
                 const rawKey = getPlayerKey(e.name, pickPlayerIdentityValue(birthDate));
                 const p = initPlayer(rawKey, e.name, e.teamName || 'Integrazioni', birthDate);
+                if (!birthDate && typeof (e as any).careerU25 === 'boolean') p.u25 = (e as any).careerU25;
                 p.gamesPlayed += (e.games || 0);
                 p.points += (e.points || 0);
                 p.soffi += (e.soffi || 0);
@@ -355,8 +362,9 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
 
         hofSource.forEach(e => {
             if (e.type === 'winner') {
-                (e.playerNames || []).forEach(pn => {
-                    const pid = uniqueIdByName(pn);
+                getHallOfFamePlayerRefs(state, e).forEach(ref => {
+                    const hasIdentity = !!e.playerIds?.length || !!e.playerBirthDates?.length;
+                    const pid = validIds.has(ref.playerId) ? ref.playerId : hasIdentity ? undefined : uniqueIdByName(ref.playerName);
                     if (pid) ensure(pid).winner += 1;
                 });
                 return;
@@ -366,7 +374,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
             let pid: string | undefined = e.playerId ? resolvePlayerKey(state, e.playerId) : undefined;
 
             // Prefer direct match, otherwise fallback by unique name (avoid homonym merge).
-            if (!pid || !validIds.has(pid)) {
+            if (!e.playerId && !e.playerBirthDate) {
                 const fallback = uniqueIdByName(primaryName);
                 if (fallback) pid = fallback;
             }
@@ -384,6 +392,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         return byId;
     }, [stats, state.hallOfFame, dbHoF]);
 
+    const rankIndex = (index: number) => scoringRankIndex(filteredStats, index, sortField);
     const filteredStats = stats
         .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
         .filter(p => !onlyPro || p.gamesPlayed >= 5)
@@ -391,6 +400,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         .sort((a, b) => {
     const primary = (b as any)[sortField] - (a as any)[sortField];
     if (primary !== 0) return primary;
+    if ((sortField === 'points' || sortField === 'soffi') && a.gamesPlayed !== b.gamesPlayed) return a.gamesPlayed - b.gamesPlayed;
     // Fixed tie-break importance: baskets > blows > games > averages
     const order: Array<keyof any> = ['points', 'soffi', 'gamesPlayed', 'winRate', 'avgPoints', 'avgSoffi'];
     for (const k of order) {
@@ -639,11 +649,11 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                     <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-xs font-black text-white">
-                                        {idx < 3 ? (
-                                            idx === 0 ? <Trophy className="h-4 w-4 text-yellow-400" /> :
-                                            idx === 1 ? <Medal className="h-4 w-4 text-slate-300" /> :
+                                        {rankIndex(idx) < 3 ? (
+                                            rankIndex(idx) === 0 ? <Trophy className="h-4 w-4 text-yellow-400" /> :
+                                            rankIndex(idx) === 1 ? <Medal className="h-4 w-4 text-slate-300" /> :
                                             <Medal className="h-4 w-4 text-orange-300" />
-                                        ) : idx + 1}
+                                        ) : rankIndex(idx) + 1}
                                     </span>
                                     <div className="min-w-0">
                                         <div className="truncate text-base font-black text-slate-950">{p.name}</div>
@@ -719,11 +729,11 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                     aria-label={`Apri dati giocatore ${p.name}`}
                                 >
                                     <td className={`${thPad} text-center font-black text-slate-400`}>
-                                        {idx < 3 ? (
-                                            idx === 0 ? <Trophy className="w-5 h-5 text-yellow-500 mx-auto" /> :
-                                            idx === 1 ? <Medal className="w-5 h-5 text-slate-400 mx-auto" /> :
+                                        {rankIndex(idx) < 3 ? (
+                                            rankIndex(idx) === 0 ? <Trophy className="w-5 h-5 text-yellow-500 mx-auto" /> :
+                                            rankIndex(idx) === 1 ? <Medal className="w-5 h-5 text-slate-400 mx-auto" /> :
                                             <Medal className="w-5 h-5 text-orange-700 mx-auto" />
-                                        ) : idx + 1}
+                                        ) : rankIndex(idx) + 1}
                                     </td>
                                     <td className={`${thPad}`}>
                                         <div className="font-bold text-slate-900 text-base flex items-center gap-2 flex-wrap">

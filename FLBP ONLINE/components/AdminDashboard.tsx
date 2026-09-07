@@ -32,6 +32,7 @@ import { readAdminLeaseInfo, subscribeAdminLease, type AdminLeaseInfo } from '..
 import { canContinueVerifiedAdminOnLocalNode, rememberVerifiedAdminSession } from '../services/localAdminContinuity';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
+import { renameTournamentInState } from '../services/tournamentRename';
 import {
     advanceWinner as advanceBracketWinner,
     autoResolveBracketByeMatch,
@@ -93,10 +94,25 @@ const clearAdminSessionNavKeys = () => {
     try {
         keys.forEach((k) => {
             try { sessionStorage.removeItem(k); } catch { /* ignore */ }
+            try {
+                if ((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID) localStorage.removeItem(k);
+            } catch { /* ignore */ }
         });
     } catch {
         // ignore
     }
+};
+
+const NATIVE_ADMIN_NAV_KEYS = new Set([
+    'flbp_admin_section',
+    'flbp_admin_last_live_tab',
+    'flbp_admin_data_main_section',
+    'flbp_admin_data_subtab',
+    'flbp_admin_integrations_subtab',
+]);
+
+const isNativeWindowsShell = () => {
+    try { return Boolean((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID); } catch { return false; }
 };
 
 const ADMIN_LEGACY_AUTH_LS_KEY = 'flbp_admin_legacy_authed';
@@ -370,13 +386,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournamentMatches]);
 
     const safeSessionGet = (key: string): string | null => {
-        try { return window.sessionStorage.getItem(key); } catch { return null; }
+        try {
+            const sessionValue = window.sessionStorage.getItem(key);
+            if (sessionValue !== null) return sessionValue;
+        } catch { /* ignore */ }
+        if (isNativeWindowsShell() && NATIVE_ADMIN_NAV_KEYS.has(key)) {
+            try { return window.localStorage.getItem(key); } catch { /* ignore */ }
+        }
+        return null;
     };
     const safeSessionSet = (key: string, value: string) => {
         try { window.sessionStorage.setItem(key, value); } catch {}
+        if (isNativeWindowsShell() && NATIVE_ADMIN_NAV_KEYS.has(key)) {
+            try { window.localStorage.setItem(key, value); } catch {}
+        }
     };
     const safeSessionRemove = (key: string) => {
         try { window.sessionStorage.removeItem(key); } catch {}
+        if (isNativeWindowsShell() && NATIVE_ADMIN_NAV_KEYS.has(key)) {
+            try { window.localStorage.removeItem(key); } catch {}
+        }
     };
 
     const initialSupabaseSession = useMemo(() => getSupabaseSession(), []);
@@ -882,8 +911,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     });
 
     // Dentro "Integrazioni": Albo d'Oro (manuale) + Marcatori (import) + Alias (manutenzione)
-    const [integrationsSubTab, setIntegrationsSubTab] = useState<'hof'|'scorers'|'aliases'|'players'|'fanta'>(() => {
+    const [integrationsSubTab, setIntegrationsSubTab] = useState<'tournaments'|'hof'|'scorers'|'aliases'|'players'|'fanta'>(() => {
         const raw = safeSessionGet('flbp_admin_integrations_subtab');
+        if (raw === 'tournaments') return 'tournaments';
         if (raw === 'scorers') return 'scorers';
         if (raw === 'aliases') return 'aliases';
         if (raw === 'players') return 'players';
@@ -3071,6 +3101,22 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         commitLiveMatches(matches, tournament);
     };
 
+    const renameTournamentEdition = async (tournamentId: string, nextName: string): Promise<void> => {
+        const result = renameTournamentInState(state, tournamentId, nextName);
+        await commitAdminStateDurably(result.state, 'rename-tournament', { skipStructuredSync: true });
+        setState(result.state);
+        try {
+            await flushAutoStructuredSync(result.state, { force: true });
+            if (result.historyUpdated) {
+                await archiveFantaTournamentEdition(result.tournamentId);
+            }
+        } catch (error) {
+            // The local durable rename is already confirmed. Normal autosync will retry
+            // remote mirrors; keep the editor usable even if the network is unavailable.
+            console.warn('FLBP tournament rename remote mirror refresh failed', error);
+        }
+    };
+
     const getTeamFromCatalog = (id?: string) => {
         if (!id) return undefined;
         const live = (state.tournament?.teams || []) as Team[];
@@ -4059,6 +4105,7 @@ while (guard < 5000) {
         setDataSubTab,
         integrationsSubTab,
         setIntegrationsSubTab,
+        renameTournamentEdition,
         aliasesSearch,
         setAliasesSearch,
         aliasToolSelections,

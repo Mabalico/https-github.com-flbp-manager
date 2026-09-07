@@ -53,6 +53,8 @@ export const loadConfig = (overrides = {}) => {
     ).trim(),
     fullBackupIntervalMs: intFromEnv('FLBP_FULL_BACKUP_INTERVAL_MS', 1_800_000, 60_000, 86_400_000),
     publicLiveIntervalMs: intFromEnv('FLBP_PUBLIC_LIVE_INTERVAL_MS', 15_000, 5_000, 300_000),
+    supabaseRequestTimeoutMs: intFromEnv('FLBP_SUPABASE_REQUEST_TIMEOUT_MS', 15_000, 5_000, 120_000),
+    supabaseTransitionTimeoutMs: intFromEnv('FLBP_SUPABASE_TRANSITION_TIMEOUT_MS', 60_000, 10_000, 300_000),
     outboxFlushIntervalMs: intFromEnv('FLBP_OUTBOX_FLUSH_INTERVAL_MS', 15_000, 1_000, 300_000),
     outboxBatchMaxOperations: intFromEnv('FLBP_OUTBOX_BATCH_MAX_OPERATIONS', 25, 1, 100),
     outboxBatchMaxBytes: intFromEnv('FLBP_OUTBOX_BATCH_MAX_BYTES', 524_288, 16_384, 5_242_880),
@@ -67,6 +69,7 @@ export const loadConfig = (overrides = {}) => {
 
 export const validateOperationalConfig = (config) => {
   const errors = [];
+  const webDistSegments = path.resolve(config.webDist).split(path.sep).map((part) => part.toLowerCase());
   if (!config.adminToken || config.adminToken.length < 32) {
     errors.push('FLBP_LOCAL_ADMIN_TOKEN deve contenere almeno 32 caratteri.');
   }
@@ -81,6 +84,9 @@ export const validateOperationalConfig = (config) => {
   }
   if (config.requireSecondaryBackup && config.secondaryBackupDir && path.parse(path.resolve(config.secondaryBackupDir)).root.toLowerCase() === path.parse(path.resolve(config.dataDir)).root.toLowerCase()) {
     errors.push('FLBP_SECONDARY_BACKUP_DIR deve appartenere a un volume fisico diverso da FLBP_DATA_DIR.');
+  }
+  if (webDistSegments.includes('flbp locale')) {
+    errors.push('FLBP_WEB_DIST punta alla copia legacy "FLBP LOCALE": usare esclusivamente la build canonica in "FLBP ONLINE/dist".');
   }
   try {
     if (config.publicUrl && new URL(config.publicUrl).protocol !== 'https:') {

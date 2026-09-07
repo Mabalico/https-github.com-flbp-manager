@@ -122,7 +122,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                             return ids.length >= 2 && !ids.some(isPlaceholderTeamId);
                         });
 
-                    const current = msPlayable.find(m => m.status === 'playing') || msPlayable.find(m => m.status === 'scheduled') || msPlayable[0];
+                    const current = msPlayable.find(m => m.status === 'playing') || msPlayable.find(m => m.status === 'scheduled');
+                    const tournamentComplete = msPlayable.length > 0 && msPlayable.every(m => m.status === 'finished');
                     const playing = msPlayable.find(m => m.status === 'playing');
                     const selected = reportMatchId ? msPlayable.find(m => m.id === reportMatchId) : undefined;
 
@@ -172,11 +173,12 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                 <div className="col-span-2 min-w-0 font-black text-xs leading-tight text-slate-800 whitespace-normal break-words sm:col-span-6">{playerName}</div>
                                 <div className="col-span-1 sm:col-span-3">
                                     <input
-                                        type="number"
-                                        min={0}
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         value={f.canestri}
                                         onChange={(e) => {
-                                            const v = e.target.value;
+                                            const v = e.target.value.replace(/[^0-9]/g, '');
                                             setReportStatsForm(prev => ({
                                                 ...prev,
                                                 [k]: { ...(prev[k] || { canestri: '0', soffi: '0' }), canestri: v }
@@ -191,11 +193,12 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                 </div>
                                 <div className="col-span-1 sm:col-span-3">
                                     <input
-                                        type="number"
-                                        min={0}
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         value={f.soffi}
                                         onChange={(e) => {
-                                            const v = e.target.value;
+                                            const v = e.target.value.replace(/[^0-9]/g, '');
                                             setReportStatsForm(prev => ({
                                                 ...prev,
                                                 [k]: { ...(prev[k] || { canestri: '0', soffi: '0' }), soffi: v }
@@ -278,9 +281,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                             onClick={() => current && handlePickReportMatch(current.id)}
                                             disabled={!current}
                                             className={`min-h-[44px] flex-1 px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${current ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                                            title={t('reports_pick_next_match')}
+                                            title={tournamentComplete ? t('backup_status_complete') : t('reports_pick_next_match')}
                                         >
-                                            {t('next_round')}
+                                            {tournamentComplete ? t('backup_status_complete') : t('next_round')}
                                         </button>
                                         <button
                                             type="button"
