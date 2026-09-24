@@ -3912,6 +3912,7 @@ export const pushRefereeMatchResults = async (opts: {
         throwMatchResultRpcError(await readErrorBody(res), rpcName);
     }
     const out = await res.json() as MatchResultPushResult;
+    if (out?.ok !== true) throwMatchResultRpcError(JSON.stringify(out), rpcName);
     setRemoteBaseUpdatedAt(out.updated_at || null);
     return out;
 };
@@ -4015,6 +4016,12 @@ export const pushRefereeLiveState = async (
         throw new Error(body);
     }
     const out = await res.json() as RefereePushStateResult;
+    if (out?.ok !== true) {
+        const body = JSON.stringify(out);
+        const conflict = normalizeRpcConflictError(body);
+        if (conflict) throw conflict;
+        throw new Error(body || 'Referto non accettato dal database.');
+    }
     setRemoteBaseUpdatedAt(out.updated_at || null);
     return out;
 };

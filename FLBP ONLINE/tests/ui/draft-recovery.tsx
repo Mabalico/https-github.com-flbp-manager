@@ -29,7 +29,7 @@ globalThis.fetch = async (input) => {
   if (url.includes('/auth/v1/user')) return Response.json({ id: 'fixture-admin', email: 'demo@example.test' });
   throw new Error(`Fixture blocked network request: ${url}`);
 };
-setSupabaseSession({ accessToken: 'fixture-token', refreshToken: 'fixture-refresh', userId: 'fixture-admin', email: 'demo@example.test', expiresAt: Date.now() + 3_600_000 });
+setSupabaseSession({ accessToken: 'fixture-token', refreshToken: 'fixture-refresh', userId: 'fixture-admin', email: 'demo@example.test', expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
 markDbSyncConflict('Bozza precedente: confronto richiesto');
 const Fixture = () => {
   const [state, setState] = React.useState(localDraft);

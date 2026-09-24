@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "release_bundle",
+    "android",
+    "ios",
+    "supabase",
+    ".tmp-*",
+    "tests",
+    "scripts",
+    "vite*.ts",
+    "_ssr*.tsx",
+    "testlocal.tsx"
+  ]
+}

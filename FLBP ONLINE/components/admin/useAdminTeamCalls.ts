@@ -155,16 +155,16 @@ export const useAdminTeamCalls = (state: AppState) => {
 
       teams.forEach((team) => {
         const ids: string[] = [];
-        const appendCanonical = (playerName?: string, birthDate?: string | null, yob?: string | number | null) => {
+        const appendCanonical = (playerName?: string, birthDate?: string | null) => {
           const safeName = String(playerName || '').trim();
           if (!safeName) return;
-          const canonical = resolvePlayerKey(state, getPlayerKey(safeName, pickPlayerIdentityValue(birthDate, yob)));
+          const canonical = resolvePlayerKey(state, getPlayerKey(safeName, pickPlayerIdentityValue(birthDate)));
           if (!canonical) return;
           ids.push(canonical);
           allCanonicalIds.add(canonical);
         };
-        appendCanonical(team.player1, (team as any).player1BirthDate, team.player1YoB);
-        appendCanonical(team.player2, (team as any).player2BirthDate, team.player2YoB);
+        appendCanonical(team.player1, (team as any).player1BirthDate);
+        appendCanonical(team.player2, (team as any).player2BirthDate);
         teamCanonicalIds.set(team.id, ids);
       });
 

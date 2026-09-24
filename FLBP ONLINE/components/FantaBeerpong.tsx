@@ -209,7 +209,7 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
     </div>
   ) : null;
 
-  const renderShellHero = () => (
+  const renderShellHero = (onHeroBack = onBack) => (
     <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-slate-900 p-4 text-white shadow-xl md:rounded-[30px] md:p-7">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-beer-500/20 to-transparent" />
@@ -247,7 +247,7 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
               </p>
             )}
           </div>
-          <button type="button" onClick={onBack} className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-white transition hover:bg-white/20 md:min-h-[44px] md:px-4 md:text-sm">
+          <button type="button" onClick={onHeroBack} className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-white transition hover:bg-white/20 md:min-h-[44px] md:px-4 md:text-sm">
             <ArrowLeft className="h-4 w-4" />
             {t('back')}
           </button>
@@ -257,12 +257,17 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
   );
 
   if (!shellConfigLoaded || shellResultsOnly || shellFantaDisabled || shellTournamentArchived) {
+    const archivedRulesOpen = shellConfigLoaded && !shellResultsOnly && !shellFantaDisabled
+      && shellTournamentArchived && activeSection === 'rules';
+    const returnToArchivedHistory = () => setActiveSection('history');
     return (
       <div className="space-y-6 animate-fade-in">
         {rosterNoticesModal}
-        {renderShellHero()}
+        {renderShellHero(archivedRulesOpen ? returnToArchivedHistory : onBack)}
 
-        {shellTournamentArchived && selectedHistoryEditionId ? (
+        {archivedRulesOpen ? (
+          <FantaRulesSection onOpenHistory={returnToArchivedHistory} />
+        ) : shellTournamentArchived && selectedHistoryEditionId ? (
           <FantaHistoryEditionDetail editionId={selectedHistoryEditionId} onBack={() => setSelectedHistoryEditionId(null)} />
         ) : (
         <div className={`rounded-[30px] border p-5 shadow-sm md:p-7 ${shellResultsOnly ? 'border-amber-200 bg-amber-50 text-amber-950' : shellFantaDisabled || shellTournamentArchived ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-200 bg-white text-slate-700'}`}>

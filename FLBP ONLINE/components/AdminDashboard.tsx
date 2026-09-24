@@ -3385,7 +3385,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 // Keep legacy fields populated for any UI still expecting 1v1.
                 scoreA: ordered[0] ?? 0,
                 scoreB: ordered[1] ?? 0,
-                stats: resultsOnlySimulation ? undefined : res.stats,
+                stats: 'stats' in res ? res.stats : undefined,
                 played: true,
                 status: 'finished'
             };
@@ -3407,7 +3407,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             ...m,
             scoreA: res.scoreA,
             scoreB: res.scoreB,
-            stats: resultsOnlySimulation ? undefined : res.stats,
+            stats: 'stats' in res ? res.stats : undefined,
             played: true,
             status: 'finished'
         };

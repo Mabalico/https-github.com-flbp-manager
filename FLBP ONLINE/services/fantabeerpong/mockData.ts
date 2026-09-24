@@ -83,10 +83,10 @@ export const FANTA_GENERAL_STANDINGS_MOCK: FantaGeneralStandingsData = {
   editionLabel: 'Classifica generale · Spring Cup 2026',
   myTeamId: 'fantateam_3',
   rows: [
-    { id: 'fantateam_1', rank: 1, teamName: 'Beer Hunters', ownerLabel: 'Team di Andrea', totalPoints: 93, livePoints: 24, captainName: 'Matteo Gialli', defendersCount: 2, trend: 'up', statusLabel: 'Live', gapFromLeader: 0, goals: 32, blows: 14, wins: 42, bonusScia: 5, playersInGame: 4 },
-    { id: 'fantateam_2', rank: 2, teamName: 'Ultimo Soffio', ownerLabel: 'Team di Sara', totalPoints: 90, livePoints: 18, captainName: 'Gio Neri', defendersCount: 1, trend: 'steady', statusLabel: 'Stabile', gapFromLeader: 3, goals: 30, blows: 16, wins: 35, bonusScia: 9, playersInGame: 3 },
-    { id: 'fantateam_3', rank: 3, teamName: 'I Soffi del Destino', ownerLabel: 'La tua squadra', totalPoints: 86, livePoints: 21, captainName: 'Luca Bianchi', defendersCount: 2, trend: 'up', statusLabel: 'Live', gapFromLeader: 7, isMine: true, goals: 28, blows: 12, wins: 35, bonusScia: 11, playersInGame: 2 },
-    { id: 'fantateam_4', rank: 4, teamName: 'Plastic Dynasty', ownerLabel: 'Team di Vale', totalPoints: 81, livePoints: 12, captainName: 'Marco Rossi', defendersCount: 2, trend: 'down', statusLabel: 'Recupero', gapFromLeader: 12, goals: 25, blows: 10, wins: 28, bonusScia: 18, playersInGame: 1 },
+    { id: 'fantateam_1', rank: 1, teamName: 'Beer Hunters', ownerLabel: 'Team di Andrea', totalPoints: 93, livePoints: 24, captainName: 'Matteo Gialli', defendersCount: 2, trend: 'up', statusLabel: 'Live', gapFromLeader: 0, goals: 32, blows: 14, wins: 42, awardBonus: 0, bonusScia: 5, playersInGame: 4 },
+    { id: 'fantateam_2', rank: 2, teamName: 'Ultimo Soffio', ownerLabel: 'Team di Sara', totalPoints: 90, livePoints: 18, captainName: 'Gio Neri', defendersCount: 1, trend: 'steady', statusLabel: 'Stabile', gapFromLeader: 3, goals: 30, blows: 16, wins: 35, awardBonus: 0, bonusScia: 9, playersInGame: 3 },
+    { id: 'fantateam_3', rank: 3, teamName: 'I Soffi del Destino', ownerLabel: 'La tua squadra', totalPoints: 86, livePoints: 21, captainName: 'Luca Bianchi', defendersCount: 2, trend: 'up', statusLabel: 'Live', gapFromLeader: 7, isMine: true, goals: 28, blows: 12, wins: 35, awardBonus: 0, bonusScia: 11, playersInGame: 2 },
+    { id: 'fantateam_4', rank: 4, teamName: 'Plastic Dynasty', ownerLabel: 'Team di Vale', totalPoints: 81, livePoints: 12, captainName: 'Marco Rossi', defendersCount: 2, trend: 'down', statusLabel: 'Recupero', gapFromLeader: 12, goals: 25, blows: 10, wins: 28, awardBonus: 0, bonusScia: 18, playersInGame: 1 },
   ],
 };
 
@@ -94,11 +94,11 @@ export const FANTA_PLAYERS_STANDINGS_MOCK: FantaPlayersStandingsData = {
   editionLabel: 'Classifica giocatori · Spring Cup 2026',
   featuredPlayerId: 'fp_1',
   rows: [
-    { id: 'fp_1', rank: 1, playerName: 'Luca Bianchi', realTeamName: 'Red Cups', fantasyPoints: 18, livePoints: 11, roleLabel: 'Capitano', selectedByTeams: 7, status: 'live', isInMyTeam: true, note: 'Player più caldo della giornata Fanta.', goals: 6, blows: 2, wins: 1, bonusScia: 0 },
-    { id: 'fp_2', rank: 2, playerName: 'Marco Rossi', realTeamName: 'Foam Brothers', fantasyPoints: 16, livePoints: 8, roleLabel: 'Difensore', selectedByTeams: 5, status: 'live', isInMyTeam: true, note: 'Ottimo impatto difensivo.', goals: 5, blows: 2, wins: 1, bonusScia: 0 },
-    { id: 'fp_3', rank: 3, playerName: 'Matteo Gialli', realTeamName: 'Plastic Storm', fantasyPoints: 14, livePoints: 9, roleLabel: 'Capitano', selectedByTeams: 6, status: 'live', note: 'Molto scelto nelle squadre di testa.', goals: 4, blows: 1, wins: 1, bonusScia: 0 },
-    { id: 'fp_4', rank: 4, playerName: 'Gio Neri', realTeamName: 'Foam Brothers', fantasyPoints: 12, livePoints: 4, roleLabel: 'Difensore', selectedByTeams: 4, status: 'waiting', isInMyTeam: true, note: 'In attesa del prossimo slot match.', goals: 3, blows: 1, wins: 0, bonusScia: 3 },
-    { id: 'fp_5', rank: 5, playerName: 'Vale Blu', realTeamName: 'Plastic Storm', fantasyPoints: 11, livePoints: 5, roleLabel: 'Titolare', selectedByTeams: 3, status: 'waiting', isInMyTeam: true, note: 'Profilo stabile utile per coprire la giornata.', goals: 2, blows: 1, wins: 0, bonusScia: 5 },
+    { id: 'fp_1', rank: 1, playerName: 'Luca Bianchi', realTeamName: 'Red Cups', fantasyPoints: 18, livePoints: 11, roleLabel: 'Capitano', selectedByTeams: 7, status: 'live', isInMyTeam: true, note: 'Player più caldo della giornata Fanta.', goals: 6, blows: 2, wins: 1, awardBonus: 0, bonusScia: 0 },
+    { id: 'fp_2', rank: 2, playerName: 'Marco Rossi', realTeamName: 'Foam Brothers', fantasyPoints: 16, livePoints: 8, roleLabel: 'Difensore', selectedByTeams: 5, status: 'live', isInMyTeam: true, note: 'Ottimo impatto difensivo.', goals: 5, blows: 2, wins: 1, awardBonus: 0, bonusScia: 0 },
+    { id: 'fp_3', rank: 3, playerName: 'Matteo Gialli', realTeamName: 'Plastic Storm', fantasyPoints: 14, livePoints: 9, roleLabel: 'Capitano', selectedByTeams: 6, status: 'live', note: 'Molto scelto nelle squadre di testa.', goals: 4, blows: 1, wins: 1, awardBonus: 0, bonusScia: 0 },
+    { id: 'fp_4', rank: 4, playerName: 'Gio Neri', realTeamName: 'Foam Brothers', fantasyPoints: 12, livePoints: 4, roleLabel: 'Difensore', selectedByTeams: 4, status: 'waiting', isInMyTeam: true, note: 'In attesa del prossimo slot match.', goals: 3, blows: 1, wins: 0, awardBonus: 0, bonusScia: 3 },
+    { id: 'fp_5', rank: 5, playerName: 'Vale Blu', realTeamName: 'Plastic Storm', fantasyPoints: 11, livePoints: 5, roleLabel: 'Titolare', selectedByTeams: 3, status: 'waiting', isInMyTeam: true, note: 'Profilo stabile utile per coprire la giornata.', goals: 2, blows: 1, wins: 0, awardBonus: 0, bonusScia: 5 },
   ],
 };
 

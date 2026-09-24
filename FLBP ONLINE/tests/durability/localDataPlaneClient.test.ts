@@ -13,7 +13,7 @@ import {
   rememberVerifiedAdminSession,
 } from '../../services/localAdminContinuity';
 import { RemoteRepository } from '../../services/repository/RemoteRepository';
-import { pushWorkspaceState, setSupabaseSession } from '../../services/supabaseRest';
+import { getSupabaseConfig, pushWorkspaceState, setSupabaseSession } from '../../services/supabaseRest';
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
 import { acknowledgeRemoteDraftCache, discardRemoteDraftOperation, ensureRemoteDraftCacheDurable, readRemoteDraftCache, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_LS_KEY, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
@@ -227,6 +227,11 @@ const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
 
+const config = getSupabaseConfig();
+assert(config?.url === 'https://durability-test.invalid'
+  && config.anonKey === 'synthetic-durability-anon-key'
+  && config.workspaceId === 'default', 'the local durability fixture must be configured independently of private environment values');
+
 for (const invalidVersion of [null, undefined, '', '   ', false, true, -1, 1.5, Number.NaN]) {
   assert(
     normalizeWorkspaceVersion(invalidVersion) === null,
@@ -351,7 +356,7 @@ assert(calls.some((entry) => entry.url.endsWith('/commit')), 'local Admin commit
 setSupabaseSession({
   accessToken: 'verified-admin-token',
   refreshToken: 'verified-admin-refresh',
-  expiresAt: Date.now() + 60_000,
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
   userId: 'verified-admin-user',
   email: 'admin@example.test',
 });
@@ -823,7 +828,8 @@ for (const responseKind of ['equivalent', 'mergeable'] as const) {
   }
   mock.publish(coerceAppState({ ...base, playerAliases: { 'remote-alias': 'remote-player' } }));
   const confirmed = await reviewedRepository.reconcileDraft(selected, review);
-  assert(confirmed && hasTitle(confirmed, 'reviewed-title'), 'the reviewed title must be committed');
+  if (!confirmed) throw new Error('the reviewed title must return its confirmed state');
+  assert(hasTitle(confirmed, 'reviewed-title'), 'the reviewed title must be committed');
   assert(confirmed?.logo === 'current-db-logo', 'the unchecked stale logo must not overwrite the database');
   assert(confirmed?.playerAliases['remote-alias'] === 'remote-player', 'independent updates after the preview must survive CAS reconciliation');
   assert(mock.commits.length === 2 && mock.commits[0].baseVersion === 40 && mock.commits[1].baseVersion === 41,

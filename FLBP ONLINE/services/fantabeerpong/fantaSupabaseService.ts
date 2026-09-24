@@ -183,6 +183,7 @@ interface SupabaseFantaArchivedStandingRow {
   rank?: number | null;
   team_name?: string | null;
   total_points?: number | null;
+  live_points?: number | null;
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;
@@ -199,6 +200,7 @@ interface SupabaseFantaArchivedPlayerRow {
   player_name?: string | null;
   real_team_name?: string | null;
   total_points?: number | null;
+  live_points?: number | null;
   points_from_goals?: number | null;
   points_from_blows?: number | null;
   points_from_wins?: number | null;

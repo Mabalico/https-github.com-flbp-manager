@@ -4,7 +4,7 @@ import { useTranslation } from '../../App';
 import { FANTA_RULES_MOCK } from '../../services/fantabeerpong/mockData';
 import { panelClass } from './_shared';
 
-interface Props { onOpenMyTeam: () => void; onOpenStandings: () => void; onOpenHistory: () => void; }
+interface Props { onOpenMyTeam?: () => void; onOpenStandings?: () => void; onOpenHistory: () => void; }
 
 export const FantaRulesSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandings, onOpenHistory }) => {
   const { t } = useTranslation();
@@ -19,7 +19,7 @@ export const FantaRulesSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandin
             <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{data.title}</div>
             <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">{data.intro}</div>
           </div>
-          <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600"><Shield className="h-4 w-4" />{t('fanta_rules_check_my_team')}</button>
+          {onOpenMyTeam && <button type="button" onClick={onOpenMyTeam} className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-beer-500 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-sm transition hover:bg-beer-600"><Shield className="h-4 w-4" />{t('fanta_rules_check_my_team')}</button>}
         </div>
       </div>
 
@@ -116,8 +116,8 @@ export const FantaRulesSection: React.FC<Props> = ({ onOpenMyTeam, onOpenStandin
           <div className={panelClass}>
             <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_rules_destinations_title')}</div>
             <div className="mt-4 space-y-3">
-              <button type="button" onClick={onOpenMyTeam} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left"><div><div className="text-sm font-black text-slate-950">{t('fanta_rules_dest_my_team')}</div><div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_rules_dest_my_team_desc')}</div></div><ArrowRight className="h-4 w-4 shrink-0 text-slate-400" /></button>
-              <button type="button" onClick={onOpenStandings} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left"><div><div className="text-sm font-black text-slate-950">{t('fanta_rules_dest_standings')}</div><div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_rules_dest_standings_desc')}</div></div><ArrowRight className="h-4 w-4 shrink-0 text-slate-400" /></button>
+              {onOpenMyTeam && <button type="button" onClick={onOpenMyTeam} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left"><div><div className="text-sm font-black text-slate-950">{t('fanta_rules_dest_my_team')}</div><div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_rules_dest_my_team_desc')}</div></div><ArrowRight className="h-4 w-4 shrink-0 text-slate-400" /></button>}
+              {onOpenStandings && <button type="button" onClick={onOpenStandings} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left"><div><div className="text-sm font-black text-slate-950">{t('fanta_rules_dest_standings')}</div><div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_rules_dest_standings_desc')}</div></div><ArrowRight className="h-4 w-4 shrink-0 text-slate-400" /></button>}
               <button type="button" onClick={onOpenHistory} className="group flex w-full items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-left"><div><div className="text-sm font-black text-slate-950">{t('fanta_rules_dest_history')}</div><div className="mt-1 text-sm font-semibold text-slate-600">{t('fanta_rules_dest_history_desc')}</div></div><ArrowRight className="h-4 w-4 shrink-0 text-slate-400" /></button>
             </div>
           </div>

@@ -10,6 +10,8 @@ Avvio manuale con `mode=dry-run` e `confirm=RUN`: controlla la configurazione, c
 
 Un push su `main` che interessa le migration/configurazione o il workflow mantiene il deploy automatico esistente. L'avvio manuale richiede `mode=apply` e `confirm=RUN`. Entrambi eseguono anteprima, `supabase db push --yes` e controllo finale di convergenza.
 
+Dopo la convergenza viene eseguito `supabase/tests/deployed_stabilization_readonly.sql`: una transazione in sola lettura verifica i permessi Admin/restore e il rifiuto di metadati utente contraffatti. Non esporta né ripristina dati applicativi. Oltre a `SUPABASE_ACCESS_TOKEN` e `SUPABASE_DB_PASSWORD`, questo controllo usa il secret GitHub `SUPABASE_DB_URL` del medesimo progetto. Il probe viene verificato prima dalla CI su PostgreSQL sacrificabile.
+
 Non vengono eseguiti repair, retry che cambiano la storia o `--include-all` impliciti. Se il deploy fallisce, verificare l'errore e lo schema reale prima di correggere la storia o ripetere l'applicazione.
 
 ## Riparazione della sola storia

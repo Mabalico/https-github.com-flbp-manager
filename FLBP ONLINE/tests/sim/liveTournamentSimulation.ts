@@ -510,7 +510,7 @@ const main = async () => {
     const fantaTeamRows = await anonRestGet(
       `fanta_teams?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=tournament_id&limit=5000`
     );
-    const fantaTournamentIds = [...new Set((fantaTeamRows || []).map((r: any) => String(r.tournament_id || '')).filter(Boolean))];
+    const fantaTournamentIds = [...new Set<string>((fantaTeamRows || []).map((r: any) => String(r.tournament_id || '')).filter(Boolean))];
     const simEditionIds = new Set(simEditions.map((t) => t.id));
     const orphanFantaIds = fantaTournamentIds.filter((id) => !keepIds.has(id) && !simEditionIds.has(id));
 

@@ -31,6 +31,26 @@ begin
     if has_function_privilege('anon', v_signature, 'EXECUTE')
     then raise exception 'Admin RPC accessible to anonymous users: %', v_signature; end if;
   end loop;
+  if to_regprocedure('public.flbp_referee_apply_match_updates(text,text,jsonb)') is not null then
+    for v_signature in
+      select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname in (
+        'flbp_referee_check_credentials', 'flbp_referee_collect_matches',
+        'flbp_referee_merge_match_array', 'flbp_referee_merge_match_state', 'flbp_referee_apply_match_updates',
+        'flbp_referee_public_projection'
+      )
+    loop
+      if has_function_privilege('anon', v_signature, 'EXECUTE')
+        or has_function_privilege('authenticated', v_signature, 'EXECUTE')
+      then raise exception 'Internal referee helper accessible to client roles: %', v_signature; end if;
+    end loop;
+    if exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname in (
+        'flbp_admin_push_workspace_state', 'flbp_admin_push_match_result', 'flbp_apply_match_result_patch'
+      ) and strpos(pg_get_functiondef(p.oid), 'A09_ADVISORY_BEFORE_WORKSPACE_ROW') = 0
+    ) then raise exception 'An Admin write path lacks the common lock order'; end if;
+  end if;
 end;
 $$;
 set local role anon;

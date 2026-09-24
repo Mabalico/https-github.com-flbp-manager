@@ -141,6 +141,9 @@ export type StructuralOperation =
     }
   | {
       type: 'ADD_PRELIMINARY_BRACKET_ROUND';
+    }
+  | {
+      type: 'REBUILD_ELIMINATION_BRACKET';
     };
 
 export interface StructuralOperationLogEntry {
@@ -183,6 +186,7 @@ export interface BracketSlotDiff {
 
 export interface TournamentStructureDiffResult {
   changed: boolean;
+  structureChanged: boolean;
   operationsCount: number;
   groupChanges: TeamPlacementDiff[];
   bracketChanges: BracketSlotDiff[];

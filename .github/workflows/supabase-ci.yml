@@ -7,6 +7,9 @@ on:
       - 'FLBP ONLINE/scripts/test-admin-auth.mjs'
       - 'FLBP ONLINE/scripts/test-database-restore.mjs'
       - 'FLBP ONLINE/scripts/test-database-restore-schema.mjs'
+      - 'FLBP ONLINE/scripts/test-referee-security.mjs'
+      - 'FLBP ONLINE/scripts/test-referee-http.mjs'
+      - 'FLBP ONLINE/scripts/test-referee-concurrency.mjs'
       - '.github/workflows/supabase-ci.yml'
   workflow_dispatch:
 
@@ -80,6 +83,37 @@ jobs:
 
       - name: Verify transactional restore against the complete migrated schema
         run: node scripts/test-database-restore-schema.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Verify referee authorization and scoped writes
+        run: node scripts/test-referee-security.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Verify concurrent Admin and referee writes
+        run: node scripts/test-referee-concurrency.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Verify HTTP rejections preserve audit and older client queues
+        env:
+          PGRST_DB_URI: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          PGRST_DB_SCHEMAS: public
+          PGRST_DB_ANON_ROLE: anon
+          PGRST_SERVER_HOST: 127.0.0.1
+          PGRST_SERVER_PORT: '3000'
+        run: |
+          set -euo pipefail
+          tools_dir="$RUNNER_TEMP/flbp-postgrest"
+          mkdir -p "$tools_dir"
+          curl --fail --location --connect-timeout 15 --max-time 120 --retry 2 -o "$tools_dir/postgrest.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v16.4/postgrest-v16.4-linux-static-x86-64.tar.xz
+          printf '%s  %s\n' b47ecc82fce1dcebbbc4183d839e52f07f7630c9d7ad0f54db753d1939299354 "$tools_dir/postgrest.tar.xz" | sha256sum --check
+          tar -xJf "$tools_dir/postgrest.tar.xz" -C "$tools_dir"
+          "$tools_dir/postgrest" > "$tools_dir/server.log" 2>&1 &
+          postgrest_pid=$!
+          trap 'kill "$postgrest_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            kill -0 "$postgrest_pid" 2>/dev/null || { cat "$tools_dir/server.log"; exit 1; }
+            if curl --silent --fail --connect-timeout 1 --max-time 2 http://127.0.0.1:3000/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --silent --fail --connect-timeout 1 --max-time 2 http://127.0.0.1:3000/ >/dev/null || { cat "$tools_dir/server.log"; exit 1; }
+          node scripts/test-referee-http.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres --postgrest-url http://127.0.0.1:3000 || { cat "$tools_dir/server.log"; exit 1; }
 
       - name: Stop local Supabase
         if: always()

@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5.9.6';
 
 type DeviceRow = {
@@ -61,7 +61,7 @@ const json = (status: number, body: unknown) =>
   });
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
-const normalizePrivateKey = (value: string | null) => normalizeText(value).replace(/\\n/g, '\n');
+const normalizePrivateKey = (value: string | null | undefined) => normalizeText(value).replace(/\\n/g, '\n');
 
 const getEnv = (): RuntimeEnv => ({
   supabaseUrl: normalizeText(Deno.env.get('SUPABASE_URL')),
@@ -122,7 +122,7 @@ const ensureAdminUser = async (req: Request, env: RuntimeEnv, adminClient = crea
 };
 
 const fetchTargetDevices = async (
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: SupabaseClient,
   workspaceId: string,
   targetUserId: string,
 ) => {
