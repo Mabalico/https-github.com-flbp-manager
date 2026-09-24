@@ -30,8 +30,9 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
     onBack: () => void;
     onSaved: (id?: string) => void;
     onDirtyChange: (dirty: boolean) => void;
+    onImportingChange?: (importing: boolean) => void;
     onSavingChange: (saving: boolean) => void;
-}> = ({ state, setState, commitAdminStateDurably, t, editionId, onBack, onSaved, onDirtyChange, onSavingChange }) => {
+}> = ({ state, setState, commitAdminStateDurably, t, editionId, onBack, onSaved, onDirtyChange, onSavingChange, onImportingChange }) => {
     const [initial] = React.useState(() => listEditions(state).find(row => row.id === editionId));
     const [id] = React.useState(() => editionId || `manual_${uuid()}`);
     const [name, setName] = React.useState(initial?.name || '');
@@ -147,14 +148,14 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
         } finally { finishSave(); }
     };
     const importFile = async (file: File) => {
-        setLoading(true); setError('');
+        setLoading(true); onImportingChange?.(true); setError('');
         try {
             if (hasResults) throw new Error('edition_import_has_results');
             const rows = await readScorersFile(file);
             if (!rows.length) throw new Error('edition_import_empty');
             setScorers(rows); setImportChanged(true); changed();
         } catch (e) { setError(t((e as Error).message)); }
-        finally { setLoading(false); }
+        finally { setLoading(false); onImportingChange?.(false); }
     };
     const proposeAwards = () => {
         if (scorers.some(row => row.playerConfirmed === false)) { setError(t('edition_choose_player')); return; }

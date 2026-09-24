@@ -3123,33 +3123,23 @@ export const sanitizeAppStateForPublic = (state: AppState): Json => {
     return safe;
 };
 
-const pushPublicWorkspaceStateInternal = async (cfg: SupabaseConfig, state: AppState): Promise<SupabasePublicWorkspaceStateRow> => {
-    await ensureFreshAuthForSupabaseOps();
-    const payload: SupabasePublicWorkspaceStateRow = {
-        workspace_id: cfg.workspaceId,
-        state: sanitizeAppStateForPublic(state),
-        updated_at: new Date().toISOString()
-    };
-
-    const url = restUrl(cfg, 'public_workspace_state');
-    const res = await fetchWithDevRequestPerf(url, {
-        method: 'POST',
-        headers: {
-            ...buildHeaders(cfg),
-            'Prefer': 'resolution=merge-duplicates,return=representation'
-        },
-        body: JSON.stringify(payload)
-    }, { source: 'pushPublicWorkspaceStateInternal', kind: 'sync' });
-    if (!res.ok) throw new Error(await readErrorBody(res));
-    const rows = (await res.json()) as SupabasePublicWorkspaceStateRow[];
-    return rows?.[0] || payload;
-};
-
-export const pushPublicWorkspaceState = async (state: AppState): Promise<SupabasePublicWorkspaceStateRow> => {
+// Legacy callers keep their signature, but may only republish committed state.
+// There is deliberately no direct-table fallback on older database schemas.
+export const pushPublicWorkspaceState = async (_state: AppState): Promise<SupabasePublicWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-    await requireSupabaseWriteSession();
-    return pushPublicWorkspaceStateInternal(cfg, state);
+    const session = await requireSupabaseWriteSession();
+    const res = await fetchWithDevRequestPerf(rpcUrl(cfg, 'flbp_admin_republish_public_workspace'), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({ p_workspace_id: cfg.workspaceId, p_lease_holder: null }),
+    }, { source: 'pushPublicWorkspaceState', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const row = await res.json() as SupabasePublicWorkspaceStateRow;
+    if (!row?.state || typeof row.state !== 'object' || Array.isArray(row.state) || !row?.updated_at || row.workspace_id !== cfg.workspaceId) {
+        throw new Error('Snapshot pubblico autorevole non disponibile. Aggiorna lo schema e riprova dopo il salvataggio.');
+    }
+    return row;
 };
 
 const rpcUrl = (cfg: SupabaseConfig, fnName: string) => restUrl(cfg, `rpc/${fnName}`);

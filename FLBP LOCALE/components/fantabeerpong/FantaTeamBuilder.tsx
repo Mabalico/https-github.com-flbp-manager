@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from '../../App';
 import { ArrowLeft, ArrowRight, CheckCircle2, Search, Shield, Star, Wind, Loader2 } from 'lucide-react';
 import { fetchFantaConfig, fetchFantaTeamById, fetchFantaTournamentTeams, fetchUserFantaTeam, saveFantaTeamWithResult } from '../../services/fantabeerpong/fantaSupabaseService';
-import { emitFantaAppChange, readPlayerPresenceSnapshot, PLAYER_APP_CHANGE_EVENT } from '../../services/playerAppService';
+import { emitFantaAppChange, readPlayerPresenceSnapshot, PLAYER_APP_CHANGE_EVENT, PLAYER_PRESENCE_KEY } from '../../services/playerAppService';
 import type { FantaBuilderPlayerOption, FantaBuilderTeamGroup, FantaPlayer, FantaLineupSlot, FantaConfig } from '../../services/fantabeerpong/types';
 import { FantaQuickHelp } from './FantaQuickHelp';
 import { panelClass } from './_shared';
@@ -29,14 +29,27 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
   const [config, setConfig] = React.useState<FantaConfig | null>(null);
   const [availableTeams, setAvailableTeams] = React.useState<FantaBuilderTeamGroup[]>([]);
   const [session, setSession] = React.useState(readPlayerPresenceSnapshot);
+  const accountId = session?.accountId || '';
+  const sessionMode = session?.mode || '';
+  const sessionIdentity = JSON.stringify([accountId, sessionMode]);
+  const activeIdentity = React.useRef({ identity: sessionIdentity, generation: 0 });
+  if (activeIdentity.current.identity !== sessionIdentity) {
+    activeIdentity.current = { identity: sessionIdentity, generation: activeIdentity.current.generation + 1 };
+  }
+  const sessionGeneration = activeIdentity.current.generation;
+  React.useEffect(() => () => { activeIdentity.current.generation++; }, []);
+  const [loadedIdentity, setLoadedIdentity] = React.useState<string | null>(null);
 
   // Keep session reactive: re-read whenever a player logs in/out.
   React.useEffect(() => {
     const refresh = () => setSession(readPlayerPresenceSnapshot());
-    window.addEventListener('storage', refresh);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === PLAYER_PRESENCE_KEY) refresh();
+    };
+    window.addEventListener('storage', onStorage);
     window.addEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
     return () => {
-      window.removeEventListener('storage', refresh);
+      window.removeEventListener('storage', onStorage);
       window.removeEventListener(PLAYER_APP_CHANGE_EVENT, refresh as EventListener);
     };
   }, []);
@@ -51,6 +64,13 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
     let cancelled = false;
     async function init() {
       setLoading(true);
+      setStep('info');
+      setFeedback(null);
+      setSaving(false);
+      setTeamName(t('fanta_my_team_default_name'));
+      setSelectedIds([]);
+      setCaptainId('');
+      setDefenderIds([]);
       const conf = await fetchFantaConfig();
       if (cancelled) return;
       setConfig(conf);
@@ -58,8 +78,8 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
       if (cancelled) return;
       setAvailableTeams(teams);
 
-      if (session?.accountId) {
-        const existing = await fetchUserFantaTeam(session.accountId);
+      if (accountId) {
+        const existing = await fetchUserFantaTeam(accountId);
         if (cancelled) return;
         if (existing) {
           setTeamName(existing.team.name);
@@ -79,10 +99,12 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
         setDefenderIds([]);
       }
       setLoading(false);
+      setLoadedIdentity(sessionIdentity);
     }
     init();
     return () => { cancelled = true; };
-  }, [session]);
+  // Presence timestamps, profile updates and token refreshes are not a new roster.
+  }, [accountId, sessionMode]);
 
   const flatPlayers = tournamentPlayers;
   const selectedPlayers = React.useMemo(() => flatPlayers.filter((p) => selectedIds.includes(p.id)), [flatPlayers, selectedIds]);
@@ -162,8 +184,10 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
       });
 
       const result = await saveFantaTeamWithResult(session.accountId, teamName, lineup);
+      if (activeIdentity.current.generation !== sessionGeneration) return;
       if (result.ok === true) {
         const savedTeam = result.teamId ? await fetchFantaTeamById(result.teamId) : await fetchUserFantaTeam(session.accountId);
+        if (activeIdentity.current.generation !== sessionGeneration) return;
         if (!savedTeam) {
           setInfo('Squadra inviata, ma non riesco a rileggerla subito. Esci e rientra nell’area giocatore, poi controlla La mia squadra.', 'error');
           emitFantaAppChange();
@@ -171,18 +195,19 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
         }
         emitFantaAppChange();
         setInfo(t('fanta_save_success'));
-        setTimeout(onBack, 1500);
+        setTimeout(() => { if (activeIdentity.current.generation === sessionGeneration) onBack(); }, 1500);
       } else {
         setInfo(result.message || t('fanta_save_error'), 'error');
       }
     } catch (error) {
+      if (activeIdentity.current.generation !== sessionGeneration) return;
       setInfo(error instanceof Error ? error.message : t('fanta_save_error'), 'error');
     } finally {
-      setSaving(false);
+      if (activeIdentity.current.generation === sessionGeneration) setSaving(false);
     }
   };
 
-  if (loading) {
+  if (loading || loadedIdentity !== sessionIdentity) {
     return (
       <div className="flex flex-col items-center justify-center py-40">
         <Loader2 className="h-10 w-10 animate-spin text-beer-500" />

@@ -11,7 +11,7 @@ const PREVIEW_ACCOUNTS_KEY = 'flbp_player_preview_accounts_v1';
 const PREVIEW_SESSION_KEY = 'flbp_player_preview_session_v1';
 const PREVIEW_PROFILES_KEY = 'flbp_player_preview_profiles_v1';
 const PREVIEW_CALLS_KEY = 'flbp_player_preview_calls_v1';
-const PLAYER_PRESENCE_KEY = 'flbp_player_presence_v1';
+export const PLAYER_PRESENCE_KEY = 'flbp_player_presence_v1';
 export const PLAYER_APP_CHANGE_EVENT = 'flbp-player-preview-change';
 export const FANTA_APP_CHANGE_EVENT = 'flbp-fanta-change';
 

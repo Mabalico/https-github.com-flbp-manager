@@ -19,6 +19,9 @@ Questi controlli non sostituiscono E2E multiclient, prove browser visive o dispo
 
 Per elencare i controlli senza eseguirli: `node scripts/check-web.mjs --list`.
 I gate non richiedono credenziali di produzione e non modificano il database online.
+Il gate comune include `test:draft-navigation`, che esercita il servizio reale
+di protezione delle uscite: annullamento, consenso, clic ripetuti, smontaggio,
+salvataggio in corso e recupero dopo errori.
 Il job del server locale compila prima la web app ONLINE, necessaria per
 verificare il percorso `/app/` su un checkout pulito.
 
@@ -51,3 +54,26 @@ Il regolamento del torneo concluso usa la sezione già esistente. Le destinazion
 rosa/classifica attiva vengono omesse perché indisponibili in quello stato;
 entrambi i ritorni restano nello storico Fanta. Il builder e le sue bozze non
 vengono aperti o modificati da questa navigazione.
+
+## Browser: origine Fanta e uscite protette
+
+`npm run test:fanta-navigation` monta App e le viste coinvolte, con IO isolato.
+Verifica ritorno a Home/Area Giocatore, nuova selezione di Fanta, regolamento,
+fallback dopo reload e consenso all'uscita, anche con caricamento lento e
+salvataggio iniziato durante l'attesa. Include il gate prima dell'ingresso TV,
+senza cambiare la proiezione TV. `--prove-regression` ripristina il vecchio
+ritorno fisso all'Area Giocatore e verifica che il difetto venga rilevato.
+Usa le stesse variabili Playwright del controllo regolamento ed è eseguito nel
+job browser separato. Dettagli funzionali in `FANTA_NAVIGATION.md`.
+
+`npm run test:draft-protection` monta builder Fanta, DataTab, editor Edizioni e
+modale reali. Due schede generano eventi storage; sono coperti cambio account,
+risposte/timer obsoleti, consenso alle uscite e commit sospesi/falliti. Il job
+browser esegue anche `--prove-fanta-regression` e `--prove-edition-regression`:
+terminano con successo soltanto se la specifica regressione intenzionale viene
+rilevata dopo il setup; altri errori restano fallimenti. Limiti di recupero e
+semantica del logout sono espliciti in `DRAFT_PROTECTION.md`.
+
+Le suite database canoniche dei mirror e della contesa backup vivono in
+ONLINE. Il runner PGlite `test-public-mirrors.mjs --legacy` dichiara il sottoinsieme
+LOCALE di migrations verificato e non sostituisce il replay canonico completo.

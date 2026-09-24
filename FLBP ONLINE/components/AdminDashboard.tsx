@@ -1,4 +1,5 @@
 import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
+import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from '../services/draftNavigationGuard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
@@ -12,7 +13,7 @@ import { isPlaceholderTeamId } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushPublicWorkspaceState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { resolveDataPlane } from '../services/dataPlaneClient';
 import type { AdminCommitOptions } from '../services/repository/AppStateRepository';
@@ -454,6 +455,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, []);
     const [adminAuthError, setAdminAuthError] = useState<string>('');
     const [loginBusy, setLoginBusy] = useState<boolean>(false);
+    const [adminLogoutPending, setAdminLogoutPending] = useState(false);
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
     const [adminLeaseInfo, setAdminLeaseInfo] = useState<AdminLeaseInfo>(() => readAdminLeaseInfo());
@@ -812,12 +814,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const openLiveTab = React.useCallback(async (next: LiveAdminTab) => {
         if (adminSection === 'live' && tab === next) return;
+        if (isDraftNavigationPending()) return;
         const requestId = ++adminNavigationRequestRef.current;
         try {
             await preloadAdminContentChunk(next);
         } catch {
             // let Suspense/ErrorBoundary handle the actual render failure if the chunk is broken
         }
+        if (requestId !== adminNavigationRequestRef.current) return;
+        await requestDraftNavigation(() => {
         if (requestId !== adminNavigationRequestRef.current) return;
         if (adminSection !== 'live') {
             safeSessionSet('flbp_admin_section', 'live');
@@ -826,6 +831,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         setTab(next);
         setLastLiveTab(next);
         safeSessionSet('flbp_admin_last_live_tab', next);
+        });
     }, [adminSection, tab]);
 
     const showGroupsMonitor = useMemo(() => {
@@ -855,6 +861,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     // Pool simulator
     const [poolN, setPoolN] = useState<string>('20');
     const [fantaSyncFeedback, setFantaSyncFeedback] = useState<null | { tone: 'success' | 'error' | 'info'; message: string }>(null);
+    const fantaPublicationPendingRef = useRef(false);
+    const liveStartPendingRef = useRef(false);
 
     // Team form
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -1612,6 +1620,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
     };
 
     const switchAdminSection = React.useCallback(async (next: AdminSection) => {
+        if (next === adminSection || isDraftNavigationPending()) return;
         const targetChunk: AdminChunkTarget = next === 'live' ? resolveStoredLiveTab() : next;
         const requestId = ++adminNavigationRequestRef.current;
         try {
@@ -1619,6 +1628,8 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         } catch {
             // let Suspense/ErrorBoundary handle the actual render failure if the chunk is broken
         }
+        if (requestId !== adminNavigationRequestRef.current) return;
+        await requestDraftNavigation(() => {
         if (requestId !== adminNavigationRequestRef.current) return;
         safeSessionSet('flbp_admin_section', next);
         setAdminSection(next);
@@ -1633,7 +1644,8 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             const nextTab = resolveStoredLiveTab();
             setTab(nextTab);
         }
-    }, [resolveStoredLiveTab, tab]);
+        });
+    }, [resolveStoredLiveTab, tab, adminSection]);
 
     const openTournamentEditor = React.useCallback((view: 'groups' | 'bracket' = 'groups') => {
         setEditorInitialView(view);
@@ -1991,7 +2003,9 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         });
     };
 
-    const toggleFantaPretournament = () => {
+    const toggleFantaPretournament = async () => {
+        if (fantaPublicationPendingRef.current) return;
+        fantaPublicationPendingRef.current = true;
         const nextEnabled = !fantaPretournamentEnabled;
         const nextState: AppState = {
             ...state,
@@ -2001,21 +2015,23 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 updatedAt: new Date().toISOString(),
             },
         };
-        setState(nextState);
-        window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
-            detail: { state: nextState, source: 'admin-fanta-toggle' }
-        }));
-        void pushPublicWorkspaceState(nextState).catch((error) => {
-            console.warn('Mirror pubblico Fanta non aggiornato subito dopo toggle.', error);
-        });
-        setFantaSyncFeedback({
-            tone: 'success',
-            message: nextEnabled
-                ? 'FantaBeerpong attivato. I giocatori in Squadre sono eleggibili per il Pretorneo.'
-                : 'FantaBeerpong disattivato. Le squadre restano salvate, ma il modulo non sarà visibile agli utenti.',
-        });
-        if (nextEnabled) {
-            runFantaPhaseAndRosterSync(nextState, 'toggle-fanta-on');
+        setFantaSyncFeedback({ tone: 'info', message: 'Salvataggio Fanta in corso...' });
+        try {
+            const confirmedState = await commitAdminStateDurably(nextState, 'admin-fanta-toggle');
+            setState(confirmedState);
+            setFantaSyncFeedback({
+                tone: 'success',
+                message: confirmedState.fantaSettings?.enabled
+                    ? 'FantaBeerpong attivato. I giocatori in Squadre sono eleggibili per il Pretorneo.'
+                    : 'FantaBeerpong disattivato. Le squadre restano salvate, ma il modulo non sarà visibile agli utenti.',
+            });
+            if (confirmedState.fantaSettings?.enabled) {
+                runFantaPhaseAndRosterSync(confirmedState, 'toggle-fanta-on');
+            }
+        } catch (error) {
+            setFantaSyncFeedback({ tone: 'error', message: `Salvataggio Fanta non confermato. ${error instanceof Error ? error.message : String(error)}` });
+        } finally {
+            fantaPublicationPendingRef.current = false;
         }
     };
 
@@ -2973,7 +2989,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     };
 
     const handleStartLive = async () => {
-        if (!draft) return;
+        if (!draft || liveStartPendingRef.current) return;
         
         if (state.tournament) {
             if (!confirm(t('admin_archive_active_before_start_confirm'))) {
@@ -2999,58 +3015,69 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         try { safeSessionRemove('flbp_ref_authed_for'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_ver'); } catch { /* ignore */ }
         
-        let newState = { ...state };
-        const implicitlyArchivedTournamentId = newState.tournament?.id;
-        if (newState.tournament) {
-            await snapshotFantaBeforeArchive(newState.tournament.id);
-            closeLiveCallsForTournament(newState.tournament.id);
-            newState = archiveTournamentV2(newState);
-            await pushFullStructuredExportBestEffort(newState, 'implicit archive before live start');
-        }
+        liveStartPendingRef.current = true;
+        try {
+            let newState = { ...state };
+            const implicitlyArchivedTournamentId = newState.tournament?.id;
+            if (newState.tournament) {
+                newState = archiveTournamentV2(newState);
+            }
 
-        newState.tournament = draftResultsOnly
-            ? { ...draft.t, refereesPassword: undefined, refereesAuthVersion: undefined }
-            : { ...draft.t, refereesPassword, refereesAuthVersion };
-        newState.tournamentMatches = draft.m;
+            newState.tournament = draftResultsOnly
+                ? { ...draft.t, refereesPassword: undefined, refereesAuthVersion: undefined }
+                : { ...draft.t, refereesPassword, refereesAuthVersion };
+            newState.tournamentMatches = draft.m;
 
-        setState(newState);
-        if (implicitlyArchivedTournamentId) {
-            void refreshFantaArchiveAfterAwards(newState, implicitlyArchivedTournamentId);
-        }
-        let shouldPromoteFantaPretournament = fantaPretournamentEnabled && !draftResultsOnly;
-        if (!shouldPromoteFantaPretournament && !draftResultsOnly) {
-            try {
-                shouldPromoteFantaPretournament = await hasFantaPretournamentTeams();
-            } catch (error) {
-                console.warn('Controllo rose Fanta pretorneo non completato', error);
+            newState = await commitAdminStateDurably(newState, 'admin-start-live', { skipStructuredSync: !!implicitlyArchivedTournamentId });
+            if (newState.tournament?.id !== draft.t.id) throw new Error('Il torneo confermato è diverso dalla bozza richiesta. Ricarica i dati prima di riprovare.');
+            if (implicitlyArchivedTournamentId) {
+                // The cloud commit keeps the previous normalized scoring rows.
+                // Publish its Fanta archive only after confirmation, before the
+                // structured export rebuilds those rows from canonical history.
+                await snapshotFantaBeforeArchive(implicitlyArchivedTournamentId);
             }
-        }
-        if (shouldPromoteFantaPretournament && !draftResultsOnly) {
-            setFantaSyncFeedback({ tone: 'info', message: 'Collegamento rose Fanta al torneo live in corso...' });
-            try {
-                await pushPublicWorkspaceState(newState);
-            } catch (error) {
-                console.warn('Mirror pubblico non aggiornato prima della promozione Fanta', error);
+            setState(newState);
+            if (implicitlyArchivedTournamentId) {
+                await pushFullStructuredExportBestEffort(newState, 'confirmed archive and live start');
+                closeLiveCallsForTournament(implicitlyArchivedTournamentId);
+                void refreshFantaArchiveAfterAwards(newState, implicitlyArchivedTournamentId);
             }
-            try {
-                const result = await promoteFantaPretournamentToTournament(newState.tournament.id, newState.tournament);
-                const promoted = result.promoted ?? result.updated ?? 0;
-                setFantaSyncFeedback({
-                    tone: 'success',
-                    message: `Fanta collegato al torneo live: ${promoted} squadre promosse${result.skipped ? `, ${result.skipped} già presenti` : ''}.`,
-                });
-            } catch (error) {
-                console.warn('Promozione Fanta pretorneo non completata', error);
-                setFantaSyncFeedback({
-                    tone: 'error',
-                    message: 'Rose Fanta non collegate al torneo live. Riprova dal pulsante Fanta in Squadre prima di iniziare le partite.',
-                });
+            let shouldPromoteFantaPretournament = fantaPretournamentEnabled && !draftResultsOnly;
+            if (!shouldPromoteFantaPretournament && !draftResultsOnly) {
+                try {
+                    shouldPromoteFantaPretournament = await hasFantaPretournamentTeams();
+                } catch (error) {
+                    console.warn('Controllo rose Fanta pretorneo non completato', error);
+                }
             }
+            if (shouldPromoteFantaPretournament && !draftResultsOnly) {
+                setFantaSyncFeedback({ tone: 'info', message: 'Collegamento rose Fanta al torneo live in corso...' });
+                try {
+                    const result = await promoteFantaPretournamentToTournament(newState.tournament.id, newState.tournament);
+                    const promoted = result.promoted ?? result.updated ?? 0;
+                    setFantaSyncFeedback({
+                        tone: 'success',
+                        message: `Fanta collegato al torneo live: ${promoted} squadre promosse${result.skipped ? `, ${result.skipped} già presenti` : ''}.`,
+                    });
+                } catch (error) {
+                    console.warn('Promozione Fanta pretorneo non completata', error);
+                    setFantaSyncFeedback({
+                        tone: 'error',
+                        message: 'Rose Fanta non collegate al torneo live. Riprova dal pulsante Fanta in Squadre prima di iniziare le partite.',
+                    });
+                }
+            }
+            setDraft(null);
+            setLateTeamIds([]);
+            setTab('codes');
+            alert(t('alert_live_started'));
+        } catch (error) {
+            const message = `Avvio torneo non confermato. ${error instanceof Error ? error.message : String(error)}`;
+            setFantaSyncFeedback({ tone: 'error', message });
+            alert(message);
+        } finally {
+            liveStartPendingRef.current = false;
         }
-        setDraft(null);
-        setLateTeamIds([]);
-        setTab('codes');
-        alert(t('alert_live_started'));
     };
 
     const updateLiveRefereesPassword = (rawPassword: string): { ok: boolean; message: string } => {
@@ -3971,6 +3998,19 @@ while (guard < 5000) {
         if (reload) window.location.reload();
     };
 
+    const requestAdminLogout = async () => {
+        if (adminLogoutPending || isDraftNavigationPending()) return;
+        if (!hasUnsavedDraft() && !confirm(t('admin_supabase_logout_confirm'))) return;
+        await requestDraftNavigation(() => {
+            // Unmount the editor before remote sign-out yields; no new edits can
+            // start after the user has explicitly discarded the draft.
+            setAdminLogoutPending(true);
+            void performAdminLogout().finally(() => setAdminLogoutPending(false));
+        });
+    };
+
+    if (adminLogoutPending) return <div role="status" aria-busy="true" className="p-8 text-center font-bold">{t('admin_logout')}…</div>;
+
     if (!authed) {
         const doAdminLogin = async () => {
             setLoginBusy(true);
@@ -4465,10 +4505,7 @@ while (guard < 5000) {
                                 <span className="text-[11px] font-bold text-slate-600 truncate min-w-0" title={supabaseEmail || undefined}>
                                     {supabaseEmail ? supabaseEmail : t('admin_session_active')}
                                 </span>
-                                <button onClick={async () => {
-                                    if (!confirm(t('admin_supabase_logout_confirm'))) return;
-                                    await performAdminLogout();
-                                }} className="text-[11px] font-black px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 flex-shrink-0 whitespace-nowrap">
+                                <button onClick={() => { void requestAdminLogout(); }} className="text-[11px] font-black px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 flex-shrink-0 whitespace-nowrap">
                                     {t('admin_logout')}
                                 </button>
                             </div>

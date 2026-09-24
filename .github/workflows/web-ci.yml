@@ -46,7 +46,7 @@ jobs:
       - run: npm run release:check
 
   browser:
-    name: Fanta navigation browser (${{ matrix.app }})
+    name: UI browser regressions (${{ matrix.app }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -73,6 +73,19 @@ jobs:
           export FLBP_PLAYWRIGHT_MODULE="$RUNNER_TEMP/flbp-browser/node_modules/playwright"
           npm run test:fanta-rules
           npm run test:fanta-rules -- --prove-regression
+
+      - name: Verify Fanta origins and guarded App navigation
+        run: |
+          export FLBP_PLAYWRIGHT_MODULE="$RUNNER_TEMP/flbp-browser/node_modules/playwright"
+          npm run test:fanta-navigation
+          npm run test:fanta-navigation -- --prove-regression
+
+      - name: Verify Fanta and edition drafts with negative controls
+        run: |
+          export FLBP_PLAYWRIGHT_MODULE="$RUNNER_TEMP/flbp-browser/node_modules/playwright"
+          npm run test:draft-protection
+          npm run test:draft-protection -- --prove-fanta-regression
+          npm run test:draft-protection -- --prove-edition-regression
 
   edge-types:
     name: Edge Function types (${{ matrix.app }})

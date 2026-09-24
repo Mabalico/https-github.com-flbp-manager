@@ -19,6 +19,9 @@ Questi controlli non sostituiscono E2E multiclient, prove browser visive o dispo
 
 Per elencare i controlli senza eseguirli: `node scripts/check-web.mjs --list`.
 I gate non richiedono credenziali di produzione e non modificano il database online.
+Il gate comune include `test:draft-navigation`, che esercita il servizio reale
+di protezione delle uscite: annullamento, consenso, clic ripetuti, smontaggio,
+salvataggio in corso e recupero dopo errori.
 Le suite del data plane e dell'idempotenza cloud disabilitano il caricamento dei
 file `.env` e delle variabili Vite ereditate: usano una configurazione sintetica
 su dominio `.invalid` e richieste intercettate dal test. Il job del server locale
@@ -54,3 +57,36 @@ Il regolamento del torneo concluso usa la sezione già esistente. Le destinazion
 rosa/classifica attiva vengono omesse perché indisponibili in quello stato;
 entrambi i ritorni restano nello storico Fanta. Il builder e le sue bozze non
 vengono aperti o modificati da questa navigazione.
+
+## Browser: origine Fanta e uscite protette
+
+`npm run test:fanta-navigation` monta App e le viste coinvolte, con IO isolato.
+Verifica ritorno a Home/Area Giocatore, nuova selezione di Fanta, regolamento,
+fallback dopo reload e consenso all'uscita, anche con caricamento lento e
+salvataggio iniziato durante l'attesa. Include il gate prima dell'ingresso TV,
+senza cambiare la proiezione TV. `--prove-regression` ripristina il vecchio
+ritorno fisso all'Area Giocatore e verifica che il difetto venga rilevato.
+Usa le stesse variabili Playwright del controllo regolamento ed è eseguito nel
+job browser separato. Dettagli funzionali in `FANTA_NAVIGATION.md`.
+
+`npm run test:draft-protection` monta builder Fanta, DataTab, editor Edizioni e
+modale reali. Due schede generano eventi storage; sono coperti cambio account,
+risposte/timer obsoleti, consenso alle uscite e commit sospesi/falliti. Il job
+browser esegue anche `--prove-fanta-regression` e `--prove-edition-regression`:
+terminano con successo soltanto se la specifica regressione intenzionale viene
+rilevata dopo il setup; altri errori restano fallimenti. Limiti di recupero e
+semantica del logout sono espliciti in `DRAFT_PROTECTION.md`.
+
+## Database: mirror e contesa backup
+
+`test:public-mirrors` richiede un database locale sacrificabile o il modulo
+PGlite indicato con `--pglite`; `test:public-mirrors-native` richiede PostgreSQL
+nativo locale. La CI verifica autorizzazioni dei mirror, ripubblicazione da
+stato autorevole e rifiuto delle scritture dirette obsolete; le connessioni
+separate verificano il busy prima delle scritture e il retry dell'intera RPC.
+Non sono inclusi nel gate web e rifiutano URL di database non loopback.
+
+`test:fanta-archive-order` verifica su SQL il contenuto dello storico Fanta
+dopo il commit di avvio torneo, nei percorsi Admin v2, legacy e normalizzazione
+locale. È eseguito nella CI database. Il gate web include invece il contratto
+dei servizi/callback in `test:public-mirrors-client`.
