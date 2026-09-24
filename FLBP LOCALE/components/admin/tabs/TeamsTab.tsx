@@ -58,6 +58,7 @@ export interface TeamsTabProps {
     onToggleFantaEnabled: () => void;
     onSyncFantaPretournament: () => void;
     fantaSyncStatus?: { tone: 'success' | 'error' | 'info'; message: string } | null;
+    onFantaPretournamentTeamsChanged?: (nextTeams: Team[], previousTeams: Team[]) => void;
 }
 
 export const TeamsTab: React.FC<TeamsTabProps> = ({
@@ -100,6 +101,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     onToggleFantaEnabled,
     onSyncFantaPretournament,
     fantaSyncStatus,
+    onFantaPretournamentTeamsChanged,
 }) => {
     const [query, setQuery] = React.useState('');
     const [p1FirstName, setP1FirstName] = React.useState('');
@@ -283,6 +285,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 nextBirthDate,
             });
             setState(nextState);
+            // A profile correction can affect the same player in multiple teams.
+            onFantaPretournamentTeamsChanged?.(nextState.teams || [], state.teams || []);
             setProfileFeedback({
                 tone: 'success',
                 message: t('players_snackbar_profile_updated'),
@@ -294,7 +298,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 message: error?.message || t('players_snackbar_profile_update_error'),
             });
         }
-    }, [profileEditDraft, setState, state, t]);
+    }, [onFantaPretournamentTeamsChanged, profileEditDraft, setState, state, t]);
 
     const allTeamRows = React.useMemo(() => {
         return sortedTeams.map((team, index) => ({

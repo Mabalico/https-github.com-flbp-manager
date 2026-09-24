@@ -15,6 +15,7 @@ AuthKey_*.p8
 **/node_modules/
 **/dist/
 **/.tmp-node-tests/
+**/.tmp-*/
 **/.codex-tmp/
 **/preview.log
 

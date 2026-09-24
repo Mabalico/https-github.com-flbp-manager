@@ -131,7 +131,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         const names = ids.map(id => id ? (teamMap.get(id) || id) : 'TBD');
                         const code = m.code || '-';
                         const status = m.status.toUpperCase();
-                        const tb = m.isTieBreak ? ` • ${t('reports_tiebreak_label')}${(typeof m.targetScore === 'number') ? ` ${t('reports_tiebreak_target', { count: String(m.targetScore) })}` : ''}` : '';
+                        const tb = m.isTieBreak ? ` • ${t('reports_tiebreak_label')}${(typeof m.targetScore === 'number') ? ` ${t('reports_tiebreak_target').replace('{count}', String(m.targetScore))}` : ''}` : '';
                         return `${code} • ${names.join(' vs ')}${tb} • ${status}`;
                     };
 
@@ -231,7 +231,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         </div>
                                     </div>
                                     <div className="text-[11px] font-bold text-slate-500">
-                                        {t('reports_matches_shown', { shown: String(matchesForSelect.length), total: String(msAll.length) })}
+                                        {t('reports_matches_shown').replace('{shown}', String(matchesForSelect.length)).replace('{total}', String(msAll.length))}
                                     </div>
                                 </div>
 
@@ -321,7 +321,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                 {(selected.code || '-')}{' '}
                                                 {selected.isTieBreak && (
                                                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0 ${selectedTeams.length >= 3 ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
-                                                        {t('reports_tiebreak_label')}{selectedTeams.length >= 3 ? ` ${t('reports_tiebreak_multi')}` : ''}{typeof selected.targetScore === 'number' ? ` ${t('reports_tiebreak_target', { count: String(selected.targetScore) })}` : ''}
+                                                        {t('reports_tiebreak_label')}{selectedTeams.length >= 3 ? ` ${t('reports_tiebreak_multi')}` : ''}{typeof selected.targetScore === 'number' ? ` ${t('reports_tiebreak_target').replace('{count}', String(selected.targetScore))}` : ''}
                                                     </span>
                                                 )}
                                                 

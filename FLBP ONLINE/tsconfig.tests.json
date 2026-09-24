@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "node",
+      "vite/client",
+      "react",
+      "react-dom"
+    ]
+  },
+  "include": [
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "scripts/**/*.ts",
+    "scripts/**/*.tsx",
+    "vite*.ts",
+    "_ssr*.tsx",
+    "testlocal.tsx",
+    "vite-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "release_bundle",
+    "android",
+    "ios",
+    "supabase",
+    ".tmp-*"
+  ]
+}

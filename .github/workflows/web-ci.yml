@@ -1,0 +1,111 @@
+name: Web and local server CI
+
+on:
+  pull_request:
+    paths:
+      - 'FLBP ONLINE/**'
+      - 'FLBP LOCALE/**'
+      - 'FLBP SERVER LOCALE/**'
+      - '.github/workflows/web-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'FLBP ONLINE/**'
+      - 'FLBP LOCALE/**'
+      - 'FLBP SERVER LOCALE/**'
+      - '.github/workflows/web-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web gates (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ['FLBP ONLINE', 'FLBP LOCALE']
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      - run: npm ci
+      - run: npm run release:check
+
+  browser:
+    name: Fanta navigation browser (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ['FLBP ONLINE', 'FLBP LOCALE']
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      - run: npm ci
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/flbp-browser" --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/flbp-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify Fanta rules navigation and negative control
+        run: |
+          export FLBP_PLAYWRIGHT_MODULE="$RUNNER_TEMP/flbp-browser/node_modules/playwright"
+          npm run test:fanta-rules
+          npm run test:fanta-rules -- --prove-regression
+
+  edge-types:
+    name: Edge Function types (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ['FLBP ONLINE', 'FLBP LOCALE']
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.9.6'
+      - run: npm run typecheck:deno
+
+  local-server:
+    name: Local server regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: FLBP SERVER LOCALE
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm run check
+      - run: npm test

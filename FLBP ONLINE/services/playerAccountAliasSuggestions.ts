@@ -192,7 +192,7 @@ const collectSuggestionReasons = (
   return { confidence, reasons };
 };
 
-const dedupeReasons = (reasons: PlayerAccountAliasReason[]) => Array.from(new Set(reasons));
+const dedupeReasons = <T extends PlayerAccountAliasReason | PlayerAccountMergeReason>(reasons: T[]): T[] => Array.from(new Set(reasons));
 
 export const buildPlayerRegistrationAliasSuggestions = (
   state: AppState,
@@ -359,7 +359,7 @@ export const buildPlayerAccountMergeSuggestions = (
         candidateTotalCanestri: candidate.totalCanestri,
         candidateTotalSoffi: candidate.totalSoffi,
         confidence,
-        reasons: dedupeReasons(reasons) as PlayerAccountMergeReason[],
+        reasons: dedupeReasons(reasons),
       } satisfies PlayerAccountMergeSuggestion;
     })
     .filter(Boolean)

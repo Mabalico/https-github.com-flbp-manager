@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Runs all local regression checks.
+ * Validates invariants and public sanitization of one backup.
+ * Compatibility entry point; use npm run check:backup -- <backup.json>.
  *
  * Usage:
  *   node scripts/check-all.mjs path/to/backup.json
@@ -23,4 +24,4 @@ const run = (script) => {
 run('scripts/check-invariants.mjs');
 run('scripts/check-public-sanitization.mjs');
 
-console.log('All checks OK');
+console.log('Backup invariants and public sanitization OK');

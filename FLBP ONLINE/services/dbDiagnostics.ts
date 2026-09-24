@@ -4,7 +4,7 @@
  * Stored in localStorage only (no UI regressions if missing).
  */
 
-export type DbSyncKind = 'snapshot' | 'structured' | 'health' | 'migration' | 'auth';
+export type DbSyncKind = 'snapshot' | 'structured' | 'health' | 'migration' | 'auth' | 'match-result';
 
 export type DbSyncEventLevel = 'ok' | 'info' | 'warn' | 'error' | 'conflict';
 

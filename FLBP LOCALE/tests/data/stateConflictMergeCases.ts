@@ -93,7 +93,7 @@ export const registerStateConflictMergeCases = (define: (name: string, run: () =
       localState: { ...baseState, hallOfFame: [{ ...entry, playerNames: ['Nome locale'] }] },
       remoteState: { ...baseState, hallOfFame: [{ ...entry, playerNames: ['Nome remoto'] }] },
     });
-    check(!result.ok && result.reason === 'hallOfFame:overlap:id:same-title', 'Different assignments of one title must remain blocked');
+    check(result.ok === false && result.reason === 'hallOfFame:overlap:id:same-title', 'Different assignments of one title must remain blocked');
   });
 
   define('removing an integration title conflicts with a concurrent edit, while an unchanged remote row allows removal', () => {
@@ -101,14 +101,14 @@ export const registerStateConflictMergeCases = (define: (name: string, run: () =
     const baseState = empty({ hallOfFame: [entry] });
     const localState = { ...baseState, hallOfFame: [] };
     const conflict = tryMergeRemoteStateConflict({ baseState, localState, remoteState: { ...baseState, hallOfFame: [{ ...entry, playerNames: ['Nuovo vincitore'] }] } });
-    check(!conflict.ok && conflict.reason.startsWith('hallOfFame:overlap:'), 'Deletion must not discard a concurrent remote title edit');
+    check(conflict.ok === false && conflict.reason.startsWith('hallOfFame:overlap:'), 'Deletion must not discard a concurrent remote title edit');
     const safe = tryMergeRemoteStateConflict({ baseState, localState, remoteState: { ...reorderKeys(baseState), logo: 'remote-logo' } });
     check(safe.ok && safe.state.hallOfFame.length === 0 && safe.state.logo === 'remote-logo', 'An unchanged remote title permits deletion alongside independent changes');
   });
 
   define('future live tournament metadata survives alongside a remote edit to a different team', () => {
     const tournament = {
-      id: 'live', name: 'Coppa', type: 'round_robin', startDate: '2026-09-10', config: {},
+      id: 'live', name: 'Coppa', type: 'round_robin', startDate: '2026-09-10', config: { advancingPerGroup: 1 },
       teams: [{ id: 'team-1', name: 'Prima', player1: 'Mario', player2: 'Luca' }], groups: [], matches: [],
       extraMetadata: { label: 'base' },
     } as TournamentData;
@@ -125,6 +125,6 @@ export const registerStateConflictMergeCases = (define: (name: string, run: () =
 
   define('missing common base never authorizes an automatic merge', () => {
     const result = tryMergeRemoteStateConflict({ baseState: null, localState: empty({ hallOfFame: [award('local-title')] }), remoteState: empty() });
-    check(!result.ok && result.reason === 'base-state-missing', 'A merge without a common base must require comparison');
+    check(result.ok === false && result.reason === 'base-state-missing', 'A merge without a common base must require comparison');
   });
 };

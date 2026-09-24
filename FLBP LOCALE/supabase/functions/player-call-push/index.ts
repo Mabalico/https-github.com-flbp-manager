@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5.9.6';
 
 type PushAction = 'ringing' | 'cancelled' | 'acknowledged';
@@ -79,7 +79,7 @@ const json = (status: number, body: unknown) =>
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 
-const normalizePrivateKey = (value: string | null) =>
+const normalizePrivateKey = (value: string | null | undefined) =>
   normalizeText(value).replace(/\\n/g, '\n');
 
 const getEnv = (): RuntimeEnv => ({
@@ -193,7 +193,7 @@ const ensureAdminUser = async (req: Request, env: RuntimeEnv, adminClient = crea
 };
 
 const ensureRefereeCallDispatch = async (
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: SupabaseClient,
   call: CallRow,
   body: Record<string, unknown>,
   action: PushAction,
@@ -248,7 +248,7 @@ const ensureRefereeCallDispatch = async (
 const ensurePushDispatchAccess = async (
   req: Request,
   env: RuntimeEnv,
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: SupabaseClient,
   call: CallRow,
   body: Record<string, unknown>,
   action: PushAction,
@@ -257,7 +257,7 @@ const ensurePushDispatchAccess = async (
   await ensureAdminUser(req, env, adminClient);
 };
 
-const fetchCallRow = async (adminClient: ReturnType<typeof createClient>, workspaceId: string, callId: string) => {
+const fetchCallRow = async (adminClient: SupabaseClient, workspaceId: string, callId: string) => {
   const { data, error } = await adminClient
     .from('player_app_calls')
     .select('id,workspace_id,tournament_id,team_id,team_name,target_user_id,target_player_id,target_player_name,status')
@@ -273,7 +273,7 @@ const fetchCallRow = async (adminClient: ReturnType<typeof createClient>, worksp
   return data;
 };
 
-const fetchTargetDevices = async (adminClient: ReturnType<typeof createClient>, call: CallRow) => {
+const fetchTargetDevices = async (adminClient: SupabaseClient, call: CallRow) => {
   const { data, error } = await adminClient
     .from('player_app_devices')
     .select('id,platform,device_token,push_enabled')

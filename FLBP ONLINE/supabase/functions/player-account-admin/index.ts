@@ -283,7 +283,7 @@ const submitMergeRequest = async (
   body: Record<string, unknown>,
   authenticatedUser: User | null
 ) => {
-  const workspaceId = await ensureWorkspace(adminClient, body.workspaceId);
+  const workspaceId = await ensureWorkspace(adminClient, normalizeText(body.workspaceId));
   const requesterEmail = normalizeEmail(body.requesterEmail ?? authenticatedUser?.email ?? '');
   const requesterFirstName = normalizeText(body.requesterFirstName);
   const requesterLastName = normalizeText(body.requesterLastName);
@@ -413,7 +413,7 @@ const listMyMergeRequests = async (
     });
   }
 
-  const safeWorkspaceId = await ensureWorkspace(adminClient, body.workspaceId);
+  const safeWorkspaceId = await ensureWorkspace(adminClient, normalizeText(body.workspaceId));
   const requesterEmail = normalizeEmail(authenticatedUser.email ?? body.requesterEmail ?? '');
   const requesterUserId = normalizeText(authenticatedUser.id);
   if (!requesterEmail) {

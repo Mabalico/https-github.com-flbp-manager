@@ -19,6 +19,7 @@
     "test:local-storage": "node --test tests/repository/localStorageFailure.test.mjs",
     "test:restore-ui": "node scripts/test-restore-ui.mjs",
     "test:referee-save": "node scripts/test-referee-report-save.mjs",
+    "test:fanta-rules": "node scripts/test-fanta-archived-rules.mjs",
     "test:spreadsheet-compat": "node scripts/test-spreadsheet-compat.mjs",
     "release:check": "node scripts/check-release.mjs",
     "build:mobile": "node ./node_modules/vite/bin/vite.js build --base=./",
@@ -38,7 +39,13 @@
     "audit:backup-profiles": "node scripts/audit-backup-profiles.mjs",
     "inspect:backup": "node scripts/inspect-backup-profile.mjs",
     "check:i18n": "node scripts/check-i18n-coverage.mjs",
-    "check:tv-readonly": "node scripts/check-tv-readonly.mjs"
+    "check:tv-readonly": "node scripts/check-tv-readonly.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "typecheck:browser": "node scripts/typecheck.mjs browser",
+    "typecheck:tests": "node scripts/typecheck.mjs tests",
+    "typecheck:deno": "node scripts/typecheck.mjs deno",
+    "check:web": "node scripts/check-web.mjs",
+    "check:backup": "node scripts/check-all.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
@@ -56,6 +63,8 @@
     "@capacitor/cli": "^8.3.1",
     "@capacitor/ios": "^8.3.1",
     "@types/node": "^22.14.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",

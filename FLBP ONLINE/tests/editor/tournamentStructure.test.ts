@@ -276,6 +276,38 @@ defineCase('rebuilding a 128-team elimination roster produces seven rounds and 1
   assertEqual(validateDraftBeforeApply(snapshot, result.nextSnapshot!).canApply, true);
 });
 
+defineCase('rebuilding never changes a bracket after a real match starts', () => {
+  const teams = [makeTeam('A'), makeTeam('B')];
+  for (const status of ['playing', 'finished'] as const) {
+    const match = makeBracketMatch('locked-match', 1, 'A', 'B', {
+      status, played: status === 'finished', scoreA: 7, scoreB: 4,
+      stats: [{ teamId: 'A', playerName: 'A One', canestri: 7, soffi: 0 }],
+    });
+    const tournament = makeTournament('locked-rebuild', 'elimination', teams, [], [match]);
+    const snapshot = makeSnapshot(tournament, [match], teams);
+    const before = JSON.stringify(snapshot);
+    const result = applyStructuralOperation(snapshot, { type: 'REBUILD_ELIMINATION_BRACKET' });
+    assertEqual(result.ok, false);
+    assertEqual(result.nextSnapshot, undefined);
+    assertEqual(JSON.stringify(snapshot), before);
+  }
+});
+
+defineCase('rebuilding excludes placeholders and allows only automatic BYE results', () => {
+  const teams = Array.from({ length: 5 }, (_, index) => makeTeam(`T${index + 1}`));
+  const roster = [...teams, { ...makeTeam('BYE'), isBye: true, hidden: true }, makeTeam('TBD')];
+  const tournament = makeTournament('bye-rebuild', 'elimination', roster);
+  const snapshot = makeSnapshot(tournament, [], roster);
+  const result = applyStructuralOperation(snapshot, { type: 'REBUILD_ELIMINATION_BRACKET' });
+  assertEqual(result.ok, true);
+  assertEqual(result.nextSnapshot!.tournament.teams.length, 5);
+  assertOk(!result.nextSnapshot!.tournament.teams.some((team) => team.id === 'BYE' || team.id === 'TBD'));
+  const finished = result.nextSnapshot!.matches.filter((match) => match.status === 'finished');
+  assertOk(finished.length > 0);
+  assertOk(finished.every((match) => match.isBye || match.teamAId === 'BYE' || match.teamBId === 'BYE'));
+  assertEqual(applyStructuralOperation(result.nextSnapshot!, { type: 'REBUILD_ELIMINATION_BRACKET' }).ok, true);
+});
+
 defineCase('validateDraftBeforeApply blocks duplicates and locked structural changes', () => {
   const a = makeTeam('A', 'Alpha');
   const b = makeTeam('B', 'Bravo');

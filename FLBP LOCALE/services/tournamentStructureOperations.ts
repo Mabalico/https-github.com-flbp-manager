@@ -1,6 +1,6 @@
 import type { Match, Team } from '../types';
 import { uuid } from './id';
-import { syncBracketFromGroups } from './tournamentEngine';
+import { generateTournamentStructure, syncBracketFromGroups } from './tournamentEngine';
 import { getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
 import {
   canClearBracketSlot,
@@ -754,6 +754,43 @@ const applyAddPreliminaryBracketRound = (
   return makeResult(synced, 'ADD_PRELIMINARY_BRACKET_ROUND', 'Aggiunto un turno preliminare vuoto davanti al Round 1 corrente.');
 };
 
+const applyRebuildEliminationBracket = (
+  snapshot: TournamentStructureSnapshot
+): StructuralOperationResult => {
+  if (snapshot.tournament.type !== 'elimination') {
+    return makeBlockedResult(blockedLike('unsupported_round', 'La rigenerazione completa è disponibile solo per tornei a eliminazione diretta.'));
+  }
+  if (hasRealBracketStarted(snapshot)) {
+    return makeBlockedResult(blockedLike('locked_by_bracket_match', 'Non posso rigenerare il tabellone dopo l’avvio di un match reale.'));
+  }
+
+  const teams = (snapshot.tournament.teams || []).filter((team) => {
+    const id = String(team.id || '').trim();
+    return !!id && !team.hidden && !team.isBye && !isPlaceholderTeamId(id);
+  });
+  if (teams.length < 2) {
+    return makeBlockedResult(blockedLike('team_not_found', 'Servono almeno due squadre nel roster del torneo.'));
+  }
+
+  const generated = generateTournamentStructure(teams, {
+    mode: 'elimination',
+    tournamentName: snapshot.tournament.name,
+    advancingPerGroup: snapshot.tournament.config?.advancingPerGroup || 2,
+    finalRoundRobin: snapshot.tournament.config?.finalRoundRobin,
+  });
+  const next = cloneSnapshot(snapshot);
+  next.matches = generated.matches;
+  next.tournament = {
+    ...snapshot.tournament,
+    type: 'elimination',
+    teams,
+    groups: [],
+    matches: cloneMatchList(generated.matches),
+    rounds: generated.tournament.rounds,
+  };
+  return makeResult(next, 'REBUILD_ELIMINATION_BRACKET', `Rigenerato il tabellone per ${teams.length} squadre.`);
+};
+
 export const applyStructuralOperation = (
   snapshot: TournamentStructureSnapshot,
   operation: StructuralOperation
@@ -783,6 +820,8 @@ export const applyStructuralOperation = (
       return applyAddCatalogTeam(snapshot, operation.team);
     case 'ADD_PRELIMINARY_BRACKET_ROUND':
       return applyAddPreliminaryBracketRound(snapshot);
+    case 'REBUILD_ELIMINATION_BRACKET':
+      return applyRebuildEliminationBracket(snapshot);
     default:
       return makeBlockedResult(blockedLike('unknown', 'Operazione non supportata.'));
   }

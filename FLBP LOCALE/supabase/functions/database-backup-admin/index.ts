@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { runDatabaseBackupOperation, BackupOperationError } from './operations.ts';
 
 const corsHeaders = {
@@ -12,7 +12,7 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 });
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 
-const ensureAdminUser = async (req: Request, adminClient: ReturnType<typeof createClient>) => {
+const ensureAdminUser = async (req: Request, adminClient: SupabaseClient) => {
   const token = normalizeText(req.headers.get('Authorization')).replace(/^Bearer\s+/i, '').trim();
   if (!token) throw json(401, { ok: false, restoreNotCommitted: true, reason: 'Admin session invalid or expired.' });
   const { data: { user }, error: userError } = await adminClient.auth.getUser(token);

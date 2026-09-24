@@ -67,6 +67,7 @@ import {
   toPlayerRuntimeProfile,
   PLAYER_APP_CHANGE_EVENT,
   writePlayerPresenceSnapshot,
+  type PlayerAreaSnapshot,
 } from '../services/playerAppService';
 import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
@@ -109,7 +110,7 @@ const PLAYER_ALIAS_PROMPT_ANSWER_PREFIX = 'flbp_player_alias_prompt_answer::';
 type PlayerAliasPromptAnswer = 'reported' | 'not_me';
 
 const schedulePlayerAreaTask = (task: () => void) => {
-  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
     const idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout?: number }) => number }).requestIdleCallback(task, { timeout: 120 });
     return () => {
       try {
@@ -119,8 +120,8 @@ const schedulePlayerAreaTask = (task: () => void) => {
       }
     };
   }
-  const timerId = window.setTimeout(task, 0);
-  return () => window.clearTimeout(timerId);
+  const timerId = globalThis.setTimeout(task, 0);
+  return () => globalThis.clearTimeout(timerId);
 };
 
 type LiveCallRequest = ReturnType<typeof mapSupabaseCallRowToPlayerCallRequest>;
@@ -528,7 +529,7 @@ const getPlayerAreaFriendlyErrorMessage = (error: unknown, fallback: string, t?:
 const buildSafePlayerAreaSnapshot = (
   state: AppState,
   liveBackendEnabled: boolean
-): ReturnType<typeof buildPlayerAreaSnapshot> => ({
+): PlayerAreaSnapshot => ({
   session: null,
   profile: null,
   personalProfile: null,
@@ -1758,7 +1759,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             try {
               await submitPlayerAccountMergeRequest({
                 accessToken: session?.accessToken || null,
-                requesterUserId: session?.userId || signUpResult?.userId || null,
+                requesterUserId: session?.userId || (signUpResult?.status === 'confirm_email' ? signUpResult.userId : null) || null,
                 requesterEmail: session?.email || safeEmail,
                 requesterFirstName: registerIdentity.firstName,
                 requesterLastName: registerIdentity.lastName,
@@ -1908,7 +1909,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             setLiveMergeRequests((current) => {
               const optimisticRows = resolvedSuggestions.map((suggestion) => ({
                 id: `optimistic-${accountUserId || effectiveSessionEmail}-${suggestion.candidatePlayerId}`,
-                workspace_id: String(state.workspace?.id || ''),
+                workspace_id: getSupabaseConfig()?.workspaceId || '',
                 requester_user_id: accountUserId,
                 requester_email: effectiveSessionEmail,
                 requester_first_name: aliasRequestProfile.firstName,
@@ -1957,7 +1958,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             try {
               const rows = await pullPlayerOwnAccountMergeRequests({
                 accessToken: accountAccessToken,
-                workspaceId: String(state.workspace?.id || ''),
+                workspaceId: getSupabaseConfig()?.workspaceId || '',
                 status: 'pending',
               });
               if (rows.length) {
@@ -2249,7 +2250,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 </div>
                 <button
                   type="button"
-                  onClick={closeRegisterAliasModal}
+                  onClick={() => closeRegisterAliasModal()}
                   className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-600 transition hover:bg-slate-50"
                   disabled={registerAliasSubmitting}
                 >

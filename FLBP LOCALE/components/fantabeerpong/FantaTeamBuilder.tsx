@@ -162,7 +162,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
       });
 
       const result = await saveFantaTeamWithResult(session.accountId, teamName, lineup);
-      if (result.ok) {
+      if (result.ok === true) {
         const savedTeam = result.teamId ? await fetchFantaTeamById(result.teamId) : await fetchUserFantaTeam(session.accountId);
         if (!savedTeam) {
           setInfo('Squadra inviata, ma non riesco a rileggerla subito. Esci e rientra nell’area giocatore, poi controlla La mia squadra.', 'error');

@@ -1,3 +1,7 @@
+## Correzione del controllo SSR Admin (24 settembre 2026)
+
+Il controllo Admin ora ricompila i sorgenti correnti e verifica contenuti distinti per Squadre, Dati e Referti, oltre al login e ai controlli negativi. I PASS storici di `check:ssr-admin` riportati sotto usavano un bundle precompilato e rendevano il solo login: non provavano il rendering delle schede. Vedi [SSR_ADMIN_CHECK.md](SSR_ADMIN_CHECK.md) per fixture, copertura e limiti.
+
 ## Verifiche TV finali (S57)
 - Scope: review finale TV orientata a chiudere lo scope con un guardrail statico read-only riusabile da Codex.
 - File coperti dal check dedicato:

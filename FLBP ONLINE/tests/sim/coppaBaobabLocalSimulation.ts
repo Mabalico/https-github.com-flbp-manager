@@ -210,7 +210,7 @@ const placeBracketWithStructuralEditor = (state: AppState) => {
   if (differences.length) throw new Error(`Editor: disposizione finale non coerente: ${JSON.stringify(differences.slice(0, 5))}`);
   const prepared = prepareTournamentStructureApply(original, present);
   if (!prepared.validation.canApply) {
-    throw new Error(`Editor: validazione bloccante: ${prepared.validation.issues.map((issue: any) => issue.humanMessage || issue.reasonCode).join(' | ')}`);
+    throw new Error(`Editor: validazione bloccante: ${prepared.validation.blockingErrors.map((issue) => issue.message || issue.code).join(' | ')}`);
   }
   return { prepared, operationLog };
 };
