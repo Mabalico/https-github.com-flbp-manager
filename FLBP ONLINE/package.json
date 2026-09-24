@@ -15,6 +15,17 @@
     "test:data": "node ./node_modules/vite/bin/vite.js build --config vite.data-tests.config.ts && node ./.tmp-node-tests/playerDataManagement.test.js",
     "test:local-data-plane": "node ./node_modules/vite/bin/vite.js build --config vite.local-data-plane-tests.config.ts && node ./.tmp-node-tests/localDataPlaneClient.test.js",
     "test:cloud-durability": "node ./node_modules/vite/bin/vite.js build --config vite.cloud-durability-tests.config.ts && node ./.tmp-node-tests/cloudAdminIdempotency.test.js",
+    "test:tv-route": "node ./node_modules/vite/bin/vite.js build --config vite.tv-route-tests.config.ts && node ./.tmp-tv-route-tests/tvProjectionRoute.test.js",
+    "test:fanta-save-retry": "node ./node_modules/vite/bin/vite.js build --config vite.fanta-save-retry-tests.config.ts && node ./.tmp-fanta-save-retry-tests/fantaSaveRetry.test.js",
+    "test:persistence": "node --test tests/repository/persistenceMode.test.mjs",
+    "test:local-storage": "node --test tests/repository/localStorageFailure.test.mjs",
+    "test:restore-ui": "node scripts/test-restore-ui.mjs",
+    "test:referee-save": "node scripts/test-referee-report-save.mjs",
+    "test:admin-auth": "node scripts/test-admin-auth.mjs",
+    "test:backup-edge": "node scripts/test-database-backup-edge.mjs",
+    "test:database-restore": "node scripts/test-database-restore.mjs",
+    "test:database-restore-schema": "node scripts/test-database-restore-schema.mjs",
+    "test:spreadsheet-compat": "node scripts/test-spreadsheet-compat.mjs",
     "release:check": "node scripts/check-release.mjs",
     "build:mobile": "node ./node_modules/vite/bin/vite.js build --base=./",
     "cap:init": "npx cap init \"aaFLBP Manager Suite\" \"it.flbp.manager.suite\" --web-dir=dist",
@@ -46,7 +57,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "tesseract.js": "^5.1.0",
-    "xlsx": "0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@capacitor/android": "^8.3.1",
@@ -58,6 +69,6 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "6.4.3"
   }
 }

@@ -110,6 +110,21 @@ const assertOk = (value: unknown, message?: string) => {
   }
 };
 
+const withRandomPrefix = <T>(values: number[], run: () => T): T => {
+  const originalRandom = Math.random;
+  let index = 0;
+  Math.random = () => (index < values.length ? values[index++] : originalRandom());
+  try {
+    return run();
+  } finally {
+    Math.random = originalRandom;
+  }
+};
+
+const getGeneratedRoundOne = (matches: Match[]) => matches
+  .filter((match) => match.phase === 'bracket' && (match.round || 1) === 1)
+  .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
 defineCase('eligibility marks assigned, locked and eliminated teams correctly', () => {
   const a = makeTeam('A', 'Alpha');
   const b = makeTeam('B', 'Bravo');
@@ -481,6 +496,83 @@ defineCase('generated non-power-of-two bracket stores successor links', () => {
   assertOk(firstRound.length > 0);
   assertOk(firstRound.every((match) => !!match.nextMatchId && (match.nextSlot === 'A' || match.nextSlot === 'B')));
   assertOk(firstRound.every((match) => secondRoundIds.has(String(match.nextMatchId))));
+});
+
+defineCase('elimination generation without late teams preserves the legacy randomized layout', () => {
+  const teams = ['A', 'B', 'C', 'D', 'E'].map((id) => makeTeam(id));
+  const signatureFor = (lateTeamIds?: string[]) => withRandomPrefix([0, 0, 0, 0, 0], () => {
+    const generated = lateTeamIds === undefined
+      ? generateTournamentStructure(teams, { mode: 'elimination', tournamentName: 'Legacy layout' })
+      : generateTournamentStructure(teams, { mode: 'elimination', tournamentName: 'Legacy layout', lateTeamIds });
+    return getGeneratedRoundOne(generated.matches)
+      .map((match) => `${match.teamAId}|${match.teamBId}`)
+      .join(',');
+  });
+
+  const expectedLegacyLayout = 'B|BYE,C|BYE,D|BYE,E|A';
+  assertEqual(signatureFor(), expectedLegacyLayout);
+  assertEqual(signatureFor([]), expectedLegacyLayout);
+});
+
+defineCase('a late team receives a BYE when one is available', () => {
+  const teams = ['A', 'B', 'C', 'D', 'E'].map((id) => makeTeam(id));
+  const generated = withRandomPrefix([0, 0, 0, 0, 0], () => generateTournamentStructure(teams, {
+    mode: 'elimination',
+    tournamentName: 'Late team with bye',
+    lateTeamIds: ['E'],
+  }));
+  const lateMatch = getGeneratedRoundOne(generated.matches)
+    .find((match) => match.teamAId === 'E' || match.teamBId === 'E');
+
+  assertOk(lateMatch);
+  assertEqual(lateMatch?.isBye, true);
+  assertEqual(lateMatch?.played, true);
+  assertEqual(lateMatch?.hidden, true);
+  assertOk(lateMatch?.teamAId === 'BYE' || lateMatch?.teamBId === 'BYE');
+});
+
+defineCase('late teams beyond the available BYEs occupy the final Round 1 slots', () => {
+  const teams = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((id) => makeTeam(id));
+  const lateTeamIds = ['E', 'F', 'G'];
+  const generated = withRandomPrefix([0, 0, 0, 0, 0, 0, 0], () => generateTournamentStructure(teams, {
+    mode: 'elimination',
+    tournamentName: 'Late teams overflow',
+    lateTeamIds,
+  }));
+  const firstRound = getGeneratedRoundOne(generated.matches);
+  const byeLateTeamIds = firstRound
+    .filter((match) => match.isBye)
+    .flatMap((match) => [match.teamAId, match.teamBId])
+    .filter((id): id is string => !!id && id !== 'BYE' && lateTeamIds.includes(id));
+  const remainingLateTeamIds = lateTeamIds.filter((id) => !byeLateTeamIds.includes(id));
+  const realTeamSlots = firstRound
+    .flatMap((match) => [match.teamAId, match.teamBId])
+    .filter((id): id is string => !!id && id !== 'BYE');
+  const finalSlots = realTeamSlots.slice(-remainingLateTeamIds.length);
+
+  assertEqual(byeLateTeamIds.length, 1);
+  assertEqual(finalSlots.slice().sort().join(','), remainingLateTeamIds.slice().sort().join(','));
+});
+
+defineCase('marking every team late still creates a complete bracket without duplicate or BYE-only pairs', () => {
+  const teams = ['A', 'B', 'C', 'D', 'E'].map((id) => makeTeam(id));
+  const lateTeamIds = teams.map((team) => team.id);
+  const generated = withRandomPrefix([0, 0, 0, 0, 0], () => generateTournamentStructure(teams, {
+    mode: 'elimination',
+    tournamentName: 'All teams late',
+    lateTeamIds,
+  }));
+  const firstRound = getGeneratedRoundOne(generated.matches);
+  const assignedTeamIds = firstRound
+    .flatMap((match) => [match.teamAId, match.teamBId])
+    .filter((id): id is string => !!id && id !== 'BYE')
+    .sort();
+
+  assertEqual(firstRound.length, 4);
+  assertEqual(firstRound.filter((match) => match.isBye).length, 3);
+  assertEqual(firstRound.filter((match) => !match.isBye).length, 1);
+  assertOk(firstRound.every((match) => !(match.teamAId === 'BYE' && match.teamBId === 'BYE')));
+  assertEqual(assignedTeamIds.join(','), lateTeamIds.slice().sort().join(','));
 });
 
 defineCase('draft reducer supports apply, undo, redo and reset', () => {

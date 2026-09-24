@@ -5,12 +5,14 @@ import { isAdminWriteBlockedByLease } from '../adminWriteLeaseState';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk, markRemoteVersions } from '../dbDiagnostics';
 import { resolveDataPlane } from '../dataPlaneClient';
 import { clearLocalAppStateCaches } from './featureFlags';
-import { acknowledgeRemoteDraftCache, clearRemoteDraftCache, discardRemoteDraftOperation, ensureRemoteDraftCacheDurable, getRemoteDraftOwnerId, hasRemoteDraftCache, isRemoteDraftOwnerActive, readRemoteDraftCache, readRemoteDraftPointer, readRestorableRemoteDraftCache, startRemoteDraftOwnerHeartbeat, touchRemoteDraftOwner, writeRemoteDraftCache } from './remoteDraftCache';
-import type { AppStateRepository, RepositoryUpdateMeta } from './AppStateRepository';
+import { acknowledgeRemoteDraftCache, clearRemoteDraftCache, discardRemoteDraftOperation, discardRestorableRemoteDrafts, ensureRemoteDraftCacheDurable, getRemoteDraftOwnerId, hasRemoteDraftCache, isRemoteDraftOperationClosed, isRemoteDraftOwnerActive, readRemoteDraftCache, readRemoteDraftPointer, readRestorableRemoteDraftCache, startRemoteDraftOwnerHeartbeat, touchRemoteDraftOwner, writeRemoteDraftCache } from './remoteDraftCache';
+import type { AppStateRepository, RepositoryUpdateMeta, ReviewedDraftReconciliation } from './AppStateRepository';
 import { tryMergeRemoteStateConflict } from '../stateConflictMerge';
 import { hasMeaningfulAppState } from '../appStateMeaning';
 import { subscribeWorkspaceStateRealtime } from './workspaceStateRealtime';
-import { appendDurableStateCheckpoint, listDurableStateCheckpoints } from './durableStateJournal';
+import { appendDurableStateCheckpoint, listDurableStateCheckpoints, readDurableStateCheckpoint } from './durableStateJournal';
+import { normalizeWorkspaceVersion } from '../workspaceVersion';
+import { stableStateSerialize } from '../stableStateSerialize';
 
 /**
  * Remote repository (Supabase REST).
@@ -31,6 +33,7 @@ export class RemoteRepository implements AppStateRepository {
   private readonly instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private readonly draftOwnerId = getRemoteDraftOwnerId();
   private pullKicked = false;
+  private externalRestorePaused = false;
   private pendingTimer: number | null = null;
   private pendingState: AppState | null = null;
   private pendingOperationId: string | null = null;
@@ -45,12 +48,15 @@ export class RemoteRepository implements AppStateRepository {
   private lastRemoteVersion: number | null = null;
   private lastStateFingerprint = '';
   private conflictedDraftFingerprint: string | null = null;
+  private conflictMergeAttempts = 0;
   private lastRemoteState: AppState | null = null;
   private flushFailureCount = 0;
   private flushCooldownUntil = 0;
   private flushLifecycleBypassUsedForCooldownUntil = 0;
   private flushBackoffTimer: number | null = null;
   private durableRecoveryInFlight: Promise<void> | null = null;
+  private restoredDraftNeedsBaseline = false;
+  private restoredDraftBlocked = false;
 
   private isAdminViewActive(): boolean {
     try {
@@ -142,8 +148,10 @@ export class RemoteRepository implements AppStateRepository {
       this.pendingState = cachedDraft.state;
       this.pendingOperationId = cachedDraft.operationId;
       this.pendingBaseUpdatedAt = cachedDraft.baseUpdatedAt || null;
-      this.pendingBaseVersion = cachedDraft.baseVersion ?? null;
+      this.pendingBaseVersion = normalizeWorkspaceVersion(cachedDraft.baseVersion);
       this.pendingGeneration += 1;
+      this.restoredDraftNeedsBaseline = true;
+      this.restoredDraftBlocked = false;
       markAdminSyncPending(this.source);
       return true;
     }
@@ -153,6 +161,8 @@ export class RemoteRepository implements AppStateRepository {
       this.pendingOperationId = null;
       this.pendingBaseUpdatedAt = null;
       this.pendingBaseVersion = null;
+      this.restoredDraftNeedsBaseline = false;
+      this.restoredDraftBlocked = false;
     }
     return false;
   }
@@ -162,6 +172,7 @@ export class RemoteRepository implements AppStateRepository {
     const rows = await listDurableStateCheckpoints();
     const candidates = rows
       .filter((row) => row?.status === 'pending' && row?.operationId && row?.state)
+      .filter((row) => !isRemoteDraftOperationClosed(row.operationId))
       .filter((row) => !row.workspaceId || row.workspaceId === workspaceId)
       .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
     let checkpoint = candidates.find((row) => !row.ownerId || row.ownerId === this.draftOwnerId) || null;
@@ -177,7 +188,7 @@ export class RemoteRepository implements AppStateRepository {
       checkpoint.state,
       checkpoint.baseUpdatedAt || null,
       checkpoint.operationId,
-      checkpoint.baseVersion ?? null,
+      normalizeWorkspaceVersion(checkpoint.baseVersion),
       this.draftOwnerId,
       checkpoint.writerId ?? null,
     );
@@ -185,8 +196,10 @@ export class RemoteRepository implements AppStateRepository {
     this.pendingState = coerceAppState(checkpoint.state);
     this.pendingOperationId = checkpoint.operationId;
     this.pendingBaseUpdatedAt = checkpoint.baseUpdatedAt || null;
-    this.pendingBaseVersion = checkpoint.baseVersion ?? null;
+    this.pendingBaseVersion = normalizeWorkspaceVersion(checkpoint.baseVersion);
     this.pendingGeneration += 1;
+    this.restoredDraftNeedsBaseline = true;
+    this.restoredDraftBlocked = false;
     markAdminSyncPending(this.source);
     this.emit(this.pendingState, { updatedAt: checkpoint.baseUpdatedAt || undefined });
     return true;
@@ -264,7 +277,7 @@ export class RemoteRepository implements AppStateRepository {
 
   private fingerprint(state: AppState): string {
     try {
-      return JSON.stringify(state);
+      return stableStateSerialize(coerceAppState(state));
     } catch {
       return `${Date.now()}`;
     }
@@ -272,8 +285,7 @@ export class RemoteRepository implements AppStateRepository {
 
   private rememberRemoteState(state: AppState, updatedAt?: string | null, opts?: { broadcast?: boolean; version?: number | null }) {
     const incomingVersion = opts && Object.prototype.hasOwnProperty.call(opts, 'version')
-      && Number.isInteger(Number(opts.version))
-      ? Number(opts.version)
+      ? normalizeWorkspaceVersion(opts.version)
       : null;
     if (
       incomingVersion != null
@@ -316,100 +328,171 @@ export class RemoteRepository implements AppStateRepository {
     }
   }
 
-  private async resolveEquivalentRemoteConflict(localState: AppState, localFingerprint: string): Promise<boolean> {
-    try {
-      const row = await pullWorkspaceState({
-        source: 'RemoteRepository.resolveEquivalentRemoteConflict',
-        kind: 'admin',
-      });
-      if (!row?.state) return false;
+  /**
+   * A draft recovered after a reload belongs to a remote baseline from the
+   * previous document. Verify that cursor before the first write. This avoids
+   * replaying an old WebView/IndexedDB checkpoint just because the Admin page
+   * mounted and echoed the recovered state through React's persistence effect.
+   */
+  private async validateRestoredDraftBaseline(
+    state: AppState,
+    generation: number,
+    operationId: string | null,
+    baseUpdatedAt: string | null,
+    baseVersion: number | null,
+  ): Promise<boolean> {
+    if (!this.restoredDraftNeedsBaseline) return !this.restoredDraftBlocked;
 
-      const remoteState = coerceAppState(row.state);
-      const remoteFingerprint = this.fingerprint(remoteState);
-      if (remoteFingerprint !== localFingerprint) return false;
-
-      const completedOperationId = this.pendingOperationId;
-      this.pendingState = null;
-      this.pendingOperationId = null;
-      this.pendingBaseUpdatedAt = null;
-      this.pendingBaseVersion = null;
-      acknowledgeRemoteDraftCache(row.updated_at || null, completedOperationId);
-      this.rememberRemoteState(remoteState, row.updated_at || null, { version: row.version ?? null });
-      clearDbSyncCurrentIssue();
-      markDbSyncOk('snapshot');
-      markAdminSyncSynced(row.updated_at || null, this.source);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async resolveMergeableRemoteConflict(localState: AppState): Promise<boolean> {
-    if (!this.lastRemoteState) return false;
+    const fingerprint = this.fingerprint(state);
+    const isStillCurrent = () => this.pendingGeneration === generation
+      && this.pendingOperationId === operationId
+      && !!this.pendingState
+      && this.fingerprint(this.pendingState) === fingerprint;
 
     try {
       const row = await pullWorkspaceState({
-        source: 'RemoteRepository.resolveMergeableRemoteConflict',
+        source: 'RemoteRepository.validateRestoredDraftBaseline',
         kind: 'admin',
       });
-      if (!row?.state) return false;
+      if (!row?.state) {
+        throw new Error('Il database autorevole non ha restituito uno snapshot verificabile.');
+      }
+      if (!isStillCurrent()) return false;
 
       const remoteState = coerceAppState(row.state);
-      const mergeResult = tryMergeRemoteStateConflict({
-        baseState: this.lastRemoteState,
-        localState,
-        remoteState,
-      });
-      if (!mergeResult.ok) return false;
-
-      const mergedFingerprint = this.fingerprint(mergeResult.state);
       const remoteFingerprint = this.fingerprint(remoteState);
-      if (mergedFingerprint === remoteFingerprint) {
-        const completedOperationId = this.pendingOperationId;
+      const remoteVersion = normalizeWorkspaceVersion(row.version);
+      const draftVersion = normalizeWorkspaceVersion(baseVersion);
+      const remoteUpdatedAt = row.updated_at || null;
+
+      if (remoteFingerprint === fingerprint) {
         this.pendingState = null;
         this.pendingOperationId = null;
         this.pendingBaseUpdatedAt = null;
         this.pendingBaseVersion = null;
-        acknowledgeRemoteDraftCache(row.updated_at || null, completedOperationId);
-        this.rememberRemoteState(remoteState, row.updated_at || null, { version: row.version ?? null });
+        this.restoredDraftNeedsBaseline = false;
+        this.restoredDraftBlocked = false;
+        this.pendingGeneration += 1;
+        this.clearFlushBackoff();
+        acknowledgeRemoteDraftCache(remoteUpdatedAt, operationId);
+        this.rememberRemoteState(remoteState, remoteUpdatedAt, { version: remoteVersion });
         clearDbSyncCurrentIssue();
         markDbSyncOk('snapshot');
-        markAdminSyncSynced(row.updated_at || null, this.source);
+        markAdminSyncSynced(remoteUpdatedAt, this.source);
+        return false;
+      }
+
+      // Local SQLite always exposes a numeric version. Older cloud schemas may
+      // expose only updated_at, so use the timestamp strictly as a fallback
+      // when the authoritative row has no version at all.
+      const cursorMatches = remoteVersion != null
+        ? draftVersion != null && draftVersion === remoteVersion
+        : !!baseUpdatedAt && !!remoteUpdatedAt && baseUpdatedAt === remoteUpdatedAt;
+
+      this.rememberRemoteState(remoteState, remoteUpdatedAt, { version: remoteVersion });
+      if (cursorMatches) {
+        this.restoredDraftNeedsBaseline = false;
+        this.restoredDraftBlocked = false;
         return true;
       }
 
-      this.pendingState = mergeResult.state;
-      const mergeDraft = writeRemoteDraftCache(
-        mergeResult.state,
-        row.updated_at || null,
-        this.pendingOperationId || readRemoteDraftCache()?.operationId,
-        row.version ?? null,
-      );
-      this.pendingOperationId = mergeDraft.operationId;
-      this.pendingBaseUpdatedAt = row.updated_at || null;
-      this.pendingBaseVersion = Number.isInteger(Number(row.version)) ? Number(row.version) : null;
-      if (!(await ensureRemoteDraftCacheDurable(mergeDraft.operationId))) {
-        throw new Error('Checkpoint del merge non disponibile: la bozza resta locale e non viene inviata.');
-      }
-      setRemoteBaseUpdatedAt(row.updated_at || null);
+      this.restoredDraftNeedsBaseline = false;
+      this.restoredDraftBlocked = true;
+      this.conflictedDraftFingerprint = fingerprint;
+      this.clearFlushBackoff();
+      const draftLabel = draftVersion == null ? 'senza versione valida' : `v${draftVersion}`;
+      const remoteLabel = remoteVersion == null ? 'con timestamp diverso' : `v${remoteVersion}`;
+      const message = `Bozza recuperata ${draftLabel}, ma il database è ${remoteLabel}. Nessun dato è stato sovrascritto: scegli esplicitamente quale versione usare.`;
+      markDbSyncConflict(message, {
+        remoteUpdatedAt,
+        remoteBaseUpdatedAt: baseUpdatedAt,
+      });
+      markAdminSyncConflictState(message, this.source);
+      return false;
+    } catch (error: any) {
+      if (!isStillCurrent()) return false;
+      const delayMs = this.noteFlushFailure();
+      const retrySeconds = Math.ceil(delayMs / 1000);
+      const message = `${error?.message || 'Impossibile verificare la bozza recuperata.'} Nessuna scrittura eseguita; nuovo controllo tra ${retrySeconds}s.`;
+      markDbSyncError(message);
+      markAdminSyncErrorState(message, this.source);
+      return false;
+    }
+  }
 
-      const pushed = await pushWorkspaceState(mergeResult.state, {
-        operationId: this.pendingOperationId || undefined,
-        baseUpdatedAt: row.updated_at || null,
-        baseVersion: this.pendingBaseVersion,
-      }, {
-        source: 'RemoteRepository.resolveMergeableRemoteConflict.push',
+  private async retireSupersededDraft(operationId: string | null): Promise<void> {
+    const replacementId = this.pendingOperationId;
+    if (!operationId || !replacementId || replacementId === operationId) return;
+    const durable = await ensureRemoteDraftCacheDurable(replacementId);
+    const alreadySynced = !durable && (await readDurableStateCheckpoint(replacementId))?.status === 'synced';
+    if (durable || alreadySynced) await discardRemoteDraftOperation(operationId);
+  }
+
+  private async resolveRemoteConflict(
+    localState: AppState,
+    baseState: AppState | null,
+    operationId: string | null,
+    isStillCurrent: () => boolean,
+  ): Promise<boolean> {
+    try {
+      const row = await pullWorkspaceState({
+        source: 'RemoteRepository.resolveRemoteConflict',
         kind: 'admin',
       });
-      this.pendingState = null;
-      this.pendingOperationId = null;
-      this.pendingBaseUpdatedAt = null;
-      this.pendingBaseVersion = null;
-      acknowledgeRemoteDraftCache(pushed.updated_at || null, mergeDraft.operationId);
-      this.rememberRemoteState(mergeResult.state, pushed.updated_at || null, { broadcast: true, version: pushed.version ?? null });
+      // A newer edit or an explicit recovery owns the draft now. The old
+      // response must never acknowledge, replace or pause that operation.
+      if (!isStillCurrent()) return false;
+      if (!row?.state) return false;
+      const remoteVersion = normalizeWorkspaceVersion(row.version);
+      if (remoteVersion != null && this.lastRemoteVersion != null && remoteVersion < this.lastRemoteVersion) {
+        return false;
+      }
+
+      const remoteState = coerceAppState(row.state);
+      const remoteFingerprint = this.fingerprint(remoteState);
+      const mergeResult = this.fingerprint(localState) === remoteFingerprint
+        ? { ok: true as const, state: remoteState }
+        : tryMergeRemoteStateConflict({ baseState, localState, remoteState });
+      if (mergeResult.ok === false) return false;
+
+      if (this.fingerprint(mergeResult.state) === remoteFingerprint) {
+        this.pendingState = null;
+        this.pendingOperationId = null;
+        this.pendingBaseUpdatedAt = null;
+        this.pendingBaseVersion = null;
+        this.restoredDraftNeedsBaseline = false;
+        this.restoredDraftBlocked = false;
+        acknowledgeRemoteDraftCache(row.updated_at || null, operationId);
+        this.rememberRemoteState(remoteState, row.updated_at || null, { version: remoteVersion });
+        this.clearFlushBackoff();
+        this.conflictMergeAttempts = 0;
+        clearDbSyncCurrentIssue();
+        markDbSyncOk('snapshot');
+        markAdminSyncSynced(row.updated_at || null, this.source);
+        this.emit(remoteState, { updatedAt: row.updated_at || undefined, version: remoteVersion });
+        return true;
+      }
+
+      // The reconciled payload is a new operation against this exact baseline.
+      // Send it through the normal durable flush, including its generation
+      // guards, instead of a second unguarded write path.
+      if (this.conflictMergeAttempts >= 3) return false;
+      this.conflictMergeAttempts += 1;
+      this.rememberRemoteState(remoteState, row.updated_at || null, { version: remoteVersion });
+      this.pendingState = mergeResult.state;
+      this.pendingGeneration += 1;
+      const mergeDraft = writeRemoteDraftCache(mergeResult.state, row.updated_at || null, null, remoteVersion);
+      this.pendingOperationId = mergeDraft.operationId;
+      this.pendingBaseUpdatedAt = mergeDraft.baseUpdatedAt || null;
+      this.pendingBaseVersion = normalizeWorkspaceVersion(mergeDraft.baseVersion);
+      // Retire the original only once its replacement is durable.
+      void this.retireSupersededDraft(operationId);
+      this.clearFlushBackoff();
       clearDbSyncCurrentIssue();
-      markDbSyncOk('snapshot');
-      markAdminSyncSynced(pushed.updated_at || null, this.source);
+      markAdminSyncPending(this.source);
+      // React must continue editing the union, otherwise its next autosave
+      // can undo the remote changes that the merge has just preserved.
+      this.emit(mergeResult.state, { updatedAt: row.updated_at || undefined, version: remoteVersion });
       return true;
     } catch {
       return false;
@@ -440,11 +523,13 @@ export class RemoteRepository implements AppStateRepository {
   acknowledgeExternalCommit = (state: AppState, meta?: RepositoryUpdateMeta): void => {
     const safeState = coerceAppState(state);
     const currentDraft = readRemoteDraftPointer() || readRemoteDraftCache();
-    const completedOperationId = meta?.operationId || null;
-    const closesOwnPendingOperation = !!completedOperationId && (
+    const explicitlyDiscardsPendingDraft = meta?.discardPendingDraft === true;
+    const completedOperationId = meta?.operationId
+      || (explicitlyDiscardsPendingDraft ? (this.pendingOperationId || currentDraft?.operationId || null) : null);
+    const closesOwnPendingOperation = explicitlyDiscardsPendingDraft || (!!completedOperationId && (
       this.pendingOperationId === completedOperationId
       || currentDraft?.operationId === completedOperationId
-    );
+    ));
 
     if (closesOwnPendingOperation) {
       if (this.pendingTimer != null) {
@@ -458,6 +543,8 @@ export class RemoteRepository implements AppStateRepository {
       this.pendingGeneration += 1;
       this.clearFlushBackoff();
       this.conflictedDraftFingerprint = null;
+      this.restoredDraftNeedsBaseline = false;
+      this.restoredDraftBlocked = false;
     }
     acknowledgeRemoteDraftCache(meta?.updatedAt || null, completedOperationId);
 
@@ -465,8 +552,9 @@ export class RemoteRepository implements AppStateRepository {
     // owned by another operation in this window. Keep it durable so a 409 can
     // be reconciled explicitly instead of silently losing the unrelated edit.
     if (this.pendingState || hasRemoteDraftCache()) {
-      if (Number.isInteger(Number(meta?.version))) {
-        this.lastRemoteVersion = Math.max(this.lastRemoteVersion ?? 0, Number(meta?.version));
+      const acknowledgedVersion = normalizeWorkspaceVersion(meta?.version);
+      if (acknowledgedVersion != null) {
+        this.lastRemoteVersion = Math.max(this.lastRemoteVersion ?? 0, acknowledgedVersion);
       }
       this.lastRemoteUpdatedAt = meta?.updatedAt || this.lastRemoteUpdatedAt;
       markAdminSyncPending(this.source);
@@ -482,7 +570,40 @@ export class RemoteRepository implements AppStateRepository {
     markAdminSyncSynced(meta?.updatedAt || null, this.source);
   };
 
+  prepareForExternalRestore = async (): Promise<void> => {
+    this.externalRestorePaused = true;
+    if (this.pendingTimer != null) window.clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+    this.clearFlushBackoff();
+    await this.durableRecoveryInFlight;
+    await this.flushInFlight;
+    await this.pullInFlight;
+    // A drained request may have scheduled a retry in its finally block.
+    if (this.pendingTimer != null) window.clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+    this.clearFlushBackoff();
+  };
+
+  completeExternalRestore = async (state: AppState, meta?: RepositoryUpdateMeta): Promise<void> => {
+    if (!this.externalRestorePaused) throw new Error('Ripristino senza pausa dei salvataggi.');
+    if (!(await discardRestorableRemoteDrafts(this.pendingOperationId))) {
+      throw new Error('Impossibile chiudere le bozze precedenti. Riprova il recupero dello snapshot.');
+    }
+    this.acknowledgeExternalCommit(state, { ...meta, discardPendingDraft: true });
+  };
+
+  resumeAfterExternalRestore = (): void => {
+    this.externalRestorePaused = false;
+    if (this.pendingState) {
+      this.pendingTimer = window.setTimeout(() => {
+        this.pendingTimer = null;
+        void this.flushNow();
+      }, RemoteRepository.REMOTE_SAVE_DEBOUNCE_MS);
+    }
+  };
+
   refresh = async (): Promise<void> => {
+    if (this.externalRestorePaused) return;
     if (this.durableRecoveryInFlight) await this.durableRecoveryInFlight;
     if (!this.pendingState && hasRemoteDraftCache()) {
       this.restoreCachedDraft();
@@ -514,6 +635,7 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   save(state: AppState): void {
+    if (this.externalRestorePaused) return;
     const cfg = getSupabaseConfig();
     if (!cfg) return;
     if (!this.isAdminViewActive()) {
@@ -537,13 +659,27 @@ export class RemoteRepository implements AppStateRepository {
     }
 
     const fingerprint = this.fingerprint(state);
-    this.clearConflictPauseIfStateChanged(fingerprint);
+    if (!this.pendingState || fingerprint !== this.fingerprint(this.pendingState)) {
+      this.conflictMergeAttempts = 0;
+    }
+    if (!this.restoredDraftBlocked) {
+      this.clearConflictPauseIfStateChanged(fingerprint);
+    }
     if (fingerprint === this.lastStateFingerprint && !this.pendingState) {
       clearRemoteDraftCache();
       markAdminSyncSynced(this.lastRemoteUpdatedAt, this.source);
       return;
     }
 
+    // A pending draft keeps its original cursor even if an independent match
+    // patch has advanced the server. Only a confirmed flush/merge rebases it.
+    const preservesPendingCursor = !!this.pendingState || this.restoredDraftNeedsBaseline || this.restoredDraftBlocked;
+    const draftBaseUpdatedAt = preservesPendingCursor
+      ? (this.pendingBaseUpdatedAt ?? this.lastRemoteUpdatedAt)
+      : this.lastRemoteUpdatedAt;
+    const draftBaseVersion = preservesPendingCursor
+      ? (this.pendingBaseVersion ?? this.lastRemoteVersion)
+      : this.lastRemoteVersion;
     this.pendingState = state;
     this.pendingGeneration += 1;
     const cachedOperationId = readRemoteDraftCache()?.operationId || null;
@@ -553,14 +689,23 @@ export class RemoteRepository implements AppStateRepository {
       : (this.pendingOperationId || cachedOperationId);
     const draft = writeRemoteDraftCache(
       state,
-      this.lastRemoteUpdatedAt,
+      draftBaseUpdatedAt,
       reusableOperationId,
-      this.lastRemoteVersion,
+      draftBaseVersion,
     );
     this.pendingOperationId = draft.operationId;
     this.pendingBaseUpdatedAt = draft.baseUpdatedAt || null;
     this.pendingBaseVersion = draft.baseVersion ?? null;
     markAdminSyncPending(this.source);
+
+    if (this.restoredDraftBlocked) {
+      this.conflictedDraftFingerprint = fingerprint;
+      markAdminSyncConflictState(
+        'Questa bozza proviene da una versione precedente del database. Resta esportabile, ma non verrà inviata finché non scegli esplicitamente quale versione usare.',
+        this.source,
+      );
+      return;
+    }
 
     if (this.pendingTimer != null) {
       window.clearTimeout(this.pendingTimer);
@@ -571,22 +716,80 @@ export class RemoteRepository implements AppStateRepository {
     }, RemoteRepository.REMOTE_SAVE_DEBOUNCE_MS);
   }
 
-  flush = async (): Promise<void> => {
+  reconcileDraft = async (state: AppState, review: ReviewedDraftReconciliation): Promise<AppState | void> => {
+    if (this.externalRestorePaused) throw new Error("Ripristino database in corso.");
+    if (this.durableRecoveryInFlight) await this.durableRecoveryInFlight;
+    if (this.flushInFlight) await this.flushInFlight;
+    const route = await resolveDataPlane({ force: true });
+    if (this.externalRestorePaused) throw new Error("Ripristino database in corso.");
+    if (route.mode !== review.dataPlane.mode || route.epoch !== review.dataPlane.epoch
+      || (route.mode === 'local' && route.baseUrl !== review.dataPlane.baseUrl)) {
+      throw new Error('Il database principale è cambiato. Ripeti il confronto.');
+    }
+    if (!this.isAdminViewActive() || isAdminWriteBlockedByLease()) {
+      throw new Error('Acquisisci il controllo Admin prima di recuperare le modifiche.');
+    }
+    const current = this.pendingState || this.lastRemoteState;
+    if (!current || this.fingerprint(current) !== this.fingerprint(review.expectedDraftState)
+      || (review.expectedDraftOperationId && this.pendingOperationId !== review.expectedDraftOperationId)) {
+      throw new Error('La bozza è cambiata. Ripeti il confronto prima di recuperarla.');
+    }
+    const version = normalizeWorkspaceVersion(review.baseVersion);
+    if ((route.mode === 'local' && version == null)
+      || (version != null && this.lastRemoteVersion != null && version < this.lastRemoteVersion)
+      || (route.mode === 'cloud' && !review.baseUpdatedAt)) {
+      throw new Error('La versione confrontata non è più valida. Ripeti il confronto.');
+    }
+    const oldOperationId = this.pendingOperationId;
+    const next = coerceAppState(state);
+    this.rememberRemoteState(review.baseState, review.baseUpdatedAt, { version });
+    this.pendingState = next;
+    this.pendingGeneration += 1;
+    const draft = writeRemoteDraftCache(next, review.baseUpdatedAt, null, version);
+    this.pendingOperationId = draft.operationId;
+    this.pendingBaseUpdatedAt = draft.baseUpdatedAt || null;
+    this.pendingBaseVersion = version;
+    this.restoredDraftNeedsBaseline = false;
+    this.restoredDraftBlocked = false;
+    this.conflictMergeAttempts = 0;
+    this.clearFlushBackoff();
+    // This explicit review replaces the stale draft only once the selected
+    // changes have their own durable checkpoint. All writes still use CAS.
+    void this.retireSupersededDraft(oldOperationId);
+    markAdminSyncPending(this.source);
+    this.emit(next, { updatedAt: review.baseUpdatedAt || undefined, version });
+    return this.flush();
+  };
+
+  flush = async (): Promise<AppState | void> => {
     if (this.pendingTimer != null) {
       window.clearTimeout(this.pendingTimer);
       this.pendingTimer = null;
     }
-    await this.flushNow();
+    // Drain edits/merges queued during an in-flight request, but stop on an
+    // unchanged pending generation (offline, real conflict or write lease).
+    let generation: number;
+    do {
+      generation = this.pendingGeneration;
+      await this.flushNow();
+    } while (this.pendingState && this.pendingGeneration !== generation);
+    if (!this.pendingState && !hasRemoteDraftCache() && this.lastRemoteState) return this.lastRemoteState;
   };
 
   private async pullAndApply(opts?: { forceEmit?: boolean }): Promise<boolean> {
+    if (this.externalRestorePaused) return false;
     if (this.pendingState || hasRemoteDraftCache()) return false;
     if (this.pullInFlight) return this.pullInFlight;
 
+    const generation = this.pendingGeneration;
     this.pullInFlight = (async () => {
       try {
         const row = await pullWorkspaceState();
         if (!row?.state) return false;
+        if (this.externalRestorePaused) return false;
+        if (this.pendingState || hasRemoteDraftCache() || generation !== this.pendingGeneration) return false;
+        const incomingVersion = normalizeWorkspaceVersion(row.version);
+        if (incomingVersion != null && this.lastRemoteVersion != null && incomingVersion < this.lastRemoteVersion) return false;
 
         const nextState = coerceAppState(row.state);
         const nextFingerprint = this.fingerprint(nextState);
@@ -613,6 +816,7 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   private async flushNow(opts?: { allowDuringBackoff?: boolean }) {
+    if (this.externalRestorePaused) return;
     if (this.flushInFlight) {
       await this.flushInFlight;
       return;
@@ -632,6 +836,13 @@ export class RemoteRepository implements AppStateRepository {
     } finally {
       if (this.flushInFlight === work) this.flushInFlight = null;
       if (this.activeFlushOperationId === operationId) this.activeFlushOperationId = null;
+      if (this.pendingState && this.pendingGeneration !== generation && !this.restoredDraftBlocked) {
+        if (this.pendingTimer != null) window.clearTimeout(this.pendingTimer);
+        this.pendingTimer = window.setTimeout(() => {
+          this.pendingTimer = null;
+          void this.flushNow();
+        }, 0);
+      }
     }
   }
 
@@ -643,6 +854,7 @@ export class RemoteRepository implements AppStateRepository {
     baseVersion: number | null,
     opts?: { allowDuringBackoff?: boolean },
   ) {
+    let baseState = this.lastRemoteState;
     const isStillCurrent = () => this.pendingGeneration === generation
       && this.pendingOperationId === operationId
       && !!this.pendingState
@@ -662,6 +874,19 @@ export class RemoteRepository implements AppStateRepository {
     }
 
     const fingerprint = this.fingerprint(state);
+
+    if (this.restoredDraftNeedsBaseline) {
+      const baselineIsCurrent = await this.validateRestoredDraftBaseline(
+        state,
+        generation,
+        operationId,
+        baseUpdatedAt,
+        baseVersion,
+      );
+      if (!baselineIsCurrent) return;
+      baseState = this.lastRemoteState;
+    }
+    if (this.restoredDraftBlocked) return;
 
     // A local Admin session is authenticated by the local server token and its
     // SQLite write lease, so it intentionally has no Supabase access token.
@@ -727,7 +952,7 @@ export class RemoteRepository implements AppStateRepository {
       }
       const row = await pushWorkspaceState(state, { operationId, baseUpdatedAt, baseVersion });
       const completedLatestDraft = isStillCurrent();
-      const responseVersion = Number.isInteger(Number(row.version)) ? Number(row.version) : null;
+      const responseVersion = normalizeWorkspaceVersion(row.version);
       const responseWasSuperseded = !completedLatestDraft
         && responseVersion != null
         && this.lastRemoteVersion != null
@@ -738,7 +963,7 @@ export class RemoteRepository implements AppStateRepository {
         // cursor; leave any newer pending draft untouched and discard only
         // the obsolete operation.
         acknowledgeRemoteDraftCache(this.lastRemoteUpdatedAt, operationId);
-        discardRemoteDraftOperation(operationId);
+        void discardRemoteDraftOperation(operationId);
         return;
       }
       if (completedLatestDraft) {
@@ -749,6 +974,7 @@ export class RemoteRepository implements AppStateRepository {
       }
       this.rememberRemoteState(state, row.updated_at || null, { broadcast: true, version: row.version ?? null });
       this.clearFlushBackoff();
+      this.conflictMergeAttempts = 0;
       acknowledgeRemoteDraftCache(row.updated_at || null, operationId);
       clearDbSyncCurrentIssue();
       markDbSyncOk('snapshot');
@@ -756,7 +982,10 @@ export class RemoteRepository implements AppStateRepository {
         markAdminSyncSynced(row.updated_at || null, this.source);
       } else {
         this.pendingBaseUpdatedAt = row.updated_at || null;
-        this.pendingBaseVersion = Number.isInteger(Number(row.version)) ? Number(row.version) : null;
+        this.pendingBaseVersion = normalizeWorkspaceVersion(row.version);
+        if (this.pendingState) {
+          writeRemoteDraftCache(this.pendingState, this.pendingBaseUpdatedAt, this.pendingOperationId, this.pendingBaseVersion);
+        }
         markAdminSyncPending(this.source);
         if (this.pendingTimer != null) window.clearTimeout(this.pendingTimer);
         this.pendingTimer = window.setTimeout(() => {
@@ -771,7 +1000,7 @@ export class RemoteRepository implements AppStateRepository {
         // payload (typically an interrupted older browser draft). Reusing it
         // can never succeed. Keep the exact state/base cursor, retire only
         // the collided key and retry with a fresh operation id.
-        if (operationId) discardRemoteDraftOperation(operationId);
+        if (operationId) void discardRemoteDraftOperation(operationId);
         const draft = writeRemoteDraftCache(state, baseUpdatedAt, null, baseVersion);
         this.pendingOperationId = draft.operationId;
         this.pendingBaseUpdatedAt = draft.baseUpdatedAt || null;
@@ -787,10 +1016,14 @@ export class RemoteRepository implements AppStateRepository {
         return;
       }
       if (e?.code === 'FLBP_DB_CONFLICT' && failedLatestDraft) {
-        const equivalentRemote = await this.resolveEquivalentRemoteConflict(state, fingerprint);
-        if (equivalentRemote) return;
-        const mergedRemote = await this.resolveMergeableRemoteConflict(state);
-        if (mergedRemote) return;
+        const resolved = await this.resolveRemoteConflict(state, baseState, operationId, isStillCurrent);
+        if (resolved) return;
+      }
+      // Recheck after the asynchronous conflict read as the user can edit
+      // while it is in flight.
+      if (!isStillCurrent()) {
+        await this.retireSupersededDraft(operationId);
+        return;
       }
       if (failedLatestDraft) {
         this.pendingState = state;
@@ -802,7 +1035,7 @@ export class RemoteRepository implements AppStateRepository {
       } else if (operationId) {
         // A newer full-state draft already contains this edit. It owns a new
         // operationId and must never be overwritten by the older response.
-        discardRemoteDraftOperation(operationId);
+        void discardRemoteDraftOperation(operationId);
       }
 
       if (e?.code === 'FLBP_DB_CONFLICT' && failedLatestDraft) {
@@ -813,7 +1046,7 @@ export class RemoteRepository implements AppStateRepository {
           remoteBaseUpdatedAt: e?.remoteBaseUpdatedAt || null
         });
         markAdminSyncConflictState(
-          'Conflitto di sincronizzazione: un altro admin ha già aggiornato il DB. Ho messo in pausa i retry automatici su questo device finché non fai recovery o una nuova modifica reale.',
+          'Le versioni locale e del server contengono differenze che non posso unire automaticamente. La bozza è conservata: confronta le due versioni prima di scegliere quale usare.',
           this.source
         );
       } else {

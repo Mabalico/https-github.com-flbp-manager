@@ -55,6 +55,40 @@ if (/repo\.flush|flushAutoStructuredSync/.test(checkpointBlock)) {
   failures.push('App.tsx: il checkpoint lifecycle contiene ancora una scrittura di rete.');
 }
 
+const adminDashboard = read('components/AdminDashboard.tsx');
+if (!/resetFantaPhaseAfterTournamentArchive[\s\S]{0,800}resetFantaConfigToPretournament\(\)/.test(adminDashboard)) {
+  failures.push('AdminDashboard deve riallineare fanta_config al Pretorneo soltanto dopo la chiusura del torneo.');
+}
+const fantaArchiveResetCalls = adminDashboard.match(/await resetFantaPhaseAfterTournamentArchive\(\)/g) || [];
+if (fantaArchiveResetCalls.length < 2) {
+  failures.push('Entrambi i percorsi di archiviazione (con e senza MVP) devono riallineare Fanta al Pretorneo.');
+}
+
+const backupOperations = 'supabase/functions/database-backup-admin/operations.ts';
+const restoreMigration = 'supabase/migrations/20260924000200_database_backup_atomic_restore.sql';
+const restoreSql = read(restoreMigration);
+requirePattern(backupOperations, /flbp_restore_application_database/,
+  'il restore deve usare una sola transazione PostgreSQL');
+forbidPattern('supabase/functions/database-backup-admin/index.ts', /\.delete\(|\.insert\(/,
+  'la Edge Function non deve ripristinare con chiamate REST indipendenti');
+forbidPattern(backupOperations, /\.delete\(|\.insert\(/,
+  'nessun fallback distruttivo se la RPC manca');
+requirePattern(restoreMigration, /database_restore_checkpoints[\s\S]*previous_backup/,
+  'il restore deve conservare un checkpoint precedente');
+requirePattern(restoreMigration, /fanta_rosters r join public\.fanta_teams t[\s\S]{0,100}t\.workspace_id = p_workspace_id/,
+  'export rose Fanta limitato al workspace tramite la squadra');
+requirePattern(restoreMigration, /delete from public\.fanta_rosters r using public\.fanta_teams t[\s\S]{0,100}t\.workspace_id = p_workspace_id/,
+  'restore rose Fanta limitato al workspace tramite la squadra');
+const backupOrder = restoreSql.slice(restoreSql.indexOf('select array['), restoreSql.indexOf(']::text[];'));
+if (backupOrder.indexOf("'fanta_archived_editions'") < 0
+  || backupOrder.indexOf("'fanta_archived_rosters'") < backupOrder.indexOf("'fanta_archived_editions'")) {
+  failures.push('Backup: edizioni Fanta prima dei roster in inserimento.');
+}
+requirePattern(restoreMigration, /for v_index in reverse array_length\(v_order, 1\)\.\.1 loop/,
+  'cancellazione in ordine inverso rispetto agli inserimenti');
+requirePattern(restoreMigration, /flbp_upsert_public_workspace_live\(p_workspace_id, v_public_state, v_now\)/,
+  'il ripristino deve ricostruire il mirror live');
+
 requirePattern(
   'services/repository/remoteDraftCache.ts',
   /readRestorableRemoteDraftCache[\s\S]{0,400}return entry/,
@@ -69,6 +103,21 @@ requirePattern(
   'services/repository/remoteDraftCache.ts',
   /ensureRemoteDraftCacheDurable[\s\S]{0,400}readDurableStateCheckpoint/,
   'la conferma di durabilità deve riconoscere anche un checkpoint presente solo in IndexedDB',
+);
+requirePattern(
+  'services/repository/RemoteRepository.ts',
+  /restoredDraftNeedsBaseline[\s\S]{0,18000}validateRestoredDraftBaseline[\s\S]{0,1800}pullWorkspaceState/,
+  'una bozza recuperata deve verificare la baseline autorevole prima del primo push',
+);
+forbidPattern(
+  'services/repository/remoteDraftCache.ts',
+  /Number\.isInteger\(Number\([^)]*baseVersion/,
+  'una baseVersion assente non deve essere convertita implicitamente in zero',
+);
+requirePattern(
+  'components/admin/tabs/data/DbSyncPanel.tsx',
+  /const discardedOperationId[\s\S]{0,1600}committedOperationId:\s*discardedOperationId[\s\S]{0,160}discardPendingDraft:\s*true/,
+  'applicare la versione DB deve chiudere anche la bozza pending del repository',
 );
 requirePattern(
   'components/RefereesArea.tsx',

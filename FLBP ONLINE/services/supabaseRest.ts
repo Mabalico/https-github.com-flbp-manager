@@ -9,6 +9,7 @@ import { fetchWithDevRequestPerf, type DevRequestPerfKind, type DevRequestPerfMe
 import { getAdminLeaseHolderForWrites, isAdminWriteBlockedByLease, setAdminLeaseInfo } from './adminWriteLeaseState';
 import { commitLocalMatchResult, commitLocalWorkspace, makeDataOperationId, pullLocalWorkspace, recoverLocalWorkspace, resolveDataPlane, verifyLocalReferee } from './dataPlaneClient';
 import { clearVerifiedAdminSession, rememberVerifiedAdminSession } from './localAdminContinuity';
+import { normalizeWorkspaceVersion } from './workspaceVersion';
 
 type Json = any;
 
@@ -1546,12 +1547,16 @@ export type FullDatabaseBackupPayload = {
     workspaceId: string;
     exportedAt: string;
     tables: Record<string, { rows: Array<Record<string, unknown>>; rowCount: number }>;
+    recovery?: Record<string, { rows: Array<Record<string, unknown>>; rowCount: number }>;
     warnings?: string[];
 };
 
 export type FullDatabaseBackupRestoreResult = {
     ok: boolean;
     workspaceId?: string;
+    operationId?: string;
+    checkpointId?: string;
+    version?: number;
     summary?: Record<string, { deleted: number; inserted: number }>;
     warnings?: string[];
     reason?: string;
@@ -1563,7 +1568,15 @@ const callDatabaseBackupAdmin = async (
     source: string
 ): Promise<unknown> => {
     const cfg = getSupabaseConfig();
-    if (!cfg) throw new Error('Supabase non configurato');
+    if (!cfg) throw Object.assign(new Error('Supabase non configurato'), { restoreNotCommitted: true });
+    const requestError = (body: string) => {
+        let detail: { reason?: string; restoreNotCommitted?: boolean } = {};
+        try {
+            const parsed = JSON.parse(body);
+            if (parsed && typeof parsed === 'object') detail = parsed;
+        } catch { /* A gateway error has an uncertain outcome. */ }
+        return Object.assign(new Error(detail.reason || body), { restoreNotCommitted: detail.restoreNotCommitted === true });
+    };
 
     const postBackupAdmin = (accessToken: string) => fetchWithTimeout(
         functionsUrl(cfg, 'database-backup-admin'),
@@ -1579,7 +1592,9 @@ const callDatabaseBackupAdmin = async (
         { source, kind: 'admin' }
     );
 
-    let session = await requireSupabaseWriteSession();
+    let session;
+    try { session = await requireSupabaseWriteSession(); }
+    catch (error) { throw Object.assign(error instanceof Error ? error : new Error(String(error)), { restoreNotCommitted: true }); }
     let res = await postBackupAdmin(session.accessToken);
     if (!res.ok) {
         const errorBody = await readErrorBody(res);
@@ -1589,14 +1604,14 @@ const callDatabaseBackupAdmin = async (
                 session = retrySession;
                 res = await postBackupAdmin(session.accessToken);
             } else {
-                throw new Error(errorBody);
+                throw requestError(errorBody);
             }
         } else {
-            throw new Error(errorBody);
+            throw requestError(errorBody);
         }
     }
 
-    if (!res.ok) throw new Error(await readErrorBody(res));
+    if (!res.ok) throw requestError(await readErrorBody(res));
     return await res.json();
 };
 
@@ -1614,19 +1629,47 @@ export const exportFullDatabaseBackup = async (): Promise<FullDatabaseBackupPayl
 };
 
 export const restoreFullDatabaseBackup = async (
-    backup: FullDatabaseBackupPayload
+    backup: FullDatabaseBackupPayload,
+    options?: { operationId?: string }
 ): Promise<FullDatabaseBackupRestoreResult> => {
     if (backup?.exportType !== 'flbp_application_database_backup') {
-        throw new Error('File backup DB applicativo non valido.');
+        throw Object.assign(new Error('File backup DB applicativo non valido.'), { restoreNotCommitted: true });
     }
-    const payload = await callDatabaseBackupAdmin(
-        { action: 'restore', backup },
-        90000,
-        'restoreFullDatabaseBackup'
-    ) as FullDatabaseBackupRestoreResult;
+    // Keep the same logical ID when the Edge session is refreshed and retried.
+    const operationId = options?.operationId || globalThis.crypto?.randomUUID?.()
+        || `restore-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // During staggered deployments a legacy Edge would otherwise ignore the
+    // operation ID and execute its old non-transactional delete/insert path.
+    try {
+        const capabilities = await callDatabaseBackupAdmin(
+            { action: 'capabilities' }, 15000, 'restoreFullDatabaseBackup.capabilities'
+        ) as { ok?: boolean; transactionalRestore?: number };
+        if (!capabilities?.ok || capabilities.transactionalRestore !== 1) {
+            throw new Error('Aggiornare la funzione database-backup-admin prima di ripristinare il database.');
+        }
+    } catch (error) {
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), { restoreNotCommitted: true });
+    }
+    let payload: FullDatabaseBackupRestoreResult;
+    try {
+        payload = await callDatabaseBackupAdmin(
+            { action: 'restore', backup, operationId, leaseHolder: getAdminLeaseHolderForWrites() },
+            90000,
+            'restoreFullDatabaseBackup'
+        ) as FullDatabaseBackupRestoreResult;
+    } catch (error) {
+        if ((error as { restoreNotCommitted?: boolean })?.restoreNotCommitted === true) throw error;
+        throw Object.assign(new Error('Esito del ripristino non verificabile. Controlla la connessione e riprova il recupero prima di continuare.', { cause: error }), { restoreNotCommitted: false });
+    }
 
     if (!payload.ok) {
         throw new Error(payload.reason || 'Ripristino DB completo non riuscito.');
+    }
+    if (payload.operationId !== operationId || payload.checkpointId !== operationId
+        || payload.workspaceId !== backup.workspaceId
+        || !Number.isSafeInteger(payload.version) || Number(payload.version) < 1) {
+        // A response without the matching transaction receipt is uncertain.
+        throw new Error('Conferma del ripristino incompleta. Riprova il recupero con la stessa operazione.');
     }
     return payload;
 };
@@ -2731,7 +2774,7 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
     return { ok, checks };
 };
 
-export const pullWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow | null> => {
+export const pullWorkspaceState = async (perf?: RequestPerfHint & { requireVersion?: boolean }): Promise<SupabaseWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const route = await resolveDataPlane();
@@ -3999,12 +4042,19 @@ const makeConflictError = (message: string, meta?: { remoteUpdatedAt?: string | 
     return e;
 };
 
-export const pushWorkspaceState = async (state: AppState, opts?: {
+export type WorkspacePushOptions = {
     force?: boolean;
     operationId?: string;
     baseVersion?: number | null;
     baseUpdatedAt?: string | null;
-}, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+};
+
+export type LiveTournamentProjectionOptions = WorkspacePushOptions & {
+    /** Recovery flows must surface public mirror failures instead of hiding them. */
+    strictPublicMirror?: boolean;
+};
+
+export const pushWorkspaceState = async (state: AppState, opts?: WorkspacePushOptions, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     if (isAdminWriteBlockedByLease()) {
@@ -4012,9 +4062,9 @@ export const pushWorkspaceState = async (state: AppState, opts?: {
     }
     const route = await resolveDataPlane();
     if (route.mode === 'local') {
-        const baseVersion = Number(opts?.baseVersion);
+        const baseVersion = normalizeWorkspaceVersion(opts?.baseVersion);
         const writerId = getAdminLeaseHolderForWrites();
-        if (!Number.isInteger(baseVersion) || baseVersion < 0) {
+        if (baseVersion == null) {
             throw makeConflictError('Versione locale di partenza mancante: ricarica i dati prima di salvare.');
         }
         if (!writerId) throw new Error('FLBP_LEASE_READONLY: controllo Admin locale non acquisito.');
@@ -4110,7 +4160,7 @@ export const pushWorkspaceState = async (state: AppState, opts?: {
                 (remoteUpdatedAt ? `DB updated_at: ${remoteUpdatedAt}\n` : '') +
                 (baseUpdatedAt ? `Base locale: ${baseUpdatedAt}\n` : '') +
                 (local ? `Local updated_at: ${local}\n` : '') +
-                'Scarica lo stato dal DB e applicalo, oppure abilita "Forza sovrascrittura" per sovrascrivere.',
+                'Apri “Persistenza e backup”, confronta le due versioni e scegli quale rendere autorevole.',
                 { remoteUpdatedAt, remoteBaseUpdatedAt: baseUpdatedAt || null }
             );
         }
@@ -4132,6 +4182,13 @@ export type WorkspaceLocalRecoveryResult = SupabaseWorkspaceStateRow & {
     operation_id?: string | null;
     previous_version?: number | null;
     preserved_referee_match_ids?: string[];
+};
+
+export type WorkspaceLocalRecoveryOptions = {
+    operationId?: string;
+    expectedRemoteUpdatedAt?: string | null;
+    expectedRemoteVersion?: number | null;
+    requiredDataPlane?: 'cloud' | 'local';
 };
 
 const preserveCloudRefereeReportsForRecovery = (
@@ -4187,8 +4244,9 @@ const preserveCloudRefereeReportsForRecovery = (
  */
 export const recoverWorkspaceFromLocalState = async (
     state: AppState,
-    operationId = makeDataOperationId(),
+    options: WorkspaceLocalRecoveryOptions = {},
 ): Promise<WorkspaceLocalRecoveryResult> => {
+    const operationId = options.operationId || makeDataOperationId();
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     if (isAdminWriteBlockedByLease()) {
@@ -4198,14 +4256,22 @@ export const recoverWorkspaceFromLocalState = async (
     if (!writerId) throw new Error('FLBP_LEASE_READONLY: controllo Admin non acquisito.');
 
     const route = await resolveDataPlane({ force: true });
+    if (options.requiredDataPlane && route.mode !== options.requiredDataPlane) {
+        throw new Error(options.requiredDataPlane === 'cloud'
+            ? 'Supabase non è il database principale. Chiudi o risolvi prima la modalità locale dal pannello server.'
+            : 'Il server locale non è il database principale. Ricarica lo stato prima di recuperare la bozza.');
+    }
     if (route.mode === 'recovery') {
         throw new Error('FLBP_DATA_PLANE_RECOVERY: autorità del database ambigua; il recupero locale resta bloccato per sicurezza.');
     }
     if (route.mode === 'local') {
         const current = await pullLocalWorkspace(route, true);
-        const baseVersion = Number(current?.version);
-        if (!Number.isInteger(baseVersion) || baseVersion < 0) {
+        const baseVersion = normalizeWorkspaceVersion(current?.version);
+        if (baseVersion == null) {
             throw makeConflictError('Impossibile determinare la versione SQLite corrente. Riprova il download dal DB.');
+        }
+        if (options.expectedRemoteVersion != null && baseVersion !== options.expectedRemoteVersion) {
+            throw makeConflictError('La versione locale è cambiata dopo il confronto. Ricarica il confronto prima di confermare.');
         }
         const out = await recoverLocalWorkspace(route, {
             state,
@@ -4229,12 +4295,31 @@ export const recoverWorkspaceFromLocalState = async (
     }
 
     const current = await pullWorkspaceState({ source: 'recoverWorkspaceFromLocalState.preview', kind: 'admin' });
+    if (!current?.state) {
+        throw new Error('Versione Supabase non disponibile: la sovrascrittura resta bloccata per sicurezza.');
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'expectedRemoteUpdatedAt')
+        && (current?.updated_at || null) !== (options.expectedRemoteUpdatedAt || null)) {
+        throw makeConflictError(
+            'Supabase è cambiato dopo il confronto. I dati non sono stati sovrascritti: ricarica il confronto e conferma di nuovo.',
+            { remoteUpdatedAt: current?.updated_at || null, remoteBaseUpdatedAt: options.expectedRemoteUpdatedAt || null },
+        );
+    }
+    if (options.expectedRemoteVersion != null && (current?.version ?? null) !== options.expectedRemoteVersion) {
+        throw makeConflictError(
+            'La versione Supabase è cambiata dopo il confronto. I dati non sono stati sovrascritti: ricarica il confronto e conferma di nuovo.',
+            { remoteUpdatedAt: current?.updated_at || null, remoteBaseUpdatedAt: options.expectedRemoteUpdatedAt || null },
+        );
+    }
     const protectedRecovery = preserveCloudRefereeReportsForRecovery(
         coerceAppState(current?.state),
         state,
     );
     const recovered = await pushWorkspaceState(protectedRecovery.state, {
-        force: true,
+        // The user is deliberately making the local snapshot authoritative,
+        // but the final write still uses compare-and-swap. A concurrent Admin
+        // or referee update must cause a new conflict, never a silent overwrite.
+        force: false,
         operationId,
         baseUpdatedAt: current?.updated_at || null,
     }, { source: 'recoverWorkspaceFromLocalState', kind: 'admin' });
@@ -4469,6 +4554,9 @@ export interface NormalizedExportSummary {
     integrationsScorers: number;
     aliases: number;
     publicCareerPlayers: number;
+    /** Cursor of the canonical snapshot committed immediately before the projection export. */
+    workspaceUpdatedAt?: string | null;
+    workspaceVersion?: number | null;
 }
 
 export interface SimPoolSeedSummary {
@@ -4820,12 +4908,12 @@ const emptyNormalizedExportSummary = (): NormalizedExportSummary => ({
     publicCareerPlayers: 0,
 });
 
-export const pushLiveTournamentIncremental = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
+export const pushLiveTournamentIncremental = async (state: AppState, opts?: LiveTournamentProjectionOptions): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg || !state.tournament) return emptyNormalizedExportSummary();
 
     // Keep the canonical snapshot atomic/light; normalized tables below are the live mirror.
-    await pushWorkspaceState(state, opts);
+    const workspaceRow = await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
     const tournamentId = String(state.tournament.id || '').trim();
@@ -4853,8 +4941,11 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
         await restUpsertRows(cfg, 'public_tournament_matches', rows.publicMatchRows, 'workspace_id,tournament_id,id');
         await restUpsertRows(cfg, 'public_tournament_match_stats', rows.publicStatRows, 'workspace_id,tournament_id,match_id,team_id,player_name', 800);
         await deleteStalePublicTournamentRows(cfg, tournamentId, rows);
-    } catch {
-        // ignore: public mirror tables might not exist yet or may be temporarily unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) {
+            throw new Error(`Mirror pubblico live non riallineato: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        // Best effort for routine autosync: recovery calls opt into strict mode.
     }
 
     return {
@@ -4865,16 +4956,18 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
         groupTeams: rows.groupTeamRows.length,
         matches: rows.matchRows.length,
         matchStats: rows.statRows.length,
+        workspaceUpdatedAt: workspaceRow.updated_at || null,
+        workspaceVersion: workspaceRow.version ?? null,
     };
 };
 
 // NOTE: This is an explicit admin action. It overwrites normalized tables for the workspace.
-export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
+export const pushNormalizedFromState = async (state: AppState, opts?: WorkspacePushOptions): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
 
     // Safety: keep snapshot updated too.
-    await pushWorkspaceState(state, opts);
+    const workspaceRow = await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
     // 1) Clear normalized workspace data.
@@ -5068,7 +5161,9 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         hallOfFame: hofRows.length,
         integrationsScorers: scorersRows.length,
         aliases: aliasesRows.length,
-        publicCareerPlayers
+        publicCareerPlayers,
+        workspaceUpdatedAt: workspaceRow.updated_at || null,
+        workspaceVersion: workspaceRow.version ?? null,
     };
 };
 

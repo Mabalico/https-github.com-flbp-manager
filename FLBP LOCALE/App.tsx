@@ -1,3 +1,4 @@
+import { createDatabaseRestoreSession, DATABASE_RESTORE_EVENT, type DatabaseRestoreRequest, type DatabaseRestoreStatus } from './services/databaseRestoreCoordinator';
 import { publicEditionHistory } from './services/editionData';
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { Home } from './components/Home';
@@ -15,8 +16,9 @@ import { isAutoStructuredSyncEnabled, isLocalOnlyMode } from './services/reposit
 import { hasRemoteDraftCache } from './services/repository/remoteDraftCache';
 import { readVitePublicDbRead } from './services/viteEnv';
 import {
-    writeCachedPublicWorkspaceState
+    clearPublicDataCache, writeCachedPublicWorkspaceState
 } from './services/publicDataCache';
+import { buildTvProjectionUrl, readTvProjectionFromUrl } from './services/tvProjectionRoute';
 import { BadgeCheck, BellRing, Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut, Shield } from 'lucide-react';
 
 type UiErrorBoundaryProps = {
@@ -450,6 +452,11 @@ const App: React.FC = () => {
     }, []);
 
     const [state, setState] = useState<AppState>(() => repo.load());
+    const databaseRestorePausedRef = useRef(false);
+    const persistenceGenerationRef = useRef(0);
+    const databaseRestoreSessionRef = useRef<ReturnType<typeof createDatabaseRestoreSession> | null>(null);
+    const [databaseRestoreStatus, setDatabaseRestoreStatus] = useState<DatabaseRestoreStatus>(null);
+    const [adminSnapshotRevision, setAdminSnapshotRevision] = useState(0);
     const remoteAppliedRef = useRef(false);
     const remoteBootstrapRanRef = useRef(false);
     const remoteBootstrapActiveRef = useRef(false);
@@ -467,6 +474,10 @@ const App: React.FC = () => {
     const SITE_VISIT_SESSION_KEY = 'flbp_site_visit_tracked_v1';
     const SITE_VISIT_DAY_KEY = 'flbp_site_visit_tracked_day_v1';
     const SITE_VISIT_PENDING_KEY = 'flbp_site_visit_pending_v1';
+
+    const isNativeWindowsShell = () => {
+        try { return Boolean((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID); } catch { return false; }
+    };
 
     const safeView = (v: string | null | undefined) => {
         if (!v) return 'home';
@@ -488,6 +499,10 @@ const App: React.FC = () => {
         return `${year}-${month}-${day}`;
     };
 
+    const nativeWindowsShell = isNativeWindowsShell();
+    const routedTvMode = typeof window === 'undefined' ? null : readTvProjectionFromUrl(window.location.href);
+    const isDedicatedTvProjection = routedTvMode !== null;
+
     const [view, setView] = useState(() => {
         if (hasPlayerSupabaseAuthPayloadInUrl()) return 'player_area';
         try {
@@ -499,8 +514,16 @@ const App: React.FC = () => {
         return 'home';
     });
     const [tvMode, setTvMode] = useState<TvProjection | null>(() => {
-        const stored = localStorage.getItem('flbp_tv_mode');
-        return stored ? assertTvProjectionSafe(stored) : null;
+        if (routedTvMode) return routedTvMode;
+        // The desktop shell uses an explicit URL for each projection window.
+        // Never let a legacy shared localStorage value turn the Admin window into TV.
+        if (nativeWindowsShell) return null;
+        try {
+            const stored = localStorage.getItem('flbp_tv_mode');
+            return stored ? assertTvProjectionSafe(stored) : null;
+        } catch {
+            return null;
+        }
     });
     const [language, setLanguage] = useState<Language>(() => safeLanguage(localStorage.getItem(LANG_KEY)));
     const [translationDictionaries, setTranslationDictionaries] = useState<Partial<Record<Language, TranslationDictionary>>>(() => translations);
@@ -835,6 +858,7 @@ const App: React.FC = () => {
             return;
         }
 
+        const hydrationGeneration = persistenceGenerationRef.current;
         remoteBootstrapRanRef.current = true;
         remoteBootstrapActiveRef.current = true;
         setRemoteBootstrapStatus('booting');
@@ -868,6 +892,7 @@ const App: React.FC = () => {
 
                 // Apply DB snapshot as our initial state.
                 const next = await coerceLoadedAppState(row.state);
+                if (databaseRestorePausedRef.current || hydrationGeneration !== persistenceGenerationRef.current) return;
                 skipNextPersistRef.current = true;
                 remoteAppliedRef.current = true;
                 lastRemoteUpdatedAtRef.current = row.updated_at || null;
@@ -898,6 +923,7 @@ const App: React.FC = () => {
     useEffect(() => {
         if (!repo.subscribe) return;
         const unsub = repo.subscribe((next, meta) => {
+            if (databaseRestorePausedRef.current) return;
             const updatedAt = meta?.updatedAt || null;
             if (updatedAt && lastRemoteUpdatedAtRef.current === updatedAt) {
                 return;
@@ -1108,9 +1134,96 @@ const App: React.FC = () => {
     }, [state]);
 
     useEffect(() => {
+        const onDatabaseRestore = (event: Event) => {
+            event.preventDefault();
+            const request = (event as CustomEvent<DatabaseRestoreRequest>).detail;
+            if (databaseRestoreSessionRef.current) {
+                request.reject(new Error('Un ripristino è già in corso.'));
+                return;
+            }
+            databaseRestorePausedRef.current = true;
+            persistenceGenerationRef.current += 1;
+            // Preserve the last not-yet-debounced edit if the restore is rejected.
+            const hadPendingSave = saveTimeoutRef.current != null;
+            if (hadPendingSave) {
+                window.clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+            let syncControl: Awaited<ReturnType<typeof loadAutoDbSyncModule>> | null = null;
+            const session = createDatabaseRestoreSession({
+                ...request,
+                prepare: async () => {
+                    if (repo.source === 'remote' && (!repo.prepareForExternalRestore || !repo.completeExternalRestore)) {
+                        throw new Error('Il repository non supporta il ripristino sicuro.');
+                    }
+                    if (hadPendingSave && !syncControl) repo.save(latestStateRef.current);
+                    // Drain both sides even when one fails; cancellation cannot race a late preparation.
+                    const results = await Promise.allSettled([
+                        repo.prepareForExternalRestore?.(),
+                        loadAutoDbSyncModule().then(async (sync) => {
+                            syncControl = sync;
+                            await sync.prepareAutoSyncForDatabaseRestore();
+                        }),
+                    ]);
+                    const failed = results.find((result) => result.status === 'rejected');
+                    if (failed?.status === 'rejected') throw failed.reason;
+                },
+                hydrate: async (receipt) => {
+                    const row = await pullWorkspaceState({ source: 'App.databaseRestore.readback', kind: 'admin', requireVersion: true });
+                    if (!row?.state || !row.updated_at) throw new Error('Snapshot ripristinato non ancora disponibile. Riprova la lettura.');
+                    if (receipt.workspaceId && row.workspace_id !== receipt.workspaceId) throw new Error('Il workspace è cambiato durante il ripristino.');
+                    if (receipt.version != null && (row.version == null || !Number.isSafeInteger(Number(row.version)) || Number(row.version) < receipt.version)) {
+                        throw new Error('La lettura non contiene ancora la versione ripristinata.');
+                    }
+                    return { state: coerceAppState(row.state), row };
+                },
+                commit: async ({ state: restoredState, row }, receipt) => {
+                    if (repo.completeExternalRestore) {
+                        await repo.completeExternalRestore(restoredState, {
+                            updatedAt: row.updated_at, version: row.version, operationId: receipt.operationId,
+                            discardPendingDraft: true,
+                        });
+                    } else {
+                        // LocalRepository has no network queue; replace its durable cache.
+                        repo.save(restoredState);
+                    }
+                    latestStateRef.current = restoredState;
+                    skipNextPersistRef.current = true;
+                    remoteAppliedRef.current = true;
+                    lastRemoteUpdatedAtRef.current = row.updated_at || null;
+                    setRemoteBaseUpdatedAt(row.updated_at || null);
+                    clearPublicDataCache();
+                    setPublicDbState(null);
+                    setPublicDbUpdatedAt(null);
+                    publicDbUpdatedAtRef.current = null;
+                    setSelectedTournament(null);
+                    try {
+                        localStorage.removeItem('flbp_remote_update_available');
+                        localStorage.removeItem(SELECTED_TOURNAMENT_KEY);
+                    } catch { /* UI cache cleanup is best effort. */ }
+                    setState(restoredState);
+                    // Discard forms/editors whose draft state was based on the old database.
+                    setAdminSnapshotRevision((revision) => revision + 1);
+                },
+                resume: (committed) => {
+                    syncControl?.finishAutoSyncDatabaseRestore(committed);
+                    repo.resumeAfterExternalRestore?.();
+                    databaseRestorePausedRef.current = false;
+                    databaseRestoreSessionRef.current = null;
+                },
+                status: setDatabaseRestoreStatus,
+            });
+            databaseRestoreSessionRef.current = session;
+            void session.retry();
+        };
+        window.addEventListener(DATABASE_RESTORE_EVENT, onDatabaseRestore);
+        return () => window.removeEventListener(DATABASE_RESTORE_EVENT, onDatabaseRestore);
+    }, [repo]);
+
+    useEffect(() => {
         // During the remote DB-first bootstrap we avoid persisting any intermediate local snapshot
         // that could accidentally overwrite a newer DB state.
-        if (remoteBootstrapActiveRef.current) return;
+        if (remoteBootstrapActiveRef.current || databaseRestorePausedRef.current) return;
 
         // When we just hydrated from DB, avoid immediately writing the same snapshot back.
         if (skipNextPersistRef.current) {
@@ -1121,14 +1234,18 @@ const App: React.FC = () => {
         if (saveTimeoutRef.current) {
             window.clearTimeout(saveTimeoutRef.current);
         }
+        const persistenceGeneration = persistenceGenerationRef.current;
         saveTimeoutRef.current = window.setTimeout(() => {
             saveTimeoutRef.current = null;
-            repo.save(latestStateRef.current);
-            void repo.flush?.();
+            if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) return;
+            try { repo.save(latestStateRef.current); }
+            catch { return; } // LocalRepository exposes the failure through AdminSyncState.
+            void repo.flush?.().catch(() => {});
 
             // Optional: keep DB normalised/public mirrors updated.
             // Default OFF; best-effort; never blocks UI.
             void loadAutoDbSyncModule().then(({ scheduleAutoStructuredSync }) => {
+                if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) return;
                 scheduleAutoStructuredSync(latestStateRef.current);
             }).catch(() => {
                 // ignore best-effort background sync loader errors
@@ -1145,28 +1262,29 @@ const App: React.FC = () => {
 
     useEffect(() => {
         const flush = () => {
-            if (saveTimeoutRef.current) {
+            if (databaseRestorePausedRef.current) return;
+            // Only checkpoint an actual pending edit; never rewrite on unload.
+            if (saveTimeoutRef.current != null) {
                 window.clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
+                try { repo.save(latestStateRef.current); }
+                catch { /* State remains in memory; the Admin error banner offers export. */ }
             }
-            repo.save(latestStateRef.current);
-            void repo.flush?.();
-
-            // On lifecycle flush we attempt a best-effort immediate DB sync when enabled.
-            // (Scheduling a debounced sync here risks being cancelled by pagehide/unload.)
-            void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
-                return flushAutoStructuredSync(latestStateRef.current, { force: true });
-            }).catch(() => {
-                // ignore best-effort background sync loader errors
-            });
         };
 
         const onLiveStateCommitted = (event: Event) => {
+            if (databaseRestorePausedRef.current) return;
+            const persistenceGeneration = persistenceGenerationRef.current;
             const detail = (event as CustomEvent<{ state?: AppState; skipStructuredSync?: boolean }>).detail;
             const nextState = detail?.state;
             if (!nextState) return;
+            if (repo.source === 'local') {
+                try { repo.save(nextState); }
+                catch { return; }
+            }
             if (detail?.skipStructuredSync) return;
             void loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
+                if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) return;
                 return flushAutoStructuredSync(nextState, { force: true });
             }).catch(() => {
                 // Best-effort: the normal autosave path still runs.
@@ -1228,6 +1346,12 @@ const App: React.FC = () => {
     }, [repo]);
 
     useEffect(() => {
+        if (nativeWindowsShell && !isDedicatedTvProjection) {
+            try { localStorage.removeItem('flbp_tv_mode'); } catch {}
+        }
+    }, [isDedicatedTvProjection, nativeWindowsShell]);
+
+    useEffect(() => {
         const bestEffortDisableSWForTv = async () => {
             try {
                 if (!('serviceWorker' in navigator)) return;
@@ -1254,6 +1378,11 @@ const App: React.FC = () => {
             }
         };
 
+        if (isDedicatedTvProjection) {
+            if (tvMode) void bestEffortDisableSWForTv();
+            return;
+        }
+
         if (tvMode) {
             localStorage.setItem('flbp_tv_mode', tvMode);
             // TV mode is sacred: keep it as "fresh" as possible.
@@ -1262,7 +1391,28 @@ const App: React.FC = () => {
         } else {
             localStorage.removeItem('flbp_tv_mode');
         }
-    }, [tvMode]);
+    }, [isDedicatedTvProjection, tvMode]);
+
+    const handleExitTv = useCallback(() => {
+        if (isDedicatedTvProjection) {
+            // Projection windows are opened by the desktop shell. If closing is
+            // momentarily refused, keep rendering TV instead of exposing Admin.
+            window.close();
+            return;
+        }
+        setTvMode(null);
+    }, [isDedicatedTvProjection]);
+
+    const switchTvMode = useCallback((mode: TvProjection) => {
+        setTvMode(mode);
+        if (!isDedicatedTvProjection) return;
+        try {
+            const nextUrl = buildTvProjectionUrl(window.location.href, mode);
+            window.history.replaceState(window.history.state, '', nextUrl);
+        } catch {
+            // The current projection remains usable even if its URL cannot be updated.
+        }
+    }, [isDedicatedTvProjection]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -1271,21 +1421,25 @@ const App: React.FC = () => {
              if (!tvMode) return;
 
              // TV is read-only: keyboard-only navigation is allowed, but we keep the UI clean.
-             // (Controls are documented in docs/manuale_utente.md)
-             if (e.key === 'Escape') {
-                 setTvMode(null);
-                 return;
-             }
+              // (Controls are documented in docs/manuale_utente.md)
+              if (e.key === 'Escape') {
+                  handleExitTv();
+                  return;
+              }
 
-             if (e.key === '1') setTvMode('groups');
-             if (e.key === '2') setTvMode('groups_bracket');
-             if (e.key === '3') setTvMode('bracket');
-             if (e.key === '4') setTvMode('scorers');
+             if (e.key === '1') switchTvMode('groups');
+             if (e.key === '2') switchTvMode('groups_bracket');
+             if (e.key === '3') switchTvMode('bracket');
+             if (e.key === '4') switchTvMode('scorers');
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [tvMode]);
+    }, [handleExitTv, switchTvMode, tvMode]);
     const handleEnterTv = (mode: TvProjection) => {
+        if (nativeWindowsShell) {
+            window.open(buildTvProjectionUrl(window.location.href, mode), '_blank');
+            return;
+        }
         setTvMode(mode);
     };
 
@@ -1297,7 +1451,10 @@ const App: React.FC = () => {
         void navigateToView('tournament_detail');
     };
 
+    const adminStateGeneration = persistenceGenerationRef.current;
     const applyAdminState = useCallback((next: AppState) => {
+        if (databaseRestorePausedRef.current || adminStateGeneration !== persistenceGenerationRef.current) return;
+        latestStateRef.current = next;
         const removedLiveTournament = Boolean(state.tournament && !next.tournament);
         if (removedLiveTournament) {
             setSelectedTournament((current) => (current?.isLive ? null : current));
@@ -1314,7 +1471,7 @@ const App: React.FC = () => {
             }
         }
         setState(next);
-    }, [SELECTED_TOURNAMENT_KEY, state.tournament]);
+    }, [SELECTED_TOURNAMENT_KEY, state.tournament, adminStateGeneration]);
 
     useEffect(() => {
         if (tvMode) return;
@@ -1448,12 +1605,12 @@ const App: React.FC = () => {
                 >
                     <UiErrorBoundary
                         title={t('tv_signal_title')}
-                        onReset={() => setTvMode(null)}
+                        onReset={handleExitTv}
                     >
                         <TvViewLazy 
                             state={stateForPublicViews} 
                             mode={tvMode} 
-                            onExit={() => setTvMode(null)} 
+                            onExit={handleExitTv}
                         />
                     </UiErrorBoundary>
                 </React.Suspense>
@@ -1542,7 +1699,7 @@ const App: React.FC = () => {
                                 void navigateToView('home');
                             }}
                         >
-                            <AdminDashboardLazy state={state} setState={applyAdminState} onEnterTv={handleEnterTv} />
+                            <AdminDashboardLazy key={adminSnapshotRevision} state={state} setState={applyAdminState} onEnterTv={handleEnterTv} />
                         </UiErrorBoundary>
                     </React.Suspense>
                 );
@@ -1686,7 +1843,24 @@ const App: React.FC = () => {
     return (
         <LanguageContext.Provider value={language}>
             <TranslationDictionariesContext.Provider value={translationDictionaries}>
-            <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+            {databaseRestoreStatus && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="database-restore-title">
+                    <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" aria-live="polite">
+                        <h2 id="database-restore-title" className="text-xl font-black">Ripristino database</h2>
+                        <p className="mt-3 text-sm text-slate-700">{databaseRestoreStatus.error
+                            ? 'I salvataggi restano sospesi. Completa il recupero prima di continuare.'
+                            : 'Attendi: salvataggi in pausa, ripristino e verifica dello snapshot in corso.'}</p>
+                        {databaseRestoreStatus.error && <>
+                            <p className="mt-3 break-words text-sm text-red-700">{databaseRestoreStatus.error}</p>
+                            <div className="mt-5 flex flex-wrap gap-3">
+                                <button type="button" autoFocus className="rounded-xl bg-slate-900 px-4 py-2 font-bold text-white" onClick={() => { void databaseRestoreSessionRef.current?.retry(); }}>Riprova recupero</button>
+                                {databaseRestoreStatus.canCancel && <button type="button" className="rounded-xl border border-slate-300 px-4 py-2 font-bold" onClick={() => databaseRestoreSessionRef.current?.cancel()}>Annulla ripristino</button>}
+                            </div>
+                        </>}
+                    </div>
+                </div>
+            )}
+            <div ref={(element) => { if (element) element.inert = !!databaseRestoreStatus; }} className="min-h-screen bg-slate-50 text-slate-900 font-sans">
                 <GlobalPlayerCallNotice
                     playerPresence={playerPresence}
                     onOpenPlayerArea={() => { void navigateToView('player_area'); }}

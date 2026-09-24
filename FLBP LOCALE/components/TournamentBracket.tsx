@@ -41,6 +41,10 @@ interface TournamentBracketProps {
     onParticipantDoubleClick?: (args: { matchId: string; side: 'A' | 'B'; teamId?: string; match: Match }) => void;
     /** Optional: highlight selected participant slots (format: `${matchId}|A` / `${matchId}|B`). */
     highlightedSlotKeys?: string[];
+    /** Admin editor: participant slots that are currently selected. Takes precedence over highlightedSlotKeys. */
+    selectedSlotKeys?: string[];
+    /** Admin editor: valid destination slots, rendered separately from the current selection. */
+    validSlotKeys?: string[];
     /** Optional: mark invalid participant slots (duplicates / empty) in red during admin edits. */
     invalidSlotKeys?: string[];
     /** Optional: mark slots changed in draft/editor mode. */
@@ -74,7 +78,7 @@ interface TournamentBracketProps {
     showConnectors?: boolean;
 }
 
-export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, onParticipantDoubleClick, highlightedSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
+export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, onParticipantDoubleClick, highlightedSlotKeys = [], selectedSlotKeys, validSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
     const { t } = useTranslation();
     const resultsOnly = isResultsOnlyTournament(data);
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -470,8 +474,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                             <span
                                 className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${
                                     rIdx === rounds.length - 1
-                                        ? 'border-amber-300/45 bg-amber-300/16 text-amber-100 shadow-[0_10px_30px_-18px_rgba(251,191,36,0.85)]'
-                                        : 'border-white/12 bg-white/6 text-white/70'
+                                        ? (editorStructuredLayout
+                                            ? 'border-amber-200 bg-amber-50 text-amber-800 shadow-[0_10px_26px_-20px_rgba(180,83,9,0.35)]'
+                                            : 'border-amber-300/45 bg-amber-300/16 text-amber-100 shadow-[0_10px_30px_-18px_rgba(251,191,36,0.85)]')
+                                        : (editorStructuredLayout
+                                            ? 'border-slate-200 bg-white text-slate-600 shadow-[0_10px_24px_-22px_rgba(15,23,42,0.24)]'
+                                            : 'border-white/12 bg-white/6 text-white/70')
                                 }`}
                             >
                                 {rIdx === rounds.length - 1 ? t('bracket_final_label') : `${t('round')} ${rIdx + 1}`}
@@ -498,8 +506,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const slotKeyA = `${match.id}|A`;
                          const slotKeyB = `${match.id}|B`;
                          const selectable = !!participantSelectionMode && !!onParticipantClick;
-                         const selIndexA = (highlightedSlotKeys || []).indexOf(slotKeyA);
-                         const selIndexB = (highlightedSlotKeys || []).indexOf(slotKeyB);
+                         const effectiveSelectedSlotKeys = selectedSlotKeys ?? highlightedSlotKeys;
+                         const selIndexA = effectiveSelectedSlotKeys.indexOf(slotKeyA);
+                         const selIndexB = effectiveSelectedSlotKeys.indexOf(slotKeyB);
+                         const validA = validSlotKeys.includes(slotKeyA);
+                         const validB = validSlotKeys.includes(slotKeyB);
                          const invalidA = (invalidSlotKeys || []).includes(slotKeyA);
                          const invalidB = (invalidSlotKeys || []).includes(slotKeyB);
                          const changedA = (changedSlotKeys || []).includes(slotKeyA);
@@ -513,13 +524,21 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const isSelectedA = selIndexA >= 0;
                          const isSelectedB = selIndexB >= 0;
 
-                         const selectedRingA = selIndexA === 0
-                             ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/80'
-                             : (selIndexA === 1 ? 'ring-2 ring-violet-500 border-violet-300 bg-violet-50/80' : (isSelectedA ? 'ring-2 ring-slate-400 border-slate-300' : ''));
+                         const selectedRingA = isSelectedA
+                             ? (selectedSlotKeys !== undefined
+                                 ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/80'
+                                 : (selIndexA === 0
+                                     ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/80'
+                                     : (selIndexA === 1 ? 'ring-2 ring-violet-500 border-violet-300 bg-violet-50/80' : 'ring-2 ring-slate-400 border-slate-300')))
+                             : ((validA && !invalidA) ? 'ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/70' : '');
 
-                         const selectedRingB = selIndexB === 0
-                             ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/80'
-                             : (selIndexB === 1 ? 'ring-2 ring-violet-500 border-violet-300 bg-violet-50/80' : (isSelectedB ? 'ring-2 ring-slate-400 border-slate-300' : ''));
+                         const selectedRingB = isSelectedB
+                             ? (selectedSlotKeys !== undefined
+                                 ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/80'
+                                 : (selIndexB === 0
+                                     ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/80'
+                                     : (selIndexB === 1 ? 'ring-2 ring-violet-500 border-violet-300 bg-violet-50/80' : 'ring-2 ring-slate-400 border-slate-300')))
+                             : ((validB && !invalidB) ? 'ring-2 ring-emerald-400 border-emerald-300 bg-emerald-50/70' : '');
                          const isSlotLibreA = allowByeSlotsThisRound && isByeTeamId(match.teamAId);
                          const isSlotLibreB = allowByeSlotsThisRound && isByeTeamId(match.teamBId);
                          const selectableSlotA = selectable && !preserveEmptySlot && (!isSlotLibreA || interactiveByeSlots);
@@ -545,6 +564,41 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const isWinnerB = match.status === 'finished' && match.scoreB > match.scoreA;
 
                          const isFinalRound = rIdx === rounds.length - 1;
+                         const roundAriaLabel = isFinalRound ? t('bracket_final_label') : `${t('round')} ${rIdx + 1}`;
+                         const matchAriaLabel = `${t('match')} ${mIdx + 1}`;
+                         const matchStatusAriaLabel = t(`match_status_${match.status}`);
+                         const buildSlotAriaLabel = (
+                             side: 'A' | 'B',
+                             teamId: string | undefined,
+                             team: Team | undefined,
+                             state: { selected: boolean; valid: boolean; invalid: boolean; locked: boolean; changed: boolean },
+                             actionLabel?: string,
+                         ) => [
+                             actionLabel || (side === 'A' ? t('team_a') : t('team_b')),
+                             roundAriaLabel,
+                             matchAriaLabel,
+                             formatTeamLabel(teamId, team, allowByeSlotsThisRound),
+                             matchStatusAriaLabel,
+                             state.locked ? t('editor_status_locked') : '',
+                             state.invalid ? t('editor_invalid_target') : '',
+                             state.selected ? t('players_selected') : '',
+                             (!state.selected && state.valid) ? t('editor_status_eligible') : '',
+                             state.changed ? t('editor_status_active_draft') : '',
+                         ].filter(Boolean).join(', ');
+                         const slotAriaLabelA = buildSlotAriaLabel('A', teamAId, t1, {
+                             selected: isSelectedA,
+                             valid: validA,
+                             invalid: invalidA,
+                             locked: lockedA,
+                             changed: changedA,
+                         }, selectableSlotA ? t('bracket_select_team_a_slot') : undefined);
+                         const slotAriaLabelB = buildSlotAriaLabel('B', teamBId, t2, {
+                             selected: isSelectedB,
+                             valid: validB,
+                             invalid: invalidB,
+                             locked: lockedB,
+                             changed: changedB,
+                         }, selectableSlotB ? t('bracket_select_team_b_slot') : undefined);
                          const outerCardBaseClass = tvMode
                              ? 'z-10 bg-transparent p-1'
                              : editorStructuredLayout
@@ -701,7 +755,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         ${inlineEditSlotKey === `${match.id}|A` ? 'ring-2 ring-beer-600 bg-white/90' : ''}
                                         ${isSlotLibreA ? 'border border-dashed border-sky-300 bg-sky-50 text-sky-700' : ''}
                                     `}
-                                    aria-label={selectableSlotA ? t('bracket_select_team_a_slot') : (canOpenTeamA ? formatTeamLabel(teamAId, t1, allowByeSlotsThisRound) : undefined)}
+                                    aria-label={(selectableSlotA || canOpenTeamA) ? slotAriaLabelA : undefined}
+                                    aria-pressed={selectableSlotA ? isSelectedA : undefined}
                                 >
                                     {inlineEditSlotKey === `${match.id}|A` && inlineEditOptions && onInlineEditChange ? (
                                         <select
@@ -712,7 +767,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                                 e.stopPropagation();
                                                 onInlineEditChange(e.target.value);
                                             }}
-                                            aria-label={t('bracket_edit_team_a_slot')}
+                                            aria-label={buildSlotAriaLabel('A', teamAId, t1, {
+                                                selected: isSelectedA,
+                                                valid: validA,
+                                                invalid: invalidA,
+                                                locked: lockedA,
+                                                changed: changedA,
+                                            }, t('bracket_edit_team_a_slot'))}
                                         >
                                             {inlineEditOptions.map((o) => (
                                                 <option key={o.value} value={o.value} disabled={o.disabled}>
@@ -789,7 +850,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         ${inlineEditSlotKey === `${match.id}|B` ? 'ring-2 ring-beer-600 bg-white/90' : ''}
                                         ${isSlotLibreB ? 'border border-dashed border-sky-300 bg-sky-50 text-sky-700' : ''}
                                     `}
-                                    aria-label={selectableSlotB ? t('bracket_select_team_b_slot') : (canOpenTeamB ? formatTeamLabel(teamBId, t2, allowByeSlotsThisRound) : undefined)}
+                                    aria-label={(selectableSlotB || canOpenTeamB) ? slotAriaLabelB : undefined}
+                                    aria-pressed={selectableSlotB ? isSelectedB : undefined}
                                 >
                                     {inlineEditSlotKey === `${match.id}|B` && inlineEditOptions && onInlineEditChange ? (
                                         <select
@@ -800,7 +862,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                                 e.stopPropagation();
                                                 onInlineEditChange(e.target.value);
                                             }}
-                                            aria-label={t('bracket_edit_team_b_slot')}
+                                            aria-label={buildSlotAriaLabel('B', teamBId, t2, {
+                                                selected: isSelectedB,
+                                                valid: validB,
+                                                invalid: invalidB,
+                                                locked: lockedB,
+                                                changed: changedB,
+                                            }, t('bracket_edit_team_b_slot'))}
                                         >
                                             {inlineEditOptions.map((o) => (
                                                 <option key={o.value} value={o.value} disabled={o.disabled}>

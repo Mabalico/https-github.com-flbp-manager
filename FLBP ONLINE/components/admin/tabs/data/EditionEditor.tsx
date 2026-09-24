@@ -25,12 +25,13 @@ const playerFromEntry = (entry: HallOfFameEntry, index: number): EditionPlayer =
     return { name, birthDate: formatBirthDateDisplay(birthDate) || '', playerId: playerId || getPlayerKey(name, birthDate || 'ND'), confirmed: true };
 };
 
-export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | 't'> & {
+export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | 'commitAdminStateDurably' | 't'> & {
     editionId?: string;
     onBack: () => void;
     onSaved: (id?: string) => void;
     onDirtyChange: (dirty: boolean) => void;
-}> = ({ state, setState, t, editionId, onBack, onSaved, onDirtyChange }) => {
+    onSavingChange: (saving: boolean) => void;
+}> = ({ state, setState, commitAdminStateDurably, t, editionId, onBack, onSaved, onDirtyChange, onSavingChange }) => {
     const [initial] = React.useState(() => listEditions(state).find(row => row.id === editionId));
     const [id] = React.useState(() => editionId || `manual_${uuid()}`);
     const [name, setName] = React.useState(initial?.name || '');
@@ -45,6 +46,8 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
     const [dirty, setDirty] = React.useState(false);
     const [error, setError] = React.useState('');
     const [loading, setLoading] = React.useState(false);
+    const [saving, setSaving] = React.useState(false);
+    const savingRef = React.useRef(false);
     const [preview, setPreview] = React.useState<HallOfFameEntry[] | null>(null);
     const [deleting, setDeleting] = React.useState(false);
     const profiles = React.useMemo(() => buildPlayerProfileSnapshots(state), [state]);
@@ -108,7 +111,10 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
         return entries.map(entry => ({ ...entry, tournamentName: name.trim(), year: date.slice(0, 4) || entry.year, sourceTournamentDate: date || entry.sourceTournamentDate, sourceTournamentName: name.trim() }));
     };
     const review = () => { try { setError(''); setPreview(buildEntries()); } catch (e) { setError(t((e as Error).message)); } };
-    const save = () => {
+    const beginSave = () => { savingRef.current = true; setSaving(true); onSavingChange(true); setError(''); };
+    const finishSave = () => { savingRef.current = false; setSaving(false); onSavingChange(false); };
+    const save = async () => {
+        if (savingRef.current) return;
         try {
             // Revalidate against current results in case the edition changed while the form was open.
             const entries = buildEntries();
@@ -120,13 +126,25 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
             };
             const tournament = next.tournamentHistory.find(row => row.id === id);
             if (tournament) next.hallOfFame = syncTournamentAwardsToHallOfFame(next.hallOfFame, tournament, editionMatches(next, id), tournament.teams || []);
-            setState(next); setDirty(false); onDirtyChange(false); setPreview(null); onSaved(id);
-        } catch (e) { setPreview(null); setError(t((e as Error).message)); }
+            beginSave();
+            const confirmedState = await commitAdminStateDurably(next, 'integration-edition-save');
+            setState(confirmedState); setDirty(false); onDirtyChange(false); setPreview(null); onSaved(id);
+        } catch (e) {
+            // Keep the entire form available for retry. The repository owns any
+            // recoverable queued draft; a failed commit is never a success toast.
+            setDirty(true); onDirtyChange(true); setPreview(null); setError(t((e as Error).message || 'error'));
+        } finally { finishSave(); }
     };
-    const remove = () => {
-        const next = initial?.tournament ? removeArchivedTournamentDeep(state, id).state : state;
-        setState({ ...next, hallOfFame: (next.hallOfFame || []).filter(row => row.tournamentId !== id), integrationsScorers: (next.integrationsScorers || []).filter(row => row.sourceTournamentId !== id) });
-        onDirtyChange(false); onSaved();
+    const remove = async () => {
+        if (savingRef.current) return;
+        beginSave();
+        try {
+            const next = initial?.tournament ? removeArchivedTournamentDeep(state, id).state : state;
+            const confirmedState = await commitAdminStateDurably({ ...next, hallOfFame: (next.hallOfFame || []).filter(row => row.tournamentId !== id), integrationsScorers: (next.integrationsScorers || []).filter(row => row.sourceTournamentId !== id) }, 'integration-edition-delete');
+            setState(confirmedState); setDirty(false); onDirtyChange(false); onSaved();
+        } catch (e) {
+            setDeleting(false); setError(t((e as Error).message || 'error'));
+        } finally { finishSave(); }
     };
     const importFile = async (file: File) => {
         setLoading(true); setError('');
@@ -154,13 +172,14 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
         changed(); setSection('awards');
     };
 
-    return <section className="space-y-4">
+    return <section className="space-y-4" aria-busy={saving}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-            <button type="button" className={button} onClick={onBack}><ArrowLeft size={16} />{t('edition_list')}</button>
+            <button type="button" disabled={saving} className={button} onClick={onBack}><ArrowLeft size={16} />{t('edition_list')}</button>
             <h3 className="text-lg font-black text-slate-900">{initial ? initial.name : t('edition_new')}</h3>
-            {!!initial && !initial.live && <button type="button" className={`${button} text-rose-700`} onClick={() => setDeleting(true)}><Trash2 size={16} />{t('delete')}</button>}
+            {!!initial && !initial.live && <button type="button" disabled={saving} className={`${button} text-rose-700`} onClick={() => setDeleting(true)}><Trash2 size={16} />{t('delete')}</button>}
         </div>
         {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-900">{error}</div>}
+        <fieldset disabled={saving} className="min-w-0 space-y-4">
         <nav className="flex flex-wrap gap-2" aria-label={t('edition_sections')}>
             {(['setup', 'awards', 'scorers'] as const).map(key => <button type="button" key={key} onClick={() => setSection(key)} aria-current={section === key ? 'step' : undefined} className={`${button} ${section === key ? '!border-slate-900 !bg-slate-900 !text-white' : ''}`}>{t(`edition_section_${key}`)}{key === 'awards' ? ` (${titles.length})` : key === 'scorers' ? ` (${scorers.length})` : ''}</button>)}
         </nav>
@@ -198,10 +217,11 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
             </td>{(['games', 'points', 'soffi'] as const).map(metric => <td className="p-2" key={metric}>{row[metric]}</td>)}</tr>)}</tbody></table></div>}
         </div>}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3"><p className="text-sm text-slate-600">{titles.length} {t('edition_titles')} · {scorers.length} {t('scorers_label')}</p><button type="button" disabled={loading} className={`${button} !bg-blue-700 !text-white`} onClick={review}>{t('edition_review')}</button></div>
-        <AdminDataConfirmModal open={!!preview} tone="info" title={t('edition_review')} description={`${name} · ${date || initial?.year || ''}`} confirmLabel={t('save_changes')} cancelLabel={t('back')} onClose={() => setPreview(null)} onConfirm={save}>
+        </fieldset>
+        <AdminDataConfirmModal open={!!preview} tone="info" title={t('edition_review')} description={`${name} · ${date || initial?.year || ''}`} confirmLabel={t(saving ? 'referees_save_busy' : 'save_changes')} confirmDisabled={saving} cancelLabel={t('back')} onClose={() => { if (!savingRef.current) setPreview(null); }} onConfirm={() => void save()}>
             <ul className="space-y-2">{preview?.map(entry => <li key={entry.id} className="rounded-lg bg-slate-50 p-2 text-sm"><strong>{t(labelKey(entry.type))}</strong> · {entry.teamName} · {entry.playerNames.join(', ')}{entry.value != null ? ` · ${entry.value}` : ''}</li>)}</ul>
             {importChanged && <p className="mt-3 text-sm font-bold">{t('edition_import_replaces').replace('{count}', String(scorers.length))}</p>}
         </AdminDataConfirmModal>
-        <AdminDataConfirmModal open={deleting} title={t('edition_delete')} description={t('edition_delete_hint').replace('{name}', name)} confirmLabel={t('delete')} cancelLabel={t('cancel')} onClose={() => setDeleting(false)} onConfirm={remove} summaryItems={[{ label: t('edition_titles'), value: initial?.awards.length || 0 }, { label: t('scorers_label'), value: initial?.scorers.length || 0 }]} />
+        <AdminDataConfirmModal open={deleting} title={t('edition_delete')} description={t('edition_delete_hint').replace('{name}', name)} confirmLabel={t(saving ? 'referees_save_busy' : 'delete')} confirmDisabled={saving} cancelLabel={t('cancel')} onClose={() => { if (!savingRef.current) setDeleting(false); }} onConfirm={() => void remove()} summaryItems={[{ label: t('edition_titles'), value: initial?.awards.length || 0 }, { label: t('scorers_label'), value: initial?.scorers.length || 0 }]} />
     </section>;
 };

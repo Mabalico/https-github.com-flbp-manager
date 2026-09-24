@@ -18,6 +18,8 @@ interface GenerateOptions {
     advancingPerGroup?: number;
     tournamentName?: string;
     startDate?: string;
+    /** Optional: elimination teams that should receive a BYE or a late Round 1 slot. */
+    lateTeamIds?: string[];
     /** Optional: winner/loss only tournament, without scorer/referee stat features. */
     resultsOnly?: boolean;
     /** Optional: enable a final round-robin stage that can be activated at runtime. */
@@ -367,8 +369,31 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
         // IMPORTANT:
         // - never create BYE vs BYE pairs (wastes BYEs and changes the number of prelim matches)
         // - keep the rest randomized (we shuffle teams once, then place BYEs deterministically).
-        const shuffledTeamIds = shuffle([...activeTeams]).map(t => t.id);
-        const byeCount = Math.max(0, targetSize - shuffledTeamIds.length);
+        const byeCount = Math.max(0, targetSize - activeTeams.length);
+        const requestedLateTeamIds = new Set(config.lateTeamIds || []);
+        const lateTeams = activeTeams.filter(team => requestedLateTeamIds.has(team.id));
+
+        let shuffledTeamIds: string[];
+        if (lateTeams.length === 0) {
+            // Preserve the legacy randomization path when no active team is marked.
+            shuffledTeamIds = shuffle([...activeTeams]).map(team => team.id);
+        } else {
+            const lateTeamIdSet = new Set(lateTeams.map(team => team.id));
+            const shuffledLateTeamIds = shuffle([...lateTeams]).map(team => team.id);
+            const shuffledRegularTeamIds = shuffle(activeTeams.filter(team => !lateTeamIdSet.has(team.id))).map(team => team.id);
+            const lateByeCount = Math.min(byeCount, shuffledLateTeamIds.length);
+            const regularByeCount = Math.min(byeCount - lateByeCount, shuffledRegularTeamIds.length);
+
+            // The existing pairing logic takes BYE recipients from the front and fills
+            // preliminary matches backwards from the bottom. This order therefore gives
+            // marked teams BYE priority and places any remainder in the latest Round 1 slots.
+            shuffledTeamIds = [
+                ...shuffledLateTeamIds.slice(0, lateByeCount),
+                ...shuffledRegularTeamIds.slice(0, regularByeCount),
+                ...shuffledRegularTeamIds.slice(regularByeCount),
+                ...shuffledLateTeamIds.slice(lateByeCount),
+            ];
+        }
 
         const pairs: Array<[string, string]> = new Array(currentRoundSize);
 

@@ -1,4 +1,6 @@
 import { registerEditionManagementCases } from './editionManagementCases';
+import { registerStateConflictMergeCases } from './stateConflictMergeCases';
+import { registerDraftIntegrationRecoveryCases } from './draftIntegrationRecoveryCases';
 import { archiveTournamentV2, coerceAppState, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
 import type { HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentData } from '../../types';
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
@@ -820,6 +822,8 @@ defineCase('tournament rename rejects blank names, missing ids and tournaments t
 });
 
 registerEditionManagementCases(defineCase);
+registerStateConflictMergeCases(defineCase);
+registerDraftIntegrationRecoveryCases(defineCase);
 
 let failed = 0;
 for (const entry of cases) {

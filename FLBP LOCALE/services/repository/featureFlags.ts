@@ -4,11 +4,9 @@ import { readViteAllowLocalOnly, readViteAutoStructuredSync, readViteRemoteRepo,
 /**
  * Feature flags for the data layer.
  *
- * Default: Remote repository DISABLED to avoid regressions.
- *
- * Enable via:
- * - Vite env: VITE_REMOTE_REPO=1
- * - or localStorage: flbp_remote_repo=1
+ * One persistence decision for UI and repository selection: the deployment
+ * lock wins, then the explicit mode, the legacy flag and the environment.
+ * Without an override, configured Supabase selects remote persistence.
  */
 
 export const REMOTE_REPO_LS_KEY = 'flbp_remote_repo';
@@ -50,19 +48,7 @@ export const isRemotePersistenceLocked = (): boolean => {
 };
 
 export const isRemoteRepositoryEnabled = (): boolean => {
-  if (getDataPersistenceMode() === 'local_only') return false;
-
-  try {
-    const localOverride = parseFlagValue(localStorage.getItem(REMOTE_REPO_LS_KEY));
-    if (localOverride != null) return localOverride;
-  } catch {
-    // ignore
-  }
-
-  const envOverride = parseFlagValue(readViteRemoteRepo());
-  if (envOverride != null) return envOverride;
-
-  return hasConfiguredSupabase();
+  return getDataPersistenceMode() === 'remote';
 };
 
 export const getDataPersistenceMode = (): DataPersistenceMode => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { readTvProjectionFromUrl } from './services/tvProjectionRoute';
 
 import './styles.css';
 
@@ -8,12 +9,15 @@ import './styles.css';
 // - Network-first for HTML navigations (avoid "stale app" issues)
 // - Cache-first for built assets (/assets/*)
 // Can be disabled quickly by setting localStorage: flbp_sw_disabled=1
-// TV Mode hardening (R8.1): if flbp_tv_mode is active, do NOT register the SW and
-// best-effort unregister/clear caches to keep TV "fresh".
+// TV Mode hardening (R8.1): if TV is active (legacy storage or a dedicated
+// projection URL), do NOT register the SW and best-effort clear stale caches.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   try {
     window.addEventListener('load', () => {
-      const tvActive = !!window.localStorage.getItem('flbp_tv_mode');
+      const isNativeWindowsShell = Boolean((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID);
+      const routedTvActive = readTvProjectionFromUrl(window.location.href) !== null;
+      const storedTvActive = !isNativeWindowsShell && !!window.localStorage.getItem('flbp_tv_mode');
+      const tvActive = routedTvActive || storedTvActive;
       const disabled = window.localStorage.getItem('flbp_sw_disabled') === '1';
       if (tvActive) {
         // TV must be as "fresh" as possible. Best-effort cleanup.

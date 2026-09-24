@@ -1,5 +1,6 @@
 import { loadState, saveState, type AppState } from '../storageService';
 import type { AppStateRepository } from './AppStateRepository';
+import { markAdminSyncErrorState, markAdminSyncSynced } from '../adminSyncState';
 
 export const LOCAL_STATE_UPDATED_AT_LS_KEY = 'flbp_local_state_updated_at';
 
@@ -24,11 +25,18 @@ export class LocalRepository implements AppStateRepository {
   }
 
   save(state: AppState): void {
-    saveState(state);
     try {
-      localStorage.setItem(LOCAL_STATE_UPDATED_AT_LS_KEY, new Date().toISOString());
-    } catch {
-      // ignore
+      saveState(state);
+    } catch (error) {
+      markAdminSyncErrorState(error instanceof Error ? error.message : String(error), 'local');
+      throw error;
     }
+    const updatedAt = new Date().toISOString();
+    try {
+      localStorage.setItem(LOCAL_STATE_UPDATED_AT_LS_KEY, updatedAt);
+    } catch {
+      // The snapshot is already persisted; auxiliary metadata is best effort.
+    }
+    markAdminSyncSynced(updatedAt, 'local');
   }
 }

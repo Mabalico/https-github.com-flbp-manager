@@ -7,6 +7,7 @@ import { isTesterMode } from '../../../config/appMode';
 import { SocialGraphicsPanel } from '../SocialGraphicsPanel';
 import { isByeMatch } from '../../../services/matchUtils';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
+import { LateTeamSelector } from '../LateTeamSelector';
 
 export interface StructureTabProps {
     state: AppState;
@@ -20,6 +21,9 @@ export interface StructureTabProps {
 
     tournMode: 'elimination' | 'groups_elimination' | 'round_robin';
     setTournMode: (v: 'elimination' | 'groups_elimination' | 'round_robin') => void;
+
+    lateTeamIds: string[];
+    setLateTeamIds: (ids: string[]) => void;
 
     finalRrEnabled: boolean;
     setFinalRrEnabled: (v: boolean) => void;
@@ -50,6 +54,8 @@ export const StructureTab: React.FC<StructureTabProps> = ({
     setTournDate,
     tournMode,
     setTournMode,
+    lateTeamIds,
+    setLateTeamIds,
     finalRrEnabled,
     setFinalRrEnabled,
     finalRrTopTeams,
@@ -71,6 +77,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
     const playableTeamsCount = (state.teams || []).filter(t => !t.hidden && !t.isBye).length;
     const finalToggleDisabled = playableTeamsCount < 4;
     const top8Disabled = playableTeamsCount < 8;
+    const lateTeamCount = (state.teams || []).filter(team => (
+        !team.hidden && !team.isBye && lateTeamIds.includes(team.id)
+    )).length;
 
     // Lightweight Admin UI tokens (local to this tab): keeps buttons/inputs consistent
     // without introducing new dependencies.
@@ -147,6 +156,11 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                         {t('structure_results_only_badge')}
                                     </span>
                                 ) : null}
+                                {tournMode === 'elimination' && lateTeamCount > 0 ? (
+                                    <span className="border-violet-200 bg-violet-50 text-violet-800 border px-3 py-1 rounded-full">
+                                        {t('late_team_summary').replace('{count}', String(lateTeamCount))}
+                                    </span>
+                                ) : null}
                                 {draft ? (
                                     <span className="text-blue-800 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">
                                         {t('structure_draft_ready_badge')}
@@ -178,7 +192,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                 <label className="block text-sm font-bold text-slate-700 mb-1">{t('archive_mode')}</label>
                                 <select 
                                     value={tournMode} 
-                                    onChange={e => setTournMode(e.target.value as any)}
+                                    onChange={e => setTournMode(e.target.value as 'elimination' | 'groups_elimination' | 'round_robin')}
                                     className={selectBase}
                                 >
                                     <option value="round_robin">{t('structure_mode_round_robin_option')}</option>
@@ -218,6 +232,14 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                 </>
                             )}
                         </div>
+
+                        {tournMode === 'elimination' ? (
+                            <LateTeamSelector
+                                teams={state.teams || []}
+                                selectedIds={lateTeamIds}
+                                onChange={setLateTeamIds}
+                            />
+                        ) : null}
 
                         <label className={`block cursor-pointer rounded-2xl border p-4 transition ${resultsOnly ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}>
                             <div className="flex items-start gap-3">

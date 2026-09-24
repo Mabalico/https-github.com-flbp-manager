@@ -12,6 +12,17 @@ Aprire **Admin → Dati → Integrazioni → Edizioni → Nuova edizione**.
 - Il campo giocatore permette di selezionare un profilo esistente, distinguendo gli omonimi. La creazione di un nuovo giocatore è esplicita. Senza data, il titolo conta subito sul profilo senza data; non è sospeso.
 - **Riepilogo modifiche** mostra i premi prima del salvataggio. Tornando all’elenco, l’edizione è ricercabile, riapribile e rinominabile.
 
+Salvataggio e cancellazione della scheda attendono la conferma del database attivo
+prima di mostrare il messaggio di successo e tornare all'elenco. Durante l'attesa
+i comandi della scheda sono bloccati per evitare invii doppi. In caso di errore
+il form resta aperto con i dati inseriti e il motivo del mancato salvataggio,
+così la modifica può essere riprovata. Se la sincronizzazione unisce modifiche
+indipendenti, viene applicato lo stato confermato completo.
+
+Con il PC server attivo, la conferma riguarda il salvataggio durevole in SQLite;
+la pubblicazione sul sito Internet segue la sincronizzazione del server. Il solo
+conteggio dei titoli nel browser non prova che il sito pubblico sia aggiornato.
+
 L’elenco riunisce tornei live, archivio e record storici dell’Albo d’Oro per ID. I tornei con soli titoli sono una vista dei record esistenti: non si creano squadre o partite fittizie e non si migra lo storico verso tornei vuoti. I record legacy con il solo anno restano leggibili e modificabili senza inventare una data.
 
 La scheda **Squadre e risultati** mantiene la modifica dei referti; il suo ingresso ai titoli riapre l’editor comune. I premi derivati da risultati già registrati si aggiornano dai referti. In presenza di risultati, l’editor dei titoli consente la gestione degli MVP e conserva i premi protetti.
@@ -48,5 +59,8 @@ Prima di distribuire questa versione contro un database esistente, applicare una
 I casi in `tests/data/editionManagementCases.ts`, richiamati da `npm run test:data`, coprono data U25, compleanno, rappresentazioni dei match conclusi, spareggi, import CSV, ex aequo, edizione con solo MVP, rinomina, backup, identità dei campioni, riassegnazioni, filtro annuale e protezione contro il doppio conteggio. Il server locale ha un test specifico per la proiezione pubblica.
 
 La fixture di sviluppo `tests/ui/editions.html` usa esclusivamente dati inventati in memoria e non effettua scritture sul backend. Serve a ripetere la verifica del flusso dei titoli senza modificare autenticazione o dati dell’app.
+
+La fixture consente di simulare una conferma ritardata, un errore e una conferma
+contenente anche modifiche remote, per verificare salvataggio, retry e cancellazione.
 
 Controlli eseguiti: test dati ONLINE (30) e LOCALE (25), 30 test su proiezione pubblica/persistenza/backup del server locale, SSR admin, 5 casi SSR delle nuove schermate per versione, copertura delle 12 lingue e build delle due app. Il typecheck globale segnala ancora errori nelle aree Fanta e sincronizzazione, esterne a questa revisione. La migration SQL è stata verificata su un database pulito da Supabase CI e applicata al database remoto il 7 settembre 2026 ([esecuzione](https://github.com/Mabalico/https-github.com-flbp-manager/actions/runs/34144390706)); il controllo finale non rileva migration pendenti.

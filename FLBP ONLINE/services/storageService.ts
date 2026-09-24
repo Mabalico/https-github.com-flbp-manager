@@ -166,7 +166,9 @@ export const saveState = (state: AppState) => {
         const next: AppState = { ...state, __schemaVersion: APP_STATE_SCHEMA_VERSION };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch (e) {
-        console.error('Failed to save state', e);
+        const error = new Error('Impossibile salvare i dati nel browser. Le modifiche restano in questa finestra: scarica un backup prima di chiuderla.', { cause: e });
+        error.name = 'LocalStateStorageError';
+        throw error;
     }
 };
 

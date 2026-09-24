@@ -17,9 +17,10 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
     const [mode, setMode] = React.useState<'list' | 'editor' | 'archive'>('list');
     const [newEdition, setNewEdition] = React.useState(false);
     const [dirty, setDirty] = React.useState(false);
+    const [saving, setSaving] = React.useState(false);
     const [leave, setLeave] = React.useState<(() => void) | null>(null);
     const [feedback, setFeedback] = React.useState('');
-    const navigate = (action: () => void) => { if (dirty) setLeave(() => action); else action(); };
+    const navigate = (action: () => void) => { if (saving) return; if (dirty) setLeave(() => action); else action(); };
     const open = (id?: string) => { setFeedback(''); setEditionId(id); setMode('editor'); setDirty(false); };
     const button = 'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-black text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 hover:bg-slate-50';
     const selectTab = (tab: DataTabProps['integrationsSubTab']) => navigate(() => {
@@ -29,9 +30,9 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
     return <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-slate-50 p-3">
             <nav className="flex flex-wrap gap-2" aria-label={t('integrations_toolbar')}>
-                {([{ key: 'tournaments', label: 'edition_list', icon: CalendarRange }, { key: 'scorers', label: 'scorers_label', icon: Crosshair }, { key: 'players', label: 'players', icon: Users }] as const).map(tab => <button type="button" key={tab.key} aria-current={active === tab.key ? 'page' : undefined} className={`${button} ${active === tab.key ? '!bg-slate-900 !text-white' : ''}`} onClick={() => selectTab(tab.key)}><tab.icon size={16} />{t(tab.label)}</button>)}
+                {([{ key: 'tournaments', label: 'edition_list', icon: CalendarRange }, { key: 'scorers', label: 'scorers_label', icon: Crosshair }, { key: 'players', label: 'players', icon: Users }] as const).map(tab => <button type="button" key={tab.key} disabled={saving} aria-current={active === tab.key ? 'page' : undefined} className={`${button} ${active === tab.key ? '!bg-slate-900 !text-white' : ''}`} onClick={() => selectTab(tab.key)}><tab.icon size={16} />{t(tab.label)}</button>)}
             </nav>
-            <button type="button" className="rounded-lg px-2 py-2 text-xs font-bold text-slate-600 hover:underline" onClick={() => selectTab('fanta')}>{t('edition_fanta_maintenance')}</button>
+            <button type="button" disabled={saving} className="rounded-lg px-2 py-2 text-xs font-bold text-slate-600 hover:underline" onClick={() => selectTab('fanta')}>{t('edition_fanta_maintenance')}</button>
         </div>
         {feedback && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{feedback}</p>}
         {active === 'tournaments' && <>
@@ -40,8 +41,8 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
                 <IntegrationsTournaments {...props} onOpen={id => open(id)} />
             </>}
             {mode === 'editor' && <>
-                {!!editionId && props.state.tournamentHistory?.some(row => row.id === editionId) && <button type="button" className={button} onClick={() => navigate(() => { props.setDataSelectedTournamentId(editionId); setMode('archive'); setDirty(false); })}>{t('edition_results')}</button>}
-                <EditionEditor key={editionId || 'new'} state={props.state} setState={props.setState} t={t} editionId={editionId} onDirtyChange={setDirty}
+                {!!editionId && props.state.tournamentHistory?.some(row => row.id === editionId) && <button type="button" disabled={saving} className={button} onClick={() => navigate(() => { props.setDataSelectedTournamentId(editionId); setMode('archive'); setDirty(false); })}>{t('edition_results')}</button>}
+                <EditionEditor key={editionId || 'new'} state={props.state} setState={props.setState} commitAdminStateDurably={props.commitAdminStateDurably} t={t} editionId={editionId} onDirtyChange={setDirty} onSavingChange={setSaving}
                     onBack={() => navigate(() => { setMode('list'); setDirty(false); })}
                     onSaved={id => { setDirty(false); setMode('list'); setEditionId(id); setFeedback(t('record_updated')); }} />
             </>}

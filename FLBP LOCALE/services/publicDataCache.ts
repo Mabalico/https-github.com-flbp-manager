@@ -6,8 +6,16 @@ type CacheEntry<T> = {
   cachedAt: number;
 };
 
+let cacheGeneration = 0;
 const valueCache = new Map<string, CacheEntry<unknown>>();
 const inFlightCache = new Map<string, Promise<unknown>>();
+
+/** Invalidate all pre-restore reads, including requests still in flight. */
+export const clearPublicDataCache = () => {
+  cacheGeneration += 1;
+  valueCache.clear();
+  inFlightCache.clear();
+};
 
 const WORKSPACE_KEY = 'public_workspace_state';
 const TOURNAMENTS_LIST_KEY = 'public_tournaments_list';
@@ -46,12 +54,13 @@ export const getOrFetchCachedPublicData = async <T,>(key: string, maxAgeMs: numb
   const pending = inFlightCache.get(key) as Promise<T> | undefined;
   if (pending) return pending;
 
+  const generation = cacheGeneration;
   const nextPromise = (async () => {
     try {
       const next = await fetcher();
-      return writeCachedPublicData(key, next);
+      return generation === cacheGeneration ? writeCachedPublicData(key, next) : next;
     } finally {
-      inFlightCache.delete(key);
+      if (generation === cacheGeneration) inFlightCache.delete(key);
     }
   })();
 

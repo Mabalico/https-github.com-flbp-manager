@@ -200,6 +200,7 @@ export interface SupabaseWorkspaceStateRow {
     workspace_id: string;
     state: Json;
     updated_at?: string;
+    version?: number | null;
 }
 
 export interface SupabasePublicWorkspaceStateRow {
@@ -1532,12 +1533,16 @@ export type FullDatabaseBackupPayload = {
     workspaceId: string;
     exportedAt: string;
     tables: Record<string, { rows: Array<Record<string, unknown>>; rowCount: number }>;
+    recovery?: Record<string, { rows: Array<Record<string, unknown>>; rowCount: number }>;
     warnings?: string[];
 };
 
 export type FullDatabaseBackupRestoreResult = {
     ok: boolean;
     workspaceId?: string;
+    operationId?: string;
+    checkpointId?: string;
+    version?: number;
     summary?: Record<string, { deleted: number; inserted: number }>;
     warnings?: string[];
     reason?: string;
@@ -1549,7 +1554,15 @@ const callDatabaseBackupAdmin = async (
     source: string
 ): Promise<unknown> => {
     const cfg = getSupabaseConfig();
-    if (!cfg) throw new Error('Supabase non configurato');
+    if (!cfg) throw Object.assign(new Error('Supabase non configurato'), { restoreNotCommitted: true });
+    const requestError = (body: string) => {
+        let detail: { reason?: string; restoreNotCommitted?: boolean } = {};
+        try {
+            const parsed = JSON.parse(body);
+            if (parsed && typeof parsed === 'object') detail = parsed;
+        } catch { /* A gateway error has an uncertain outcome. */ }
+        return Object.assign(new Error(detail.reason || body), { restoreNotCommitted: detail.restoreNotCommitted === true });
+    };
 
     const postBackupAdmin = (accessToken: string) => fetchWithTimeout(
         functionsUrl(cfg, 'database-backup-admin'),
@@ -1565,7 +1578,9 @@ const callDatabaseBackupAdmin = async (
         { source, kind: 'admin' }
     );
 
-    let session = await requireSupabaseWriteSession();
+    let session;
+    try { session = await requireSupabaseWriteSession(); }
+    catch (error) { throw Object.assign(error instanceof Error ? error : new Error(String(error)), { restoreNotCommitted: true }); }
     let res = await postBackupAdmin(session.accessToken);
     if (!res.ok) {
         const errorBody = await readErrorBody(res);
@@ -1575,14 +1590,14 @@ const callDatabaseBackupAdmin = async (
                 session = retrySession;
                 res = await postBackupAdmin(session.accessToken);
             } else {
-                throw new Error(errorBody);
+                throw requestError(errorBody);
             }
         } else {
-            throw new Error(errorBody);
+            throw requestError(errorBody);
         }
     }
 
-    if (!res.ok) throw new Error(await readErrorBody(res));
+    if (!res.ok) throw requestError(await readErrorBody(res));
     return await res.json();
 };
 
@@ -1600,19 +1615,47 @@ export const exportFullDatabaseBackup = async (): Promise<FullDatabaseBackupPayl
 };
 
 export const restoreFullDatabaseBackup = async (
-    backup: FullDatabaseBackupPayload
+    backup: FullDatabaseBackupPayload,
+    options?: { operationId?: string }
 ): Promise<FullDatabaseBackupRestoreResult> => {
     if (backup?.exportType !== 'flbp_application_database_backup') {
-        throw new Error('File backup DB applicativo non valido.');
+        throw Object.assign(new Error('File backup DB applicativo non valido.'), { restoreNotCommitted: true });
     }
-    const payload = await callDatabaseBackupAdmin(
-        { action: 'restore', backup },
-        90000,
-        'restoreFullDatabaseBackup'
-    ) as FullDatabaseBackupRestoreResult;
+    // Keep the same logical ID when the Edge session is refreshed and retried.
+    const operationId = options?.operationId || globalThis.crypto?.randomUUID?.()
+        || `restore-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // During staggered deployments a legacy Edge would otherwise ignore the
+    // operation ID and execute its old non-transactional delete/insert path.
+    try {
+        const capabilities = await callDatabaseBackupAdmin(
+            { action: 'capabilities' }, 15000, 'restoreFullDatabaseBackup.capabilities'
+        ) as { ok?: boolean; transactionalRestore?: number };
+        if (!capabilities?.ok || capabilities.transactionalRestore !== 1) {
+            throw new Error('Aggiornare la funzione database-backup-admin prima di ripristinare il database.');
+        }
+    } catch (error) {
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), { restoreNotCommitted: true });
+    }
+    let payload: FullDatabaseBackupRestoreResult;
+    try {
+        payload = await callDatabaseBackupAdmin(
+            { action: 'restore', backup, operationId },
+            90000,
+            'restoreFullDatabaseBackup'
+        ) as FullDatabaseBackupRestoreResult;
+    } catch (error) {
+        if ((error as { restoreNotCommitted?: boolean })?.restoreNotCommitted === true) throw error;
+        throw Object.assign(new Error('Esito del ripristino non verificabile. Controlla la connessione e riprova il recupero prima di continuare.', { cause: error }), { restoreNotCommitted: false });
+    }
 
     if (!payload.ok) {
         throw new Error(payload.reason || 'Ripristino DB completo non riuscito.');
+    }
+    if (payload.operationId !== operationId || payload.checkpointId !== operationId
+        || payload.workspaceId !== backup.workspaceId
+        || !Number.isSafeInteger(payload.version) || Number(payload.version) < 1) {
+        // A response without the matching transaction receipt is uncertain.
+        throw new Error('Conferma del ripristino incompleta. Riprova il recupero con la stessa operazione.');
     }
     return payload;
 };
@@ -2695,12 +2738,14 @@ export const runDbHealthChecks = async (): Promise<DbHealthCheckResult> => {
     return { ok, checks };
 };
 
-export const pullWorkspaceState = async (perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow | null> => {
+export const pullWorkspaceState = async (perf?: RequestPerfHint & { requireVersion?: boolean }): Promise<SupabaseWorkspaceStateRow | null> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     const session = await requireSupabaseWriteSession();
 
-    const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=workspace_id,state,updated_at&limit=1`);
+    // Restore requires the modern schema; ordinary legacy reads remain compatible.
+    const columns = perf?.requireVersion ? 'workspace_id,state,updated_at,version' : 'workspace_id,state,updated_at';
+    const url = restUrl(cfg, `workspace_state?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=${columns}&limit=1`);
     const res = await fetchWithTimeout(url, { headers: buildHeaders(cfg, session.accessToken) }, 6000, { source: perf?.source || 'pullWorkspaceState', kind: perf?.kind || 'admin' });
     if (!res.ok) throw new Error(await readErrorBody(res));
     const rows = (await res.json()) as SupabaseWorkspaceStateRow[];

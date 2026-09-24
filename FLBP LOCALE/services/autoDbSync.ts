@@ -18,6 +18,8 @@ import { isAutoStructuredSyncEnabled } from './repository/featureFlags';
  * - requires Supabase config + admin JWT
  */
 
+let externalRestorePaused = false;
+const activeSyncRequests = new Set<Promise<void>>();
 let pending: AppState | null = null;
 let timer: number | null = null;
 let inFlight = false;
@@ -106,6 +108,7 @@ const safeFingerprint = (s: AppState): string => {
 };
 
 export const scheduleAutoStructuredSync = (state: AppState) => {
+  if (externalRestorePaused) return;
   if (!isAutoStructuredSyncEnabled()) return;
   installRetryHooks();
 
@@ -121,7 +124,7 @@ export const scheduleAutoStructuredSync = (state: AppState) => {
   }, DEBOUNCE_MS);
 };
 
-export const flushAutoStructuredSync = async (
+const flushAutoStructuredSyncNow = async (
   stateOverride?: AppState,
   opts?: { force?: boolean }
 ): Promise<void> => {
@@ -200,4 +203,37 @@ export const flushAutoStructuredSync = async (
       }, 0);
     }
   }
+};
+
+/** Pause before the restore RPC; queued state remains recoverable on failure. */
+export const prepareAutoSyncForDatabaseRestore = async (): Promise<void> => {
+  externalRestorePaused = true;
+  if (timer != null) window.clearTimeout(timer);
+  timer = null;
+  await Promise.allSettled([...activeSyncRequests]);
+  if (timer != null) window.clearTimeout(timer);
+  timer = null;
+};
+
+export const finishAutoSyncDatabaseRestore = (committed: boolean): void => {
+  if (committed) {
+    pending = null;
+    queuedFlushAfterInFlight = false;
+    queuedForceAfterInFlight = false;
+    lastRunAt = 0;
+    lastFingerprint = '';
+  }
+  externalRestorePaused = false;
+  if (!committed && pending) scheduleAutoStructuredSync(pending);
+};
+
+export const flushAutoStructuredSync = async (
+  stateOverride?: AppState,
+  opts?: { force?: boolean }
+): Promise<void> => {
+  if (externalRestorePaused) return;
+  const work = flushAutoStructuredSyncNow(stateOverride, opts);
+  activeSyncRequests.add(work);
+  try { await work; }
+  finally { activeSyncRequests.delete(work); }
 };

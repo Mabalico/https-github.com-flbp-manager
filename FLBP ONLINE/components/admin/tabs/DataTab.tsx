@@ -1,15 +1,15 @@
 import React from 'react';
-import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, Trash2, TriangleAlert, Users } from 'lucide-react';
+import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, Trash2, Users } from 'lucide-react';
 import type { Team, Match } from '../../../types';
 import type { AppState } from '../../../services/storageService';
-import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from '../../../services/dbDiagnostics';
-import { getSupabaseAccessToken } from '../../../services/supabaseRest';
 import { isRemotePersistenceLocked } from '../../../services/repository/featureFlags';
 import { AccountsSubTab, ArchiveSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
+import type { AdminCommitOptions } from '../../../services/repository/AppStateRepository';
 
 export interface DataTabProps {
     state: AppState;
     setState: (s: AppState) => void;
+    commitAdminStateDurably: (state: AppState, source: string, options?: AdminCommitOptions) => Promise<AppState>;
     t: (key: string) => string;
     embedded?: boolean;
     exportBackupJson: () => void;
@@ -103,7 +103,7 @@ export interface DataTabProps {
     createArchiveDate: string;
     setCreateArchiveDate: (v: string) => void;
     createArchiveMode: 'elimination' | 'groups_elimination' | 'round_robin';
-    setCreateArchiveMode: (v: any) => void;
+    setCreateArchiveMode: (v: 'elimination' | 'groups_elimination' | 'round_robin') => void;
     createArchiveGroups: number;
     setCreateArchiveGroups: (v: number) => void;
     createArchiveAdvancing: number;
@@ -115,6 +115,8 @@ export interface DataTabProps {
     createArchiveFinalRrTopTeams: 4 | 8;
     setCreateArchiveFinalRrTopTeams: (v: 4 | 8) => void;
     createArchiveTeams: Team[];
+    createArchiveLateTeamIds: string[];
+    setCreateArchiveLateTeamIds: (ids: string[]) => void;
     createArchiveFileRef: React.RefObject<HTMLInputElement | null>;
 
     caTeamName: string;
@@ -163,8 +165,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
     const scorersCount = (props.state.integrationsScorers || []).length;
     const aliasesCount = Object.keys(props.state.playerAliases || {}).length;
     const activeSectionLabel = dataSubTab === 'archive' ? t('data_active_edit') : t('data_active_add');
-    const dbDiag = readDbSyncDiagnostics();
-    const hasAdminWriteSession = !!getSupabaseAccessToken();
     const remotePersistenceLocked = isRemotePersistenceLocked();
 
     const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
@@ -215,53 +215,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
             {label}
         </span>
     );
-
-    const dbIssueInfo = React.useMemo(() => {
-        const conflictMessage = String(dbDiag.lastConflictMessage || '').trim();
-        const errorMessage = String(dbDiag.lastErrorMessage || '').trim();
-        const hideAdminWriteOnlyIssue = !hasAdminWriteSession && isAdminWriteOnlyDbIssue(errorMessage);
-
-        if (conflictMessage) {
-            return {
-                tone: 'amber',
-                title: t('data_db_conflict_title'),
-                description: t('data_db_conflict_desc'),
-                action: t('data_db_conflict_action')
-            } as const;
-        }
-
-        if (errorMessage && !hideAdminWriteOnlyIssue) {
-            const lower = errorMessage.toLowerCase();
-            if (lower.includes('offline') || lower.includes('timeout') || lower.includes('fetch') || lower.includes('network')) {
-                return {
-                    tone: 'amber',
-                    title: t('data_db_connection_title'),
-                    description: t('data_db_connection_desc'),
-                    action: remotePersistenceLocked
-                        ? t('data_db_connection_action_public')
-                        : t('data_db_connection_action_local')
-                } as const;
-            }
-            if (lower.includes('autoriz') || lower.includes('jwt') || lower.includes('token') || lower.includes('forbidden') || lower.includes('401') || lower.includes('403') || lower.includes('rls')) {
-                return {
-                    tone: 'amber',
-                    title: t('data_db_access_title'),
-                    description: t('data_db_access_desc'),
-                    action: remotePersistenceLocked
-                        ? t('data_db_access_action_public')
-                        : t('data_db_access_action_local')
-                } as const;
-            }
-            return {
-                tone: 'amber',
-                title: t('data_db_sync_error_title'),
-                description: t('data_db_sync_error_desc'),
-                action: t('data_db_sync_error_action')
-            } as const;
-        }
-
-        return null;
-    }, [dbDiag.lastConflictMessage, dbDiag.lastErrorMessage, hasAdminWriteSession, remotePersistenceLocked]);
 
     React.useEffect(() => {
         if (!mainSection) {
@@ -472,30 +425,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         </div>
                     </div>
 
-                    {dbIssueInfo ? (
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                            <div className="flex items-start gap-3">
-                                <div className="inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 shrink-0">
-                                    <TriangleAlert className="w-5 h-5" />
-                                </div>
-                                <div className="min-w-0">
-                                    <div className="text-sm font-black text-amber-900">{dbIssueInfo.title}</div>
-                                    <div className="text-sm text-amber-900/90 font-bold mt-1">
-                                        {dbIssueInfo.description}
-                                    </div>
-                                    <div className="text-xs text-amber-900/80 font-bold mt-2">
-                                        {dbIssueInfo.action}
-                                    </div>
-                                    {dbDiag.lastConflictMessage || dbDiag.lastErrorMessage ? (
-                                        <div className="mt-3 text-[11px] font-mono text-amber-900/80 bg-white/60 border border-amber-200 rounded-xl px-3 py-2 break-words">
-                                            {dbDiag.lastConflictMessage || dbDiag.lastErrorMessage}
-                                        </div>
-                                    ) : null}
-                                </div>
-                            </div>
-                        </div>
-                    ) : null}
-
                     <BackupSyncPanel
                         exportBackupJson={props.exportBackupJson}
                         restoreBackupJson={props.restoreBackupJson}
@@ -503,7 +432,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         exportFullDatabaseBackup={props.exportFullDatabaseBackupJson}
                         restoreFullDatabaseBackup={props.restoreFullDatabaseBackupJson}
                     />
-                    <DbSyncPanel state={props.state} setState={props.setState} />
+                    <DbSyncPanel state={props.state} setState={props.setState} commitAdminStateDurably={props.commitAdminStateDurably} />
                 </div>
             ) : null}
 

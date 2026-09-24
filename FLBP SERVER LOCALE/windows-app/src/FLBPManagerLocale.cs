@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -21,28 +22,82 @@ namespace Flbp.ManagerLocale
 {
     internal static class Program
     {
+        private const string SingleInstanceMutexName = @"Local\FLBPManagerLocale.SingleInstance";
+        private const int RestoreWindowCommand = 9;
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindowAsync(IntPtr windowHandle, int command);
+
         [STAThread]
         private static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs args)
+            bool ownsSingleInstance;
+            using (var instanceMutex = new System.Threading.Mutex(true, SingleInstanceMutexName, out ownsSingleInstance))
             {
-                AppLog.Write(args.Exception);
-                MessageBox.Show(
-                    "FLBP Manager Locale ha incontrato un errore.\n\n" + args.Exception.Message +
-                    "\n\nIl dettaglio e stato salvato in logs\\windows-app.log.",
-                    "FLBP Manager Locale",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-            };
-            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs args)
-            {
-                AppLog.Write(args.ExceptionObject as Exception);
-            };
+                if (!ownsSingleInstance)
+                {
+                    ActivateExistingInstance();
+                    return;
+                }
 
-            Application.Run(new MainForm());
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs args)
+                {
+                    AppLog.Write(args.Exception);
+                    MessageBox.Show(
+                        "FLBP Manager Locale ha incontrato un errore.\n\n" + args.Exception.Message +
+                        "\n\nIl dettaglio e stato salvato in logs\\windows-app.log.",
+                        "FLBP Manager Locale",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                };
+                AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs args)
+                {
+                    AppLog.Write(args.ExceptionObject as Exception);
+                };
+
+                Application.Run(new MainForm());
+                GC.KeepAlive(instanceMutex);
+            }
+        }
+
+        private static void ActivateExistingInstance()
+        {
+            try
+            {
+                using (var current = Process.GetCurrentProcess())
+                {
+                    foreach (var candidate in Process.GetProcessesByName(current.ProcessName))
+                    {
+                        try
+                        {
+                            if (candidate.Id == current.Id || candidate.MainWindowHandle == IntPtr.Zero) continue;
+                            ShowWindowAsync(candidate.MainWindowHandle, RestoreWindowCommand);
+                            SetForegroundWindow(candidate.MainWindowHandle);
+                            return;
+                        }
+                        finally
+                        {
+                            candidate.Dispose();
+                        }
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                AppLog.Write("Impossibile portare in primo piano l'istanza esistente: " + exception.Message);
+            }
+
+            MessageBox.Show(
+                "FLBP Manager Locale e gia aperto su questo PC.",
+                "FLBP Manager Locale",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
     }
 
@@ -60,6 +115,7 @@ namespace Flbp.ManagerLocale
         private readonly string serverRoot;
         private readonly string nativeWriterWindowId;
         private readonly Timer reconnectTimer;
+        private CoreWebView2Environment browserEnvironment;
         private string lastLocalUrl;
         private int reconnectAttempt;
         private bool initializing;
@@ -202,6 +258,14 @@ namespace Flbp.ManagerLocale
             {
                 reconnectTimer.Stop();
                 reconnectTimer.Dispose();
+                try
+                {
+                    browser.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    AppLog.Write("Chiusura WebView2 non completata: " + exception.Message);
+                }
             };
         }
 
@@ -258,8 +322,8 @@ namespace Flbp.ManagerLocale
                         "FLBP Manager Locale",
                         "WebView2");
                     Directory.CreateDirectory(userData);
-                    var environment = await CoreWebView2Environment.CreateAsync(null, userData);
-                    await browser.EnsureCoreWebView2Async(environment);
+                    browserEnvironment = await CoreWebView2Environment.CreateAsync(null, userData);
+                    await browser.EnsureCoreWebView2Async(browserEnvironment);
                     await ConfigureBrowserAsync();
                 }
 
@@ -351,15 +415,45 @@ namespace Flbp.ManagerLocale
                 RememberLastLocalUrl(browser.CoreWebView2.Source);
             };
 
-            browser.CoreWebView2.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs args)
+            browser.CoreWebView2.NewWindowRequested += async delegate(object sender, CoreWebView2NewWindowRequestedEventArgs args)
             {
-                args.Handled = true;
                 if (IsLocalUri(args.Uri))
                 {
-                    Navigate(args.Uri);
+                    // Local window.open() calls are presentation surfaces. Give
+                    // them their own native window so the operator can move the
+                    // scoreboard/bracket to another monitor without losing the
+                    // Admin screen in this window.
+                    var deferral = args.GetDeferral();
+                    ProjectionForm projection = null;
+                    try
+                    {
+                        projection = new ProjectionForm(browserEnvironment);
+                        projection.Show(this);
+                        await projection.PrepareForNewWindowAsync();
+                        args.NewWindow = projection.WebView;
+                    }
+                    catch (Exception exception)
+                    {
+                        args.Handled = true;
+                        if (projection != null && !projection.IsDisposed)
+                        {
+                            projection.Close();
+                        }
+                        AppLog.Write(exception);
+                        MessageBox.Show(
+                            "Impossibile aprire la finestra di proiezione.\n\n" + exception.Message,
+                            "FLBP Manager Locale",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error);
+                    }
+                    finally
+                    {
+                        deferral.Complete();
+                    }
                 }
                 else
                 {
+                    args.Handled = true;
                     try
                     {
                         Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
@@ -583,6 +677,244 @@ namespace Flbp.ManagerLocale
             }
 
             return null;
+        }
+    }
+
+    internal sealed class ProjectionForm : Form
+    {
+        private const int FullscreenHotKeyId = 0x4F11;
+        private const int WindowsMessageHotKey = 0x0312;
+        private const uint NoRepeatHotKey = 0x4000;
+        private const uint VirtualKeyF11 = 0x7A;
+
+        private readonly WebView2 browser;
+        private readonly CoreWebView2Environment environment;
+        private Rectangle windowedBounds;
+        private FormBorderStyle windowedBorderStyle;
+        private FormWindowState windowedState;
+        private bool windowedTopMost;
+        private bool fullscreen;
+        private bool fullscreenHotKeyWanted;
+        private bool fullscreenHotKeyRegistered;
+        private DateTime lastFullscreenToggleUtc;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool RegisterHotKey(IntPtr windowHandle, int id, uint modifiers, uint virtualKey);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnregisterHotKey(IntPtr windowHandle, int id);
+
+        public ProjectionForm(CoreWebView2Environment environment)
+        {
+            if (environment == null)
+            {
+                throw new ArgumentNullException("environment");
+            }
+
+            this.environment = environment;
+
+            Text = "FLBP Proiezione - F11: schermo intero";
+            StartPosition = FormStartPosition.CenterParent;
+            Width = 1280;
+            Height = 720;
+            MinimumSize = new Size(640, 480);
+            BackColor = Color.Black;
+            KeyPreview = true;
+
+            browser = new WebView2();
+            browser.Dock = DockStyle.Fill;
+            browser.DefaultBackgroundColor = Color.Black;
+            Controls.Add(browser);
+        }
+
+        public CoreWebView2 WebView
+        {
+            get { return browser.CoreWebView2; }
+        }
+
+        public async Task PrepareForNewWindowAsync()
+        {
+            await browser.EnsureCoreWebView2Async(environment);
+
+            browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            browser.CoreWebView2.Settings.IsZoomControlEnabled = true;
+
+            // A projection window must never look like the Admin writer. The
+            // separate marker lets the web UI offer projection-only affordances
+            // without granting the native writer identity to this window.
+            await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                "Object.defineProperty(window,'__FLBP_NATIVE_PROJECTION_WINDOW'," +
+                "{value:true,configurable:false,enumerable:false,writable:false});");
+
+            browser.CoreWebView2.WindowCloseRequested += delegate
+            {
+                if (!IsDisposed)
+                {
+                    BeginInvoke(new MethodInvoker(Close));
+                }
+            };
+            browser.CoreWebView2.DocumentTitleChanged += delegate
+            {
+                var title = browser.CoreWebView2.DocumentTitle;
+                Text = string.IsNullOrWhiteSpace(title)
+                    ? "FLBP Proiezione - F11: schermo intero"
+                    : title + " - F11: schermo intero";
+            };
+        }
+
+        protected override void OnActivated(EventArgs args)
+        {
+            base.OnActivated(args);
+            fullscreenHotKeyWanted = true;
+            RegisterFullscreenHotKey();
+        }
+
+        protected override void OnDeactivate(EventArgs args)
+        {
+            fullscreenHotKeyWanted = false;
+            UnregisterFullscreenHotKey();
+            base.OnDeactivate(args);
+        }
+
+        protected override void OnHandleCreated(EventArgs args)
+        {
+            base.OnHandleCreated(args);
+            if (fullscreenHotKeyWanted)
+            {
+                RegisterFullscreenHotKey();
+            }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs args)
+        {
+            // Changing FormBorderStyle may recreate the native HWND. Release
+            // the registration tied to the old handle; OnHandleCreated will
+            // attach it again while this remains the active projection.
+            UnregisterFullscreenHotKey();
+            base.OnHandleDestroyed(args);
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            var keyCode = keyData & Keys.KeyCode;
+            if (keyCode == Keys.F11)
+            {
+                ToggleFullscreen();
+                return true;
+            }
+
+            if (keyCode == Keys.Escape && fullscreen)
+            {
+                ExitFullscreen();
+                return true;
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs args)
+        {
+            UnregisterFullscreenHotKey();
+            base.OnFormClosed(args);
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == WindowsMessageHotKey && message.WParam.ToInt32() == FullscreenHotKeyId)
+            {
+                ToggleFullscreen();
+                return;
+            }
+
+            base.WndProc(ref message);
+        }
+
+        private void RegisterFullscreenHotKey()
+        {
+            if (fullscreenHotKeyRegistered || !IsHandleCreated)
+            {
+                return;
+            }
+
+            // RegisterHotKey routes F11 to the native top-level window even
+            // while Chromium owns keyboard focus inside the WebView2 child HWND.
+            fullscreenHotKeyRegistered = RegisterHotKey(
+                Handle,
+                FullscreenHotKeyId,
+                NoRepeatHotKey,
+                VirtualKeyF11);
+            if (!fullscreenHotKeyRegistered)
+            {
+                AppLog.Write("Impossibile registrare F11 per la finestra di proiezione. Codice Win32: " +
+                    Marshal.GetLastWin32Error());
+            }
+        }
+
+        private void UnregisterFullscreenHotKey()
+        {
+            if (!fullscreenHotKeyRegistered || !IsHandleCreated)
+            {
+                return;
+            }
+
+            UnregisterHotKey(Handle, FullscreenHotKeyId);
+            fullscreenHotKeyRegistered = false;
+        }
+
+        private void ToggleFullscreen()
+        {
+            // ProcessCmdKey is a fallback if Windows cannot reserve the hotkey.
+            // Debounce protects against the same key reaching both paths.
+            var now = DateTime.UtcNow;
+            if ((now - lastFullscreenToggleUtc).TotalMilliseconds < 250)
+            {
+                return;
+            }
+            lastFullscreenToggleUtc = now;
+
+            if (fullscreen)
+            {
+                ExitFullscreen();
+                return;
+            }
+
+            var targetScreen = Screen.FromControl(this);
+            windowedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            windowedBorderStyle = FormBorderStyle;
+            windowedState = WindowState;
+            windowedTopMost = TopMost;
+
+            SuspendLayout();
+            WindowState = FormWindowState.Normal;
+            FormBorderStyle = FormBorderStyle.None;
+            TopMost = true;
+            Bounds = targetScreen.Bounds;
+            fullscreen = true;
+            ResumeLayout(true);
+            browser.Focus();
+        }
+
+        private void ExitFullscreen()
+        {
+            if (!fullscreen)
+            {
+                return;
+            }
+
+            SuspendLayout();
+            TopMost = windowedTopMost;
+            FormBorderStyle = windowedBorderStyle;
+            WindowState = FormWindowState.Normal;
+            Bounds = windowedBounds;
+            if (windowedState == FormWindowState.Maximized)
+            {
+                WindowState = FormWindowState.Maximized;
+            }
+            fullscreen = false;
+            ResumeLayout(true);
+            browser.Focus();
         }
     }
 
