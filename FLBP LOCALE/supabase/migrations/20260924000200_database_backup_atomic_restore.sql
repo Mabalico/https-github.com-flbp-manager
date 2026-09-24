@@ -57,7 +57,7 @@ begin
   end loop;
   -- Recovery evidence is exported, but leases/epochs are never resurrected
   -- from a file and the existing append-only history is never deleted.
-  foreach v_table in array array['workspace_state_versions', 'flbp_local_operation_log', 'flbp_data_plane', 'admin_write_lease', 'public_workspace_live'] loop
+  for v_table in select unnest(array['workspace_state_versions', 'flbp_local_operation_log', 'flbp_data_plane', 'admin_write_lease', 'public_workspace_live']) loop
     if to_regclass('public.' || v_table) is null then continue; end if;
     execute format('select coalesce(jsonb_agg(to_jsonb(t)), ''[]''::jsonb) from public.%I t where workspace_id = $1', v_table)
       into v_rows using p_workspace_id;
@@ -80,7 +80,7 @@ begin
   if coalesce(auth.role(), '') <> 'service_role' then raise exception 'Service role required' using errcode = '42501'; end if;
   if not exists(select 1 from public.workspaces where id = p_workspace_id) then raise exception 'Workspace inesistente'; end if;
   perform pg_advisory_xact_lock(hashtext('flbp_data_plane:' || p_workspace_id));
-  foreach v_table in array public.flbp_database_backup_table_order() loop
+  for v_table in select unnest(public.flbp_database_backup_table_order()) loop
     if to_regclass('public.' || v_table) is not null then
       execute format('lock table public.%I in share mode', v_table);
     end if;
