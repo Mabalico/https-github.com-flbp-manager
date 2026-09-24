@@ -7,8 +7,11 @@ import {
   GripVertical,
   Info,
   Lock,
+  List,
   Maximize2,
   Minimize2,
+  Minus,
+  Plus,
   RefreshCcw,
   RotateCcw,
   Save,
@@ -77,6 +80,7 @@ interface TournamentEditorTabProps {
 }
 
 type EditorView = 'groups' | 'bracket';
+type BracketWorkspaceMode = 'graph' | 'list';
 type PoolFilter = 'all' | 'eligible' | 'ineligible' | 'assigned' | 'eliminated' | 'locked';
 type SnackbarTone = 'success' | 'error' | 'info';
 
@@ -187,11 +191,10 @@ const editorThemeVars: React.CSSProperties = {
   '--editor-locked-border': '#CBD5E1',
 } as React.CSSProperties;
 
-const editorPanelClass = 'animate-pop-in rounded-[24px] border border-slate-200/50 bg-slate-50/60 backdrop-blur-md shadow-sm shadow-slate-200/40 hover:shadow-md transition-all duration-300';
-const editorSoftPanelClass = 'rounded-2xl border border-slate-100/50 bg-white/80 backdrop-blur-md p-4 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-300';
-const editorGhostButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition-all duration-300 hover:bg-white hover:shadow-sm hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2';
-const editorOutlineButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition-all duration-300 hover:bg-white hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
-const editorPrimaryButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-[0_2px_8px_-2px_rgba(37,99,235,0.4)] transition-all duration-300 hover:bg-blue-700 hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+const editorPanelClass = 'rounded-[20px] border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.32)]';
+const editorGhostButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 active:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40';
+const editorOutlineButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40';
+const editorPrimaryButtonClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 active:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45';
 
 const statusOrder: Record<TeamEligibilityStatus, number> = {
   eligible: 0,
@@ -393,6 +396,9 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const rebasedSignatureRef = React.useRef<string>(sourceSignature);
 
   const [view, setView] = React.useState<EditorView>(initialView);
+  const [bracketWorkspaceMode, setBracketWorkspaceMode] = React.useState<BracketWorkspaceMode>('graph');
+  const [bracketScale, setBracketScale] = React.useState(0.85);
+  const [bracketFitToWidth, setBracketFitToWidth] = React.useState(true);
   const [poolFilter, setPoolFilter] = React.useState<PoolFilter>('all');
   const [poolQuery, setPoolQuery] = React.useState('');
   const [newTeamOpen, setNewTeamOpen] = React.useState(false);
@@ -415,7 +421,6 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const [pendingApplyLocal, setPendingApplyLocal] = React.useState<ReturnType<typeof prepareTournamentStructureApply> | null>(null);
   const [pendingLiveApply, setPendingLiveApply] = React.useState<ReturnType<typeof prepareTournamentStructureApply> | null>(null);
   const [pendingDuplicateDelete, setPendingDuplicateDelete] = React.useState<DuplicateOccurrence | null>(null);
-  const [wizardQuery, setWizardQuery] = React.useState('');
   const [liveOutOfSync, setLiveOutOfSync] = React.useState(false);
   const previewPanelRef = React.useRef<HTMLDivElement | null>(null);
   const bracketWorkspaceRef = React.useRef<HTMLDivElement | null>(null);
@@ -951,6 +956,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     applyOperation({ type: 'ADD_PRELIMINARY_BRACKET_ROUND' }, 'success');
   }, [applyOperation]);
 
+  const handleRebuildEliminationBracket = React.useCallback(() => {
+    applyOperation({ type: 'REBUILD_ELIMINATION_BRACKET' }, 'success');
+  }, [applyOperation]);
+
   // Pannello azioni sullo slot bracket selezionato: inserisci una squadra della
   // sezione Squadre in uno slot libero, sostituisci o rimuovi quella presente,
   // senza dover passare dal pannello pool.
@@ -1065,6 +1074,16 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     }
   }, [t]);
 
+  const changeBracketScale = React.useCallback((delta: number) => {
+    setBracketFitToWidth(false);
+    setBracketScale((current) => Math.min(1.2, Math.max(0.6, Math.round((current + delta) * 100) / 100)));
+  }, []);
+
+  const fitBracketToWidth = React.useCallback(() => {
+    setBracketScale(1);
+    setBracketFitToWidth(true);
+  }, []);
+
   const bracketActiveCheckMap = React.useMemo(() => {
     const valid = new Set<string>();
     const invalid = new Set<string>();
@@ -1083,16 +1102,18 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
   const highlightedBracketSlots = React.useMemo(() => {
     const active = new Set<string>(Array.from(bracketActiveCheckMap.valid));
-    if (selection?.kind === 'bracket-slot') active.add(selection.slotKey);
     if (hoverSlotKey && bracketActiveCheckMap.valid.has(hoverSlotKey)) active.add(hoverSlotKey);
     return Array.from(active);
-  }, [bracketActiveCheckMap.valid, hoverSlotKey, selection]);
+  }, [bracketActiveCheckMap.valid, hoverSlotKey]);
 
   const invalidBracketSlots = React.useMemo(() => {
     const invalid = new Set<string>(Array.from(bracketActiveCheckMap.invalid));
-    if (hoverSlotKey && bracketActiveCheckMap.invalid.has(hoverSlotKey)) invalid.add(hoverSlotKey);
+    if (selection?.kind === 'bracket-slot') invalid.delete(selection.slotKey);
+    if (hoverSlotKey && bracketActiveCheckMap.invalid.has(hoverSlotKey) && !(selection?.kind === 'bracket-slot' && selection.slotKey === hoverSlotKey)) {
+      invalid.add(hoverSlotKey);
+    }
     return Array.from(invalid);
-  }, [bracketActiveCheckMap.invalid, hoverSlotKey]);
+  }, [bracketActiveCheckMap.invalid, hoverSlotKey, selection]);
 
   const changedBracketSlots = React.useMemo(
     () => Array.from(new Set([...draft.diff.bracketChanges.map((change) => change.slotKey), ...draft.diff.futureBracketChanges.map((change) => change.slotKey)])),
@@ -1256,26 +1277,6 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       })
       .filter(Boolean) as BlockedAdvancementPreview[];
   }, [draft.state.present, slotDisplayLabel, t, teamLabel]);
-
-  const freeRound1PairMatches = React.useMemo(
-    () =>
-      round1Matches.filter((match) => {
-        if (isLockedBracketMatchForStructureEdit(match)) return false;
-        const teamA = String(match.teamAId || '').trim();
-        const teamB = String(match.teamBId || '').trim();
-        return (!teamA || isPlaceholderTeamId(teamA)) && (!teamB || isPlaceholderTeamId(teamB));
-      }),
-    [round1Matches]
-  );
-
-  const selectedWizardTeamId = selection?.kind === 'pool-team' ? selection.teamId : null;
-  const selectedWizardTeam = selectedWizardTeamId ? getCatalogTeam(draft.state.present, selectedWizardTeamId) : null;
-  const firstFreeRound1Pair = freeRound1PairMatches[0] || null;
-
-  const handleWizardInsertSelectedTeam = React.useCallback(() => {
-    if (!selectedWizardTeamId || !firstFreeRound1Pair) return;
-    handleBracketSlotAction(`${firstFreeRound1Pair.id}|A`);
-  }, [firstFreeRound1Pair, handleBracketSlotAction, selectedWizardTeamId]);
 
   const placementLabel = React.useCallback((placement?: CurrentPlacement) => {
     if (!placement) return t('editor_not_assigned_lower');
@@ -1524,68 +1525,136 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     );
   };
 
-  // Render the selected-slot actions at the page root. Keeping the overlay
-  // outside the horizontally scrolling bracket prevents transformed/overflow
-  // ancestors from clipping it on very large tournaments.
-  const floatingSelectedSlotPanel = selectedBracketSlot ? (
-    <div className="fixed left-1/2 top-40 z-[90] w-[min(960px,calc(100vw-2rem))] -translate-x-1/2 rounded-[18px] border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)] backdrop-blur">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{selectedBracketSlot.slotLabel}</div>
-          <div className="truncate text-base font-black text-slate-950">
-            {selectedBracketSlot.isFree ? 'Slot libero selezionato' : selectedBracketSlot.teamName}
+  const bracketInspectorContent = (
+    <>
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Inspector</div>
+        <div className="mt-1 text-lg font-bold text-slate-950">Azioni tabellone</div>
+        <p className="mt-1 text-xs font-medium leading-5 text-slate-500">
+          Seleziona una squadra e poi uno slot, oppure apri direttamente uno slot per modificarlo.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3" aria-live="polite">
+        {selectedBracketSlot ? (
+          <div className="space-y-3">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{selectedBracketSlot.slotLabel}</div>
+              <div className="mt-1 break-words text-base font-bold text-slate-950">
+                {selectedBracketSlot.isFree ? 'Slot libero' : selectedBracketSlot.teamName}
+              </div>
+              <div className="mt-1 text-xs font-medium leading-5 text-slate-500">
+                {selectedBracketSlot.isFree
+                  ? 'Inserisci una squadra iscritta o tocca un altro slot per spostare qui una squadra.'
+                  : selectedBracketSlot.removeSlotKey !== selectedBracketSlot.slotKey
+                    ? `La rimozione agisce sullo slot origine: ${selectedBracketSlot.removeSlotLabel}.`
+                    : 'Tocca un altro slot per spostare o scambiare, oppure usa le azioni qui sotto.'}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => { setSlotPickerOpen((open) => !open); setSlotPickerQuery(''); }}
+                disabled={selectedBracketSlot.locked}
+                title={selectedBracketSlot.locked ? t('editor_bracket_slot_locked_started') : undefined}
+                className={`${editorOutlineButtonClass} w-full`}
+              >
+                <Users className="h-4 w-4" />
+                {selectedBracketSlot.isFree ? 'Inserisci squadra' : 'Sostituisci squadra'}
+              </button>
+              {!selectedBracketSlot.isFree ? (
+                <button
+                  type="button"
+                  onClick={handleRemoveSelectedSlotTeam}
+                  disabled={!!selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed}
+                  title={selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed ? selectedBracketSlot.clearCheck.humanMessage : undefined}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Rimuovi dal tabellone
+                </button>
+              ) : null}
+              <button type="button" onClick={clearInteraction} className={`${editorGhostButtonClass} w-full`}>
+                Deseleziona
+              </button>
+            </div>
+            {slotPickerOpen && !selectedBracketSlot.locked ? (
+              <TeamPickerCombobox
+                label={selectedBracketSlot.isFree ? 'Squadra da inserire' : 'Nuova squadra per questo slot'}
+                query={slotPickerQuery}
+                onQueryChange={setSlotPickerQuery}
+                items={slotPickerOptions}
+                selectedId={null}
+                onSelect={handleSlotPickerSelect}
+                placeholder="Cerca tra le squadre iscritte…"
+              />
+            ) : null}
           </div>
-          <div className="mt-0.5 text-xs font-bold text-slate-500">
-            {selectedBracketSlot.isFree
-              ? 'Inserisci una squadra iscritta in Squadre, oppure tocca un altro slot per spostare qui una squadra.'
-              : selectedBracketSlot.removeSlotKey !== selectedBracketSlot.slotKey
-                ? `Rimozione collegata allo slot origine: ${selectedBracketSlot.removeSlotLabel}.`
-                : 'Tocca un altro slot per spostare o scambiare, oppure usa le azioni qui accanto.'}
+        ) : selectedPoolTeamForAction ? (
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Squadra selezionata</div>
+            <div className="mt-1 break-words text-base font-bold text-slate-950">{selectedPoolTeamForAction.name}</div>
+            <p className="mt-1 text-xs font-medium leading-5 text-slate-500">Ora tocca uno slot evidenziato nel tabellone per inserirla.</p>
+            <button type="button" onClick={clearInteraction} className={`${editorGhostButtonClass} mt-2 w-full`}>
+              Deseleziona
+            </button>
           </div>
+        ) : (
+          <div className="py-2 text-sm font-medium leading-6 text-slate-600">
+            Nessun elemento selezionato. Gli slot validi si evidenziano dopo aver scelto una squadra.
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-3">
+        <div className="text-sm font-bold text-slate-900">Struttura</div>
+        <div className="mt-1 text-xs font-medium leading-5 text-slate-500">
+          {canExpandBracketWithPreliminaryRound
+            ? t('editor_bracket_capacity_full')
+            : hasRealBracketStarted(draft.state.present)
+              ? t('editor_bracket_capacity_started')
+              : round1HasPlaceholderSlots
+                ? t('editor_bracket_capacity_placeholders')
+                : t('editor_bracket_capacity_unavailable')}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="mt-3 grid gap-2">
           <button
             type="button"
-            onClick={() => { setSlotPickerOpen((open) => !open); setSlotPickerQuery(''); }}
-            disabled={selectedBracketSlot.locked}
-            title={selectedBracketSlot.locked ? t('editor_bracket_slot_locked_started') : undefined}
-            className={editorOutlineButtonClass}
+            onClick={handleAddPreliminaryRound}
+            disabled={!canExpandBracketWithPreliminaryRound}
+            className={`${editorOutlineButtonClass} w-full`}
           >
-            <Users className="h-4 w-4" />
-            {selectedBracketSlot.isFree ? 'Inserisci squadra' : 'Sostituisci con…'}
+            <Brackets className="h-4 w-4" />
+            {t('editor_add_preliminary_round')}
           </button>
-          {!selectedBracketSlot.isFree ? (
-            <button
-              type="button"
-              onClick={handleRemoveSelectedSlotTeam}
-              disabled={!!selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed}
-              title={selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed ? selectedBracketSlot.clearCheck.humanMessage : undefined}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white/90 px-4 py-2 text-sm font-bold text-red-700 shadow-sm transition-all duration-300 hover:bg-red-50 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Trash2 className="h-4 w-4" />
-              Rimuovi dal tabellone
-            </button>
-          ) : null}
-          <button type="button" onClick={clearInteraction} className={editorGhostButtonClass}>
-            {t('editor_cancel_action')}
+          <button
+            type="button"
+            onClick={handleRebuildEliminationBracket}
+            disabled={draft.state.present.tournament.type !== 'elimination' || hasRealBracketStarted(draft.state.present)}
+            className={`${editorGhostButtonClass} w-full`}
+          >
+            <RefreshCcw className="h-4 w-4" />
+            {t('monitor_bracket_regenerate_random_button')}
           </button>
         </div>
       </div>
-      {slotPickerOpen && !selectedBracketSlot.locked ? (
-        <div className="mt-3 max-w-xl">
-          <TeamPickerCombobox
-            label={selectedBracketSlot.isFree ? 'Squadra da inserire' : 'Nuova squadra per questo slot'}
-            query={slotPickerQuery}
-            onQueryChange={setSlotPickerQuery}
-            items={slotPickerOptions}
-            selectedId={null}
-            onSelect={handleSlotPickerSelect}
-            placeholder="Cerca tra le squadre iscritte…"
-          />
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl bg-slate-100 px-2 py-2.5">
+          <div className="text-base font-bold text-slate-950">{draft.diff.operationsCount}</div>
+          <div className="text-[10px] font-semibold text-slate-500">Operazioni</div>
         </div>
-      ) : null}
-    </div>
-  ) : null;
+        <div className="rounded-xl bg-amber-50 px-2 py-2.5">
+          <div className="text-base font-bold text-amber-800">{draft.validation.warnings.length}</div>
+          <div className="text-[10px] font-semibold text-amber-700">Avvisi</div>
+        </div>
+        <div className="rounded-xl bg-rose-50 px-2 py-2.5">
+          <div className="text-base font-bold text-rose-800">{draft.validation.blockingErrors.length}</div>
+          <div className="text-[10px] font-semibold text-rose-700">Blocchi</div>
+        </div>
+      </div>
+    </>
+  );
 
   if (!hasLiveTournament) {
     return (
@@ -1599,137 +1668,89 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   }
 
   return (
-    <div className="mx-auto max-w-[1760px] space-y-6 text-[var(--editor-text-primary)]" style={editorThemeVars}>
-      {floatingSelectedSlotPanel}
-      <div className={`${editorPanelClass} xl:sticky xl:top-3 z-20 overflow-hidden`}>
-        <div className="border-b border-[color:var(--editor-border-subtle)] bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))] px-5 py-5 md:px-6 backdrop-blur-sm">
-          <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-start 2xl:justify-between">
-            <div className="min-w-0 space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-brand-50)] text-[var(--editor-brand-700)] shadow-[0_10px_24px_-18px_rgba(37,99,235,0.4)]">
-                  <Brackets className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-[28px] font-bold leading-[1.15] text-[var(--editor-text-primary)]">{t('editor_title')}</h3>
-                  <p className="mt-1 max-w-[74ch] text-sm font-medium leading-6 text-[var(--editor-text-secondary)]">
-                    {t('editor_header_desc')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex min-h-6 items-center gap-2 rounded-full border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-3 py-1 text-[11px] font-semibold text-[var(--editor-text-secondary)]">
-                  <span className="text-[var(--editor-text-muted)]">{t('editor_tournament_label')}</span>
-                  <span className="text-[var(--editor-text-primary)]">{state.tournament?.name || t('dash')}</span>
-                </span>
-                <span className="inline-flex min-h-6 items-center gap-2 rounded-full border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-3 py-1 text-[11px] font-semibold text-[var(--editor-text-secondary)]">
-                  <span className="text-[var(--editor-text-muted)]">{t('editor_format_label')}</span>
-                  <span className="text-[var(--editor-text-primary)]">{state.tournament?.type || t('dash')}</span>
-                </span>
-                <span
-                  className={`inline-flex min-h-6 items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold ${
-                    validationTone === 'rose'
-                      ? 'border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] text-[var(--editor-danger-700)]'
-                      : validationTone === 'amber'
-                        ? 'border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)] text-[var(--editor-warning-700)]'
-                        : hasEditorChanges
-                          ? 'border-[color:var(--editor-draft-100)] bg-[var(--editor-draft-50)] text-[var(--editor-draft-700)]'
-                          : 'border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] text-[var(--editor-success-700)]'
-                  }`}
-                >
-                  {draftStatusLabel}
-                </span>
-              </div>
+    <div className="mx-auto max-w-[1760px] space-y-4 text-[var(--editor-text-primary)]" style={editorThemeVars}>
+      <header className={`${editorPanelClass} sticky top-2 z-40 bg-white/95 px-3 py-2.5 backdrop-blur md:px-4`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+              <Brackets className="h-5 w-5" />
             </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <button type="button" onClick={handleDiscardDraft} disabled={!hasEditorChanges} className={editorGhostButtonClass}>
-                <RotateCcw className="h-4 w-4" />
-                {t('editor_reset_draft')}
-              </button>
-              <button type="button" onClick={draft.undo} disabled={draft.state.past.length === 0} className={editorGhostButtonClass}>
-                <Undo2 className="h-4 w-4" />
-                {t('editor_undo')}
-              </button>
-              <button type="button" onClick={draft.redo} disabled={draft.state.future.length === 0} className={editorGhostButtonClass}>
-                <Redo2 className="h-4 w-4" />
-                {t('editor_redo')}
-              </button>
-              <button type="button" onClick={scrollToPreview} className={editorOutlineButtonClass}>
-                <Eye className="h-4 w-4" />
-                {t('editor_preview')}
-              </button>
-              <button
-                type="button"
-                onClick={handleApplyDraft}
-                disabled={applyBusy || !hasEditorChanges || !draft.validation.canApply}
-                className={editorPrimaryButtonClass}
-              >
-                <Save className="h-4 w-4" />
-                {applyBusy ? t('editor_applying') : t('editor_apply_changes')}
-              </button>
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-bold text-slate-950 md:text-lg">{t('editor_title')}</h3>
+              <p className="truncate text-xs font-medium text-slate-500">{state.tournament?.name || t('dash')}</p>
             </div>
+            <span
+              className={`hidden rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:inline-flex ${
+                validationTone === 'rose'
+                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                  : validationTone === 'amber'
+                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                    : hasEditorChanges
+                      ? 'border-violet-200 bg-violet-50 text-violet-700'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              }`}
+            >
+              {draftStatusLabel}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={handleDiscardDraft} disabled={!hasEditorChanges} className={editorGhostButtonClass} title={t('editor_reset_draft')} aria-label={t('editor_reset_draft')}>
+              <RotateCcw className="h-4 w-4" />
+              <span className="hidden 2xl:inline">{t('editor_reset_draft')}</span>
+            </button>
+            <button type="button" onClick={draft.undo} disabled={draft.state.past.length === 0} className={editorGhostButtonClass} title={t('editor_undo')} aria-label={t('editor_undo')}>
+              <Undo2 className="h-4 w-4" />
+              <span className="hidden 2xl:inline">{t('editor_undo')}</span>
+            </button>
+            <button type="button" onClick={draft.redo} disabled={draft.state.future.length === 0} className={editorGhostButtonClass} title={t('editor_redo')} aria-label={t('editor_redo')}>
+              <Redo2 className="h-4 w-4" />
+              <span className="hidden 2xl:inline">{t('editor_redo')}</span>
+            </button>
+            <button type="button" onClick={scrollToPreview} className={editorOutlineButtonClass}>
+              <Eye className="h-4 w-4" />
+              <span className="hidden lg:inline">{t('editor_preview')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyDraft}
+              disabled={applyBusy || !hasEditorChanges || !draft.validation.canApply}
+              className={editorPrimaryButtonClass}
+            >
+              <Save className="h-4 w-4" />
+              {applyBusy ? t('editor_applying') : t('editor_apply_changes')}
+            </button>
           </div>
         </div>
+      </header>
 
-        <div className="flex flex-col gap-3 px-5 py-4 md:px-6">
-          {interactionMessage ? (
-            <div className="rounded-[18px] border border-[color:var(--editor-info-100)] bg-[var(--editor-info-50)] px-4 py-3 text-sm font-medium text-[var(--editor-info-700)] shadow-[0_12px_24px_-24px_rgba(2,132,199,0.35)]">
-              {interactionMessage}
-            </div>
-          ) : (
-            <div className="rounded-[18px] border border-dashed border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] px-4 py-3 text-sm font-medium text-[var(--editor-text-secondary)]">
-              {t('editor_select_team_or_slot')}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            {[
-              { step: '1', title: t('editor_wizard_step_choose'), desc: t('editor_wizard_step_choose_desc') },
-              { step: '2', title: t('editor_wizard_step_insert'), desc: t('editor_wizard_step_insert_desc') },
-              { step: '3', title: t('editor_wizard_step_preview'), desc: t('editor_wizard_step_preview_desc') },
-            ].map((item) => (
-              <div key={item.step} className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-white/85 px-4 py-3 shadow-[0_12px_24px_-26px_rgba(15,23,42,0.22)]">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">
-                    {item.step}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-black text-[var(--editor-text-primary)]">{item.title}</div>
-                    <div className="mt-0.5 text-[11px] font-bold leading-4 text-[var(--editor-text-muted)]">{item.desc}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-        {liveOutOfSync ? (
-          <div className="rounded-[18px] border border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)] px-4 py-3 shadow-[0_12px_24px_-24px_rgba(217,119,6,0.35)]">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <div className="text-sm font-semibold text-[var(--editor-warning-700)] inline-flex items-center gap-2">
-                  <TriangleAlert className="w-4 h-4" />
-                  {t('editor_live_changed_title')}
-                </div>
-                <div className="mt-1 text-xs font-medium text-[var(--editor-warning-700)]/85">
-                  {t('editor_live_changed_desc')}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleRefreshFromCurrentLive}
-                className={editorGhostButtonClass}
-              >
-                {t('editor_reload_editor')}
-              </button>
-            </div>
-          </div>
-        ) : null}
+      {interactionMessage ? (
+        <div role="status" aria-live="polite" className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-medium text-sky-800">
+          {interactionMessage}
         </div>
-      </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-5 2xl:grid-cols-[380px_minmax(0,1fr)]">
-        <aside className={`${editorPanelClass} self-start p-4 lg:p-4 xl:sticky xl:top-3 xl:p-5 space-y-4`}>
+      {liveOutOfSync ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div>
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-amber-800">
+              <TriangleAlert className="h-4 w-4" />
+              {t('editor_live_changed_title')}
+            </div>
+            <div className="mt-1 text-xs font-medium text-amber-700">{t('editor_live_changed_desc')}</div>
+          </div>
+          <button type="button" onClick={handleRefreshFromCurrentLive} className={editorGhostButtonClass}>
+            {t('editor_reload_editor')}
+          </button>
+        </div>
+      ) : null}
+
+      <div className={`grid grid-cols-1 items-start gap-4 xl:gap-4 ${
+        view === 'bracket'
+          ? 'lg:grid-cols-[230px_minmax(0,1fr)_250px] xl:grid-cols-[260px_minmax(0,1fr)_280px] 2xl:grid-cols-[300px_minmax(0,1fr)_320px]'
+          : 'lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)]'
+      }`}>
+        <aside className={`${editorPanelClass} self-start space-y-4 p-4 lg:sticky lg:top-[5.5rem] lg:max-h-[calc(100dvh-6.5rem)] lg:overflow-y-auto`}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-base font-bold text-[var(--editor-text-primary)]">{t('editor_pool_title')}</div>
@@ -1780,6 +1801,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   value={newTeamName}
                   onChange={(event) => setNewTeamName(event.target.value)}
                   placeholder={t('editor_team_name_placeholder')}
+                  aria-label={t('editor_team_name_placeholder')}
                   className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] px-3 text-sm font-medium text-[var(--editor-text-primary)] placeholder:text-[var(--editor-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
                 />
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1787,12 +1809,14 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     value={newTeamPlayer1}
                     onChange={(event) => setNewTeamPlayer1(event.target.value)}
                     placeholder={t('editor_player1_placeholder')}
+                    aria-label={t('editor_player1_placeholder')}
                     className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] px-3 text-sm font-medium text-[var(--editor-text-primary)] placeholder:text-[var(--editor-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
                   />
                   <input
                     value={newTeamPlayer2}
                     onChange={(event) => setNewTeamPlayer2(event.target.value)}
                     placeholder={t('editor_player2_placeholder')}
+                    aria-label={t('editor_player2_placeholder')}
                     className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] px-3 text-sm font-medium text-[var(--editor-text-primary)] placeholder:text-[var(--editor-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
                   />
                 </div>
@@ -1826,6 +1850,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 key={key}
                 type="button"
                 onClick={() => setPoolFilter(key)}
+                aria-pressed={poolFilter === key}
                 className={`inline-flex min-h-[30px] items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
                   poolFilter === key
                     ? 'border-[color:var(--editor-border-brand)] bg-[var(--editor-brand-50)] text-[var(--editor-brand-700)] shadow-[0_8px_18px_-18px_rgba(37,99,235,0.25)]'
@@ -1924,20 +1949,22 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           </div>
         </aside>
 
-        <section className={`${editorPanelClass} min-w-0 p-4 lg:p-4 xl:p-5 space-y-4`}>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
+        <section className={`${editorPanelClass} min-w-0 space-y-3 p-4 xl:p-5`}>
+          <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-base font-bold text-[var(--editor-text-primary)]">{t('editor_workspace_title')}</div>
-              <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">
+              <div className="mt-1 hidden text-xs font-medium text-[var(--editor-text-muted)] 2xl:block">
                 {t('editor_workspace_desc')}
               </div>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-[14px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-soft)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+            <div className="inline-flex shrink-0 items-center rounded-xl border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-soft)] p-1" role="tablist" aria-label="Fase da modificare">
               <button
                 type="button"
+                role="tab"
+                aria-selected={view === 'groups'}
                 onClick={() => setView('groups')}
                 disabled={!groupsAvailable}
-                className={`inline-flex h-10 items-center gap-2 rounded-[10px] px-4 text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 ${
+                className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 ${
                   view === 'groups'
                     ? 'bg-[var(--editor-bg-surface)] text-[var(--editor-brand-700)] shadow-sm ring-1 ring-[color:var(--editor-border-brand)]'
                     : 'bg-transparent text-[var(--editor-text-secondary)] hover:bg-[var(--editor-bg-surface)]'
@@ -1947,9 +1974,11 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={view === 'bracket'}
                 onClick={() => setView('bracket')}
                 disabled={!bracketAvailable}
-                className={`inline-flex h-10 items-center gap-2 rounded-[10px] px-4 text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 ${
+                className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2 ${
                   view === 'bracket'
                     ? 'bg-[var(--editor-bg-surface)] text-[var(--editor-brand-700)] shadow-sm ring-1 ring-[color:var(--editor-border-brand)]'
                     : 'bg-transparent text-[var(--editor-text-secondary)] hover:bg-[var(--editor-bg-surface)]'
@@ -1960,16 +1989,16 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
             </div>
           </div>
 
-          <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-4 py-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 text-xs font-black uppercase tracking-wide text-[var(--editor-text-muted)]">{t('editor_state_legend')}</span>
-              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-border-brand)] bg-[var(--editor-bg-selected)] px-3 py-1 text-xs font-black text-[var(--editor-brand-700)]">{t('editor_state_selected')}</span>
-              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-1 text-xs font-black text-[var(--editor-success-700)]">{t('editor_state_valid')}</span>
-              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-danger-100)] bg-[var(--editor-danger-50)] px-3 py-1 text-xs font-black text-[var(--editor-danger-700)]">{t('editor_state_invalid')}</span>
-              <span className="inline-flex min-h-8 items-center rounded-full border border-violet-200 bg-[var(--editor-bg-changed)] px-3 py-1 text-xs font-black text-[var(--editor-draft-700)]">{t('editor_state_modified')}</span>
-              <span className="inline-flex min-h-8 items-center rounded-full border border-[color:var(--editor-locked-border)] bg-[var(--editor-locked-bg)] px-3 py-1 text-xs font-black text-[var(--editor-locked-text)]">{t('editor_state_blocked')}</span>
+          <details className="rounded-xl border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-3 py-2 text-xs text-[var(--editor-text-secondary)]">
+            <summary className="cursor-pointer font-semibold text-[var(--editor-text-muted)]">{t('editor_state_legend')}</summary>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-semibold text-blue-700">{t('editor_state_selected')}</span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{t('editor_state_valid')}</span>
+              <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 font-semibold text-rose-700">{t('editor_state_invalid')}</span>
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 font-semibold text-violet-700">{t('editor_state_modified')}</span>
+              <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">{t('editor_state_blocked')}</span>
             </div>
-          </div>
+          </details>
 
           {view === 'groups' ? (
             groupsAvailable ? (
@@ -2134,167 +2163,64 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
               </div>
             )
           ) : bracketAvailable ? (
-            <div className="flex flex-col gap-4">
-              <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] px-4 py-3 text-sm font-medium text-[var(--editor-text-secondary)]">
-                {t('editor_bracket_editorial_round1')}
-              </div>
-
-              <div className="rounded-[22px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] p-4 shadow-sm">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0">
-                    <div className="inline-flex items-center gap-2 text-base font-black text-[var(--editor-text-primary)]">
-                      <Brackets className="h-4 w-4 text-[var(--editor-brand-700)]" />
-                      {t('editor_add_team_wizard_title')}
-                    </div>
-                    <div className="mt-1 text-xs font-bold text-[var(--editor-text-muted)]">{t('editor_add_team_wizard_live_badge')}</div>
-                  </div>
-                  <button type="button" onClick={scrollToPreview} className={editorGhostButtonClass}>
-                    <Eye className="h-4 w-4" />
-                    {t('editor_preview')}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5">
+                <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5" role="tablist" aria-label="Vista del tabellone">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={bracketWorkspaceMode === 'graph'}
+                    onClick={() => setBracketWorkspaceMode('graph')}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
+                      bracketWorkspaceMode === 'graph' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Brackets className="h-3.5 w-3.5" />
+                    Grafico
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={bracketWorkspaceMode === 'list'}
+                    onClick={() => setBracketWorkspaceMode('list')}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
+                      bracketWorkspaceMode === 'list' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    Elenco
                   </button>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
-                  <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">1</span>
-                      <div>
-                        <div className="text-sm font-black text-[var(--editor-text-primary)]">{t('editor_wizard_step_choose')}</div>
-                        <div className="text-[11px] font-bold text-[var(--editor-text-muted)]">{t('editor_wizard_step_choose_desc')}</div>
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <TeamPickerCombobox
-                        label={t('editor_pool_picker_label')}
-                        query={wizardQuery}
-                        onQueryChange={setWizardQuery}
-                        items={poolEntries.map((entry) => ({
-                          id: entry.team.id,
-                          name: entry.team.name,
-                          disabled: entry.disabled,
-                          badge: entry.badgeLabel,
-                          placement: entry.placementLabel || t('editor_not_assigned'),
-                          reason: entry.disabled ? entry.humanMessage : undefined,
-                        }))}
-                        selectedId={selectedWizardTeamId}
-                        onSelect={(id) => {
-                          setSelectedPoolTeam(id);
-                          setWizardQuery(getCatalogTeam(draft.state.present, id)?.name || '');
-                        }}
-                        placeholder={t('editor_pool_picker_placeholder')}
-                      />
-                    </div>
-                    {selectedWizardTeam ? (
-                      <div className="mt-3 rounded-[14px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-2 text-xs font-black text-[var(--editor-success-700)]">
-                        {t('editor_wizard_selected_team').replace('{name}', selectedWizardTeam.name)}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">2</span>
-                      <div>
-                        <div className="text-sm font-black text-[var(--editor-text-primary)]">{t('editor_wizard_step_insert')}</div>
-                        <div className="text-[11px] font-bold text-[var(--editor-text-muted)]">{t('editor_wizard_step_insert_desc')}</div>
-                      </div>
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      {firstFreeRound1Pair ? (
-                        <button
-                          type="button"
-                          disabled={!selectedWizardTeamId}
-                          onClick={handleWizardInsertSelectedTeam}
-                          className="min-h-[48px] w-full rounded-[14px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-2 text-left text-sm font-black text-[var(--editor-success-700)] transition hover:bg-[var(--editor-success-100)] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {t('editor_wizard_use_free_pair')}
-                        </button>
-                      ) : canExpandBracketWithPreliminaryRound ? (
-                        <div className="rounded-[14px] border border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] px-3 py-3 text-sm font-bold text-[var(--editor-success-700)]">
-                          {t('editor_wizard_preliminary_recommended')}
-                        </div>
-                      ) : (
-                        <div className="rounded-[14px] border border-[color:var(--editor-warning-100)] bg-[var(--editor-warning-50)] px-3 py-3 text-sm font-bold text-[var(--editor-warning-700)]">
-                          {t('editor_wizard_no_safe_pair')}
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleAddPreliminaryRound}
-                        disabled={!canExpandBracketWithPreliminaryRound}
-                        className={editorOutlineButtonClass}
-                      >
-                        <Brackets className="h-4 w-4" />
-                        {t('editor_wizard_add_preliminary')}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--editor-brand-50)] text-sm font-black text-[var(--editor-brand-700)]">3</span>
-                      <div>
-                        <div className="text-sm font-black text-[var(--editor-text-primary)]">{t('editor_wizard_step_preview')}</div>
-                        <div className="text-[11px] font-bold text-[var(--editor-text-muted)]">{t('editor_wizard_step_preview_desc')}</div>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button type="button" onClick={scrollToPreview} className={editorOutlineButtonClass}>
-                        {t('editor_preview')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleApplyDraft}
-                        disabled={applyBusy || !hasEditorChanges || !draft.validation.canApply}
-                        className={editorPrimaryButtonClass}
-                      >
-                        {t('editor_apply_changes')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] px-4 py-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-[var(--editor-text-primary)]">{t('editor_bracket_capacity_title')}</div>
-                    <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">
-                      {canExpandBracketWithPreliminaryRound
-                        ? t('editor_bracket_capacity_full')
-                        : hasRealBracketStarted(draft.state.present)
-                          ? t('editor_bracket_capacity_started')
-                          : round1HasPlaceholderSlots
-                            ? t('editor_bracket_capacity_placeholders')
-                            : t('editor_bracket_capacity_unavailable')}
-                    </div>
-                    <div className="mt-2 text-[11px] font-medium text-[var(--editor-text-muted)]">
-                      {t('editor_bracket_capacity_hint_prefix')} <span className="font-semibold text-[var(--editor-text-primary)]">{t('editor_bracket_capacity_hint_highlight')}</span>{t('editor_bracket_capacity_hint_suffix')}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                {bracketWorkspaceMode === 'graph' ? (
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button type="button" onClick={() => changeBracketScale(-0.1)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-label="Riduci zoom" title="Riduci zoom">
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="min-w-9 text-center text-[11px] font-semibold text-slate-600" aria-live="polite">
+                      {bracketFitToWidth ? 'Auto' : `${Math.round(bracketScale * 100)}%`}
+                    </span>
+                    <button type="button" onClick={() => changeBracketScale(0.1)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-label="Aumenta zoom" title="Aumenta zoom">
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={fitBracketToWidth} className="inline-flex h-8 items-center rounded-lg px-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600" aria-pressed={bracketFitToWidth}>
+                      Adatta
+                    </button>
                     <button
                       type="button"
                       onClick={toggleBracketFullscreen}
-                      className={editorGhostButtonClass}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      aria-label={isBracketFullscreen ? t('editor_fullscreen_exit') : t('editor_fullscreen_open')}
+                      title={isBracketFullscreen ? t('editor_fullscreen_exit') : t('editor_fullscreen_open')}
                     >
                       {isBracketFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                      {isBracketFullscreen ? t('editor_fullscreen_exit') : t('editor_fullscreen_open')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAddPreliminaryRound}
-                      disabled={!canExpandBracketWithPreliminaryRound}
-                      className={editorOutlineButtonClass}
-                    >
-                      <Brackets className="h-4 w-4" />
-                      {t('editor_add_preliminary_round')}
                     </button>
                   </div>
-                </div>
+                ) : null}
               </div>
 
-              <div className="order-4 rounded-[22px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
+              {bracketWorkspaceMode === 'list' ? (
+              <div role="tabpanel" aria-label="Vista elenco del tabellone" className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <div className="text-base font-black text-[var(--editor-text-primary)]">{t('editor_match_pair_view_title')}</div>
@@ -2321,107 +2247,46 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   })}
                 </div>
               </div>
-
+              ) : (
               <div
                 id="editor-bracket-workspace"
                 ref={bracketWorkspaceRef}
-                className={`order-3 rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
-                  isBracketFullscreen ? 'h-screen overflow-auto p-4' : 'overflow-auto p-2.5 lg:p-3'
+                role="tabpanel"
+                aria-label="Vista grafica del tabellone"
+                className={`rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
+                  isBracketFullscreen ? 'h-screen overflow-hidden p-3' : 'h-[calc(100dvh-12rem)] min-h-[460px] max-h-[820px] overflow-auto p-2.5 lg:p-3'
                 }`}
               >
                 {isBracketFullscreen ? (
-                  <div className="sticky top-2 z-30 mb-3 rounded-[18px] border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
-                    {selectedPoolTeamForAction ? (
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-black uppercase tracking-wide text-emerald-700">{t('editor_add_to_bracket_bar')}</div>
-                          <div className="truncate text-base font-black text-slate-950">{selectedPoolTeamForAction.name}</div>
-                          <div className="mt-0.5 text-xs font-bold text-slate-500">{t('editor_add_to_bracket_hint')}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={clearInteraction}
-                          className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50"
-                        >
-                          {t('editor_cancel_action')}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-sm font-bold text-slate-600">{t('editor_fullscreen_select_team_first')}</div>
-                        <button
-                          type="button"
-                          onClick={handleAddPreliminaryRound}
-                          disabled={!canExpandBracketWithPreliminaryRound}
-                          title={!canExpandBracketWithPreliminaryRound ? t('editor_bracket_capacity_placeholders') : undefined}
-                          className={editorOutlineButtonClass}
-                        >
-                          <Brackets className="h-4 w-4" />
-                          {t('editor_add_preliminary_round')}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-                {selectedBracketSlot && false ? (
-                  <div className="fixed left-1/2 top-40 z-[80] mb-3 w-[min(960px,calc(100vw-2rem))] -translate-x-1/2 rounded-[18px] border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)] backdrop-blur">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{selectedBracketSlot.slotLabel}</div>
-                          <div className="truncate text-base font-black text-slate-950">
-                            {selectedBracketSlot.isFree ? 'Slot libero selezionato' : selectedBracketSlot.teamName}
-                          </div>
-                          <div className="mt-0.5 text-xs font-bold text-slate-500">
-                            {selectedBracketSlot.isFree
-                              ? 'Inserisci una squadra iscritta in Squadre, oppure tocca un altro slot per spostare qui una squadra.'
-                              : selectedBracketSlot.removeSlotKey !== selectedBracketSlot.slotKey
-                                ? `Rimozione collegata allo slot origine: ${selectedBracketSlot.removeSlotLabel}.`
-                                : 'Tocca un altro slot per spostare o scambiare, oppure usa le azioni qui accanto.'}
-                          </div>
-                        </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { setSlotPickerOpen((open) => !open); setSlotPickerQuery(''); }}
-                          disabled={selectedBracketSlot.locked}
-                          title={selectedBracketSlot.locked ? t('editor_bracket_slot_locked_started') : undefined}
-                          className={editorOutlineButtonClass}
-                        >
-                          <Users className="h-4 w-4" />
-                          {selectedBracketSlot.isFree ? 'Inserisci squadra' : 'Sostituisci con…'}
-                        </button>
-                        {!selectedBracketSlot.isFree ? (
-                          <button
-                            type="button"
-                            onClick={handleRemoveSelectedSlotTeam}
-                            disabled={!!selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed}
-                            title={selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed ? selectedBracketSlot.clearCheck.humanMessage : undefined}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white/90 px-4 py-2 text-sm font-bold text-red-700 shadow-sm transition-all duration-300 hover:bg-red-50 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Rimuovi dal tabellone
-                          </button>
-                        ) : null}
-                        <button type="button" onClick={clearInteraction} className={editorGhostButtonClass}>
-                          {t('editor_cancel_action')}
-                        </button>
+                  <div className="mb-3 flex min-h-14 flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Editor tabellone</div>
+                      <div className="truncate text-sm font-semibold text-slate-800">
+                        {selectedPoolTeamForAction
+                          ? `${selectedPoolTeamForAction.name} · scegli uno slot`
+                          : selectedBracketSlot
+                            ? selectedBracketSlot.slotLabel
+                            : t('editor_fullscreen_select_team_first')}
                       </div>
                     </div>
-                    {slotPickerOpen && !selectedBracketSlot.locked ? (
-                      <div className="mt-3 max-w-xl">
-                        <TeamPickerCombobox
-                          label={selectedBracketSlot.isFree ? 'Squadra da inserire' : 'Nuova squadra per questo slot'}
-                          query={slotPickerQuery}
-                          onQueryChange={setSlotPickerQuery}
-                          items={slotPickerOptions}
-                          selectedId={null}
-                          onSelect={handleSlotPickerSelect}
-                          placeholder="Cerca tra le squadre iscritte…"
-                        />
-                      </div>
-                    ) : null}
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => changeBracketScale(-0.1)} className={editorGhostButtonClass} aria-label="Riduci zoom" title="Riduci zoom">
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="min-w-12 text-center text-xs font-semibold text-slate-600">{bracketFitToWidth ? 'Auto' : `${Math.round(bracketScale * 100)}%`}</span>
+                      <button type="button" onClick={() => changeBracketScale(0.1)} className={editorGhostButtonClass} aria-label="Aumenta zoom" title="Aumenta zoom">
+                        <Plus className="h-4 w-4" />
+                      </button>
+                      <button type="button" onClick={fitBracketToWidth} className={editorGhostButtonClass} aria-pressed={bracketFitToWidth}>Adatta</button>
+                      <button type="button" onClick={toggleBracketFullscreen} className={editorPrimaryButtonClass}>
+                        <Minimize2 className="h-4 w-4" />
+                        {t('editor_fullscreen_exit')}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
+                <div className={isBracketFullscreen ? 'grid h-[calc(100dvh-5.5rem)] min-h-0 grid-cols-[minmax(0,1fr)_320px] gap-3' : 'h-full min-h-0'}>
+                  <div className="h-full min-w-0 overflow-auto rounded-xl bg-white">
                 <TournamentBracket
                   teams={draft.state.present.catalogTeams}
                   matches={draft.state.present.matches}
@@ -2431,7 +2296,10 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   showConnectors
                   showByeSlots
                   participantSelectionMode
-                  highlightedSlotKeys={highlightedBracketSlots}
+                  scale={bracketScale}
+                  fitToWidth={bracketFitToWidth}
+                  selectedSlotKeys={selection?.kind === 'bracket-slot' ? [selection.slotKey] : []}
+                  validSlotKeys={highlightedBracketSlots}
                   invalidSlotKeys={invalidBracketSlots}
                   changedSlotKeys={changedBracketSlots}
                   lockedSlotKeys={lockedBracketSlots}
@@ -2439,7 +2307,6 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   draggingSlotKey={dragSource?.kind === 'bracket-slot' ? dragSource.slotKey : undefined}
                   dropTargetSlotKey={hoverSlotKey || undefined}
                   onParticipantClick={(args) => handleBracketSlotAction(`${args.matchId}|${args.side}`)}
-                  onParticipantDoubleClick={(args) => handleBracketSlotAction(`${args.matchId}|${args.side}`)}
                   onParticipantDragStart={(args) => {
                     const slotKey = `${args.matchId}|${args.side}`;
                     const teamId = getSlotValue(draft.state.present, slotKey) || undefined;
@@ -2474,7 +2341,15 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     setHoverSlotKey('');
                   }}
                 />
+                  </div>
+                  {isBracketFullscreen ? (
+                    <aside className="h-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="space-y-4">{bracketInspectorContent}</div>
+                    </aside>
+                  ) : null}
+                </div>
               </div>
+              )}
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] px-4 py-12 text-center">
@@ -2485,7 +2360,13 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
           )}
         </section>
 
-        <aside className={`${editorPanelClass} space-y-4 p-4 lg:p-4 xl:col-span-2 xl:p-5`}>
+        {view === 'bracket' ? (
+          <aside className={`${editorPanelClass} self-start space-y-4 p-4 lg:sticky lg:top-[5.5rem] lg:max-h-[calc(100dvh-6.5rem)] lg:overflow-y-auto`}>
+            {bracketInspectorContent}
+          </aside>
+        ) : null}
+
+        <aside className={`${editorPanelClass} space-y-4 p-4 lg:col-span-full xl:p-5`}>
           <div ref={previewPanelRef} className="space-y-4">
             <div>
               <div className="text-base font-bold text-[var(--editor-text-primary)]">{t('editor_preview_integrity_title')}</div>
@@ -3040,7 +2921,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
       {selectedActionLabel ? (
         <div
-          className="fixed inset-x-3 bottom-3 z-[60] mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-2xl"
+          className="fixed inset-x-3 bottom-3 z-[60] mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-2xl lg:hidden"
           draggable={!!selectedPoolTeamForAction}
           onDragStart={(event) => {
             if (!selectedPoolTeamForAction) return;
@@ -3096,6 +2977,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       {snackbar ? (
         <div className="fixed bottom-5 right-5 z-[65]">
           <div
+            role="status"
+            aria-live="polite"
             className={`min-w-[300px] max-w-[460px] rounded-[18px] border px-4 py-3 shadow-[0_24px_60px_-36px_rgba(15,23,42,0.45)] ${
               snackbar.tone === 'success'
                 ? 'border-[color:var(--editor-success-100)] bg-[var(--editor-success-50)] text-[var(--editor-success-700)]'

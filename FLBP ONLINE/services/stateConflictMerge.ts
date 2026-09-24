@@ -3,6 +3,7 @@ import { coerceAppState } from './storageService';
 import { buildBracketRoundsFromMatches } from './tournamentStructureSelectors';
 import type { Group, HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentData } from '../types';
 import { normalizeNameLower } from './textUtils';
+import { stableStateSerialize } from './stableStateSerialize';
 
 type MergeFailure = { ok: false; reason: string };
 type MergeSuccess<T> = { ok: true; value: T; changed: boolean };
@@ -11,15 +12,7 @@ export type StateConflictMergeResult =
   | { ok: true; state: AppState; mergedSlices: string[] }
   | { ok: false; reason: string };
 
-const stableSerialize = (value: unknown): string => {
-  try {
-    return JSON.stringify(value ?? null);
-  } catch {
-    return String(value);
-  }
-};
-
-const sameValue = (a: unknown, b: unknown) => stableSerialize(a) === stableSerialize(b);
+const sameValue = (a: unknown, b: unknown) => stableStateSerialize(a) === stableStateSerialize(b);
 
 const cloneValue = <T,>(value: T): T => {
   if (value == null) return value;
@@ -92,8 +85,9 @@ const mergeObjectFields = <T extends Record<string, any>>(
   let changed = false;
   for (const field of fields) {
     const merged = mergeScalar(base?.[field], local?.[field], remote?.[field]);
-    if (!merged.ok) return merged;
-    next[field] = merged.value;
+    if (merged.ok === false) return merged;
+    if (merged.value === undefined) delete next[field];
+    else Object.defineProperty(next, field, { value: merged.value, enumerable: true, configurable: true, writable: true });
     changed = changed || merged.changed;
   }
   return { ok: true, value: next, changed };
@@ -162,7 +156,7 @@ const mergeAliases = (
       localAliases?.[key] ?? null,
       remoteAliases?.[key] ?? null
     );
-    if (!merged.ok) return merged;
+    if (merged.ok === false) return merged;
     const value = String(merged.value || '').trim();
     if (value) next[key] = value;
     changed = changed || merged.changed;
@@ -190,7 +184,7 @@ const mergeAliasIgnoreMap = (
       localIgnores?.[key] ?? null,
       remoteIgnores?.[key] ?? null
     );
-    if (!merged.ok) return merged;
+    if (merged.ok === false) return merged;
     const value = Number(merged.value);
     if (Number.isFinite(value) && value > 0) next[key] = value;
     changed = changed || merged.changed;
@@ -269,9 +263,13 @@ const mergeLiveTournament = (
     baseTournamentSafe as TournamentData,
     localTournament,
     remoteTournament,
-    ['id', 'name', 'type', 'startDate', 'config', 'refereesRoster', 'refereesPassword', 'refereesAuthVersion', 'isManual', 'includeU25Awards']
+    Array.from(new Set([
+      ...Object.keys(baseTournamentSafe),
+      ...Object.keys(localTournament),
+      ...Object.keys(remoteTournament),
+    ])).filter((field) => !['teams', 'groups', 'matches', 'rounds'].includes(field)) as Array<keyof TournamentData>
   );
-  if (!mergedMeta.ok) return { ok: false, reason: `live-meta:${mergedMeta.reason}` };
+  if (mergedMeta.ok === false) return { ok: false, reason: `live-meta:${mergedMeta.reason}` };
 
   const mergedTeams = mergeKeyedArray(
     baseTournamentSafe.teams || [],
@@ -279,7 +277,7 @@ const mergeLiveTournament = (
     remoteTournament.teams || [],
     teamKey
   );
-  if (!mergedTeams.ok) return { ok: false, reason: `live-teams:${mergedTeams.reason}` };
+  if (mergedTeams.ok === false) return { ok: false, reason: `live-teams:${mergedTeams.reason}` };
 
   const mergedGroups = mergeKeyedArray(
     baseTournamentSafe.groups || [],
@@ -287,7 +285,7 @@ const mergeLiveTournament = (
     remoteTournament.groups || [],
     groupKey
   );
-  if (!mergedGroups.ok) return { ok: false, reason: `live-groups:${mergedGroups.reason}` };
+  if (mergedGroups.ok === false) return { ok: false, reason: `live-groups:${mergedGroups.reason}` };
 
   const mergedMatches = mergeKeyedArray(
     getTournamentMatches(baseState),
@@ -295,7 +293,7 @@ const mergeLiveTournament = (
     getTournamentMatches(remoteState),
     matchKey
   );
-  if (!mergedMatches.ok) return { ok: false, reason: `live-matches:${mergedMatches.reason}` };
+  if (mergedMatches.ok === false) return { ok: false, reason: `live-matches:${mergedMatches.reason}` };
 
   const nextTournament: TournamentData = {
     ...mergedMeta.value,
@@ -331,15 +329,15 @@ export const tryMergeRemoteStateConflict = (input: {
   const mergedSlices: string[] = [];
 
   const mergedTeams = mergeKeyedArray(baseState.teams || [], localState.teams || [], remoteState.teams || [], teamKey);
-  if (!mergedTeams.ok) return { ok: false, reason: `teams:${mergedTeams.reason}` };
+  if (mergedTeams.ok === false) return { ok: false, reason: `teams:${mergedTeams.reason}` };
   if (mergedTeams.changed) mergedSlices.push('teams');
 
   const mergedMatches = mergeKeyedArray(baseState.matches || [], localState.matches || [], remoteState.matches || [], matchKey);
-  if (!mergedMatches.ok) return { ok: false, reason: `matches:${mergedMatches.reason}` };
+  if (mergedMatches.ok === false) return { ok: false, reason: `matches:${mergedMatches.reason}` };
   if (mergedMatches.changed) mergedSlices.push('matches');
 
   const mergedLiveTournament = mergeLiveTournament(baseState, localState, remoteState);
-  if (!mergedLiveTournament.ok) return { ok: false, reason: mergedLiveTournament.reason };
+  if (mergedLiveTournament.ok === false) return { ok: false, reason: mergedLiveTournament.reason };
   if (mergedLiveTournament.changed) mergedSlices.push('liveTournament');
 
   const mergedHistory = mergeKeyedArray(
@@ -348,7 +346,7 @@ export const tryMergeRemoteStateConflict = (input: {
     remoteState.tournamentHistory || [],
     tournamentKey
   );
-  if (!mergedHistory.ok) return { ok: false, reason: `history:${mergedHistory.reason}` };
+  if (mergedHistory.ok === false) return { ok: false, reason: `history:${mergedHistory.reason}` };
   if (mergedHistory.changed) mergedSlices.push('tournamentHistory');
 
   const mergedHall = mergeKeyedArray(
@@ -357,7 +355,7 @@ export const tryMergeRemoteStateConflict = (input: {
     remoteState.hallOfFame || [],
     hallOfFameKey
   );
-  if (!mergedHall.ok) return { ok: false, reason: `hallOfFame:${mergedHall.reason}` };
+  if (mergedHall.ok === false) return { ok: false, reason: `hallOfFame:${mergedHall.reason}` };
   if (mergedHall.changed) mergedSlices.push('hallOfFame');
 
   const mergedScorers = mergeKeyedArray(
@@ -366,7 +364,7 @@ export const tryMergeRemoteStateConflict = (input: {
     remoteState.integrationsScorers || [],
     scorerKey
   );
-  if (!mergedScorers.ok) return { ok: false, reason: `integrationsScorers:${mergedScorers.reason}` };
+  if (mergedScorers.ok === false) return { ok: false, reason: `integrationsScorers:${mergedScorers.reason}` };
   if (mergedScorers.changed) mergedSlices.push('integrationsScorers');
 
   const mergedAliases = mergeAliases(
@@ -374,7 +372,7 @@ export const tryMergeRemoteStateConflict = (input: {
     localState.playerAliases || {},
     remoteState.playerAliases || {}
   );
-  if (!mergedAliases.ok) return { ok: false, reason: `playerAliases:${mergedAliases.reason}` };
+  if (mergedAliases.ok === false) return { ok: false, reason: `playerAliases:${mergedAliases.reason}` };
   if (mergedAliases.changed) mergedSlices.push('playerAliases');
 
   const mergedAliasIgnores = mergeAliasIgnoreMap(
@@ -382,17 +380,34 @@ export const tryMergeRemoteStateConflict = (input: {
     localState.playerAccountAliasIgnores || {},
     remoteState.playerAccountAliasIgnores || {}
   );
-  if (!mergedAliasIgnores.ok) return { ok: false, reason: `playerAccountAliasIgnores:${mergedAliasIgnores.reason}` };
+  if (mergedAliasIgnores.ok === false) return { ok: false, reason: `playerAccountAliasIgnores:${mergedAliasIgnores.reason}` };
   if (mergedAliasIgnores.changed) mergedSlices.push('playerAccountAliasIgnores');
 
   const mergedLogo = mergeScalar(baseState.logo || '', localState.logo || '', remoteState.logo || '');
-  if (!mergedLogo.ok) return { ok: false, reason: `logo:${mergedLogo.reason}` };
+  if (mergedLogo.ok === false) return { ok: false, reason: `logo:${mergedLogo.reason}` };
   if (mergedLogo.changed) mergedSlices.push('logo');
+
+  // Coercion intentionally preserves optional and future snapshot fields. Merge
+  // those too: starting from the remote state alone silently lost local settings.
+  const handledFields = new Set([
+    'teams', 'matches', 'tournament', 'tournamentMatches', 'tournamentHistory',
+    'hallOfFame', 'integrationsScorers', 'playerAliases', 'playerAccountAliasIgnores', 'logo',
+  ]);
+  const remainingFields = Array.from(new Set([
+    ...Object.keys(baseState),
+    ...Object.keys(localState),
+    ...Object.keys(remoteState),
+  ])).filter((field) => !handledFields.has(field)) as Array<keyof AppState>;
+  const mergedRemaining = mergeObjectFields(baseState, localState, remoteState, remainingFields);
+  if (mergedRemaining.ok === false) return { ok: false, reason: `state-fields:${mergedRemaining.reason}` };
+  for (const field of remainingFields) {
+    if (!sameValue(mergedRemaining.value[field], baseState[field])) mergedSlices.push(field);
+  }
 
   return {
     ok: true,
     state: coerceAppState({
-      ...remoteState,
+      ...mergedRemaining.value,
       teams: mergedTeams.value,
       matches: mergedMatches.value,
       tournament: mergedLiveTournament.value.tournament,

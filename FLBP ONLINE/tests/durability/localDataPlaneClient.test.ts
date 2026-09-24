@@ -13,12 +13,15 @@ import {
   rememberVerifiedAdminSession,
 } from '../../services/localAdminContinuity';
 import { RemoteRepository } from '../../services/repository/RemoteRepository';
-import { setSupabaseSession } from '../../services/supabaseRest';
+import { pushWorkspaceState, setSupabaseSession } from '../../services/supabaseRest';
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
-import { acknowledgeRemoteDraftCache, ensureRemoteDraftCacheDurable, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
+import { acknowledgeRemoteDraftCache, discardRemoteDraftOperation, ensureRemoteDraftCacheDurable, readRemoteDraftCache, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_LS_KEY, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 import { readAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 import { initAdminWriteLease, releaseAdminWriteLease } from '../../services/adminWriteLease';
+import { normalizeWorkspaceVersion } from '../../services/workspaceVersion';
+import { coerceAppState, type AppState } from '../../services/storageService';
+import { listDurableStateCheckpoints, readDurableStateCheckpoint } from '../../services/repository/durableStateJournal';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -35,6 +38,7 @@ class MemoryStorage {
 class MemoryIndexedDb {
   private stores = new Map<string, Map<string, any>>();
   private opened = false;
+  rejectCheckpoint: ((entry: any) => boolean) | null = null;
 
   open() {
     const request: any = {};
@@ -67,7 +71,11 @@ class MemoryIndexedDb {
             return childRequest;
           };
           tx.objectStore = () => ({
-            put: (entry: any) => run(() => { rows.set(entry.operationId, structuredClone(entry)); return entry.operationId; }),
+            put: (entry: any) => run(() => {
+              if (this.rejectCheckpoint?.(entry)) throw new Error('simulated IndexedDB quota exceeded');
+              rows.set(entry.operationId, structuredClone(entry));
+              return entry.operationId;
+            }),
             get: (operationId: string) => run(() => structuredClone(rows.get(operationId))),
             getAll: () => run(() => [...rows.values()].map((entry) => structuredClone(entry))),
             delete: (operationId: string) => run(() => rows.delete(operationId)),
@@ -96,6 +104,10 @@ let releaseFirstCommit: (() => void) | null = null;
 let signalSecondCommit: (() => void) | null = null;
 let simulatedLeaseHolder: string | null = null;
 let simulatedLeaseTakeovers = 0;
+let workspaceScenario: {
+  pull: () => Promise<Response>;
+  commit: (body: any) => Promise<Response>;
+} | null = null;
 const firstCommitEntered = new Promise<void>((resolve) => { signalFirstCommit = resolve; });
 const firstCommitGate = new Promise<void>((resolve) => { releaseFirstCommit = resolve; });
 const secondCommitCompleted = new Promise<void>((resolve) => { signalSecondCommit = resolve; });
@@ -149,6 +161,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (headers.get('x-flbp-local-token') !== 'local-test-session') {
       return Response.json({ error: 'token missing' }, { status: 401 });
     }
+    if (workspaceScenario) return workspaceScenario.pull();
     return Response.json({ workspace_id: 'default', state: { tournament: { name: 'Prima' } }, version: 4 }, { headers: { etag: '"v4"' } });
   }
   if (url.endsWith('/api/v1/admin/workspace/default/commit')) {
@@ -160,6 +173,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       return Response.json({ error: 'writer missing' }, { status: 423 });
     }
     const body = JSON.parse(String(init?.body || '{}'));
+    if (workspaceScenario) return workspaceScenario.commit(body);
     if (concurrentAdminSaves) {
       concurrentCommitBodies.push(body);
       if (rejectNextAdminSaveAsOperationCollision) {
@@ -213,6 +227,85 @@ const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
 
+for (const invalidVersion of [null, undefined, '', '   ', false, true, -1, 1.5, Number.NaN]) {
+  assert(
+    normalizeWorkspaceVersion(invalidVersion) === null,
+    `invalid workspace version ${String(invalidVersion)} must remain missing`,
+  );
+}
+assert(normalizeWorkspaceVersion(0) === 0, 'workspace version zero must remain a valid explicit cursor');
+assert(normalizeWorkspaceVersion(922) === 922, 'numeric workspace versions must be preserved');
+assert(normalizeWorkspaceVersion('924') === 924, 'serialized integer workspace versions must be parsed');
+
+const nullVersionDraft = writeRemoteDraftCache(
+  { tournament: { id: 'null-version', name: 'Bozza senza cursore' } } as any,
+  null,
+  'null-version-draft-op',
+  null,
+);
+assert(nullVersionDraft.baseVersion === null, 'a missing draft version must never be coerced to zero');
+assert(readRemoteDraftPointer()?.baseVersion === null, 'the durable pointer must preserve a missing draft version');
+assert(await ensureRemoteDraftCacheDurable(nullVersionDraft.operationId), 'the null-version regression draft must reach IndexedDB');
+acknowledgeRemoteDraftCache(null, nullVersionDraft.operationId);
+await discardRemoteDraftOperation(nullVersionDraft.operationId);
+
+local.setItem(REMOTE_DRAFT_CACHE_LS_KEY, JSON.stringify({
+  state: { tournament: { id: 'legacy-null-version', name: 'Bozza legacy senza cursore' } },
+  savedAt: '2026-09-05T10:00:00.000Z',
+  baseUpdatedAt: null,
+  baseVersion: null,
+  workspaceId: 'default',
+  operationId: 'legacy-null-version-op',
+}));
+const legacyNullVersionDraft = readRemoteDraftCache();
+assert(legacyNullVersionDraft?.baseVersion === null, 'a legacy missing version must never become zero while restoring');
+assert(await ensureRemoteDraftCacheDurable('legacy-null-version-op'), 'the legacy regression draft must migrate to IndexedDB');
+acknowledgeRemoteDraftCache(null, 'legacy-null-version-op');
+await discardRemoteDraftOperation('legacy-null-version-op');
+
+local.setItem(REMOTE_DRAFT_CACHE_LS_KEY, JSON.stringify({
+  state: { tournament: { id: 'migration-ack', name: 'Migrazione confermata subito' } },
+  savedAt: '2026-09-10T10:00:00.000Z',
+  baseVersion: 4,
+  workspaceId: 'default',
+  operationId: 'migration-ack-op',
+}));
+assert(!!readRemoteDraftCache() && !!readRemoteDraftCache(), 'two reads must reproduce queued legacy migrations');
+acknowledgeRemoteDraftCache('2026-09-10T10:01:00.000Z', 'migration-ack-op');
+await ensureRemoteDraftCacheDurable('migration-ack-op');
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(!readRemoteDraftPointer(), 'a late legacy migration must not recreate an acknowledged pointer');
+assert(local.getItem(REMOTE_DRAFT_CACHE_LS_KEY) === null, 'an acknowledged legacy draft must stay removed');
+assert((await readDurableStateCheckpoint('migration-ack-op'))?.status === 'synced', 'acknowledgement must run after every queued legacy write');
+
+local.setItem(REMOTE_DRAFT_CACHE_LS_KEY, JSON.stringify({
+  state: { tournament: { id: 'migration-old', name: 'Vecchia migrazione' } },
+  baseVersion: 4,
+  workspaceId: 'default',
+  operationId: 'migration-replaced-op',
+}));
+assert(!!readRemoteDraftCache(), 'the replaced legacy migration must start');
+const replacementMigrationDraft = writeRemoteDraftCache(
+  { tournament: { id: 'migration-new', name: 'Nuova bozza durante migrazione' } } as any,
+  null,
+  'migration-replacement-op',
+  5,
+);
+local.setItem(REMOTE_DRAFT_CACHE_LS_KEY, JSON.stringify({
+  state: { tournament: { id: 'other-legacy', name: 'Altra bozza legacy' } },
+  baseVersion: 5,
+  workspaceId: 'default',
+  operationId: 'unrelated-legacy-during-migration',
+}));
+await ensureRemoteDraftCacheDurable('migration-replaced-op');
+await ensureRemoteDraftCacheDurable(replacementMigrationDraft.operationId);
+assert(readRemoteDraftPointer()?.operationId === replacementMigrationDraft.operationId, 'a late legacy migration must not replace a newer pointer');
+assert(JSON.parse(local.getItem(REMOTE_DRAFT_CACHE_LS_KEY) || '{}').operationId === 'unrelated-legacy-during-migration', 'migration completion must not remove another legacy operation');
+await discardRemoteDraftOperation('migration-replaced-op');
+acknowledgeRemoteDraftCache(null, replacementMigrationDraft.operationId);
+await discardRemoteDraftOperation(replacementMigrationDraft.operationId);
+local.removeItem(REMOTE_DRAFT_CACHE_LS_KEY);
+
 const route = await resolveDataPlane({ force: true });
 assert(route.mode === 'local', 'same-origin discovery must select the local data plane');
 assert(shouldReadPublicWorkspaceFromLocal(route), 'same-origin public views must read the local SQLite snapshot');
@@ -263,6 +356,63 @@ setSupabaseSession({
   email: 'admin@example.test',
 });
 setAdminLeaseInfo({ status: 'active', holderId: 'test-writer' });
+
+const commitsBeforeMissingVersion = calls.filter((entry) => entry.url.endsWith('/commit')).length;
+let missingVersionRejected = false;
+try {
+  await pushWorkspaceState(
+    { tournament: { id: 'missing-version', name: 'Non deve partire' } } as any,
+    { operationId: 'missing-version-push', baseVersion: null },
+  );
+} catch (error: any) {
+  missingVersionRejected = error?.code === 'FLBP_DB_CONFLICT';
+}
+assert(missingVersionRejected, 'a local full-state push without an explicit base version must fail closed');
+assert(
+  calls.filter((entry) => entry.url.endsWith('/commit')).length === commitsBeforeMissingVersion,
+  'a missing base version must be rejected before the local commit request',
+);
+
+session.clear();
+sessionStorage.setItem('flbp_active_view_v1', 'admin');
+local.setItem(REMOTE_DRAFT_CACHE_LS_KEY, JSON.stringify({
+  state: { tournament: { id: 'test-04', name: 'Torneo 04/09/2026' } },
+  savedAt: '2026-09-05T10:05:00.000Z',
+  baseUpdatedAt: '2026-09-05T10:00:00.000Z',
+  baseVersion: 3,
+  workspaceId: 'default',
+  operationId: 'stale-restored-draft-op',
+}));
+const staleRepository = new RemoteRepository({} as any, { backgroundSync: false });
+const staleState = staleRepository.load();
+assert(staleState.tournament?.name === 'Torneo 04/09/2026', 'the stale draft must remain recoverable before a decision');
+// Reproduce the React persistence echo that used to replace baseVersion 3
+// with Number(null) === 0 before the first authoritative pull.
+staleRepository.save(staleState);
+assert(readRemoteDraftPointer()?.baseVersion === 3, 'React echo must preserve the recovered draft cursor');
+const commitsBeforeStaleValidation = calls.filter((entry) => entry.url.endsWith('/commit')).length;
+await staleRepository.flush();
+assert(
+  calls.filter((entry) => entry.url.endsWith('/commit')).length === commitsBeforeStaleValidation,
+  'a stale restored draft must be compared with the DB and never auto-posted',
+);
+assert(readRemoteDraftPointer()?.operationId === 'stale-restored-draft-op', 'the blocked stale draft must remain exportable');
+staleRepository.acknowledgeExternalCommit?.(
+  { tournament: { name: 'Prima' } } as any,
+  {
+    updatedAt: '2026-08-01T11:59:00.000Z',
+    version: 4,
+    operationId: 'stale-restored-draft-op',
+    discardPendingDraft: true,
+  },
+);
+await discardRemoteDraftOperation('stale-restored-draft-op');
+assert(!readRemoteDraftPointer(), 'using the authoritative DB version must remove the stale pointer');
+assert(
+  staleRepository.load().tournament?.name !== 'Torneo 04/09/2026',
+  'authoritative hydration must remove the in-memory stale draft',
+);
+
 concurrentAdminSaves = true;
 sessionStorage.setItem('flbp_active_view_v1', 'admin');
 const repository = new RemoteRepository({} as any, { backgroundSync: false });
@@ -342,6 +492,349 @@ const collisionRetryBody = concurrentCommitBodies[commitsBeforeCollision + 1];
 assert(collidedBody.baseVersion === 9 && collisionRetryBody.baseVersion === 9, 'operation collision retry must preserve the confirmed base version');
 assert(collidedBody.operationId !== collisionRetryBody.operationId, 'operation collision retry must mint a fresh idempotency key');
 assert(JSON.stringify(collidedBody.state) === JSON.stringify(collisionRetryBody.state), 'operation collision retry must preserve the exact pending state');
+await repository.flush();
+
+// These workspaces simulate version-checked local commits and deliberately
+// delayed responses. Every request still goes through the real repository,
+// durability journal and local data-plane client; no server is contacted.
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+};
+const waitForGate = async (promise: Promise<void>, label: string) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<void>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timeout`)), 2_000);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+const conflictBaseState = () => coerceAppState({
+  tournament: { id: 'conflict-tournament', name: 'Torneo regressione conflitto' },
+});
+const titleEntry = (id: string) => ({
+  id,
+  tournamentId: `manual-${id}`,
+  tournamentName: 'Titolo aggiunto da Integrazioni',
+  year: 2026,
+  type: 'winner',
+  teamName: 'Squadra locale',
+  playerNames: ['Giocatore Uno', 'Giocatore Due'],
+});
+const withTitles = (state: AppState, ...ids: string[]) => coerceAppState({
+  ...state,
+  hallOfFame: [...state.hallOfFame, ...ids.map(titleEntry)],
+});
+const hasTitle = (state: AppState, id: string) => state.hallOfFame.some((entry) => entry.id === id);
+const createWorkspaceScenario = (base: AppState) => {
+  const mock = {
+    state: structuredClone(base),
+    version: 40,
+    pulls: 0,
+    commits: [] as any[],
+    beforePullResponse: null as ((requestNumber: number) => Promise<void>) | null,
+    beforeCommitResponse: null as ((body: any, requestNumber: number) => Promise<void>) | null,
+    publish(state: AppState) {
+      mock.state = structuredClone(state);
+      mock.version += 1;
+    },
+  };
+  workspaceScenario = {
+    async pull() {
+      const row = {
+        workspace_id: 'default',
+        state: structuredClone(mock.state),
+        version: mock.version,
+        updated_at: `2026-09-10T12:00:${mock.version}.000Z`,
+      };
+      mock.pulls += 1;
+      await mock.beforePullResponse?.(mock.pulls);
+      return Response.json(row, { headers: { etag: `"v${row.version}"` } });
+    },
+    async commit(body: any) {
+      mock.commits.push(structuredClone(body));
+      if (body.baseVersion !== mock.version) {
+        return Response.json({ error: 'Versione superata', code: 'FLBP_DB_CONFLICT', currentVersion: mock.version }, { status: 409 });
+      }
+      await mock.beforeCommitResponse?.(body, mock.commits.length);
+      mock.publish(coerceAppState(body.state));
+      return Response.json({
+        ok: true,
+        workspace_id: 'default',
+        version: mock.version,
+        updated_at: `2026-09-10T12:00:${mock.version}.000Z`,
+      });
+    },
+  };
+  return mock;
+};
+const assertNoPendingScenarioDrafts = async (mock: ReturnType<typeof createWorkspaceScenario>, label: string) => {
+  const operationIds = new Set(mock.commits.map((body) => body.operationId));
+  // Acknowledgements are deliberately asynchronous, so wait for their queued
+  // journal transactions before checking for drafts that could return on reload.
+  await waitForGate((async () => {
+    while ((await listDurableStateCheckpoints()).some((row) => operationIds.has(row.operationId) && row.status === 'pending')) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  })(), `${label}: obsolete IndexedDB draft`);
+};
+
+{
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const mergingRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  let uiState = base;
+  const unsubscribe = mergingRepository.subscribe((state) => { uiState = state; });
+  await mergingRepository.refresh();
+  mock.publish(coerceAppState({ ...base, logo: 'remote-logo-after-baseline' }));
+  uiState = withTitles(uiState, 'manual-title');
+  mergingRepository.save(uiState);
+  const confirmed = await mergingRepository.flush();
+
+  assert(mock.commits.length === 2, 'an independent HOF title must merge after one rejected stale commit');
+  assert(!!confirmed && hasTitle(confirmed, 'manual-title') && confirmed.logo === 'remote-logo-after-baseline', 'durable confirmation must return the merged state that the caller should apply to React');
+  assert(hasTitle(uiState, 'manual-title'), 'the merge emitted to React must contain the new local HOF title');
+  assert(uiState.logo === 'remote-logo-after-baseline', 'the merge must publish the independent remote update to subscribers');
+  assert(mock.commits[1].baseVersion === 41, 'the merged commit must use the version read after the 409');
+  assert(mock.commits[0].operationId !== mock.commits[1].operationId, 'a merged payload must receive a fresh operation id');
+  assert(!readRemoteDraftPointer() && !readRemoteDraftCache(), 'a successful merged commit must clear its recoverable draft');
+
+  uiState = coerceAppState({ ...uiState, playerAliases: { 'nome precedente': 'Nome corretto' } });
+  mergingRepository.save(uiState);
+  await mergingRepository.flush();
+  assert(mock.state.logo === 'remote-logo-after-baseline', 'the next React save must preserve the remote part of the merge');
+  assert(hasTitle(mock.state, 'manual-title'), 'the next React save must preserve the manual HOF title');
+  assert(mock.commits.length === 3 && mock.commits[2].baseVersion === 42, 'the next edit must use the confirmed merged version without another conflict');
+  assert(!readRemoteDraftPointer() && !readRemoteDraftCache(), 'the follow-up save must leave no residual draft');
+  await assertNoPendingScenarioDrafts(mock, 'merged HOF title');
+  unsubscribe();
+}
+
+for (const responseKind of ['equivalent', 'mergeable'] as const) {
+  const base = conflictBaseState();
+  const firstEdit = withTitles(base, `${responseKind}-first-title`);
+  const latestEdit = withTitles(firstEdit, `${responseKind}-newer-title`);
+  const mock = createWorkspaceScenario(base);
+  const conflictRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  const emittedStates: AppState[] = [];
+  const unsubscribe = conflictRepository.subscribe((state) => { emittedStates.push(structuredClone(state)); });
+  await conflictRepository.refresh();
+  mock.publish(responseKind === 'equivalent'
+    ? firstEdit
+    : coerceAppState({ ...base, logo: 'remote-change-during-conflict' }));
+  const pullEntered = deferred();
+  const releasePull = deferred();
+  mock.beforePullResponse = async (requestNumber) => {
+    if (requestNumber === 2) {
+      pullEntered.resolve();
+      await releasePull.promise;
+    }
+  };
+  conflictRepository.save(firstEdit);
+  const flush = conflictRepository.flush();
+  await waitForGate(pullEntered.promise, `${responseKind} conflict pull`);
+  const emissionCountBeforeNewEdit = emittedStates.length;
+  conflictRepository.save(latestEdit);
+  const latestOperationId = readRemoteDraftPointer()?.operationId;
+  assert(!!latestOperationId, 'the newer edit must be durable while conflict resolution is waiting');
+  releasePull.resolve();
+  await flush;
+
+  assert(hasTitle(mock.state, `${responseKind}-newer-title`), `a delayed ${responseKind} response must not erase the newer title`);
+  assert(hasTitle(mock.state, `${responseKind}-first-title`), `a delayed ${responseKind} response must preserve the original title too`);
+  if (responseKind === 'mergeable') {
+    assert(mock.state.logo === 'remote-change-during-conflict', 'resolving a superseded merge must retain the independent remote change');
+  }
+  assert(
+    emittedStates.slice(emissionCountBeforeNewEdit).every((state) => hasTitle(state, `${responseKind}-newer-title`)),
+    `a delayed ${responseKind} response must never emit the obsolete draft over the newer React state`,
+  );
+  assert(!readRemoteDraftPointer() && !readRemoteDraftCache(), `the newer edit after a ${responseKind} response must finish saving`);
+  await assertNoPendingScenarioDrafts(mock, `${responseKind} conflict with newer edit`);
+  unsubscribe();
+}
+
+{
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const pollingRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  const emittedStates: AppState[] = [];
+  const unsubscribe = pollingRepository.subscribe((state) => { emittedStates.push(structuredClone(state)); });
+  await pollingRepository.refresh();
+  mock.publish(coerceAppState({ ...base, logo: 'remote-logo-before-delayed-poll' }));
+  const pullEntered = deferred();
+  const releasePull = deferred();
+  mock.beforePullResponse = async (requestNumber) => {
+    if (requestNumber === 2) {
+      pullEntered.resolve();
+      await releasePull.promise;
+    }
+  };
+  const poll = pollingRepository.refresh();
+  await waitForGate(pullEntered.promise, 'background poll');
+  const uiState = withTitles(base, 'title-during-poll');
+  const emissionCountBeforeEdit = emittedStates.length;
+  pollingRepository.save(uiState);
+  releasePull.resolve();
+  await poll;
+  assert(emittedStates.length === emissionCountBeforeEdit, 'a poll started before save must not overwrite the UI after save');
+  assert(readRemoteDraftPointer()?.baseVersion === 40, 'a delayed poll must not rebase a draft it did not observe');
+  pollingRepository.save(withTitles(uiState, 'title-after-poll'));
+  assert(readRemoteDraftPointer()?.baseVersion === 40, 'the next React save must retain the original comparison baseline');
+  await pollingRepository.flush();
+
+  assert(mock.state.logo === 'remote-logo-before-delayed-poll', 'a delayed poll must not turn the remote update into an apparent local deletion');
+  assert(hasTitle(mock.state, 'title-during-poll') && hasTitle(mock.state, 'title-after-poll'), 'both edits around the delayed poll must survive conflict resolution');
+  assert(!readRemoteDraftPointer() && !readRemoteDraftCache(), 'the draft created during a poll must be fully committed');
+  await assertNoPendingScenarioDrafts(mock, 'draft during poll');
+  unsubscribe();
+}
+
+{
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const mergingRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  let uiState = base;
+  const emittedStates: AppState[] = [];
+  const unsubscribe = mergingRepository.subscribe((state) => {
+    uiState = state;
+    emittedStates.push(structuredClone(state));
+  });
+  await mergingRepository.refresh();
+  mock.publish(coerceAppState({ ...base, logo: 'remote-logo-during-merge-push' }));
+  const mergePushEntered = deferred();
+  const releaseMergePush = deferred();
+  mock.beforeCommitResponse = async (_body, requestNumber) => {
+    if (requestNumber === 2) {
+      mergePushEntered.resolve();
+      await releaseMergePush.promise;
+    }
+  };
+  uiState = withTitles(uiState, 'title-before-merge-push');
+  mergingRepository.save(uiState);
+  const flush = mergingRepository.flush();
+  await waitForGate(mergePushEntered.promise, 'merged commit');
+  const mergedOperationId = mock.commits[1].operationId;
+  const emissionCountBeforeNewEdit = emittedStates.length;
+  assert(uiState.logo === 'remote-logo-during-merge-push', 'the reconciled state must reach React before its commit completes');
+  uiState = withTitles(uiState, 'title-during-merge-push');
+  mergingRepository.save(uiState);
+  assert(readRemoteDraftPointer()?.operationId !== mergedOperationId, 'a new edit during the merged commit must own a separate operation id');
+  releaseMergePush.resolve();
+  await flush;
+
+  assert(mock.commits.length === 3, 'a save during the merged commit must trigger one more commit');
+  assert(mock.commits[2].baseVersion === 42, 'the edit during merge push must use the confirmed merged version');
+  assert(mock.commits[2].operationId !== mergedOperationId, 'the follow-up commit must not reuse the merged payload operation id');
+  assert(hasTitle(mock.state, 'title-before-merge-push') && hasTitle(mock.state, 'title-during-merge-push'), 'both titles must survive the merged commit response');
+  assert(mock.state.logo === 'remote-logo-during-merge-push', 'the edit during merge push must preserve the remote change already shown in React');
+  assert(
+    emittedStates.slice(emissionCountBeforeNewEdit).every((state) => hasTitle(state, 'title-during-merge-push')),
+    'the merged commit response must not emit an older state over an edit made while saving',
+  );
+  assert(!readRemoteDraftPointer() && !readRemoteDraftCache(), 'saving during merge push must leave no pending draft after flush');
+  await assertNoPendingScenarioDrafts(mock, 'draft during merged push');
+  unsubscribe();
+}
+
+{
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const patchRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  await patchRepository.refresh();
+  const firstEdit = withTitles(base, 'title-before-independent-patch');
+  patchRepository.save(firstEdit);
+  mock.publish(coerceAppState({ ...base, logo: 'independently-confirmed-remote-change' }));
+  patchRepository.acknowledgeExternalCommit(mock.state, {
+    version: mock.version,
+    updatedAt: '2026-09-10T12:00:41.000Z',
+    operationId: 'independent-dedicated-patch',
+  });
+  patchRepository.save(withTitles(firstEdit, 'title-after-independent-patch'));
+  assert(readRemoteDraftPointer()?.baseVersion === 40, 'a separate patch acknowledgement must not rebase the pending full-state draft');
+  await patchRepository.flush();
+  assert(mock.state.logo === 'independently-confirmed-remote-change', 'a save after an independent acknowledgement must preserve the confirmed remote change');
+  assert(hasTitle(mock.state, 'title-before-independent-patch') && hasTitle(mock.state, 'title-after-independent-patch'), 'local titles around an independent patch must both survive reconciliation');
+  assert(!readRemoteDraftPointer(), 'the local draft around an independent patch must finish saving');
+  await assertNoPendingScenarioDrafts(mock, 'draft around independent patch');
+}
+
+{
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const quotaRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  await quotaRepository.refresh();
+  mock.publish(coerceAppState({ ...base, logo: 'remote-logo-in-larger-merged-checkpoint' }));
+  memoryIndexedDb.rejectCheckpoint = (entry) => entry.status === 'pending'
+    && entry.state?.logo === 'remote-logo-in-larger-merged-checkpoint';
+  quotaRepository.save(withTitles(base, 'title-before-checkpoint-quota'));
+  const originalOperationId = readRemoteDraftPointer()?.operationId;
+  await quotaRepository.flush();
+  assert(mock.commits.length === 1, 'a merged checkpoint that could not reach IndexedDB must never be sent');
+  assert(!!originalOperationId, 'the original edit must own a durable operation');
+  const originalCheckpoint = await readDurableStateCheckpoint(originalOperationId!);
+  assert(originalCheckpoint?.status === 'pending', 'a failed replacement checkpoint must not retire the recoverable original draft');
+  assert(hasTitle(originalCheckpoint!.state, 'title-before-checkpoint-quota'), 'the original durable title must remain available after merge storage failure');
+  assert(!!readRemoteDraftPointer(), 'a merge storage failure must remain visible as a pending draft');
+  memoryIndexedDb.rejectCheckpoint = null;
+  quotaRepository.acknowledgeExternalCommit(mock.state, {
+    version: mock.version,
+    updatedAt: '2026-09-10T12:00:41.000Z',
+    discardPendingDraft: true,
+  });
+  await discardRemoteDraftOperation(originalOperationId!);
+}
+{
+  // Reopening an older draft must still block automatic full-state replay.
+  // The Admin can explicitly review a patch on the current DB inside the app.
+  const base = coerceAppState({ ...conflictBaseState(), logo: 'current-db-logo' });
+  const mock = createWorkspaceScenario(base);
+  const staleDraft = withTitles(coerceAppState({ ...base, logo: 'stale-draft-logo' }), 'reviewed-title');
+  local.setItem(REMOTE_DRAFT_CACHE_LS_KEY, JSON.stringify({
+    state: staleDraft, savedAt: new Date().toISOString(), baseVersion: 39,
+    baseUpdatedAt: '2026-09-10T12:00:39.000Z', workspaceId: 'default', operationId: 'reviewed-stale-draft',
+  }));
+  const reviewedRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  const loaded = reviewedRepository.load();
+  await reviewedRepository.flush();
+  assert(mock.commits.length === 0, 'an unreviewed old draft must remain blocked');
+  const activeRoute = await resolveDataPlane({ force: true });
+  const review = {
+    baseState: base, baseVersion: 40, baseUpdatedAt: '2026-09-10T12:00:40.000Z',
+    expectedDraftState: loaded, expectedDraftOperationId: 'reviewed-stale-draft',
+    dataPlane: { mode: 'local' as const, epoch: activeRoute.epoch, baseUrl: activeRoute.baseUrl },
+  };
+  const selected = withTitles(base, 'reviewed-title');
+  for (const invalid of [
+    { ...review, dataPlane: { ...review.dataPlane, epoch: Number(activeRoute.epoch) + 1 } },
+    { ...review, expectedDraftState: base },
+    { ...review, expectedDraftOperationId: 'another-draft' },
+  ]) {
+    let rejected = false;
+    try { await reviewedRepository.reconcileDraft(selected, invalid); } catch { rejected = true; }
+    assert(rejected && mock.commits.length === 0, 'a changed route or draft must invalidate the review without a write');
+    assert(readRemoteDraftPointer()?.operationId === 'reviewed-stale-draft', 'invalid review must preserve the original draft');
+  }
+  mock.publish(coerceAppState({ ...base, playerAliases: { 'remote-alias': 'remote-player' } }));
+  const confirmed = await reviewedRepository.reconcileDraft(selected, review);
+  assert(confirmed && hasTitle(confirmed, 'reviewed-title'), 'the reviewed title must be committed');
+  assert(confirmed?.logo === 'current-db-logo', 'the unchecked stale logo must not overwrite the database');
+  assert(confirmed?.playerAliases['remote-alias'] === 'remote-player', 'independent updates after the preview must survive CAS reconciliation');
+  assert(mock.commits.length === 2 && mock.commits[0].baseVersion === 40 && mock.commits[1].baseVersion === 41,
+    'reviewed recovery must use normal version-checked writes');
+  assert(mock.commits.every(body => body.operationId !== 'reviewed-stale-draft'), 'review must own a fresh operation id');
+  await assertNoPendingScenarioDrafts(mock, 'reviewed recovery');
+  assert((await readDurableStateCheckpoint('reviewed-stale-draft'))?.status === 'discarded', 'the original draft is closed after the replacement is durable');
+  assert(!readRemoteDraftPointer(), 'reviewed recovery must clear the conflict draft');
+}
+
+workspaceScenario = null;
 
 session.clear();
 const firstWindowDraft = writeRemoteDraftCache(firstState, '2026-08-01T12:02:00.000Z', 'window-a-operation', 7);
@@ -369,7 +862,7 @@ const restored = await Promise.race([
   recoveredState,
   new Promise((_, reject) => setTimeout(() => reject(new Error('IndexedDB draft recovery timeout')), 2_000)),
 ]);
-assert(restored.tournament.name === indexedDbOnlyState.tournament.name, 'an IndexedDB-only Admin draft must be restored and emitted after reload');
+assert(restored.tournament.name === indexedDbOnlyState.tournament.name, `an IndexedDB-only Admin draft must be restored and emitted after reload (received ${restored.tournament.name})`);
 assert(recoveredRepository.load().tournament.name === indexedDbOnlyState.tournament.name, 'load must not erase an in-memory draft restored from IndexedDB');
 local.failWrites = false;
 (globalThis as any).indexedDB = undefined;

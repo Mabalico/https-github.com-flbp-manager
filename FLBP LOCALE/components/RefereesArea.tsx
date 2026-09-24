@@ -974,24 +974,29 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
     }, [derivedScoresByTeam]);
 
     // ===== Save report =====
-    const closeLiveCallsForMatch = (match: Match, tournamentId?: string | null) => {
-        const safeTournamentId = String(tournamentId || state.tournament?.id || '').trim();
-        if (!safeTournamentId || !match?.id) return;
-        const teamIds = Array.from(new Set(
-            getMatchParticipantIds(match)
-                .map((id) => String(id || '').trim())
-                .filter((id) => id && !isByeTeamId(id) && !isTbdTeamId(id))
-        ));
-        if (!teamIds.length) return;
-        void cancelActivePlayerAppCallsForMatch({
-            tournamentId: safeTournamentId,
-            matchId: match.id,
-            teamIds,
-            dispatchPush: true,
-            refereePassword,
-        }).catch((error) => {
+    const closeLiveCallsForMatch = async (match: Match, tournamentId: string, refereePassword?: string) => {
+        // Call cancellation is ancillary: neither synchronous errors nor a rejected
+        // request may turn a confirmed report into a failed/conflicting save.
+        try {
+            if (isLocalOnlyMode() || !getSupabaseConfig()) return;
+            const safeTournamentId = String(tournamentId || '').trim();
+            if (!safeTournamentId || !match?.id) return;
+            const teamIds = Array.from(new Set(
+                getMatchParticipantIds(match)
+                    .map((id) => String(id || '').trim())
+                    .filter((id) => id && !isByeTeamId(id) && !isTbdTeamId(id))
+            ));
+            if (!teamIds.length) return;
+            await cancelActivePlayerAppCallsForMatch({
+                tournamentId: safeTournamentId,
+                matchId: match.id,
+                teamIds,
+                dispatchPush: true,
+                refereePassword: refereePassword || undefined,
+            });
+        } catch (error) {
             console.warn('FLBP referee report call cleanup failed', error);
-        });
+        }
     };
 
     const saveReport = async () => {
@@ -1100,10 +1105,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             const nextTournament = state.tournament ? { ...state.tournament, matches } : state.tournament;
             const nextState: AppState = { ...state, tournament: nextTournament, tournamentMatches: matches };
 
+            const configuredRefereePassword = String((state.tournament as any)?.refereesPassword || '').trim();
+            const refereePassword = configuredRefereePassword || (syncedPasswordRef.current || '').trim();
             const shouldUseRefereeRemotePush = !isLocalOnlyMode() && !!getSupabaseConfig() && !getSupabaseAccessToken();
             if (shouldUseRefereeRemotePush) {
-                const configuredRefereePassword = String((state.tournament as any)?.refereesPassword || '').trim();
-                const refereePassword = configuredRefereePassword || (syncedPasswordRef.current || '').trim();
                 if (!refereePassword) {
                     alert(t('referees_session_expired_relogin') || 'Sessione arbitro scaduta su questo dispositivo. Per sicurezza la password arbitri non viene salvata nel browser: effettua di nuovo il login arbitri.');
                     return;
@@ -1132,11 +1137,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                         refereePassword,
                                         baseUpdatedAt: pulled.updated_at || null
                                     });
-                                    closeLiveCallsForMatch(updated, state.tournament.id);
                                     clearDbSyncCurrentIssue();
                                     markDbSyncOk('snapshot');
                                     setState(mergeResult.state);
                                     alert(t('alert_report_saved'));
+                                    void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
                                     return;
                                 }
                             }
@@ -1153,9 +1158,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 }
             }
 
-            closeLiveCallsForMatch(updated, state.tournament.id);
             setState(nextState);
             alert(t('alert_report_saved'));
+            void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
         } finally {
             setSaveBusy(false);
         }

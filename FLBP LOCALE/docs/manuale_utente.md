@@ -368,12 +368,17 @@ Suggerimenti pratici:
 - Se usi piu' schermi, puoi aprire piu' finestre TV con viste diverse.
 - Se i dati provengono da DB remoto, assicurati che la sincronizzazione sia attiva per aggiornamenti coerenti.
 
+Nell'app Windows **FLBP Manager Locale**:
+- ogni voce di **Apri TV** apre una finestra di proiezione separata, mentre l'Area Admin resta nella finestra principale;
+- trascina la finestra di proiezione sul secondo monitor e premi **F11** per attivare o disattivare lo schermo intero senza barra del titolo e senza la barra **FLBP Manager**;
+- premi **ESC** per chiudere/uscire dalla proiezione; usa **F11** quando vuoi soltanto tornare dalla modalita' schermo intero alla finestra normale.
+
 Controlli tastiera (non mostrati a schermo):
 - **1**: Gironi
 - **2**: Gironi + Tab
 - **3**: Tabellone
 - **4**: Marcatori
-- **ESC**: Esci dalla TV
+- **ESC**: esce dalla TV nel browser; nell'app Windows segue il comportamento della finestra di proiezione descritto sopra
 
 In TV Mode:
 - La vista **gironi** include la **classifica stile campionato** in layout compatto (16:9 safe).
@@ -403,6 +408,7 @@ In TV Mode:
 - Nelle Grafiche Social, se una grafica selezionata non è esportabile, il pannello mostra subito il motivo preciso sotto al selettore export.
 - Se restano match fuori dagli slot, il pannello mostra una preview dei primi match rimasti fuori.
 - Negli import XLSX multi-sheet, gli alert elencano gli altri fogli controllati senza ripetere il foglio già letto.
+
 
 ### Integrazioni — aggiornamento 7 settembre 2026
 

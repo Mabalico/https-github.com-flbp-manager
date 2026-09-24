@@ -1,4 +1,5 @@
-import { pushWorkspaceState, setSupabaseSession } from '../../services/supabaseRest';
+import { pushWorkspaceState, recoverWorkspaceFromLocalState, setSupabaseSession } from '../../services/supabaseRest';
+import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -12,6 +13,7 @@ const local = new MemoryStorage();
 const session = new MemoryStorage();
 const calls: Array<{ url: string; body: any }> = [];
 let requireLegacyFallback = false;
+let workspaceStateRow: any = null;
 
 Object.assign(globalThis, {
   localStorage: local,
@@ -36,14 +38,16 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   calls.push({ url, body });
   if (url.endsWith('/api/v1/discovery')) return Response.json({ error: 'not local' }, { status: 404 });
   if (url.endsWith('/rpc/flbp_resolve_data_plane')) return Response.json({ mode: 'cloud', epoch: 4 });
+  if (url.includes('/rest/v1/workspace_state?')) return Response.json(workspaceStateRow ? [workspaceStateRow] : []);
   if (url.endsWith('/rpc/flbp_admin_push_workspace_state_v2')) {
     if (requireLegacyFallback) {
       return Response.json({ code: 'PGRST202', message: 'Could not find the function flbp_admin_push_workspace_state_v2' }, { status: 404 });
     }
+    const isRecovery = body?.p_operation_id === 'cloud-recovery-op-43';
     return Response.json({
       ok: true,
-      updated_at: '2026-08-01T15:00:00.000Z',
-      version: 42,
+      updated_at: isRecovery ? '2026-08-01T15:03:00.000Z' : '2026-08-01T15:00:00.000Z',
+      version: isRecovery ? 43 : 42,
       operation_id: body.p_operation_id,
       idempotent: false,
     });
@@ -84,5 +88,107 @@ await pushWorkspaceState({ tournament: { id: 't1', name: 'Rollout compatibile' }
 });
 assert(calls.some((call) => call.url.endsWith('/rpc/flbp_admin_push_workspace_state')), 'a bundle deployed before the migration must fall back to the legacy RPC');
 
-console.log('PASS cloud Admin idempotency and migration rollout fallback');
+requireLegacyFallback = false;
+setAdminLeaseInfo({ status: 'active', holderId: 'cloud-recovery-writer' });
+
+const authoritativeReport = {
+  id: 'm-report',
+  teamAId: 'team-a',
+  teamBId: 'team-b',
+  status: 'finished',
+  played: true,
+  scoreA: 10,
+  scoreB: 6,
+  refereeReportFinalId: 'report-cloud-newer',
+  refereeReportSavedAt: '2026-08-01T15:02:00.000Z',
+};
+const staleLocalReport = {
+  ...authoritativeReport,
+  scoreA: 8,
+  scoreB: 5,
+  refereeReportFinalId: 'report-local-older',
+  refereeReportSavedAt: '2026-08-01T14:58:00.000Z',
+};
+const cloudPreviewUpdatedAt = '2026-08-01T15:02:00.000Z';
+const cloudPreviewVersion = 42;
+workspaceStateRow = {
+  workspace_id: 'default',
+  updated_at: cloudPreviewUpdatedAt,
+  version: cloudPreviewVersion,
+  state: {
+    tournament: { id: 't1', name: 'Versione Supabase' },
+    matches: [authoritativeReport],
+    tournamentMatches: [authoritativeReport],
+  },
+};
+
+const localRecoveryState = {
+  tournament: { id: 't1', name: 'Bozza locale scelta' },
+  matches: [staleLocalReport],
+  tournamentMatches: [staleLocalReport],
+} as any;
+const recovered = await recoverWorkspaceFromLocalState(localRecoveryState, {
+  operationId: 'cloud-recovery-op-43',
+  expectedRemoteUpdatedAt: cloudPreviewUpdatedAt,
+  expectedRemoteVersion: cloudPreviewVersion,
+  requiredDataPlane: 'cloud',
+});
+const recoveryCall = calls.find((call) => (
+  call.url.endsWith('/rpc/flbp_admin_push_workspace_state_v2')
+  && call.body?.p_operation_id === 'cloud-recovery-op-43'
+));
+assert(!!recoveryCall, 'cloud recovery must use the versioned Admin snapshot RPC');
+assert(recoveryCall?.body.p_force === false, 'cloud recovery must keep compare-and-swap enabled');
+assert(recoveryCall?.body.p_base_updated_at === cloudPreviewUpdatedAt, 'cloud recovery must use the freshly read Supabase timestamp as its base');
+assert(recoveryCall?.body.p_lease_holder === 'cloud-recovery-writer', 'cloud recovery must keep the active Admin write lease');
+assert(recoveryCall?.body.p_state.tournamentMatches[0].refereeReportFinalId === 'report-cloud-newer', 'cloud recovery must preserve a newer authoritative referee report');
+assert(recovered.version === 43 && recovered.previous_version === cloudPreviewVersion, 'cloud recovery must report the new and previous Supabase versions');
+assert(recovered.operation_id === 'cloud-recovery-op-43', 'cloud recovery must retain its explicit idempotency key');
+assert(recovered.preserved_referee_match_ids?.[0] === 'm-report', 'cloud recovery must report every preserved referee match');
+
+const countSnapshotWriteCalls = () => calls.filter((call) => (
+  call.url.endsWith('/rpc/flbp_admin_push_workspace_state_v2')
+  || call.url.endsWith('/rpc/flbp_admin_push_workspace_state')
+)).length;
+const writesBeforeStalePreview = countSnapshotWriteCalls();
+workspaceStateRow = {
+  ...workspaceStateRow,
+  updated_at: '2026-08-01T15:04:00.000Z',
+  version: 44,
+};
+let stalePreviewError: any = null;
+try {
+  await recoverWorkspaceFromLocalState(localRecoveryState, {
+    operationId: 'cloud-recovery-stale-preview',
+    expectedRemoteUpdatedAt: cloudPreviewUpdatedAt,
+    expectedRemoteVersion: cloudPreviewVersion,
+    requiredDataPlane: 'cloud',
+  });
+} catch (error) {
+  stalePreviewError = error;
+}
+assert(stalePreviewError?.code === 'FLBP_DB_CONFLICT', 'a changed Supabase timestamp must invalidate the confirmed preview');
+assert(stalePreviewError?.remoteUpdatedAt === '2026-08-01T15:04:00.000Z', 'the stale-preview conflict must expose the current Supabase timestamp');
+assert(countSnapshotWriteCalls() === writesBeforeStalePreview, 'a stale preview must stop before any additional snapshot write RPC');
+
+workspaceStateRow = {
+  ...workspaceStateRow,
+  updated_at: cloudPreviewUpdatedAt,
+  version: 45,
+};
+let staleVersionError: any = null;
+try {
+  await recoverWorkspaceFromLocalState(localRecoveryState, {
+    operationId: 'cloud-recovery-stale-version',
+    expectedRemoteUpdatedAt: cloudPreviewUpdatedAt,
+    expectedRemoteVersion: cloudPreviewVersion,
+    requiredDataPlane: 'cloud',
+  });
+} catch (error) {
+  staleVersionError = error;
+}
+assert(staleVersionError?.code === 'FLBP_DB_CONFLICT', 'a changed Supabase version must invalidate the confirmed preview even if its timestamp matches');
+assert(countSnapshotWriteCalls() === writesBeforeStalePreview, 'a stale version must also stop before any additional snapshot write RPC');
+
+console.log('PASS cloud Admin idempotency, rollout fallback and safe local recovery');
 (globalThis as any).process.exit(0);

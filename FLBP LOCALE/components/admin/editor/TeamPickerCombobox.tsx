@@ -35,6 +35,7 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const listId = React.useId();
   const inputId = React.useId();
+  const labelId = React.useId();
   const deferredQuery = React.useDeferredValue(query);
 
   const filteredItems = React.useMemo(() => {
@@ -45,23 +46,35 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
       return hay.includes(q);
     });
   }, [deferredQuery, items]);
-  const activeItemId = open && filteredItems[highlightedIndex] ? `${listId}-option-${filteredItems[highlightedIndex]!.id}` : undefined;
+  const activeItemId = open && filteredItems[highlightedIndex] ? `${listId}-option-${highlightedIndex}` : undefined;
+
+  const findEnabledIndex = React.useCallback((startIndex: number, direction: 1 | -1) => {
+    if (!filteredItems.length) return -1;
+    let next = startIndex;
+    for (let i = 0; i < filteredItems.length; i += 1) {
+      if (!filteredItems[next]?.disabled) return next;
+      next = (next + direction + filteredItems.length) % filteredItems.length;
+    }
+    return -1;
+  }, [filteredItems]);
 
   React.useEffect(() => {
-    setHighlightedIndex(0);
-  }, [deferredQuery, items.length]);
+    const selectedIndex = filteredItems.findIndex((item) => item.id === selectedId && !item.disabled);
+    setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : Math.max(0, findEnabledIndex(0, 1)));
+  }, [deferredQuery, filteredItems, findEnabledIndex, selectedId]);
+
+  React.useEffect(() => {
+    if (!activeItemId) return;
+    document.getElementById(activeItemId)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeItemId]);
 
   const moveHighlight = (direction: 1 | -1) => {
     if (!filteredItems.length) return;
-    let next = highlightedIndex;
-    for (let i = 0; i < filteredItems.length; i += 1) {
-      next = (next + direction + filteredItems.length) % filteredItems.length;
-      if (!filteredItems[next]?.disabled) {
-        setHighlightedIndex(next);
-        return;
-      }
-    }
-    setHighlightedIndex(next);
+    const next = findEnabledIndex(
+      (highlightedIndex + direction + filteredItems.length) % filteredItems.length,
+      direction,
+    );
+    if (next >= 0) setHighlightedIndex(next);
   };
 
   const selectHighlighted = () => {
@@ -73,39 +86,60 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
 
   return (
     <div className="relative">
-      <label htmlFor={inputId} className="mb-2 block text-xs font-semibold text-[var(--editor-text-secondary)]">{label}</label>
-      <div
-        role="combobox"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={activeItemId}
-        className="relative"
-      >
+      <label id={labelId} htmlFor={inputId} className="mb-2 block text-xs font-semibold text-[var(--editor-text-secondary)]">{label}</label>
+      <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--editor-text-muted)]" />
         <input
           id={inputId}
+          role="combobox"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeItemId}
+          aria-busy={query !== deferredQuery}
           value={query}
           onChange={(event) => {
             onQueryChange(event.target.value);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') {
               event.preventDefault();
-              setOpen(true);
-              moveHighlight(1);
+              if (open) {
+                moveHighlight(1);
+              } else {
+                const next = findEnabledIndex(0, 1);
+                if (next >= 0) setHighlightedIndex(next);
+                setOpen(true);
+              }
             } else if (event.key === 'ArrowUp') {
               event.preventDefault();
-              setOpen(true);
-              moveHighlight(-1);
+              if (open) {
+                moveHighlight(-1);
+              } else {
+                const next = findEnabledIndex(Math.max(0, filteredItems.length - 1), -1);
+                if (next >= 0) setHighlightedIndex(next);
+                setOpen(true);
+              }
+            } else if (event.key === 'Home' && open) {
+              event.preventDefault();
+              const next = findEnabledIndex(0, 1);
+              if (next >= 0) setHighlightedIndex(next);
+            } else if (event.key === 'End' && open) {
+              event.preventDefault();
+              const next = findEnabledIndex(Math.max(0, filteredItems.length - 1), -1);
+              if (next >= 0) setHighlightedIndex(next);
             } else if (event.key === 'Enter') {
               if (!open) return;
               event.preventDefault();
               selectHighlighted();
             } else if (event.key === 'Escape') {
+              event.preventDefault();
+              setOpen(false);
+            } else if (event.key === 'Tab') {
               setOpen(false);
             }
           }}
@@ -120,6 +154,8 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
             type="button"
             onMouseDown={(event) => {
               event.preventDefault();
+            }}
+            onClick={() => {
               onQueryChange('');
               setOpen(true);
             }}
@@ -135,6 +171,8 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
         <div
           id={listId}
           role="listbox"
+          aria-labelledby={labelId}
+          aria-busy={query !== deferredQuery}
           className="absolute z-30 mt-2 w-full overflow-hidden rounded-[16px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[0_24px_60px_-38px_rgba(15,23,42,0.35)]"
         >
           {filteredItems.length ? (
@@ -145,13 +183,16 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
                 return (
                   <button
                     key={item.id}
-                    id={`${listId}-option-${item.id}`}
+                    id={`${listId}-option-${index}`}
                     type="button"
                     role="option"
                     aria-selected={selected}
                     aria-disabled={item.disabled}
+                    tabIndex={-1}
                     onMouseDown={(event) => {
                       event.preventDefault();
+                    }}
+                    onClick={() => {
                       if (item.disabled) return;
                       onSelect(item.id);
                       setOpen(false);
@@ -190,7 +231,7 @@ export const TeamPickerCombobox: React.FC<TeamPickerComboboxProps> = ({
               })}
             </div>
           ) : (
-            <div className="px-3 py-5 text-center">
+            <div role="status" aria-live="polite" className="px-3 py-5 text-center">
               <div className="text-sm font-semibold text-[var(--editor-text-primary)]">{t('team_picker_no_results')}</div>
               <div className="mt-1 text-xs font-medium text-[var(--editor-text-muted)]">{t('team_picker_no_results_hint')}</div>
             </div>

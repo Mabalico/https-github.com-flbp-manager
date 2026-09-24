@@ -50,7 +50,10 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
   children,
 }) => {
   const cancelRef = React.useRef<HTMLButtonElement | null>(null);
+  const dialogRef = React.useRef<HTMLDivElement | null>(null);
   const previousActiveRef = React.useRef<HTMLElement | null>(null);
+  const titleId = React.useId();
+  const descriptionId = React.useId();
 
   React.useEffect(() => {
     if (!open) return;
@@ -61,6 +64,24 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
       if (event.key === 'Escape') {
         event.preventDefault();
         onClose();
+        return;
+      }
+      if (event.key === 'Tab') {
+        const dialog = dialogRef.current;
+        const selector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+        const focusable: HTMLElement[] = dialog
+          ? Array.from(dialog.querySelectorAll<HTMLElement>(selector))
+          : [];
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     };
 
@@ -90,11 +111,12 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="admin-data-modal-title"
-        aria-describedby="admin-data-modal-description"
-        className={`w-full max-w-xl rounded-[28px] border shadow-2xl shadow-slate-900/10 ${classes.panel}`}
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        className={`max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-[28px] border shadow-2xl shadow-slate-900/10 ${classes.panel}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="border-b border-slate-100 px-6 py-5">
@@ -103,11 +125,11 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
               {tone === 'info' ? <Info className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
-              <h3 id="admin-data-modal-title" className="text-xl font-black text-slate-950">
+              <h3 id={titleId} className="text-xl font-black text-slate-950">
                 {title}
               </h3>
               {description ? (
-                <p id="admin-data-modal-description" className="mt-2 text-sm font-medium leading-6 text-slate-600">
+                <p id={descriptionId} className="mt-2 text-sm font-medium leading-6 text-slate-600">
                   {description}
                 </p>
               ) : null}
@@ -121,9 +143,9 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
               <div className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Riepilogo impatto</div>
               <dl className="mt-3 space-y-2">
                 {summaryItems.map((item) => (
-                  <div key={item.label} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2.5">
+                  <div key={item.label} className="flex flex-col gap-1 rounded-xl bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <dt className="text-sm font-semibold text-slate-600">{item.label}</dt>
-                    <dd className="text-sm font-black text-slate-950">{item.value}</dd>
+                    <dd className="min-w-0 break-words text-sm font-black text-slate-950">{item.value}</dd>
                   </div>
                 ))}
               </dl>
@@ -133,11 +155,11 @@ export const AdminDataConfirmModal: React.FC<AdminDataConfirmModalProps> = ({
           {children ? <div className="space-y-3 text-sm font-medium leading-6 text-slate-700">{children}</div> : null}
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-5">
-          <button ref={cancelRef} type="button" onClick={onClose} className={cancelButtonClass}>
+        <div className="flex flex-col-reverse gap-3 border-t border-slate-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-end">
+          <button ref={cancelRef} type="button" onClick={onClose} className={`${cancelButtonClass} w-full sm:w-auto`}>
             {cancelLabel}
           </button>
-          <button type="button" disabled={confirmDisabled} onClick={onConfirm} className={`${confirmButtonClass} disabled:cursor-not-allowed disabled:opacity-45`}>
+          <button type="button" disabled={confirmDisabled} onClick={onConfirm} className={`${confirmButtonClass} w-full disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto`}>
             {confirmLabel}
           </button>
         </div>

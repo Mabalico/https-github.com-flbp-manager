@@ -337,7 +337,12 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         const ok = window.confirm(t('db_local_only_confirm'));
         if (!ok) return;
 
-        saveState(state);
+        try {
+            saveState(state);
+        } catch (error) {
+            setPanel({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
+            return;
+        }
         try {
             localStorage.setItem(LOCAL_STATE_UPDATED_AT_LS_KEY, new Date().toISOString());
             localStorage.removeItem('flbp_public_db_read');
@@ -347,6 +352,10 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
         setAutoStructuredSyncEnabled(false);
         setAutoStructured(false);
         setDataPersistenceMode('local_only');
+        if (getDataPersistenceMode() !== 'local_only') {
+            setPanel({ kind: 'error', message: 'Il browser non ha memorizzato la modalità locale. Mantieni aperta la pagina e scarica un backup.' });
+            return;
+        }
         setDataMode('local_only');
         clearDbSyncCurrentIssue();
         setPanel({ kind: 'ok', message: t('db_local_only_enabled_reload') });

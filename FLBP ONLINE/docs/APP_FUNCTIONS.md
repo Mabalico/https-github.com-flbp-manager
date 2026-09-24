@@ -1,7 +1,7 @@
 # FLBP Manager Suite — Funzioni dell’app
 
 **Fonte di verità:** codice attuale del repository locale.  
-**Data generazione:** 2026-03-19
+**Data generazione:** 2026-09-03
 
 Questo file descrive **cosa fa l’app e come lavora**, collegando ogni macro-funzione a file reali.
 
@@ -42,6 +42,12 @@ Questo file descrive **cosa fa l’app e come lavora**, collegando ogni macro-fu
 - Il prompt alias lato account supporta selezione multipla: l'utente puo' inviare una o piu' segnalazioni di merge agli admin oppure marcare le corrispondenze come `non sono io`, senza dover ripetere la stessa risposta a ogni accesso.
 - `Gestione dati -> Account giocatori` include ora il filtro `Segnalazioni`, che raccoglie le richieste di merge inviate dagli utenti, oltre a una vista separata delle corrispondenze storiche automatiche rilevate dal sistema alias.
 - Le nuove stringhe UI per alias/segnalazioni sono state riallineate in tutte le lingue supportate, sia in `FLBP ONLINE` sia in `FLBP LOCALE`.
+
+## Aggiornamento 2026-09-03
+
+- `Editor Torneo -> Tabellone` usa un workspace desktop piu' operativo: barra comandi compatta, roster a sinistra, canvas centrale e inspector contestuale a destra. Il canvas supporta zoom/adattamento e il passaggio tra vista `Grafico` e vista `Elenco` senza duplicare contemporaneamente le due rappresentazioni.
+- Il ridisegno non cambia le regole strutturali: le operazioni restano in bozza fino all'applicazione protetta e continuano a rispettare BYE, placeholder TBD, preliminari, match gia' iniziati e creazione rapida di nuove squadre.
+- `Gestione dati -> Integrazioni -> Tornei` permette di cercare e rinominare sia il torneo live sia le edizioni archiviate. La rinomina mantiene invariato l'ID e riallinea le etichette collegate in Albo d'Oro, provenienza marcatori e mirror pubblico/Fanta tramite il normale commit durevole.
 
 ---
 
@@ -317,6 +323,18 @@ In `components/AdminDashboard.tsx`:
     - export PNG via Canvas API (senza dipendenze) + salvataggio config in localStorage (`flbp_social_graphics_v1`)
 - `components/admin/tabs/TournamentEditorTab.tsx`
   - Editor strutturale live con bozza, Preview obbligatoria e Apply protetto.
+  - Layout desktop organizzato in tre aree coordinate:
+    - **Roster a sinistra**: ricerca, filtri, selezione delle squadre e creazione rapida di una nuova squadra nel catalogo/pool, pronta per essere collocata nella struttura.
+    - **Canvas centrale**: rappresentazione principale del tabellone, con controlli di zoom e adattamento alla superficie disponibile; il selettore `Grafico | Elenco` permette di scegliere tra bracket visuale e lista operativa degli abbinamenti.
+    - **Inspector a destra**: riepilogo dello slot o della squadra selezionata, azioni contestuali consentite e motivazione degli eventuali blocchi, senza coprire il canvas con pannelli flottanti.
+  - La barra comandi compatta mantiene raggiungibili stato della bozza, annulla/ripristina, anteprima e applicazione finale senza sottrarre spazio verticale al tabellone.
+  - Su viewport meno larghe le tre aree si dispongono in modo stacked: roster, workspace e inspector restano nello stesso flusso e le operazioni non dipendono dal drag and drop; e' sempre possibile selezionare prima una squadra e poi lo slot di destinazione.
+  - Le modifiche restano locali alla bozza fino a `Applica`: prima del salvataggio vengono mostrati riepilogo, warning e blocchi di integrita'; l'Apply protetto conserva i controlli di conflitto con lo stato live.
+  - I vincoli del bracket restano invariati:
+    - gli slot strutturali BYE/liberi continuano a essere gestiti senza trasformarsi in partite reali e senza alterare l'auto-advance previsto;
+    - i placeholder `TBD` non avanzano automaticamente e non vengono trattati come squadre reali;
+    - se il Round 1 e' pieno e nessuna partita reale del bracket e' iniziata, l'editor puo' aggiungere un turno preliminare vuoto per accogliere nuove squadre;
+    - la creazione rapida aggiunge la squadra al catalogo/pool, ma il suo inserimento nel tabellone resta un'operazione esplicita della bozza.
   - Il roster del torneo viene sincronizzato con le squadre realmente referenziate da gironi e match; una squadra rimossa da uno slot non resta quindi come partecipante esclusa. La squadra rimane nel catalogo generale e può essere reinserita senza perdere storico o iscrizione.
   - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone sul roster corrente; serve anche a compattare un bracket dopo rimozioni, eliminando livelli BYE non più necessari.
 - `components/admin/tabs/ReportsTab.tsx`
@@ -358,7 +376,9 @@ Supporto UI:
     - i dati arrivano da `public.app_supabase_usage_daily` tramite batching client-side nel wrapper fetch (`services/devRequestPerf.ts`)
     - non sostituisce il billing ufficiale Supabase: è una telemetria applicativa coerente col traffico generato dal frontend
   - sub-tab data legacy: `archive | integrations` (stato in `AdminDashboard.tsx`)
-  - sub-tab integrations: `hof | scorers | aliases`
+  - sub-tab integrations: `tournaments | hof | scorers | aliases | fanta | players`
+  - `components/admin/tabs/data/IntegrationsTournaments.tsx` elenca live e storico, ordina correttamente anche le date italiane `gg/mm/aaaa` e offre ricerca e rinomina inline con feedback accessibile.
+  - `services/tournamentRename.ts` applica la rinomina per ID senza modificare squadre, match o struttura e propaga il nome ai riferimenti Hall of Fame e alle etichette dei marcatori collegati.
 - Modals:
   - Alias: `components/admin/modals/AliasModal.tsx`
   - MVP: `components/admin/modals/MvpModal.tsx`
@@ -401,6 +421,7 @@ Nota TV G+Tab:
 Note tabellone (eliminazione diretta e gironi+eliminazione):
 - Se il numero partecipanti al tabellone non e' una potenza di 2, vengono creati **rami preliminari** (alcune squadre giocano 1 partita in piu').
 - I rami preliminari sono posizionati **in fondo al tabellone** e vengono aggiunti "dal basso" (ordine inverso).
+- Nella generazione a eliminazione diretta l'Admin puo' marcare, solo per la generazione corrente, le squadre da far giocare il piu' tardi possibile: ricevono prima gli eventuali BYE e, se i BYE non bastano, occupano gli ultimi slot del primo turno; le altre squadre restano casuali.
 - I match con BYE sono `hidden` e vengono risolti in auto-advance (quando la squadra e' nota). Non esistono coppie BYE vs BYE in Round 1 (nessun BYE sprecato).
 
 ### TV mode
@@ -533,6 +554,7 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 
 - `components/admin/SocialGraphicsPanel.tsx`: il box export mostra ora anche il motivo bloccante della grafica selezionata e una preview dei primi match rimasti fuori dagli slot.
 - `components/AdminDashboard.tsx`: negli alert import multi-sheet gli “altri fogli controllati” escludono il foglio già letto, per evitare liste fuorvianti.
+
 
 ### Integrazioni — aggiornamento 7 settembre 2026
 

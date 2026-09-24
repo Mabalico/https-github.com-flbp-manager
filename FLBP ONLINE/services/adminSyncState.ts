@@ -13,8 +13,11 @@ export interface AdminSyncState {
 
 const LS_KEY = 'flbp_admin_sync_state_v1';
 const EVENT_NAME = 'flbp:admin-sync-state-changed';
+// A quota/storage failure must not also hide the error indicator itself.
+let memoryFallback: AdminSyncState | null = null;
 
 const readRaw = (): AdminSyncState => {
+  if (memoryFallback) return memoryFallback;
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) {
@@ -52,10 +55,12 @@ const emit = (next: AdminSyncState) => {
 };
 
 const writeRaw = (next: AdminSyncState) => {
+  memoryFallback = next;
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(next));
+    memoryFallback = null;
   } catch {
-    // ignore
+    // Keep the authoritative status in this window until storage recovers.
   }
   emit(next);
 };
@@ -64,7 +69,11 @@ export const readAdminSyncState = (): AdminSyncState => readRaw();
 
 export const subscribeAdminSyncState = (listener: (state: AdminSyncState) => void): (() => void) => {
   const notify = () => listener(readRaw());
-  const onEvent = () => notify();
+  const onEvent = (event: Event) => {
+    const next = (event as CustomEvent<AdminSyncState>).detail;
+    if (next) listener(next);
+    else notify();
+  };
   const onStorage = (e: StorageEvent) => {
     if (e.key === LS_KEY) notify();
   };

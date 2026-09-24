@@ -25,8 +25,10 @@ export class RemoteRepository implements AppStateRepository {
 
   private readonly instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private pullKicked = false;
+  private externalRestorePaused = false;
   private pendingTimer: number | null = null;
   private pendingState: AppState | null = null;
+  private flushInFlight: Promise<void> | null = null;
   private pullInFlight: Promise<boolean> | null = null;
   private listeners = new Set<(state: AppState, meta?: RepositoryUpdateMeta) => void>();
   private lastRemoteUpdatedAt: string | null = null;
@@ -300,7 +302,41 @@ export class RemoteRepository implements AppStateRepository {
     }
   }
 
+  prepareForExternalRestore = async (): Promise<void> => {
+    this.externalRestorePaused = true;
+    if (this.pendingTimer != null) window.clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+    await this.flushInFlight;
+    await this.pullInFlight;
+    // A drained request may have scheduled a retry in its finally block.
+    if (this.pendingTimer != null) window.clearTimeout(this.pendingTimer);
+    this.pendingTimer = null;
+  };
+
+  completeExternalRestore = async (state: AppState, meta?: RepositoryUpdateMeta): Promise<void> => {
+    if (!this.externalRestorePaused) throw new Error('Ripristino senza pausa dei salvataggi.');
+    clearRemoteDraftCache();
+    if (hasRemoteDraftCache()) throw new Error('Impossibile eliminare la bozza precedente.');
+    this.pendingState = null;
+    this.conflictedDraftFingerprint = null;
+    this.rememberRemoteState(coerceAppState(state), meta?.updatedAt || null, { broadcast: true });
+    clearDbSyncCurrentIssue();
+    markDbSyncOk('snapshot');
+    markAdminSyncSynced(meta?.updatedAt || null, this.source);
+  };
+
+  resumeAfterExternalRestore = (): void => {
+    this.externalRestorePaused = false;
+    if (this.pendingState) {
+      this.pendingTimer = window.setTimeout(() => {
+        this.pendingTimer = null;
+        void this.flushNow();
+      }, RemoteRepository.REMOTE_SAVE_DEBOUNCE_MS);
+    }
+  };
+
   refresh = async (): Promise<void> => {
+    if (this.externalRestorePaused) return;
     if (!this.pendingState && hasRemoteDraftCache()) {
       const restored = this.restoreCachedDraft();
       if (!restored) {
@@ -335,6 +371,7 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   save(state: AppState): void {
+    if (this.externalRestorePaused) return;
     const cfg = getSupabaseConfig();
     if (!cfg) return;
     if (!this.lastRemoteUpdatedAt && !hasMeaningfulAppState(state)) return;
@@ -376,6 +413,7 @@ export class RemoteRepository implements AppStateRepository {
   };
 
   private async pullAndApply(opts?: { forceEmit?: boolean }): Promise<boolean> {
+    if (this.externalRestorePaused) return false;
     if (this.pendingState || hasRemoteDraftCache()) return false;
     if (this.pullInFlight) return this.pullInFlight;
 
@@ -383,6 +421,7 @@ export class RemoteRepository implements AppStateRepository {
       try {
         const row = await pullWorkspaceState();
         if (!row?.state) return false;
+        if (this.externalRestorePaused) return false;
 
         const nextState = coerceAppState(row.state);
         const nextFingerprint = this.fingerprint(nextState);
@@ -409,6 +448,15 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   private async flushNow() {
+    if (this.externalRestorePaused) return;
+    if (this.flushInFlight) return this.flushInFlight;
+    const work = this.flushPendingState();
+    this.flushInFlight = work;
+    try { await work; }
+    finally { if (this.flushInFlight === work) this.flushInFlight = null; }
+  }
+
+  private async flushPendingState() {
     const state = this.pendingState;
     if (!state) return;
 

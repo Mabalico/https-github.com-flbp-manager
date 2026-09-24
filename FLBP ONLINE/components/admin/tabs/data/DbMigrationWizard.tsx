@@ -26,7 +26,7 @@ type WizardState =
  * - Only uses existing SupabaseRest operations.
  * - Does NOT touch OCR/sim/live/TV.
  */
-export const DbMigrationWizard: React.FC<{ state: AppState; forceOverwrite: boolean }> = ({ state, forceOverwrite }) => {
+export const DbMigrationWizard: React.FC<{ state: AppState }> = ({ state }) => {
   const { t } = useTranslation();
   const [wiz, setWiz] = React.useState<WizardState>({ kind: 'idle' });
   const [enableDbFirst, setEnableDbFirst] = React.useState<boolean>(true);
@@ -83,7 +83,10 @@ export const DbMigrationWizard: React.FC<{ state: AppState; forceOverwrite: bool
       }
 
       pushLog('info', t('dbmig_running_export'));
-      await pushNormalizedFromState(state, { force: forceOverwrite });
+      await pushNormalizedFromState(state, {
+        force: false,
+        baseUpdatedAt: remoteRow?.updated_at || null,
+      });
       markDbSyncOk('structured');
       pushLog('ok', t('dbmig_done'));
 
@@ -113,18 +116,11 @@ export const DbMigrationWizard: React.FC<{ state: AppState; forceOverwrite: bool
       markDbSyncError(msg);
       pushLog('error', msg);
 
-      // Best-effort rollback (only if we had something)
+      // Never roll back automatically from a newly pulled cursor: another
+      // Admin/referee may have committed after the failed export. Keep the
+      // captured copies for an explicit, reviewed recovery instead.
       if (backupSnapshot || backupStructured) {
-        pushLog('warn', t('dbmig_rollback_running'));
-        try {
-          const restore = backupStructured || backupSnapshot;
-          if (restore) {
-            await pushNormalizedFromState(restore, { force: true });
-            pushLog('ok', t('dbmig_rollback_done'));
-          }
-        } catch (re: any) {
-          pushLog('error', `${t('dbmig_rollback_failed')}: ${re?.message || String(re)}`);
-        }
+        pushLog('warn', 'Rollback automatico non eseguito per non sovrascrivere modifiche concorrenti. Le copie lette nel preflight restano disponibili per un recupero esplicito.');
       }
 
       setWiz({ kind: 'error', message: msg });

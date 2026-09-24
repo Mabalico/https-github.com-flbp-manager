@@ -13,6 +13,7 @@ import type {
 import { ensureFreshPlayerSupabaseSession, getSupabaseConfig } from '../supabaseRest';
 import { fetchWithDevRequestPerf } from '../devRequestPerf';
 import { getPlayerKey, getPlayerKeyLabel } from '../playerIdentity';
+import { runFantaSaveRequestWithRetry } from './fantaSaveRetry';
 
 interface SupabaseFantaConfig {
   workspace_id: string;
@@ -1147,16 +1148,18 @@ export const saveFantaTeamWithResult = async (
       role: item.role,
     }));
 
-    const res = await fetchWithDevRequestPerf(`${restUrl(cfg, 'rpc/fanta_save_team')}`, {
+    const requestUrl = `${restUrl(cfg, 'rpc/fanta_save_team')}`;
+    const requestBody = JSON.stringify({
+      p_workspace_id: cfg.workspaceId,
+      p_tournament_id: config.activeTournamentId,
+      p_team_name: name,
+      p_roster: rosterPayload,
+    });
+    const res = await runFantaSaveRequestWithRetry(() => fetchWithDevRequestPerf(requestUrl, {
       method: 'POST',
       headers: buildHeaders(cfg, token),
-      body: JSON.stringify({
-        p_workspace_id: cfg.workspaceId,
-        p_tournament_id: config.activeTournamentId,
-        p_team_name: name,
-        p_roster: rosterPayload,
-      }),
-    }, { source: 'saveFantaTeam' });
+      body: requestBody,
+    }, { source: 'saveFantaTeam' }));
     if (res.ok) return { ok: true, teamId: await readRpcStringResult(res) };
     return await fantaSaveFailureFromResponse(res);
   } catch {

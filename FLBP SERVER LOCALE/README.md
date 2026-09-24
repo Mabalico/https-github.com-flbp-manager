@@ -33,6 +33,8 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - richieste POST solo JSON, rate limiting per sessioni/autenticazioni/controlli/scritture e pulizia periodica delle sessioni scadute;
 - retention dopo backup verificato: almeno 2.000 versioni e tutte quelle degli ultimi 90 giorni, senza eliminare stato corrente o dipendenze dell'outbox.
 
+Le richieste con `Host` o URL malformati ricevono HTTP 400 senza interrompere il processo. Il test `test/malformedHttp.test.mjs`, incluso in `npm test`, invia richieste HTTP grezze a un processo temporaneo isolato e verifica che `/health` continui a rispondere dopo ciascun errore.
+
 ## Prima configurazione
 
 1. Applicare in ordine tutte le migration fino a `20260811000500_local_reconcile_and_retention.sql` inclusa.
@@ -51,6 +53,8 @@ La Secret key resta nel file locale `.env`, escluso da Git. Non va mai inserita 
 ## App Windows
 
 L'app viene compilata in `windows-app/publish` e usa il runtime Evergreen WebView2 installato in Windows. Non apre Chrome, Edge, Avast o un altro browser esterno. La barra nativa permette di passare tra **Pannello** e **FLBP Manager**, tornare indietro e aggiornare la pagina. L'ultima schermata locale e, nell'Admin, la macro-sezione/tab corrente vengono ricordate sul PC senza salvare credenziali in `localStorage`: un riavvio del server o di WebView2 mostra uno stato di attesa, attiva retry progressivi e riapre la stessa area invece di riportare l'operatore alla home. Se il watchdog è installato, anche l'app avvia quel medesimo task invece di creare un secondo processo concorrente.
+
+Quando FLBP Manager apre una vista TV/tabellone tramite `window.open()`, l'app crea una finestra **FLBP Proiezione** separata e senza la barra comandi del Manager. Spostarla sul monitor o proiettore desiderato, quindi premere **F11** per attivare lo schermo intero nativo senza barra del titolo; premere nuovamente **F11** per tornare alla finestra normale. La finestra Admin principale rimane aperta e indipendente sul monitor dell'operatore.
 
 Per rigenerare soltanto l'eseguibile e i collegamenti Desktop, avviare `Compila app Windows.cmd`. Chiudere la finestra dell'app non arresta il server e non disattiva il database locale: per concludere il torneo usare sempre **Chiudi modalità locale** dal pannello, così viene completato il backup finale su Supabase.
 

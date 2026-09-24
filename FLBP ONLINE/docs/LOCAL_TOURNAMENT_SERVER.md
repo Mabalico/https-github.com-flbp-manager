@@ -29,13 +29,36 @@ Nel client questa separazione è vincolante: `mode=local` indica chi può scrive
 
 Se Internet cade o la finestra viene riaperta, l’Admin può continuare per 36 ore solo quando sono presenti insieme una sessione Supabase realmente verificata in precedenza e la sessione rilasciata dal nodo locale. Non viene introdotta una password Admin fittizia nel frontend.
 
-## Recupero di un conflitto scegliendo la versione locale
+## Persistenza e backup: flusso operativo
 
-Nella scheda **Persistenza online**, un conflitto offre due scelte esplicite. **Usa versione DB** applica lo snapshot autorevole scaricato; **Mantieni versione locale** conserva invece la bozza durevole della finestra e la pubblica come una nuova versione. Prima della conferma vengono mostrati, per entrambi gli stati, versione/timestamp, torneo live, numero di squadre e partite concluse.
+La scheda **Gestione dati → Persistenza e backup** separa le operazioni quotidiane da quelle tecniche:
 
-Il recupero locale non usa `force` contro SQLite. Il client legge la versione corrente, il server verifica lease e `x-flbp-writer-id`, rende leggibile sul secondo disco lo snapshot pre-recupero, quindi esegue un normale commit con quella versione come `baseVersion`. Se il DB cambia ancora durante la conferma, il commit riceve `409` e la bozza resta recuperabile. Dopo il commit, anche la nuova versione deve risultare leggibile sulla replica esterna prima della risposta positiva; Supabase viene aggiornato dall’outbox come per ogni altra operazione.
+- **Azioni rapide** mostra lo stato comprensibile del salvataggio, permette di scaricare subito un backup JSON, verificare il collegamento e confrontare i dati di questo PC con quelli presenti su Supabase.
+- **Strumenti avanzati** raccoglie le operazioni che non servono durante il normale svolgimento del torneo: restore/merge da file, snapshot manuali, recovery strutturato, migrazione, auto-sync, token tecnico, diagnostica e backup/ripristino dell’intero database applicativo.
+- Il failover verso Supabase rimane un comando di emergenza e compare soltanto quando il coordinatore segnala uno stato che richiede recupero. Non va usato per risolvere un normale conflitto tra due bozze.
 
-I referti arbitro più recenti presenti nello snapshot autorevole vengono conservati. Se la bozza ha eliminato completamente una partita dotata di referto, il server rifiuta il recupero automatico e richiede l’esportazione/riconciliazione manuale: non reinserisce silenziosamente una partita in un tabellone potenzialmente diverso. La modalità `recovery` del data plane resta fail-closed e non consente nessuna delle due sovrascritture.
+Lo stato principale indica sempre dove vengono confermate le scritture del torneo: **PC locale**, **Supabase** oppure **scritture sospese**. La modalità tecnica “solo su questo browser” non equivale al server locale del torneo e resta tra gli strumenti avanzati per evitare ambiguità.
+
+## Recupero guidato di un conflitto
+
+Il comando **Confronta PC e Supabase** non modifica alcun dato. Scarica la versione cloud corrente e mostra due riepiloghi affiancati: data e versione, torneo live, numero di squadre e partite concluse. La bozza durevole del browser resta conservata per tutta la fase di confronto.
+
+Da questo riepilogo sono disponibili due scelte esplicite:
+
+1. **Usa Supabase su questo PC** applica sul dispositivo lo snapshot cloud selezionato. La bozza locale viene chiusa soltanto dopo la conferma dell’operazione.
+2. **Sovrascrivi Supabase con questa versione locale** rende la bozza locale una nuova versione autorevole del workspace. Il comando è volutamente distinto dalla pubblicazione ordinaria e non lascia attivo un flag di forzatura riutilizzabile da altre operazioni.
+
+La seconda scelta richiede una doppia conferma. La finestra riepiloga di nuovo origine, destinazione e differenze principali; l’operatore deve quindi digitare esattamente **SOVRASCRIVI** prima che il pulsante finale venga abilitato. Chiudere la finestra o premere **Annulla** non modifica né la bozza né Supabase.
+
+La sovrascrittura esplicita è disponibile soltanto con sessione Admin valida, controllo di scrittura della finestra e data plane in modalità `cloud`. In modalità `local` è bloccata perché Supabase è soltanto il mirror asincrono del server SQLite: si continua a lavorare sul PC e si usa la normale chiusura della modalità locale per il passaggio finale. In modalità `recovery` resta bloccata in fail-closed finché l’autorità del database non è stata risolta. Né la parola di conferma né il comando “forza” possono scavalcare lease, fencing o autorizzazioni.
+
+Anche dopo il confronto viene applicato un controllo compare-and-swap: la versione di Supabase deve essere ancora quella mostrata nel riepilogo. Se un altro Admin o un referto aggiorna il DB prima della conferma finale, l’operazione viene rifiutata, la bozza rimane recuperabile e l’interfaccia richiede un nuovo confronto. “Sovrascrivi” significa quindi sostituire consapevolmente la versione appena verificata, non cancellare alla cieca una modifica concorrente.
+
+I referti arbitro più recenti presenti nello snapshot autorevole vengono conservati. Se la bozza ha eliminato completamente una partita dotata di referto, il recupero automatico viene rifiutato e richiede l’esportazione/riconciliazione manuale: il sistema non reinserisce silenziosamente una partita in un tabellone potenzialmente diverso.
+
+La scelta tra i due snapshot riguarda soltanto lo stato del workspace del torneo e il relativo mirror pubblico. Non modifica credenziali Supabase Auth, account giocatore, profili, squadre FantaBeerpong o altri dati Fanta: questi servizi restano nel control plane Supabase e continuano a funzionare indipendentemente dal database primario del torneo.
+
+Per garantire questa separazione, il recupero automatico viene bloccato se la bozza locale e Supabase indicano due ID di torneo live diversi. In quel caso serve una riconciliazione esplicita: il sistema non elimina né sposta automaticamente squadre e rose Fanta legate al torneo cloud. Con ID uguale, dopo lo snapshot viene riallineata anche la proiezione normalizzata usata dalle viste Fanta/live; un errore del mirror pubblico produce un avviso ambra e mantiene la richiesta di retry, non un falso esito positivo.
 
 ## Invarianti
 

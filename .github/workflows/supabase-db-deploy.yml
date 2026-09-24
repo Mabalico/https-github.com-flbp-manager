@@ -2,13 +2,10 @@ name: Deploy Supabase database
 
 # Applica le migration di "FLBP ONLINE/supabase/migrations" al progetto hosted.
 #
-# Self-healing:
-# - le versioni in supabase/migration-baseline.txt (applicate a mano dal SQL
-#   editor prima che il CI funzionasse) vengono solo REGISTRATE nella storia
-#   remota (migration repair --status applied), mai rieseguite;
-# - se il push fallisce per storia disallineata, ripara e riprova una volta;
-# - alla fine un dry-run deve dire "up to date", altrimenti il job fallisce
-#   (mai piu' run verdi che in realta' non hanno deployato nulla).
+# dry-run non modifica schema o storia remota. apply non ripara la storia:
+# un disallineamento deve fallire e venire esaminato dall'operatore.
+# repair-history è un'operazione manuale separata, con versioni esplicite e
+# conferma REPAIR; non applica SQL. Vedi docs/SUPABASE_DATABASE_WORKFLOW.md.
 
 on:
   push:
@@ -17,22 +14,34 @@ on:
     paths:
       - 'FLBP ONLINE/supabase/config.toml'
       - 'FLBP ONLINE/supabase/migrations/**'
-      - 'FLBP ONLINE/supabase/migration-baseline.txt'
       - '.github/workflows/supabase-db-deploy.yml'
   workflow_dispatch:
     inputs:
       mode:
-        description: Preview pending migrations or apply them
+        description: Preview, apply migrations, or explicitly repair migration history
         required: true
         type: choice
         options:
           - dry-run
           - apply
+          - repair-history
         default: dry-run
       confirm:
-        description: Type RUN to execute this workflow
+        description: Type RUN for dry-run/apply, or REPAIR for repair-history
         required: true
         default: 'NO'
+      repair_versions:
+        description: For repair-history only, space-separated 14-digit migration versions already reviewed
+        required: false
+        default: ''
+      repair_status:
+        description: For repair-history only, the reviewed history status (does not execute SQL)
+        required: true
+        type: choice
+        options:
+          - applied
+          - reverted
+        default: applied
 
 permissions:
   contents: read
@@ -49,7 +58,7 @@ env:
 jobs:
   deploy:
     name: Push Supabase migrations
-    if: ${{ github.event_name == 'push' || github.event.inputs.confirm == 'RUN' }}
+    if: ${{ github.event_name == 'push' || (github.event.inputs.mode != 'repair-history' && github.event.inputs.confirm == 'RUN') || (github.event.inputs.mode == 'repair-history' && github.event.inputs.confirm == 'REPAIR') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -100,36 +109,41 @@ jobs:
           set -euo pipefail
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
-      - name: Register baseline migrations as applied (no re-run)
-        run: |
-          set -euo pipefail
-          baseline_file="supabase/migration-baseline.txt"
-          if [ ! -f "$baseline_file" ]; then
-            echo "No baseline file, skipping."
-            exit 0
-          fi
-          to_mark=()
-          while IFS= read -r version; do
-            # Registra solo versioni con un file migration locale corrispondente.
-            if compgen -G "supabase/migrations/${version}_*.sql" > /dev/null; then
-              to_mark+=("$version")
-            else
-              echo "::warning::Baseline version ${version} has no local migration file, skipping"
-            fi
-          done < <(grep -oE '^[0-9]{14}' "$baseline_file" | sort -u)
-          if [ "${#to_mark[@]}" -eq 0 ]; then
-            echo "Baseline empty, nothing to register."
-            exit 0
-          fi
-          echo "Registering ${#to_mark[@]} baseline versions as applied..."
-          supabase migration repair --status applied "${to_mark[@]}"
-
-      - name: Migration status
+      - name: Migration status before changes
         run: |
           set -euo pipefail
           supabase migration list --linked
 
+      - name: Repair explicitly reviewed migration history
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'repair-history' && github.event.inputs.confirm == 'REPAIR' }}
+        env:
+          REPAIR_VERSIONS: ${{ github.event.inputs.repair_versions }}
+          REPAIR_STATUS: ${{ github.event.inputs.repair_status }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REPAIR_VERSIONS" =~ ^[0-9]{14}(\ [0-9]{14})*$ ]]; then
+            echo "::error::Provide explicit 14-digit migration versions separated by single spaces"
+            exit 1
+          fi
+          if [[ "$REPAIR_STATUS" != applied && "$REPAIR_STATUS" != reverted ]]; then
+            echo "::error::Repair status must be applied or reverted"
+            exit 1
+          fi
+          read -r -a versions <<< "$REPAIR_VERSIONS"
+          if [[ "$REPAIR_STATUS" == applied ]]; then
+            for version in "${versions[@]}"; do
+              compgen -G "supabase/migrations/${version}_*.sql" > /dev/null || {
+                echo "::error::No local migration for reviewed version $version"
+                exit 1
+              }
+            done
+          fi
+          echo "Explicit history repair: ${REPAIR_STATUS} for ${versions[*]}"
+          supabase migration repair --status "$REPAIR_STATUS" "${versions[@]}"
+          supabase migration list --linked
+
       - name: Preview pending migrations
+        if: ${{ github.event_name == 'push' || github.event.inputs.mode != 'repair-history' }}
         run: |
           set -euo pipefail
           supabase db push --dry-run
@@ -137,31 +151,8 @@ jobs:
       - name: Apply pending migrations
         if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
         run: |
-          set -uo pipefail
-          log="$(mktemp)"
-          supabase db push --yes 2>&1 | tee "$log"
-          rc=${PIPESTATUS[0]}
-          if [ "$rc" -eq 0 ]; then
-            exit 0
-          fi
-          echo "First push failed (rc=$rc), attempting history self-heal..."
-          # Versioni registrate in remoto senza file locale (es. file rinominati):
-          # vanno tolte dalla storia.
-          if grep -q 'Remote migration versions not found' "$log"; then
-            orphans="$(sed -n '/Remote migration versions not found/,+5p' "$log" | grep -oE '[0-9]{14}' | sort -u | tr '\n' ' ')"
-            if [ -n "${orphans// /}" ]; then
-              echo "Reverting orphan remote versions: $orphans"
-              # shellcheck disable=SC2086
-              supabase migration repair --status reverted $orphans
-            fi
-          fi
-          extra=""
-          if grep -q 'inserted before the last migration' "$log"; then
-            extra="--include-all"
-          fi
-          set -e
-          echo "Retrying push ${extra:+with $extra}..."
-          supabase db push --yes $extra
+          set -euo pipefail
+          supabase db push --yes
 
       - name: Verify convergence
         if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
@@ -173,3 +164,13 @@ jobs:
             echo "::error::Migrations did NOT converge: dry-run still reports pending work"
             exit 1
           fi
+
+      - name: Verify deployed authorization and restore contract
+        if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}"
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y postgresql-client; }
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/deployed_stabilization_readonly.sql

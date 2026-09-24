@@ -15,13 +15,11 @@ export const BackupSyncPanel: React.FC<{
     const restoreFullDbRef = React.useRef<HTMLInputElement | null>(null);
 
     return (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4">
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <div className="text-sm font-black text-slate-900">{t('backup_file_title')}</div>
-                    <div className="text-xs text-slate-600 mt-1">
-                        {t('backup_file_desc')}
-                    </div>
+                    <div className="mt-1 text-xs font-semibold text-slate-600">{t('backup_file_desc')}</div>
                 </div>
                 <div className="px-2.5 py-1 rounded-full text-[11px] font-black border border-emerald-200 bg-emerald-50 text-emerald-800">
                     {t('backup_status_complete')}
@@ -62,83 +60,87 @@ export const BackupSyncPanel: React.FC<{
                 }}
             />
 
-            <div className="flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    onClick={() => void exportBackupJson()}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
-                >
-                    <Download className="w-4 h-4" />
-                    {t('backup_download_json')}
-                </button>
-                <button
-                    type="button"
-                    onClick={() => restoreRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
-                >
-                    <Upload className="w-4 h-4" />
-                    {t('backup_restore')}
-                </button>
-                <button
-                    type="button"
-                    onClick={() => mergeRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-blue-700 bg-blue-700 text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                >
-                    <GitMerge className="w-4 h-4" />
-                    {t('backup_merge')}
-                </button>
-            </div>
+            <button
+                type="button"
+                onClick={() => void exportBackupJson()}
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-900 bg-slate-900 px-4 py-3 font-black text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 sm:w-auto"
+            >
+                <Download className="h-4 w-4" />
+                {t('backup_download_json')}
+            </button>
 
-            <div className="grid gap-2 md:grid-cols-2 text-xs text-slate-600 font-bold">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="font-black text-slate-800">{t('backup_restore')}</div>
-                    <div className="mt-1">{t('backup_restore_desc')}</div>
-                </div>
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-                    <div className="font-black text-blue-900">{t('backup_merge')}</div>
-                    <div className="mt-1">{t('backup_merge_desc')}</div>
-                </div>
-            </div>
-
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
-                {t('backup_export_accounts_note')}
-            </div>
-
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div>
-                        <div className="inline-flex items-center gap-2 text-sm font-black text-red-950">
-                            <Database className="w-4 h-4" />
-                            {t('backup_full_db_title')}
-                        </div>
-                        <div className="text-xs text-red-900/80 font-bold mt-1 max-w-3xl">
-                            {t('backup_full_db_desc')}
-                        </div>
+            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <summary className="cursor-pointer list-none rounded-lg text-sm font-black text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2">
+                    {t('backup_restore')} / {t('backup_merge')}
+                </summary>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="font-black text-slate-900">{t('backup_restore')}</div>
+                        <div className="mt-1 text-xs font-semibold text-slate-600">{t('backup_restore_desc')}</div>
+                        <button
+                            type="button"
+                            onClick={() => restoreRef.current?.click()}
+                            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-black text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
+                        >
+                            <Upload className="h-4 w-4" />
+                            {t('backup_restore')}
+                        </button>
                     </div>
-                    <div className="px-2.5 py-1 rounded-full text-[11px] font-black border border-red-200 bg-white text-red-800">
-                        {t('backup_full_db_admin_only')}
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                        <div className="font-black text-blue-950">{t('backup_merge')}</div>
+                        <div className="mt-1 text-xs font-semibold text-blue-900/80">{t('backup_merge_desc')}</div>
+                        <button
+                            type="button"
+                            onClick={() => mergeRef.current?.click()}
+                            className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-700 bg-blue-700 px-4 py-2.5 font-black text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        >
+                            <GitMerge className="h-4 w-4" />
+                            {t('backup_merge')}
+                        </button>
                     </div>
                 </div>
+            </details>
 
-                <div className="flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        onClick={() => void exportFullDatabaseBackup()}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-red-700 bg-red-700 text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
-                    >
-                        <Download className="w-4 h-4" />
-                        {t('backup_full_db_download')}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => restoreFullDbRef.current?.click()}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black border border-red-300 bg-white text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
-                    >
-                        <Upload className="w-4 h-4" />
-                        {t('backup_full_db_restore')}
-                    </button>
+            <details className="rounded-2xl border border-slate-200 bg-white p-3">
+                <summary className="cursor-pointer list-none rounded-lg text-sm font-black text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2">
+                    {t('db_advanced_tools_title')}
+                </summary>
+                <div className="mt-3 space-y-3">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+                        {t('backup_export_accounts_note')}
+                    </div>
+                    <div className="space-y-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <div className="inline-flex items-center gap-2 text-sm font-black text-red-950">
+                                    <Database className="h-4 w-4" />
+                                    {t('backup_full_db_title')}
+                                </div>
+                                <div className="mt-1 max-w-3xl text-xs font-bold text-red-900/80">{t('backup_full_db_desc')}</div>
+                            </div>
+                            <div className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-[11px] font-black text-red-800">{t('backup_full_db_admin_only')}</div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                            <button
+                                type="button"
+                                onClick={() => void exportFullDatabaseBackup()}
+                                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-red-700 bg-red-700 px-4 py-2.5 font-black text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+                            >
+                                <Download className="h-4 w-4" />
+                                {t('backup_full_db_download')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => restoreFullDbRef.current?.click()}
+                                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-4 py-2.5 font-black text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+                            >
+                                <Upload className="h-4 w-4" />
+                                {t('backup_full_db_restore')}
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            </details>
         </div>
     );
 };

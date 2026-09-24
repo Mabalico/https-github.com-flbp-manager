@@ -20,6 +20,8 @@ import { isAutoStructuredSyncEnabled } from './repository/featureFlags';
  * - requires Supabase config + admin JWT
  */
 
+let externalRestorePaused = false;
+const activeSyncRequests = new Set<Promise<void>>();
 let pending: AppState | null = null;
 let timer: number | null = null;
 let inFlight = false;
@@ -177,6 +179,7 @@ const safeFingerprint = (s: AppState): string => {
 };
 
 export const scheduleAutoStructuredSync = (state: AppState) => {
+  if (externalRestorePaused) return;
   const cfg = getSupabaseConfig();
   if (!cfg) return;
 
@@ -192,7 +195,7 @@ export const scheduleAutoStructuredSync = (state: AppState) => {
   }, DEBOUNCE_MS);
 };
 
-export const flushAutoStructuredSync = async (
+const flushAutoStructuredSyncNow = async (
   stateOverride?: AppState,
   opts?: { force?: boolean; allowDuringBackoff?: boolean }
 ): Promise<void> => {
@@ -249,8 +252,14 @@ export const flushAutoStructuredSync = async (
   pending = null;
 
   try {
+    const strictRecoveryProjection = normalizedSyncRequired();
     const summary = s.tournament
-      ? await pushLiveTournamentIncremental(s, forceThisRun ? { force: true } : undefined)
+      ? await pushLiveTournamentIncremental(
+          s,
+          strictRecoveryProjection
+            ? { force: false, strictPublicMirror: true }
+            : (forceThisRun ? { force: true } : undefined)
+        )
       : await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
     lastRunAt = Date.now();
     lastFingerprint = fp;
@@ -290,4 +299,40 @@ export const flushAutoStructuredSync = async (
       }, 0);
     }
   }
+};
+
+/** Pause before the restore RPC; queued state remains recoverable on failure. */
+export const prepareAutoSyncForDatabaseRestore = async (): Promise<void> => {
+  externalRestorePaused = true;
+  if (timer != null) window.clearTimeout(timer);
+  timer = null;
+  await Promise.allSettled([...activeSyncRequests]);
+  if (timer != null) window.clearTimeout(timer);
+  timer = null;
+  clearRetryBackoff();
+};
+
+export const finishAutoSyncDatabaseRestore = (committed: boolean): void => {
+  if (committed) {
+    pending = null;
+    queuedFlushAfterInFlight = false;
+    queuedForceAfterInFlight = false;
+    lastRunAt = 0;
+    lastFingerprint = '';
+    clearRetryBackoff();
+    clearNormalizedSyncRequired();
+  }
+  externalRestorePaused = false;
+  if (!committed && pending) scheduleAutoStructuredSync(pending);
+};
+
+export const flushAutoStructuredSync = async (
+  stateOverride?: AppState,
+  opts?: { force?: boolean; allowDuringBackoff?: boolean }
+): Promise<void> => {
+  if (externalRestorePaused) return;
+  const work = flushAutoStructuredSyncNow(stateOverride, opts);
+  activeSyncRequests.add(work);
+  try { await work; }
+  finally { activeSyncRequests.delete(work); }
 };

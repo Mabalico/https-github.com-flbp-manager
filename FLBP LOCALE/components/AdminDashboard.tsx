@@ -1,3 +1,4 @@
+import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
@@ -791,6 +792,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [tournName, setTournName] = useState(`${t('admin_tournament_prefix')} ${new Date().toLocaleDateString('it-IT')}`);
     const [tournDate, setTournDate] = useState<string>(() => getTodayInputDate());
     const [resultsOnly, setResultsOnly] = useState<boolean>(false);
+    const [lateTeamIds, setLateTeamIds] = useState<string[]>([]);
 
     // Optional final round-robin stage (activated at runtime)
     const [finalRrEnabled, setFinalRrEnabled] = useState<boolean>(false);
@@ -822,6 +824,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
+
+    useEffect(() => {
+        const eligibleIds = new Set((state.teams || [])
+            .filter(team => !team.hidden && !team.isBye)
+            .map(team => team.id));
+        const next = tournMode === 'elimination'
+            ? lateTeamIds.filter(id => eligibleIds.has(id))
+            : [];
+        if (next.length === lateTeamIds.length && next.every((id, index) => id === lateTeamIds[index])) return;
+        setLateTeamIds(next);
+        // If a selected team disappeared, the existing draft no longer reflects the UI.
+        setDraft(null);
+    }, [lateTeamIds, state.teams, tournMode]);
+
+    const handleLateTeamIdsChange = (ids: string[]) => {
+        setLateTeamIds(ids);
+        // A priority change belongs to the next draw: never let an older draft be started.
+        setDraft(null);
+    };
+
+    const handleTournamentModeChange = (mode: 'elimination' | 'groups_elimination' | 'round_robin') => {
+        setTournMode(mode);
+        if (mode !== 'elimination') setLateTeamIds([]);
+        setDraft(null);
+    };
 
     // Gestione dati (Archivio + Integrazioni)
     const [dataSubTab, setDataSubTab] = useState<'archive'|'integrations'>(() => {
@@ -972,6 +999,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [createArchiveFinalRrEnabled, setCreateArchiveFinalRrEnabled] = useState<boolean>(false);
     const [createArchiveFinalRrTopTeams, setCreateArchiveFinalRrTopTeams] = useState<4|8>(4);
     const [createArchiveTeams, setCreateArchiveTeams] = useState<Team[]>([]);
+    const [createArchiveLateTeamIds, setCreateArchiveLateTeamIds] = useState<string[]>([]);
+
+    const handleCreateArchiveModeChange = (mode: 'elimination' | 'groups_elimination' | 'round_robin') => {
+        setCreateArchiveMode(mode);
+        if (mode !== 'elimination') setCreateArchiveLateTeamIds([]);
+    };
 
     const wizardPlayableTeamsCount = useMemo(() => {
         // NOTE: Referee teams are still real teams for structure/brackets.
@@ -981,6 +1014,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // UX guardrails (wizard): keep selections sane when teams/mode change.
     useEffect(() => {
+        const eligibleIds = new Set((createArchiveTeams || [])
+            .filter(team => !team.hidden && !team.isBye)
+            .map(team => team.id));
+        setCreateArchiveLateTeamIds((current) => {
+            const next = createArchiveMode === 'elimination'
+                ? current.filter(id => eligibleIds.has(id))
+                : [];
+            return next.length === current.length && next.every((id, index) => id === current[index])
+                ? current
+                : next;
+        });
         if (wizardPlayableTeamsCount < 4 && createArchiveFinalRrEnabled) {
             setCreateArchiveFinalRrEnabled(false);
         }
@@ -991,7 +1035,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         if (createArchiveMode === 'round_robin' && createArchiveFinalRrEnabled) {
             setCreateArchiveFinalRrEnabled(false);
         }
-    }, [wizardPlayableTeamsCount, createArchiveMode, createArchiveFinalRrEnabled, createArchiveFinalRrTopTeams]);
+    }, [createArchiveTeams, wizardPlayableTeamsCount, createArchiveMode, createArchiveFinalRrEnabled, createArchiveFinalRrTopTeams]);
 
     // Form team dentro wizard (indipendente dal live)
     const [caTeamName, setCaTeamName] = useState<string>('');
@@ -1304,6 +1348,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         setCreateArchiveFinalRrEnabled(false);
         setCreateArchiveFinalRrTopTeams(4);
         setCreateArchiveTeams([]);
+        setCreateArchiveLateTeamIds([]);
         setCaTeamName('');
         setCaP1('');
         setCaY1('');
@@ -1380,6 +1425,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         // copia profonda con nuovi id per evitare collisioni
         const copied = (state.teams || []).map(t => ({ ...t, id: uuid() }));
         setCreateArchiveTeams(copied);
+        setCreateArchiveLateTeamIds([]);
         alert(`${t('admin_live_teams_copied')}: ${copied.length}`);
     };
 
@@ -1411,12 +1457,16 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         let nextTournament: TournamentData;
 
         if (teamsCount >= 2) {
+            const eligibleLateTeamIds = createArchiveMode === 'elimination'
+                ? createArchiveLateTeamIds.filter(id => createArchiveTeams.some(team => team.id === id && !team.hidden && !team.isBye))
+                : [];
             const { tournament, matches } = generateTournamentStructure(createArchiveTeams, {
                 mode: createArchiveMode,
                 numGroups: createArchiveMode === 'groups_elimination' ? createArchiveGroups : undefined,
                 advancingPerGroup: createArchiveMode === 'groups_elimination' ? createArchiveAdvancing : undefined,
                 tournamentName: nm,
                 finalRoundRobin,
+                ...(eligibleLateTeamIds.length ? { lateTeamIds: eligibleLateTeamIds } : {}),
             });
 
             const baseAdvancing = createArchiveMode === 'groups_elimination'
@@ -1475,6 +1525,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
 
         setCreateArchiveOpen(false);
         setCreateArchiveStep('meta');
+        setCreateArchiveLateTeamIds([]);
         alert(t('alert_archived_created'));
     };
 
@@ -2211,7 +2262,8 @@ const confirmAliasModal = () => {
             if (!confirm(`${t('backup_full_db_restore_confirm')}\n\n${summaryText}`)) return;
             if (!confirm(t('backup_full_db_restore_second_confirm'))) return;
 
-            const result = await restoreFullDatabaseBackup(parsed);
+            const operationId = uuid();
+            const result = await requestDatabaseRestore(() => restoreFullDatabaseBackup(parsed, { operationId }));
             const restoredTables = Object.keys(result.summary || {}).length;
             const warnings = result.warnings?.length
                 ? `\n\n${t('admin_notes')}:\n- ${result.warnings.join('\n- ')}`
@@ -2788,6 +2840,9 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         }
         
         try {
+            const eligibleLateTeamIds = tournMode === 'elimination'
+                ? lateTeamIds.filter(id => teams.some(team => team.id === id))
+                : [];
             const { tournament, matches } = generateTournamentStructure(teams, {
                 mode: tournMode,
                 numGroups,
@@ -2796,6 +2851,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 startDate: tournDate,
                 resultsOnly,
                 finalRoundRobin: (tournMode !== 'round_robin' && finalRrEnabled) ? { enabled: true, topTeams: finalRrTopTeams } : undefined,
+                ...(eligibleLateTeamIds.length ? { lateTeamIds: eligibleLateTeamIds } : {}),
             });
             setDraft({ t: tournament, m: matches });
         } catch (e) {
@@ -2880,6 +2936,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
         }
         setDraft(null);
+        setLateTeamIds([]);
         setTab('codes');
         alert(t('alert_live_started'));
     };
@@ -4059,7 +4116,7 @@ while (guard < 5000) {
         createArchiveDate,
         setCreateArchiveDate,
         createArchiveMode,
-        setCreateArchiveMode,
+        setCreateArchiveMode: handleCreateArchiveModeChange,
         createArchiveGroups,
         setCreateArchiveGroups,
         createArchiveAdvancing,
@@ -4069,6 +4126,8 @@ while (guard < 5000) {
         createArchiveFinalRrTopTeams,
         setCreateArchiveFinalRrTopTeams,
         createArchiveTeams,
+        createArchiveLateTeamIds,
+        setCreateArchiveLateTeamIds,
         createArchiveFileRef,
         caTeamName,
         setCaTeamName,
@@ -4112,6 +4171,11 @@ while (guard < 5000) {
             }}
         >
 	        <div className="animate-fade-in flex min-w-0 max-w-full flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
+            {adminSyncState.source === 'local' && adminSyncState.phase === 'error' && (
+                <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+                    <p className="font-bold">{adminSyncState.message}</p>
+                </div>
+            )}
             <header className="relative z-10 flex flex-row items-center justify-between gap-1.5 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <h2 className="flex min-w-0 shrink-0 items-center gap-1 text-[12px] font-black leading-none text-slate-900 sm:gap-1.5 sm:text-base">
@@ -4557,7 +4621,9 @@ while (guard < 5000) {
                     tournDate={tournDate}
                     setTournDate={setTournDate}
                     tournMode={tournMode}
-                    setTournMode={setTournMode}
+                    setTournMode={handleTournamentModeChange}
+                    lateTeamIds={lateTeamIds}
+                    setLateTeamIds={handleLateTeamIdsChange}
                     finalRrEnabled={finalRrEnabled}
                     setFinalRrEnabled={setFinalRrEnabled}
                     finalRrTopTeams={finalRrTopTeams}

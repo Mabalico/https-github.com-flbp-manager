@@ -16,6 +16,7 @@ import { formatBirthDateDisplay } from '../../../../services/playerIdentity';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../../services/formInputUX';
 import { deleteFantaTournamentData } from '../../../../services/supabaseRest';
 import { FANTA_APP_CHANGE_EVENT } from '../../../../services/playerAppService';
+import { LateTeamSelector } from '../../LateTeamSelector';
 
 export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string) => void }> = ({
     onEditAwards,
@@ -104,6 +105,8 @@ export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string
     createArchiveFinalRrTopTeams,
     setCreateArchiveFinalRrTopTeams,
     createArchiveTeams,
+    createArchiveLateTeamIds,
+    setCreateArchiveLateTeamIds,
     createArchiveFileRef,
     caTeamName,
     setCaTeamName,
@@ -205,6 +208,11 @@ export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string
         // Exclude only BYE/hidden (backward-compatible with historical snapshots).
         return (createArchiveTeams || []).filter(t => !t.hidden && !t.isBye).length;
     }, [createArchiveTeams]);
+    const createArchiveLateTeamCount = useMemo(() => (
+        (createArchiveTeams || []).filter(team => (
+            !team.hidden && !team.isBye && createArchiveLateTeamIds.includes(team.id)
+        )).length
+    ), [createArchiveLateTeamIds, createArchiveTeams]);
 
     const finalToggleDisabled = createArchiveMode === 'round_robin' || wizardPlayableTeamsCount < 4;
     const top8Disabled = wizardPlayableTeamsCount < 8;
@@ -314,7 +322,7 @@ export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string
                                                         <div className="text-xs font-black text-slate-500 mb-1">{t('archive_mode')}</div>
                                                         <select
                                                             value={createArchiveMode}
-                                                            onChange={(e) => setCreateArchiveMode(e.target.value as any)}
+                                                            onChange={(e) => setCreateArchiveMode(e.target.value as 'elimination' | 'groups_elimination' | 'round_robin')}
                                                             className={selectBase}
                                                         >
                                                             <option value="round_robin">{t('archive_mode_round_robin_full')}</option>
@@ -461,9 +469,17 @@ export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string
                                                             </div>
                                                         </>
                                                     )}
-                                                </div>
+                                                 </div>
 
-                                                {createArchiveMode === 'round_robin' && (
+                                                 {createArchiveMode === 'elimination' ? (
+                                                     <LateTeamSelector
+                                                         teams={createArchiveTeams || []}
+                                                         selectedIds={createArchiveLateTeamIds}
+                                                         onChange={setCreateArchiveLateTeamIds}
+                                                     />
+                                                 ) : null}
+
+                                                 {createArchiveMode === 'round_robin' && (
                                                     <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
                                                         <div className="text-xs font-black text-slate-700">{t('archive_mode_round_robin_full')}</div>
                                                         <div className="text-xs font-bold text-slate-500 mt-1">{t('archive_round_robin_hint')}</div>
@@ -516,8 +532,9 @@ export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string
                                                         ? t('groups_mode')
                                                         : (createArchiveMode === 'round_robin' ? t('archive_round_robin_short') : t('archive_elimination_short'))}
                                                     {createArchiveMode === 'groups_elimination' ? ` · ${t('groups_label')}: ${createArchiveGroups} · ${t('archive_qualified_label')}: ${createArchiveAdvancing}` : ''}
-                                                    {createArchiveMode !== 'round_robin' && createArchiveFinalRrEnabled ? ` · ${t('structure_final_group_badge')}: Top ${createArchiveFinalRrTopTeams}` : ''}
-                                                </div>
+                                                     {createArchiveMode !== 'round_robin' && createArchiveFinalRrEnabled ? ` · ${t('structure_final_group_badge')}: Top ${createArchiveFinalRrTopTeams}` : ''}
+                                                     {createArchiveMode === 'elimination' && createArchiveLateTeamCount > 0 ? ` · ${t('late_team_summary').replace('{count}', String(createArchiveLateTeamCount))}` : ''}
+                                                 </div>
 
                                                 <div className="flex items-center justify-between gap-2" role="toolbar" aria-label={t('archive_confirm_creation_aria')}>
                                                     <button type="button"

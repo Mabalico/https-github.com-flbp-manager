@@ -353,8 +353,42 @@ Sezione per consultare/modificare dati storici, archivi e integrazioni (es. hall
   - **Alias giocatori**: merge e gestione nomi duplicati.
     - Gli account giocatore che risultano compatibili con uno o piu' profili storici possono inviare una **segnalazione agli admin** direttamente dall'Area Giocatore.
     - In **Account giocatori** e' disponibile anche il filtro **Segnalazioni**, che raccoglie le richieste di merge pendenti, mentre la vista alias continua a mostrare anche le corrispondenze automatiche rilevate dal sistema.
-  - (Solo **TESTER**) può comparire un pannello **Backup & Sync (beta)** per diagnostica/migrazione dati: è facoltativo e non serve per l’operativo live.
+  - **Persistenza e backup** separa le azioni rapide usate dall’operatore dagli strumenti tecnici avanzati; il flusso completo è descritto nella sezione successiva.
 - Eventuali campi mancanti possono essere indicati come **ND** (Non Disponibile) quando previsto dalla logica dati.
+
+### 3.3 Persistenza e backup
+
+Apri **Admin → Gestione dati → Persistenza e backup**. La parte iniziale è quella da usare durante il normale lavoro:
+
+- lo stato in alto indica se il torneo sta salvando sul **PC locale**, su **Supabase** oppure se le scritture sono temporaneamente sospese;
+- **Scarica backup** crea una copia JSON di sicurezza senza modificare i dati;
+- **Verifica connessione** controlla collegamento e stato della persistenza;
+- **Confronta PC e Supabase** legge entrambi gli stati e apre il percorso guidato per risolvere un conflitto.
+
+Le funzioni di restore, merge, migrazione, snapshot manuale, recovery strutturato, auto-sync, token e diagnostica sono raccolte in **Strumenti avanzati**. Non servono per avviare o gestire normalmente il torneo. Anche il backup/ripristino dell’intero database applicativo è avanzato e va distinto dal normale backup JSON del workspace.
+
+#### Se compare “Conflitto dati”
+
+1. Premi **Confronta PC e Supabase**. Questa azione è di sola lettura e non elimina la bozza del browser.
+2. Controlla i due riepiloghi: data/versione, nome del torneo, squadre e partite concluse.
+3. Scegli **Usa Supabase su questo PC** se la versione cloud è quella corretta.
+4. Scegli **Sovrascrivi Supabase con questa versione locale** soltanto se hai verificato che la bozza locale sia quella da rendere ufficiale.
+
+La sovrascrittura richiede due conferme: prima viene mostrato un riepilogo dell’impatto; poi devi digitare esattamente **SOVRASCRIVI** per abilitare il pulsante finale. Se annulli, non cambia nulla. Il comando crea una nuova versione del workspace e non lascia attiva una forzatura che possa influenzare operazioni successive.
+
+La sovrascrittura verso Supabase è consentita solo quando:
+
+- hai una sessione Admin valida e questa finestra possiede il controllo di scrittura;
+- il data plane è in modalità **cloud**;
+- la versione Supabase non è cambiata dopo il confronto.
+
+Se nel frattempo un altro Admin o un arbitro salva una modifica, il controllo compare-and-swap blocca l’operazione e ti chiede di confrontare nuovamente le versioni. La bozza locale resta disponibile. I referti arbitro cloud più recenti vengono preservati; se la bozza non contiene più una partita che possiede un referto autorevole, il recupero automatico si ferma e richiede una riconciliazione manuale.
+
+In modalità **local** il pulsante di sovrascrittura Supabase è disabilitato: il torneo deve continuare a salvare sul server SQLite e il cloud viene aggiornato dal mirror/outbox. Per riportare Supabase a primario usa la normale procedura **Chiudi modalità locale** nel pannello server. In modalità **recovery** tutte le sovrascritture restano bloccate finché non viene risolta l’autorità del database.
+
+Questo confronto riguarda esclusivamente lo snapshot del torneo. Non sovrascrive password o Supabase Auth, account giocatore, profili, squadre FantaBeerpong o configurazioni Fanta. Registrazioni e Fanta continuano a usare Supabase anche quando il torneo è in modalità locale, purché sia disponibile la connessione Internet.
+
+Se i due riepiloghi appartengono a ID di torneo live diversi, il comando si blocca prima di scrivere: è una protezione per non cancellare o scollegare le rose Fanta del torneo cloud. Quando l'ID coincide, vengono riallineate anche le viste live/Fanta. Se il mirror pubblico non completa il riallineamento, compare un avviso ambra e l'app mantiene la richiesta di retry invece di mostrare un falso successo.
 
 ## 4. TV Mode (monitor 16:9)
 
@@ -370,12 +404,17 @@ Suggerimenti pratici:
 - Se usi piu' schermi, puoi aprire piu' finestre TV con viste diverse.
 - Se i dati provengono da DB remoto, assicurati che la sincronizzazione sia attiva per aggiornamenti coerenti.
 
+Nell'app Windows **FLBP Manager Locale**:
+- ogni voce di **Apri TV** apre una finestra di proiezione separata, mentre l'Area Admin resta nella finestra principale;
+- trascina la finestra di proiezione sul secondo monitor e premi **F11** per attivare o disattivare lo schermo intero senza barra del titolo e senza la barra **FLBP Manager**;
+- premi **ESC** per chiudere/uscire dalla proiezione; usa **F11** quando vuoi soltanto tornare dalla modalita' schermo intero alla finestra normale.
+
 Controlli tastiera (non mostrati a schermo):
 - **1**: Gironi
 - **2**: Gironi + Tab
 - **3**: Tabellone
 - **4**: Marcatori
-- **ESC**: Esci dalla TV
+- **ESC**: esce dalla TV nel browser; nell'app Windows segue il comportamento della finestra di proiezione descritto sopra
 
 In TV Mode:
 - La vista **gironi** include la **classifica stile campionato** in layout compatto (16:9 safe).
@@ -405,6 +444,7 @@ In TV Mode:
 - Nelle Grafiche Social, se una grafica selezionata non è esportabile, il pannello mostra subito il motivo preciso sotto al selettore export.
 - Se restano match fuori dagli slot, il pannello mostra una preview dei primi match rimasti fuori.
 - Negli import XLSX multi-sheet, gli alert elencano gli altri fogli controllati senza ripetere il foglio già letto.
+
 
 ### Integrazioni — aggiornamento 7 settembre 2026
 

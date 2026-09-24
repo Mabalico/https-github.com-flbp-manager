@@ -70,6 +70,21 @@ const operationId = (body) => {
   return value;
 };
 
+const parseRequestUrl = (request) => {
+  try {
+    const host = request.headers.host || 'localhost';
+    // Host is an authority, not a URL: reject credentials and path/query parts
+    // that URL() would otherwise silently accept as part of the base URL.
+    if (/[\s\\/?#@]/.test(host)) throw new Error('Invalid Host');
+    return new URL(request.url || '/', `http://${host}`);
+  } catch {
+    throw Object.assign(new Error('Host o URL della richiesta non valido.'), {
+      statusCode: 400,
+      code: 'FLBP_INVALID_REQUEST_URL',
+    });
+  }
+};
+
 export const createLocalServer = (overrides = {}) => {
   const config = loadConfig(overrides);
   const store = new LocalStore({ dataDir: config.dataDir, workspaceId: config.workspaceId, filename: overrides.databaseFilename || 'flbp-local.sqlite' });
@@ -310,15 +325,15 @@ export const createLocalServer = (overrides = {}) => {
 
   const server = http.createServer(async (request, response) => {
     response.flbpAcceptEncoding = request.headers['accept-encoding'] || '';
-    const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
-    const cors = originHeaders(request);
-    if (cors == null) return sendJson(response, 403, { error: 'Origine non autorizzata' });
-    if (request.method === 'OPTIONS') {
-      response.writeHead(204, { ...cors, 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-flbp-local-token,x-flbp-operation-id,x-flbp-writer-id' });
-      return response.end();
-    }
-
+    let cors = {};
     try {
+      const url = parseRequestUrl(request);
+      cors = originHeaders(request);
+      if (cors == null) return sendJson(response, 403, { error: 'Origine non autorizzata' });
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204, { ...cors, 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-flbp-local-token,x-flbp-operation-id,x-flbp-writer-id' });
+        return response.end();
+      }
       if (request.method === 'POST') requireJsonRequest(request);
       if (request.method === 'POST' && url.pathname === '/control/local-session') {
         consumeRateLimit(request, 'local-session', 10, request.headers.origin || request.headers.host || 'loopback');
