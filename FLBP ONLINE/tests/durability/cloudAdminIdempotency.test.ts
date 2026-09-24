@@ -1,4 +1,4 @@
-import { pushWorkspaceState, recoverWorkspaceFromLocalState, setSupabaseSession } from '../../services/supabaseRest';
+import { getSupabaseConfig, pushWorkspaceState, recoverWorkspaceFromLocalState, setSupabaseSession } from '../../services/supabaseRest';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 
 class MemoryStorage {
@@ -61,6 +61,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+
+const config = getSupabaseConfig();
+assert(config?.url === 'https://durability-test.invalid'
+  && config.anonKey === 'synthetic-durability-anon-key'
+  && config.workspaceId === 'default', 'the cloud durability fixture must be configured independently of private environment values');
 
 setSupabaseSession({
   accessToken: 'verified-cloud-admin-token',

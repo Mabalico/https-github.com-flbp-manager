@@ -27,6 +27,12 @@ La RPC snapshot è ora un adattatore alle modifiche delle partite:
 
 Le patch moderne accettano sia l'array di partite usato dall'app sia il singolo oggetto già ammesso in precedenza. Lo spareggio successivo può essere creato nella stessa patch che chiude quello precedente. Il calcolo della classifica e dei pareggi rimane nell'engine esistente; il database vincola la struttura della nuova partita, senza ricalcolare la classifica.
 
+Se lo snapshot pubblico manca, appartiene a un altro torneo o non contiene una partita corrente, la RPC ricostruisce i campi live dallo stato privato autorevole usando una proiezione ricorsiva esplicita. Sono filtrati anche campi annidati di squadre, gironi, configurazione, statistiche e audit. I campi non live già pubblici, come logo e storico, vengono conservati; se l'intero mirror manca, ricevono valori vuoti e restano recuperabili dal normale sync Admin. Le classificazioni U25 seguono le regole già usate da `isU25`: anni compiuti alla data del torneo e differenza tra anni solari per la carriera; le date di nascita non escono dal DB.
+
+Nello schema ONLINE moderno la riparazione ricostruisce tutte le righe normalizzate pubbliche del torneo corrente tramite il normalizzatore esistente: squadre, gironi, associazioni, partite e statistiche. Le righe obsolete vengono eliminate nello stesso blocco transazionale. Configurazione e audit delle tabelle pubbliche ricevono la stessa proiezione restrittiva. La copia legacy senza i normalizzatori di luglio/agosto conserva il percorso snapshot compatibile; non viene presentata come equivalente allo schema canonico.
+
+La migration uniforma inoltre l'ordine dei lock delle RPC Admin storiche, incluse tutte le firme installate e l'helper delle patch: advisory lock del data plane prima del lock sulla riga workspace. Firme, default, autorizzazioni e corpi già presenti vengono conservati con `CREATE OR REPLACE`. La RPC Admin v2 aveva già questo ordine. Il correttivo riconosce corpi LF/CRLF e può essere riapplicato senza aggiungere lock duplicati.
+
 ## Limite rimasto: protezione dai tentativi automatici
 
 La soglia condivisa non è più un blocco di autenticazione per password valide. È un indicatore di abuso delle credenziali errate. Non va presentata come una protezione completa contro il brute force: il flusso anonimo non fornisce un'identità verificata per distinguere due dispositivi e le RPC di cancellazione convocazioni e la funzione push convocazioni contenevano già verifiche della stessa password senza quel limite globale.
@@ -43,7 +49,7 @@ node scripts/test-referee-security.mjs --pglite /absolute/path/to/pglite/dist/in
 node scripts/test-referee-client-contract.mjs
 ```
 
-Al 24 settembre 2026: **43 asserzioni SQL** sullo schema ONLINE completo (70 migrations), **40** sullo schema LOCALE fino a giugno con le nuove migration di autorizzazione e arbitri, **36** casi del servizio frontend effettivo. Copertura: privilegi reali anon, password corrette/errate, header falsificati, audit, exploit dello snapshot, campi privati, conflitti, FTB, snapshot legacy con soli `rounds`, errore successivo alla scrittura e rollback di snapshot/righe normalizzate/versioni, leadership locale/recovery. La suite legacy non comprende le migrations LOCALE successive a giugno: la sequenza completa contiene una collisione storica di versione già documentata nel rapporto audit.
+Al 25 settembre 2026: **64 asserzioni SQL** sullo schema ONLINE completo (70 migrations), **52** sullo schema LOCALE fino a giugno con le nuove migration di autorizzazione e arbitri, **36** casi del servizio frontend effettivo. Copertura: privilegi reali anon, password corrette/errate, header falsificati, audit, exploit dello snapshot, campi privati, conflitti, FTB, snapshot legacy con soli `rounds`, errore successivo alla scrittura e rollback di snapshot/righe normalizzate/versioni, leadership locale/recovery, riparazione mirror assente/torneo errato/partita mancante, righe pubbliche correnti e obsolete, privacy annidata e confini U25. Il runner verifica anche riapplicazione della migration e lock Admin con corpi CRLF. La suite legacy non comprende le migrations LOCALE successive a giugno: la sequenza completa contiene una collisione storica di versione già documentata nel rapporto audit.
 
 Per PostgreSQL nativo, dopo le migrations su un database locale sacrificabile:
 
@@ -52,6 +58,16 @@ node scripts/test-referee-security.mjs --database-url postgresql://postgres:post
 ```
 
 La suite SQL racchiude fixture e helper in una transazione conclusa con rollback. Non modifica dati persistenti del database di test.
+
+La regressione di concorrenza usa due connessioni writer reali e una terza connessione che controlla una barriera. Un trigger di test sospende l'Admin dopo l'acquisizione della riga; l'arbitro deve aspettare l'advisory lock senza creare un ciclo. Il runner rilascia la barriera e verifica il commit di entrambi i referti per tutte le firme Admin installate e per la v2:
+
+```sh
+node scripts/test-referee-concurrency.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+```
+
+Il runner crea fixture, trigger e schema univoci e li elimina in `finally`. Non richiede modifiche al parametro privilegiato `deadlock_timeout`. Questa prova richiede PostgreSQL nativo e va attestata dalla CI; PGlite non sostituisce la prova con connessioni concorrenti.
+
+La [CI nativa del 25 settembre 2026](https://github.com/Mabalico/https-github.com-flbp-manager/actions/runs/36065546203) ha superato i tre scenari concorrenti e i dieci controlli PostgREST descritti qui, oltre alle suite SQL e al probe read-only. La prova concorrente copre le RPC elencate; non attesta ogni percorso REST diretto di aggiornamento dei mirror pubblici.
 
 Per verificare HTTP e commit effettivi avviare PostgREST direttamente sul database sacrificabile, con `PGRST_DB_URI` verso quel database, `PGRST_DB_SCHEMAS=public` e `PGRST_DB_ANON_ROLE=anon`. Il runner richiede il root HTTP di PostgREST, senza gateway Supabase né chiavi di produzione:
 

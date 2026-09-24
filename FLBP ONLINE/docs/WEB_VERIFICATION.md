@@ -19,6 +19,11 @@ Questi controlli non sostituiscono E2E multiclient, prove browser visive o dispo
 
 Per elencare i controlli senza eseguirli: `node scripts/check-web.mjs --list`.
 I gate non richiedono credenziali di produzione e non modificano il database online.
+Le suite del data plane e dell'idempotenza cloud disabilitano il caricamento dei
+file `.env` e delle variabili Vite ereditate: usano una configurazione sintetica
+su dominio `.invalid` e richieste intercettate dal test. Il job del server locale
+compila prima la web app ONLINE, necessaria per verificare il percorso `/app/`
+su un checkout pulito.
 
 ## Browser: regolamento Fanta a torneo concluso
 

@@ -13,7 +13,7 @@ import {
   rememberVerifiedAdminSession,
 } from '../../services/localAdminContinuity';
 import { RemoteRepository } from '../../services/repository/RemoteRepository';
-import { pushWorkspaceState, setSupabaseSession } from '../../services/supabaseRest';
+import { getSupabaseConfig, pushWorkspaceState, setSupabaseSession } from '../../services/supabaseRest';
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
 import { acknowledgeRemoteDraftCache, discardRemoteDraftOperation, ensureRemoteDraftCacheDurable, readRemoteDraftCache, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_LS_KEY, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
@@ -226,6 +226,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+
+const config = getSupabaseConfig();
+assert(config?.url === 'https://durability-test.invalid'
+  && config.anonKey === 'synthetic-durability-anon-key'
+  && config.workspaceId === 'default', 'the local durability fixture must be configured independently of private environment values');
 
 for (const invalidVersion of [null, undefined, '', '   ', false, true, -1, 1.5, Number.NaN]) {
   assert(

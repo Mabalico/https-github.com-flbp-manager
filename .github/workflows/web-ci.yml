@@ -107,5 +107,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: FLBP ONLINE/package-lock.json
+      - name: Build the canonical web app served by the local server
+        working-directory: FLBP ONLINE
+        run: |
+          npm ci
+          npm run build
       - run: npm run check
       - run: npm test
