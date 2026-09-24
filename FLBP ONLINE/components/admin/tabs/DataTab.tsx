@@ -1,4 +1,5 @@
 import React from 'react';
+import { requestDraftNavigation } from '../../../services/draftNavigationGuard';
 import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, Trash2, Users } from 'lucide-react';
 import type { Team, Match } from '../../../types';
 import type { AppState } from '../../../services/storageService';
@@ -159,6 +160,9 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
         return raw === 'integrations' || raw === 'views' || raw === 'traffic' || raw === 'persistence' || raw === 'accounts' ? raw : null;
     });
     const embedded = !!props.embedded;
+    const navigateSection = React.useCallback((section: typeof mainSection) => {
+        void requestDraftNavigation(() => setMainSection(section));
+    }, []);
 
     const archiveCount = (props.state.tournamentHistory || []).length;
     const hofCount = (props.state.hallOfFame || []).length;
@@ -225,9 +229,9 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
     }, [mainSection]);
 
     React.useEffect(() => {
-        const onOpenPersistence = () => setMainSection('persistence');
-        const onOpenViews = () => setMainSection('views');
-        const onOpenTraffic = () => setMainSection('traffic');
+        const onOpenPersistence = () => navigateSection('persistence');
+        const onOpenViews = () => navigateSection('views');
+        const onOpenTraffic = () => navigateSection('traffic');
         window.addEventListener('flbp:open-data-persistence', onOpenPersistence as EventListener);
         window.addEventListener('flbp:open-data-views', onOpenViews as EventListener);
         window.addEventListener('flbp:open-data-traffic', onOpenTraffic as EventListener);
@@ -262,7 +266,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
                 <button
                     type="button"
-                    onClick={() => setMainSection('integrations')}
+                    onClick={() => navigateSection('integrations')}
                     className={`${entryBtnClass('integrations')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
@@ -285,7 +289,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
 
                 <button
                     type="button"
-                    onClick={() => setMainSection('views')}
+                    onClick={() => navigateSection('views')}
                     className={`${entryBtnClass('views')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
@@ -307,7 +311,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
 
                 <button
                     type="button"
-                    onClick={() => setMainSection('traffic')}
+                    onClick={() => navigateSection('traffic')}
                     className={`${entryBtnClass('traffic')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
@@ -329,7 +333,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
 
                 <button
                     type="button"
-                    onClick={() => setMainSection('persistence')}
+                    onClick={() => navigateSection('persistence')}
                     className={`${entryBtnClass('persistence')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">
@@ -350,7 +354,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
 
                 <button
                     type="button"
-                    onClick={() => setMainSection('accounts')}
+                    onClick={() => navigateSection('accounts')}
                     className={`${entryBtnClass('accounts')} min-h-[112px] sm:min-h-[140px]`}
                 >
                     <div className="flex items-start justify-between gap-3 w-full">

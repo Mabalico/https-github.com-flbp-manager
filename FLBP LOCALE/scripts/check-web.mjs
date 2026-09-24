@@ -8,7 +8,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'ut
 const common = [
   'typecheck', 'test:data', 'test:editor', 'test:persistence', 'test:local-storage',
   'test:referee-save', 'test:restore-ui', 'test:spreadsheet-compat',
-  'test:fanta-save-retry', 'test:tv-route', 'check:ssr-admin', 'check:ssr-editions',
+  'test:fanta-save-retry', 'test:draft-navigation', 'test:tv-route', 'check:ssr-admin', 'check:ssr-editions',
   'check:ssr-tv', 'check:tv-readonly', 'check:i18n', 'build',
 ];
 const onlineOnly = ['check:durability', 'test:local-data-plane', 'test:cloud-durability', 'test:backup-edge'];

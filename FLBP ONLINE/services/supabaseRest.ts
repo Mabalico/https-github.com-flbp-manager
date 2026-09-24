@@ -3192,77 +3192,27 @@ export const sanitizeAppStateForPublic = (state: AppState): Json => {
     return safe;
 };
 
-const buildPublicWorkspaceLiveState = (publicState: Json): Json => {
-    const safe = publicState && typeof publicState === 'object' ? publicState : {};
-    const live: any = {
-        __schemaVersion: safe.__schemaVersion ?? 1,
-        teams: Array.isArray(safe.teams) ? safe.teams.map((team: any) => sanitizeTeamForPublic(team)) : [],
-        tournament: safe.tournament ? sanitizeTournamentForPublic(safe.tournament) : null,
-        tournamentMatches: Array.isArray(safe.tournamentMatches) ? safe.tournamentMatches : [],
-    };
-    if (safe.fantaSettings && typeof safe.fantaSettings === 'object' && !Array.isArray(safe.fantaSettings)) {
-        live.fantaSettings = safe.fantaSettings;
-    }
-    return live;
-};
-
-const pushPublicWorkspaceLiveInternal = async (
-    cfg: SupabaseConfig,
-    publicState: Json,
-    updatedAt: string,
-): Promise<SupabasePublicWorkspaceLiveRow | null> => {
-    const payload: SupabasePublicWorkspaceLiveRow = {
-        workspace_id: cfg.workspaceId,
-        state: buildPublicWorkspaceLiveState(publicState),
-        updated_at: updatedAt,
-    };
-    const res = await fetchWithDevRequestPerf(restUrl(cfg, 'public_workspace_live'), {
-        method: 'POST',
-        headers: {
-            ...buildHeaders(cfg),
-            'Prefer': 'resolution=merge-duplicates,return=representation'
-        },
-        body: JSON.stringify(payload)
-    }, { source: 'pushPublicWorkspaceLiveInternal', kind: 'sync' });
-    if (!res.ok) throw new Error(await readErrorBody(res));
-    const rows = (await res.json()) as SupabasePublicWorkspaceLiveRow[];
-    return rows?.[0] || payload;
-};
-
-const pushPublicWorkspaceStateInternal = async (cfg: SupabaseConfig, state: AppState): Promise<SupabasePublicWorkspaceStateRow> => {
-    await ensureFreshAuthForSupabaseOps();
-    const publicState = sanitizeAppStateForPublic(state);
-    const updatedAt = new Date().toISOString();
-    const payload: SupabasePublicWorkspaceStateRow = {
-        workspace_id: cfg.workspaceId,
-        state: publicState,
-        updated_at: updatedAt
-    };
-
-    const url = restUrl(cfg, 'public_workspace_state');
-    const res = await fetchWithDevRequestPerf(url, {
-        method: 'POST',
-        headers: {
-            ...buildHeaders(cfg),
-            'Prefer': 'resolution=merge-duplicates,return=representation'
-        },
-        body: JSON.stringify(payload)
-    }, { source: 'pushPublicWorkspaceStateInternal', kind: 'sync' });
-    if (!res.ok) throw new Error(await readErrorBody(res));
-    const rows = (await res.json()) as SupabasePublicWorkspaceStateRow[];
-    try {
-        await pushPublicWorkspaceLiveInternal(cfg, publicState, rows?.[0]?.updated_at || updatedAt);
-    } catch {
-        // New table may not exist yet on DBs that have not received the migration.
-    }
-    return rows?.[0] || payload;
-};
-
-export const pushPublicWorkspaceState = async (state: AppState): Promise<SupabasePublicWorkspaceStateRow> => {
+// Compatibility entrypoint: publication always derives from the committed
+// server snapshot. Callers must commit drafts before asking for publication.
+export const pushPublicWorkspaceState = async (_state: AppState): Promise<SupabasePublicWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
-    await requireSupabaseWriteSession();
-    return pushPublicWorkspaceStateInternal(cfg, state);
+    if (isAdminWriteBlockedByLease()) throw new Error('FLBP_LEASE_READONLY: questa finestra Admin è in sola lettura.');
+    const route = await resolveDataPlane();
+    if (route.mode === 'local') return await pullLocalWorkspace(route, false) as SupabasePublicWorkspaceStateRow;
+    if (route.mode === 'recovery') throw new Error('FLBP_DATA_PLANE_RECOVERY: pubblicazione sospesa fino al recupero.');
+    const session = await requireSupabaseWriteSession();
+    const res = await fetchWithDevRequestPerf(rpcUrl(cfg, 'flbp_admin_republish_public_workspace'), {
+        method: 'POST',
+        headers: buildHeaders(cfg, session.accessToken),
+        body: JSON.stringify({ p_workspace_id: cfg.workspaceId, p_lease_holder: getAdminLeaseHolderForWrites() || null }),
+    }, { source: 'pushPublicWorkspaceState', kind: 'sync' });
+    if (!res.ok) throw new Error(await readErrorBody(res));
+    const row = await res.json() as SupabasePublicWorkspaceStateRow;
+    if (!row?.state || typeof row.state !== 'object' || Array.isArray(row.state) || !row?.updated_at || row.workspace_id !== cfg.workspaceId) {
+        throw new Error('Snapshot pubblico autorevole non disponibile. Aggiorna lo schema e riprova dopo il salvataggio.');
+    }
+    return row;
 };
 
 const rpcUrl = (cfg: SupabaseConfig, fnName: string) => restUrl(cfg, `rpc/${fnName}`);

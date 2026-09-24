@@ -10,6 +10,9 @@ on:
       - 'FLBP ONLINE/scripts/test-referee-security.mjs'
       - 'FLBP ONLINE/scripts/test-referee-http.mjs'
       - 'FLBP ONLINE/scripts/test-referee-concurrency.mjs'
+      - 'FLBP ONLINE/scripts/test-public-mirrors.mjs'
+      - 'FLBP ONLINE/scripts/test-public-mirrors-native.mjs'
+      - 'FLBP ONLINE/scripts/test-fanta-archive-order.mjs'
       - '.github/workflows/supabase-ci.yml'
   workflow_dispatch:
 
@@ -89,6 +92,15 @@ jobs:
 
       - name: Verify concurrent Admin and referee writes
         run: node scripts/test-referee-concurrency.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Verify authoritative public mirrors and legacy RPC compatibility
+        run: node scripts/test-public-mirrors.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Verify contended backup locks and whole-transaction retries
+        run: node scripts/test-public-mirrors-native.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Verify Fanta archive after durable tournament transition
+        run: node scripts/test-fanta-archive-order.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       - name: Verify HTTP rejections preserve audit and older client queues
         env:

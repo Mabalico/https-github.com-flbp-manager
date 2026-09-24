@@ -9,6 +9,8 @@ import { IntegrationsFantaCleanup } from './IntegrationsFantaCleanup';
 import { IntegrationsTournaments } from './IntegrationsTournaments';
 import { ArchiveSubTab } from './ArchiveSubTab';
 import { AdminDataConfirmModal } from './AdminDataConfirmModal';
+import { useEditionNavigationGuard } from './useEditionNavigationGuard';
+import { requestDraftNavigation } from '../../../../services/draftNavigationGuard';
 
 export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
     const { integrationsSubTab, setIntegrationsSubTab, t } = props;
@@ -18,9 +20,10 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
     const [newEdition, setNewEdition] = React.useState(false);
     const [dirty, setDirty] = React.useState(false);
     const [saving, setSaving] = React.useState(false);
-    const [leave, setLeave] = React.useState<(() => void) | null>(null);
+    const [importing, setImporting] = React.useState(false);
+    const leave = useEditionNavigationGuard(dirty, saving || importing);
     const [feedback, setFeedback] = React.useState('');
-    const navigate = (action: () => void) => { if (saving) return; if (dirty) setLeave(() => action); else action(); };
+    const navigate = (action: () => void) => { void requestDraftNavigation(action); };
     const open = (id?: string) => { setFeedback(''); setEditionId(id); setMode('editor'); setDirty(false); };
     const button = 'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-black text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 hover:bg-slate-50';
     const selectTab = (tab: DataTabProps['integrationsSubTab']) => navigate(() => {
@@ -42,7 +45,7 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
             </>}
             {mode === 'editor' && <>
                 {!!editionId && props.state.tournamentHistory?.some(row => row.id === editionId) && <button type="button" disabled={saving} className={button} onClick={() => navigate(() => { props.setDataSelectedTournamentId(editionId); setMode('archive'); setDirty(false); })}>{t('edition_results')}</button>}
-                <EditionEditor key={editionId || 'new'} state={props.state} setState={props.setState} commitAdminStateDurably={props.commitAdminStateDurably} t={t} editionId={editionId} onDirtyChange={setDirty} onSavingChange={setSaving}
+                <EditionEditor key={editionId || 'new'} state={props.state} setState={props.setState} commitAdminStateDurably={props.commitAdminStateDurably} t={t} editionId={editionId} onDirtyChange={setDirty} onSavingChange={setSaving} onImportingChange={setImporting}
                     onBack={() => navigate(() => { setMode('list'); setDirty(false); })}
                     onSaved={id => { setDirty(false); setMode('list'); setEditionId(id); setFeedback(t('record_updated')); }} />
             </>}
@@ -58,6 +61,6 @@ export const IntegrationsSubTab: React.FC<DataTabProps> = (props) => {
             <button type="button" className={`${button} w-full`} onClick={() => { setNewEdition(false); setMode('archive'); props.openCreateArchiveWizard(); }}>{t('edition_complete')}</button>
             <p className="mt-2 text-sm text-slate-600">{t('edition_complete_hint')}</p>
         </AdminDataConfirmModal>
-        <AdminDataConfirmModal open={!!leave} tone="warning" title={t('edition_unsaved')} description={t('edition_unsaved_hint')} confirmLabel={t('edition_discard')} cancelLabel={t('cancel')} onClose={() => setLeave(null)} onConfirm={() => { const action = leave; setLeave(null); setDirty(false); action?.(); }} />
+        <AdminDataConfirmModal open={leave.open} tone="warning" title={t('edition_unsaved')} description={t('edition_unsaved_hint')} confirmLabel={t('edition_discard')} cancelLabel={t('cancel')} confirmDisabled={saving || importing} onClose={leave.cancel} onConfirm={leave.discard} />
     </div>;
 };

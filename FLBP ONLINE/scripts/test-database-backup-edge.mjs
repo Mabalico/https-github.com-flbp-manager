@@ -81,6 +81,17 @@ for (const edition of ['FLBP ONLINE', 'FLBP LOCALE']) {
     response = { data: { ok: false }, error: null };
     await assert.rejects(run({ action: 'restore', workspaceId: 'test', backup }), (error) => error.status === 500 && error.restoreNotCommitted === false);
   });
+  await check(`${edition}: backup lock busy is a definite non-commit and preserves the operation ID for retry`, async () => {
+    response = { data: null, error: { code: 'P0001', message: 'FLBP_DATABASE_BUSY: database in uso; riprovare l\'intera operazione' } };
+    await assert.rejects(run({ action: 'restore', workspaceId: 'test', backup, operationId: 'busy-retry' }),
+      error => error.status === 409 && error.restoreNotCommitted === true && error.message.includes('FLBP_DATABASE_BUSY'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.p_operation_id, 'busy-retry');
+    response = { data: { ok: true, checkpointId: 'busy-retry', version: 20 }, error: null };
+    await run({ action: 'restore', workspaceId: 'test', backup, operationId: 'busy-retry' });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.p_operation_id, 'busy-retry');
+  });
   await check(`${edition}: transport errors preserve uncertain commit outcome`, async () => {
     for (const code of ['', '08007', '08006', '40003', 'XX000']) {
       response = { data: null, error: { message: 'uncertain result', code } };
@@ -142,6 +153,14 @@ for (const edition of ['FLBP ONLINE', 'FLBP LOCALE']) {
       finalResponse = { ok: false, status: 500 };
       await assert.rejects(service.restoreFullDatabaseBackup(backup), (error) => error.restoreNotCommitted === definitive);
     }
+  });
+  await check(`${edition}: frontend propagates explicit busy as a safe non-commit without changing retry identity`, async () => {
+    requests = [];
+    errorBody = JSON.stringify({ reason: 'FLBP_DATABASE_BUSY: database in uso', restoreNotCommitted: true });
+    finalResponse = { ok: false, status: 409 };
+    await assert.rejects(service.restoreFullDatabaseBackup(backup, { operationId: 'busy-retry' }),
+      error => error.restoreNotCommitted === true && error.message.includes('FLBP_DATABASE_BUSY'));
+    assert.equal(JSON.parse(requests[1].body).operationId, 'busy-retry');
   });
   await check(`${edition}: legacy Edge capabilities block the destructive request`, async () => {
     requests = [];

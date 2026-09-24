@@ -5,6 +5,7 @@ set local statement_timeout = '15s';
 do $$
 declare
   v_signature regprocedure;
+  v_table regclass;
 begin
   if not exists (
     select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -21,6 +22,33 @@ begin
       or has_function_privilege('authenticated', v_signature, 'EXECUTE')
       or not has_function_privilege('service_role', v_signature, 'EXECUTE')
     then raise exception 'Incorrect restore RPC privileges: %', v_signature; end if;
+  end loop;
+  foreach v_table in array array[
+    'public.public_workspace_state'::regclass,
+    'public.public_workspace_live'::regclass
+  ] loop
+    if has_table_privilege('anon', v_table, 'INSERT, UPDATE, DELETE')
+      or has_table_privilege('authenticated', v_table, 'INSERT, UPDATE, DELETE')
+    then raise exception 'Direct client mutation remains enabled on a public mirror: %', v_table; end if;
+    if not has_table_privilege('anon', v_table, 'SELECT')
+    then raise exception 'Public mirror is no longer readable: %', v_table; end if;
+  end loop;
+  v_signature := 'public.flbp_admin_republish_public_workspace(text,text)'::regprocedure;
+  if has_function_privilege('anon', v_signature, 'EXECUTE')
+    or not has_function_privilege('authenticated', v_signature, 'EXECUTE')
+    or not has_function_privilege('service_role', v_signature, 'EXECUTE')
+  then raise exception 'Incorrect authoritative mirror RPC privileges'; end if;
+  if not (select prosecdef from pg_proc where oid = v_signature)
+    or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
+  then raise exception 'Authoritative mirror RPC lacks its privileged Admin gate'; end if;
+  foreach v_signature in array array[
+    'public.flbp_export_application_database(text)'::regprocedure,
+    'public.flbp_restore_application_database(text,jsonb,uuid,text,text)'::regprocedure
+  ] loop
+    if strpos(pg_get_functiondef(v_signature), 'A11_BACKUP_NOWAIT') = 0
+      or strpos(pg_get_functiondef(v_signature), 'FLBP_DATABASE_BUSY') = 0
+      or strpos(lower(pg_get_functiondef(v_signature)), 'nowait') = 0
+    then raise exception 'Backup RPC lacks the nonblocking table-lock contract: %', v_signature; end if;
   end loop;
   for v_signature in
     select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -73,4 +101,4 @@ begin
 end;
 $$;
 rollback;
-select 'Deployed authorization and atomic restore contract: PASS (read only)' as verification;
+select 'Deployed authorization, restore and public-mirror contract: PASS (read only)' as verification;

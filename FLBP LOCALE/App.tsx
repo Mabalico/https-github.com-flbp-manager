@@ -1,5 +1,6 @@
 import { createDatabaseRestoreSession, DATABASE_RESTORE_EVENT, type DatabaseRestoreRequest, type DatabaseRestoreStatus } from './services/databaseRestoreCoordinator';
 import { publicEditionHistory } from './services/editionData';
+import { isDraftNavigationPending, requestDraftNavigation } from './services/draftNavigationGuard';
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { Home } from './components/Home';
 import { PublicBrandStack } from './components/PublicBrandStack';
@@ -532,6 +533,7 @@ const App: React.FC = () => {
     const [playerPresence, setPlayerPresence] = useState<PlayerPresenceSnapshot | null>(() => readPlayerPresenceState());
 
     const routeNavigationRequestRef = useRef(0);
+    const fantaOriginViewRef = useRef('home');
 
     useEffect(() => {
         const handler = () => setPlayerPresence(readPlayerPresenceState());
@@ -582,7 +584,7 @@ const App: React.FC = () => {
         if (options?.closeMenu) {
             setMenuOpen(false);
         }
-        if (nextView === view) return;
+        if (nextView === view || isDraftNavigationPending()) return;
 
         const requestId = ++routeNavigationRequestRef.current;
         try {
@@ -591,7 +593,11 @@ const App: React.FC = () => {
             // If preload fails, keep default route rendering fallback behavior.
         }
         if (routeNavigationRequestRef.current != requestId) return;
-        setView(nextView);
+        await requestDraftNavigation(() => {
+            if (routeNavigationRequestRef.current != requestId) return;
+            if (nextView === 'fantabeerpong') fantaOriginViewRef.current = view;
+            setView(nextView);
+        });
     }, [preloadViewChunk, view]);
 
     const primeViewChunk = useCallback((nextViewRaw: string) => {
@@ -1440,7 +1446,11 @@ const App: React.FC = () => {
             window.open(buildTvProjectionUrl(window.location.href, mode), '_blank');
             return;
         }
-        setTvMode(mode);
+        if (isDraftNavigationPending()) return;
+        void requestDraftNavigation(() => {
+            ++routeNavigationRequestRef.current;
+            setTvMode(mode);
+        });
     };
 
     const handleViewTournament = (t: TournamentData, isLive: boolean) => {
@@ -1720,7 +1730,7 @@ const App: React.FC = () => {
             case 'fantabeerpong':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
-                        <FantaBeerpongLazy onBack={() => { void navigateToView('player_area'); }} />
+                        <FantaBeerpongLazy onBack={() => { void navigateToView(fantaOriginViewRef.current); }} />
                     </React.Suspense>
                 );
             case 'player_area':

@@ -1,4 +1,5 @@
 import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
+import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from '../services/draftNavigationGuard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
@@ -394,6 +395,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, []);
     const [adminAuthError, setAdminAuthError] = useState<string>('');
     const [loginBusy, setLoginBusy] = useState<boolean>(false);
+    const [adminLogoutPending, setAdminLogoutPending] = useState(false);
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
     const playerBootstrapDeniedKeyRef = useRef<string | null>(null);
@@ -730,12 +732,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const openLiveTab = React.useCallback(async (next: LiveAdminTab) => {
         if (adminSection === 'live' && tab === next) return;
+        if (isDraftNavigationPending()) return;
         const requestId = ++adminNavigationRequestRef.current;
         try {
             await preloadAdminContentChunk(next);
         } catch {
             // let Suspense/ErrorBoundary handle the actual render failure if the chunk is broken
         }
+        if (requestId !== adminNavigationRequestRef.current) return;
+        await requestDraftNavigation(() => {
         if (requestId !== adminNavigationRequestRef.current) return;
         if (adminSection !== 'live') {
             safeSessionSet('flbp_admin_section', 'live');
@@ -744,6 +749,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         setTab(next);
         setLastLiveTab(next);
         safeSessionSet('flbp_admin_last_live_tab', next);
+        });
     }, [adminSection, tab]);
 
     const showGroupsMonitor = useMemo(() => {
@@ -1530,6 +1536,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
     };
 
     const switchAdminSection = React.useCallback(async (next: AdminSection) => {
+        if (next === adminSection || isDraftNavigationPending()) return;
         const targetChunk: AdminChunkTarget = next === 'live' ? resolveStoredLiveTab() : next;
         const requestId = ++adminNavigationRequestRef.current;
         try {
@@ -1537,6 +1544,8 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         } catch {
             // let Suspense/ErrorBoundary handle the actual render failure if the chunk is broken
         }
+        if (requestId !== adminNavigationRequestRef.current) return;
+        await requestDraftNavigation(() => {
         if (requestId !== adminNavigationRequestRef.current) return;
         safeSessionSet('flbp_admin_section', next);
         setAdminSection(next);
@@ -1551,7 +1560,8 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             const nextTab = resolveStoredLiveTab();
             setTab(nextTab);
         }
-    }, [resolveStoredLiveTab, tab]);
+        });
+    }, [resolveStoredLiveTab, tab, adminSection]);
 
     const openTournamentEditor = React.useCallback((view: 'groups' | 'bracket' = 'groups') => {
         setEditorInitialView(view);
@@ -3822,6 +3832,19 @@ while (guard < 5000) {
         if (reload) window.location.reload();
     };
 
+    const requestAdminLogout = async () => {
+        if (adminLogoutPending || isDraftNavigationPending()) return;
+        if (!hasUnsavedDraft() && !confirm(t('admin_supabase_logout_confirm'))) return;
+        await requestDraftNavigation(() => {
+            // Unmount the editor before remote sign-out yields; no new edits can
+            // start after the user has explicitly discarded the draft.
+            setAdminLogoutPending(true);
+            void performAdminLogout().finally(() => setAdminLogoutPending(false));
+        });
+    };
+
+    if (adminLogoutPending) return <div role="status" aria-busy="true" className="p-8 text-center font-bold">{t('admin_logout')}…</div>;
+
     if (!authed) {
         const doAdminLogin = async () => {
             setLoginBusy(true);
@@ -4315,10 +4338,7 @@ while (guard < 5000) {
                                 <span className="text-[11px] font-bold text-slate-600 truncate min-w-0" title={supabaseEmail || undefined}>
                                     {supabaseEmail ? supabaseEmail : t('admin_session_active')}
                                 </span>
-                                <button onClick={async () => {
-                                    if (!confirm(t('admin_supabase_logout_confirm'))) return;
-                                    await performAdminLogout();
-                                }} className="text-[11px] font-black px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 flex-shrink-0 whitespace-nowrap">
+                                <button onClick={() => { void requestAdminLogout(); }} className="text-[11px] font-black px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 flex-shrink-0 whitespace-nowrap">
                                     {t('admin_logout')}
                                 </button>
                             </div>
