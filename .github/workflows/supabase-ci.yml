@@ -75,6 +75,9 @@ jobs:
       - name: Verify Admin authorization with real SQL roles and RLS
         run: node scripts/test-admin-auth.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      - name: Verify read-only production contract probe
+        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -X -v ON_ERROR_STOP=1 -f supabase/tests/deployed_stabilization_readonly.sql
+
       - name: Verify transactional restore against the complete migrated schema
         run: node scripts/test-database-restore-schema.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
 

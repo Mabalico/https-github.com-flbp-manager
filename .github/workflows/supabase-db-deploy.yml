@@ -164,3 +164,13 @@ jobs:
             echo "::error::Migrations did NOT converge: dry-run still reports pending work"
             exit 1
           fi
+
+      - name: Verify deployed authorization and restore contract
+        if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}"
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y postgresql-client; }
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/deployed_stabilization_readonly.sql
