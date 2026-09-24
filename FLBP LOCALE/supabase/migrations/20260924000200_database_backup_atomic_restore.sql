@@ -43,7 +43,7 @@ declare
   v_tables jsonb := '{}'::jsonb;
   v_recovery jsonb := '{}'::jsonb;
 begin
-  foreach v_table in array public.flbp_database_backup_table_order() loop
+  for v_table in select unnest(public.flbp_database_backup_table_order()) loop
     if to_regclass('public.' || v_table) is null then continue; end if;
     if v_table = 'fanta_rosters' then
       select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) into v_rows
@@ -117,7 +117,8 @@ declare
   v_columns text;
   v_updates text;
   v_serial record;
-  v_sequence_state record;
+  v_sequence_last_value bigint;
+  v_sequence_is_called boolean;
   v_sequence_increment bigint;
   v_sequence_boundary bigint;
   v_sequence_next bigint;
@@ -250,8 +251,8 @@ begin
         and pg_get_serial_sequence(format('public.%I', v_table), a.attname) is not null
     loop
       select seqincrement into v_sequence_increment from pg_sequence where seqrelid = v_serial.sequence_name::regclass;
-      execute format('select last_value, is_called from %s', v_serial.sequence_name) into v_sequence_state;
-      v_sequence_next := v_sequence_state.last_value + case when v_sequence_state.is_called then v_sequence_increment else 0 end;
+      execute format('select last_value, is_called from %s', v_serial.sequence_name) into v_sequence_last_value, v_sequence_is_called;
+      v_sequence_next := v_sequence_last_value + case when v_sequence_is_called then v_sequence_increment else 0 end;
       execute format('select %s(%I)::bigint from public.%I', case when v_sequence_increment > 0 then 'max' else 'min' end, v_serial.attname, v_table)
         into v_sequence_boundary;
       v_sequence_next := case when v_sequence_increment > 0
