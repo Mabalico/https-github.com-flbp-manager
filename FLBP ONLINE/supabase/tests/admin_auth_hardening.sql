@@ -120,5 +120,13 @@ select flbp_test_auth.assert_true(not exists (
     and (not has_function_privilege('authenticated', p.oid, 'execute')
       or not has_function_privilege('service_role', p.oid, 'execute'))
 ), 'authenticated and service roles retain Admin RPC execution');
+select flbp_test_auth.assert_true(not exists (
+  select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in ('flbp_apply_match_result_patch', 'flbp_upsert_public_workspace_live',
+      'flbp_log_referee_auth_audit', 'flbp_referee_auth_is_rate_limited')
+    and (has_function_privilege('anon', p.oid, 'execute')
+      or has_function_privilege('authenticated', p.oid, 'execute'))
+), 'internal write and audit helpers are not executable by client roles');
 
 rollback;

@@ -59,6 +59,17 @@ begin
     if has_function_privilege('anon', v_signature, 'EXECUTE')
     then raise exception 'Admin RPC accessible to anonymous users: %', v_signature; end if;
   end loop;
+  for v_signature in
+    select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname in (
+      'flbp_apply_match_result_patch', 'flbp_upsert_public_workspace_live',
+      'flbp_log_referee_auth_audit', 'flbp_referee_auth_is_rate_limited'
+    )
+  loop
+    if has_function_privilege('anon', v_signature, 'EXECUTE')
+      or has_function_privilege('authenticated', v_signature, 'EXECUTE')
+    then raise exception 'Internal write or audit helper accessible to client roles: %', v_signature; end if;
+  end loop;
   if to_regprocedure('public.flbp_referee_apply_match_updates(text,text,jsonb)') is not null then
     for v_signature in
       select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid = p.pronamespace
