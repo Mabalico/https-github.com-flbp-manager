@@ -22,3 +22,9 @@ Non vengono eseguiti repair, retry che cambiano la storia o `--include-all` impl
 - `reverted` rimuove dalla storia le sole versioni indicate, anche se il relativo file non esiste più localmente. Non annulla gli effetti SQL già presenti nel database.
 
 Il file `supabase/migration-baseline.txt` è un riferimento storico, non un'autorizzazione a marcare automaticamente versioni sul progetto corrente. Dopo un repair verificato, eseguire una nuova run `dry-run`; l'eventuale `apply` resta un'operazione successiva distinta.
+
+## Versione della CLI
+
+Il workflow installa la CLI Supabase `2.122.1`, l'ultima della linea v2. Dal 2 novembre 2026 `latest` è la v3, che cambia il contratto dei comandi usati qui: `db push`, `migration list` e `migration repair` puntano allo stack locale se non si passa `--remote`, `--linked` è deprecato e ogni modifica a un progetto hosted richiede conferma oppure `--yes`. Con `latest` la run del 16 novembre 2026 si è fermata all'anteprima (`db push --dry-run` cercava un database su `127.0.0.1:54322`) senza applicare nulla.
+
+Per passare alla v3 aggiornare insieme versione e comandi seguendo la [guida di migrazione](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3), e verificare che il controllo di convergenza riconosca ancora il messaggio di database aggiornato. Gli altri workflow che deployano sul progetto hosted usano ancora `latest` e vanno adeguati allo stesso modo prima del prossimo deploy delle Edge Function.

@@ -77,7 +77,12 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3
         with:
-          version: latest
+          # Versione fissata. La CLI v3 (2026-11-02) punta allo stack locale
+          # quando non si passa --remote e cambia la conferma delle modifiche
+          # hosted: con "latest" il dry-run falliva prima dell'apply. I comandi
+          # di questo workflow sono scritti e verificati per la linea v2;
+          # aggiornare la versione solo insieme ai comandi (guida v2 -> v3).
+          version: 2.122.1
 
       - name: Validate required configuration
         run: |
