@@ -1143,6 +1143,8 @@ export const pushPlayerAppProfile = async (input: {
     return rows[0] as PlayerSupabaseProfileRow;
 };
 
+const CLAIM_PLAYER_APP_DEVICE_RPC = 'flbp_player_claim_device';
+
 export const registerPlayerAppDevice = async (input: {
     id: string;
     platform: PlayerSupabaseDeviceRow['platform'];
@@ -1162,6 +1164,33 @@ export const registerPlayerAppDevice = async (input: {
         push_enabled: input.pushEnabled !== false
     };
     if (!payload.id) throw new Error('Device id mancante.');
+    // Preferred path: the RPC reassigns the installation to the signed-in account even when another
+    // account registered it before (the plain upsert below is rejected by RLS in that case).
+    const claimRes = await fetchWithTimeout(
+        rpcUrl(cfg, CLAIM_PLAYER_APP_DEVICE_RPC),
+        {
+            method: 'POST',
+            headers: buildHeaders(cfg, session.accessToken),
+            body: JSON.stringify({
+                p_workspace_id: payload.workspace_id,
+                p_device_id: payload.id,
+                p_platform: payload.platform,
+                p_device_token: payload.device_token,
+                p_push_enabled: payload.push_enabled
+            })
+        },
+        4000,
+        { source: 'registerPlayerAppDevice', kind: 'sync' }
+    );
+    if (claimRes.ok) {
+        const claimed = await claimRes.json();
+        const claimedRow = Array.isArray(claimed) ? claimed[0] : claimed;
+        if (!claimedRow || typeof claimedRow !== 'object') throw new Error('Device player non restituito.');
+        return claimedRow as PlayerSupabaseDeviceRow;
+    }
+    const claimBody = await readErrorBody(claimRes);
+    // Backend without the migration yet: keep the previous upsert behavior.
+    if (!isMissingRpcFunctionError(claimBody, CLAIM_PLAYER_APP_DEVICE_RPC)) throw new Error(claimBody);
     const res = await fetchWithTimeout(
         restUrl(cfg, 'player_app_devices?on_conflict=id&select=id,workspace_id,user_id,platform,device_token,push_enabled,created_at,updated_at'),
         {

@@ -182,5 +182,34 @@ begin
   end if;
 end;
 $$;
+-- Anonymous counters accept only the current day window and known workspaces.
+do $$
+declare v_out jsonb; v_today date := (now() at time zone 'utc')::date;
+begin
+  perform mirror_test.check(has_function_privilege('anon','public.flbp_track_site_view(text,date)','EXECUTE')
+    and has_function_privilege('anon','public.flbp_track_supabase_usage_batch(text,jsonb)','EXECUTE'),
+    'public site and usage counters remain callable anonymously');
+  v_out:=public.flbp_track_site_view('mirror-test','2001-01-01');
+  perform mirror_test.check((v_out->>'view_date')::date=v_today
+    and not exists(select 1 from public.public_site_views_daily where workspace_id='mirror-test' and view_date='2001-01-01'),
+    'a site view for an arbitrary date is counted on the server date');
+  v_out:=public.flbp_track_site_view('mirror-test',v_today+1);
+  perform mirror_test.check((v_out->>'view_date')::date=v_today+1,'a visitor one day ahead of UTC keeps their local date');
+  v_out:=public.flbp_track_supabase_usage_batch('mirror-test-unknown','[{"bucket":"public","request_count":1}]');
+  perform mirror_test.check((v_out->>'ok')::boolean=false and v_out->>'reason'='workspace_missing'
+    and not exists(select 1 from public.workspaces where id='mirror-test-unknown'),'usage tracking never creates a workspace');
+  v_out:=public.flbp_track_supabase_usage_batch('mirror-test',jsonb_build_array(
+    jsonb_build_object('usage_date',v_today,'bucket','public','request_count',3),
+    jsonb_build_object('usage_date','2001-01-01','bucket','public','request_count',5)));
+  perform mirror_test.check((v_out->>'ok')::boolean
+    and (select request_count=3 from public.app_supabase_usage_daily where workspace_id='mirror-test' and usage_date=v_today and bucket='public')
+    and not exists(select 1 from public.app_supabase_usage_daily where workspace_id='mirror-test' and usage_date='2001-01-01'),
+    'usage rows outside the current day window are ignored');
+  v_out:=public.flbp_track_supabase_usage_batch('mirror-test',
+    (select jsonb_agg(jsonb_build_object('usage_date',v_today,'bucket','tv','request_count',1)) from generate_series(1,100)));
+  perform mirror_test.check((select request_count=64 from public.app_supabase_usage_daily where workspace_id='mirror-test' and usage_date=v_today and bucket='tv'),
+    'a usage batch reads at most 64 items');
+end;
+$$;
 select 'PASS: '||count(*)||' public mirror SQL assertions' as result from mirror_test.checks;
 rollback;

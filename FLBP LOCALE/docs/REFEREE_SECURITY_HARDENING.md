@@ -33,9 +33,21 @@ Nello schema ONLINE moderno la riparazione ricostruisce tutte le righe normalizz
 
 La migration uniforma inoltre l'ordine dei lock delle RPC Admin storiche, incluse tutte le firme installate e l'helper delle patch: advisory lock del data plane prima del lock sulla riga workspace. Firme, default, autorizzazioni e corpi già presenti vengono conservati con `CREATE OR REPLACE`. La RPC Admin v2 aveva già questo ordine. Il correttivo riconosce corpi LF/CRLF e può essere riapplicato senza aggiungere lock duplicati.
 
+## Limite tentativi effettivo (novembre 2026)
+
+La migration `20261117100200_referee_password_attempt_limit.sql` sostituisce la sola etichetta diagnostica con un blocco reale, a soglia alta, senza cambiare firme né risposte:
+
+- sotto 12 confronti falliti in 10 minuti per lo stesso workspace e torneo nulla cambia (`bad_password`, HTTP 403 sui push);
+- da 12 a 29 la password errata resta etichettata `rate_limited` (HTTP 429 sui push) e la password corretta passa ancora;
+- da 30 confronti falliti in 10 minuti ogni tentativo arbitri (login, lettura dello stato, push, cancellazione convocazioni) riceve `rate_limited` **prima** del confronto della password, quindi anche quella corretta: un tentativo non rivela più nulla. Questi rifiuti sono registrati nell'audit come `locked` e non vengono contati, così il blocco si scioglie da solo quando i fallimenti escono dalla finestra di 10 minuti.
+
+Compromesso accettato: chi continua a inviare password errate può tenere fuori gli arbitri di quel torneo finché insiste. Le scritture Admin non sono toccate e i referti restano nella coda del dispositivo. Durante il blocco la schermata di login arbitri mostra ancora "Password errata": un messaggio dedicato a `rate_limited` è da aggiungere in `components/RefereesArea.tsx`.
+
+`flbp_referee_cancel_player_calls` ora usa `flbp_referee_check_credentials`: i rifiuti sono registrati nell'audit, contano per il blocco e tornano come `{ok:false,reason}` con HTTP 403/429 invece di un'eccezione; in caso di successo restituisce come prima le convocazioni annullate.
+
 ## Limite rimasto: protezione dai tentativi automatici
 
-La soglia condivisa non è più un blocco di autenticazione per password valide. È un indicatore di abuso delle credenziali errate. Non va presentata come una protezione completa contro il brute force: il flusso anonimo non fornisce un'identità verificata per distinguere due dispositivi e le RPC di cancellazione convocazioni e la funzione push convocazioni contenevano già verifiche della stessa password senza quel limite globale.
+Il blocco è condiviso per workspace e torneo, non per dispositivo. Non va presentato come una protezione completa contro il brute force: il flusso anonimo non fornisce un'identità verificata per distinguere due dispositivi. La funzione Edge `player-call-push` verifica ancora la stessa password da sola, senza audit né blocco: va instradata su `flbp_referee_check_credentials`.
 
 Un intervento distinto deve portare tutte le verifiche della password attraverso un gateway attendibile, con limiti per origine verificata dal gateway, contatori persistenti e sessioni arbitro revocabili. Il piano deve includere cancellazione/push delle convocazioni, disattivazione delle vecchie vie dirette e migrazione dei client. Non usare semplicemente `x-forwarded-for`, `x-real-ip` o un identificatore scelto dal browser. Questa migration non realizza né simula quel gateway.
 

@@ -33,6 +33,15 @@ Le funzioni continuano a essere usate dalle RPC Admin, arbitri, data plane local
 
 Restano volutamente eseguibili dai ruoli client: le RPC con controllo interno (password arbitri, `flbp_is_admin()`, `auth.uid()`), `flbp_resolve_data_plane`, le due RPC di tracciamento e `flbp_fanta_award_points_for_player`, usata da viste pubbliche. Le funzioni trigger non sono richiamabili via RPC.
 
+## Seconda fase (novembre 2026)
+
+- `20261117100100_fanta_rosters_write_through_rpc_only.sql`: `fanta_teams` e `fanta_rosters` restano leggibili da tutti ma non sono più scrivibili direttamente da `anon` e `authenticated`. Le rose passano solo da `fanta_save_team` e dalle altre RPC `SECURITY DEFINER`, che applicano 4 giocatori, 1 capitano, 2 difensori e il blocco dopo la prima partita. La migration si rifiuta di procedere se trova un `fanta_save_team` non `SECURITY DEFINER`.
+- `20261117100300_fanta_public_player_ids_without_birthdates.sql`: nelle tabelle pubbliche `fanta_rosters`, `fanta_archived_rosters` e `fanta_archived_players` un `player_id` del tipo `nome_AAAA-MM-GG` diventa `nome_ND`, la stessa chiave che il builder Fanta invia già. Un trigger lo applica a ogni scrittura e un backfill alle righe esistenti; due chiavi diverse dello stesso nome nello stesso ambito ricevono un breve suffisso hash, senza perdere righe. Punteggi e premi usano già il confronto per squadra e nome quando la chiave non coincide.
+- `20261117100400_tracking_input_limits.sql`: le RPC anonime di tracciamento accettano solo date entro un giorno dalla data UTC del server, leggono al massimo 64 elementi e non creano più workspace.
+- `supabase/functions/player-account-admin`: le richieste di unione account prendono utente ed email dalla sessione, mai dal corpo; senza sessione (registrazione in attesa di conferma email) la richiesta resta non associata e viene applicata solo all'account che accede con quell'email verificata. Prima di applicare una richiesta associata l'Admin verifica che l'email dell'account coincida. La funzione non crea più workspace.
+
+La sonda `deployed_stabilization_readonly.sql` controlla dopo ogni deploy privilegi, trigger, assenza di date nelle chiavi Fanta pubbliche e limiti del tracciamento.
+
 ## Test SQL
 
 `supabase/tests/admin_auth_hardening.sql` esercita 27 asserzioni effettive su PostgreSQL: cambi di ruolo, lettura/scrittura attraverso RLS, chiamata della RPC snapshot reale con `p_force`, membership, revoca e permessi delle firme RPC, inclusi gli helper interni. La sonda di sola lettura `supabase/tests/deployed_stabilization_readonly.sql`, eseguita dopo ogni deploy del database, rifiuta gli stessi helper se tornano eseguibili da un ruolo client. Le fixture e gli helper vengono creati in una transazione e sempre annullati con `rollback` al termine della suite. Il file usa asserzioni PL/pgSQL, non il formato TAP.

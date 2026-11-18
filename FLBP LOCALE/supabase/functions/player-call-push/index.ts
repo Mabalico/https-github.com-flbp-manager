@@ -31,6 +31,8 @@ type DispatchResult = {
   status?: number | null;
   code?: PushDispatchReasonCode | null;
   reason?: string | null;
+  tokenInvalid?: boolean;
+  tokenCleared?: boolean;
 };
 
 type PushDispatchReasonCode =
@@ -374,9 +376,39 @@ const buildApnsJwt = async (env: RuntimeEnv) => {
     .sign(privateKey);
 };
 
+const parseJsonSafe = (text: string): Record<string, unknown> | null => {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+};
+
+// FCM v1 answers 404 with FcmError.errorCode = UNREGISTERED when the token is no longer valid.
+// A bare 404 (for instance a wrong FCM_PROJECT_ID) is a configuration problem, not a dead token.
+const isFcmTokenInvalid = (status: number, payload: string) => {
+  if (status !== 404) return false;
+  const error = parseJsonSafe(payload)?.error as Record<string, unknown> | undefined;
+  const details = Array.isArray(error?.details) ? error.details as Array<Record<string, unknown>> : [];
+  return details.some((detail) => normalizeText(detail?.errorCode).toUpperCase() === 'UNREGISTERED');
+};
+
+// APNs: 410 means the token is no longer active; 400 BadDeviceToken means the token is malformed
+// or belongs to the other environment (sandbox/production).
+const isApnsTokenInvalid = (status: number, payload: string) => {
+  if (status === 410) return true;
+  const reason = normalizeText(parseJsonSafe(payload)?.reason);
+  return status === 400 && reason === 'BadDeviceToken';
+};
+
 const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushAction, call: CallRow): Promise<DispatchResult> => {
   const accessToken = await fetchGoogleAccessToken(env);
   const data = buildPushDataPayload(action, call);
+  // Only a "ringing" call carries a notification block: without it Android shows nothing while the
+  // app is in background (the Capacitor plugin builds no notification from data-only messages).
+  // "cancelled" and "acknowledged" stay data-only so they never raise a visible notification.
+  const content = action === 'ringing' ? buildNotificationContent(action, call) : null;
   const response = await fetch(
     `https://fcm.googleapis.com/v1/projects/${env.fcmProjectId}/messages:send`,
     {
@@ -389,8 +421,10 @@ const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushA
         message: {
           token: normalizeText(device.device_token),
           data: Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])),
+          ...(content ? { notification: { title: content.title, body: content.body } } : {}),
           android: {
             priority: 'high',
+            ...(content ? { notification: { channel_id: 'team_calls', tag: `call-${call.id}` } } : {}),
           },
         },
       }),
@@ -405,6 +439,7 @@ const sendAndroidPush = async (env: RuntimeEnv, device: DeviceRow, action: PushA
     status: response.status,
     code: response.ok ? null : 'provider_rejected',
     reason: response.ok ? null : payload,
+    tokenInvalid: !response.ok && isFcmTokenInvalid(response.status, payload),
   };
 };
 
@@ -444,7 +479,21 @@ const sendIosPush = async (env: RuntimeEnv, device: DeviceRow, action: PushActio
     status: response.status,
     code: response.ok ? null : 'provider_rejected',
     reason: response.ok ? null : payload,
+    tokenInvalid: !response.ok && isApnsTokenInvalid(response.status, payload),
   };
+};
+
+// Drops a token the provider declared dead, so the next dispatch reports `token_missing`/`permission_denied`
+// instead of failing again. The extra `device_token` filter keeps a token the device refreshed in the
+// meantime. The app registers a fresh token the next time it is opened.
+const clearInvalidDeviceToken = async (adminClient: SupabaseClient, call: CallRow, device: DeviceRow) => {
+  const { error } = await adminClient
+    .from('player_app_devices')
+    .update({ push_enabled: false, device_token: null })
+    .eq('workspace_id', call.workspace_id)
+    .eq('id', device.id)
+    .eq('device_token', normalizeText(device.device_token));
+  return !error;
 };
 
 serve(async (req) => {
@@ -496,10 +545,17 @@ serve(async (req) => {
     const deliveries: DispatchResult[] = [];
     for (const device of readyDevices) {
       try {
+        let delivery: DispatchResult | null = null;
         if (device.platform === 'android') {
-          deliveries.push(await sendAndroidPush(env, device, action, call));
+          delivery = await sendAndroidPush(env, device, action, call);
         } else if (device.platform === 'ios') {
-          deliveries.push(await sendIosPush(env, device, action, call));
+          delivery = await sendIosPush(env, device, action, call);
+        }
+        if (delivery) {
+          if (delivery.tokenInvalid) {
+            delivery.tokenCleared = await clearInvalidDeviceToken(adminClient, call, device).catch(() => false);
+          }
+          deliveries.push(delivery);
         }
       } catch (error) {
         const deliveryErrorStatus = getDeliveryErrorStatus(error);
