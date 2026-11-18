@@ -12,10 +12,14 @@ on:
         required: true
         default: 'NO'
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     if: ${{ github.event.inputs.confirm == 'RUN' }}
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout
@@ -24,7 +28,9 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3
         with:
-          version: latest
+          # Versione fissata: la CLI v3 (2026-11-02) chiede conferma per ogni
+          # modifica a un progetto hosted. Aggiornare solo insieme ai comandi.
+          version: 2.122.1
 
       - name: Validate required secret
         env:

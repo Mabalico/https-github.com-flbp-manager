@@ -8,7 +8,7 @@ Avvio manuale con `mode=dry-run` e `confirm=RUN`: controlla la configurazione, c
 
 ## Applicazione
 
-Un push su `main` che interessa le migration/configurazione o il workflow mantiene il deploy automatico esistente. L'avvio manuale richiede `mode=apply` e `confirm=RUN`. Entrambi eseguono anteprima, `supabase db push --yes` e controllo finale di convergenza.
+Un push su `main` che interessa le migration/configurazione o il workflow esegue solo l'anteprima (`supabase db push --dry-run`): non applica nulla. L'apply parte soltanto da un avvio manuale con `mode=apply` e `confirm=RUN` e, nell'ordine, esegue anteprima, `supabase db push --yes` e controllo finale di convergenza.
 
 Dopo la convergenza viene eseguito `supabase/tests/deployed_stabilization_readonly.sql`: una transazione in sola lettura verifica i permessi Admin/restore e il rifiuto di metadati utente contraffatti. Non esporta né ripristina dati applicativi. Oltre a `SUPABASE_ACCESS_TOKEN` e `SUPABASE_DB_PASSWORD`, questo controllo usa il secret GitHub `SUPABASE_DB_URL` del medesimo progetto. Il probe viene verificato prima dalla CI su PostgreSQL sacrificabile.
 
@@ -27,4 +27,4 @@ Il file `supabase/migration-baseline.txt` è un riferimento storico, non un'auto
 
 Il workflow installa la CLI Supabase `2.122.1`, l'ultima della linea v2. Dal 2 novembre 2026 `latest` è la v3, che cambia il contratto dei comandi usati qui: `db push`, `migration list` e `migration repair` puntano allo stack locale se non si passa `--remote`, `--linked` è deprecato e ogni modifica a un progetto hosted richiede conferma oppure `--yes`. Con `latest` la run del 16 novembre 2026 si è fermata all'anteprima (`db push --dry-run` cercava un database su `127.0.0.1:54322`) senza applicare nulla.
 
-Per passare alla v3 aggiornare insieme versione e comandi seguendo la [guida di migrazione](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3), e verificare che il controllo di convergenza riconosca ancora il messaggio di database aggiornato. Gli altri workflow che deployano sul progetto hosted usano ancora `latest` e vanno adeguati allo stesso modo prima del prossimo deploy delle Edge Function.
+Per passare alla v3 aggiornare insieme versione e comandi seguendo la [guida di migrazione](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3), e verificare che il controllo di convergenza riconosca ancora il messaggio di database aggiornato. Anche i workflow di deploy delle Edge Function (`supabase-functions-deploy.yml` e i tre workflow per singola function) sono fissati a `2.122.1` e vanno aggiornati insieme a questo.

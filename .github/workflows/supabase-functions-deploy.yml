@@ -1,5 +1,10 @@
 name: Deploy Supabase Edge Functions
 
+# push su main: solo anteprima, non pubblica nessuna funzione (la CLI non ha
+# un dry-run per "functions deploy": si controlla cosa verrebbe pubblicato).
+# Il deploy parte esclusivamente da workflow_dispatch con confirm=RUN, dentro
+# l'environment "production" (i revisori obbligatori si impostano nel repository).
+
 on:
   push:
     branches:
@@ -45,7 +50,9 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3
         with:
-          version: latest
+          # Versione fissata: la CLI v3 (2026-11-02) chiede conferma per ogni
+          # modifica a un progetto hosted. Aggiornare solo insieme ai comandi.
+          version: 2.122.1
 
       - name: Validate required configuration
         run: |
@@ -59,7 +66,28 @@ jobs:
             exit 1
           }
 
+      - name: Preview Edge Functions (push dry-run)
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          count=0
+          for dir in "$SUPABASE_WORKDIR"/supabase/functions/*; do
+            [ -d "$dir" ] || continue
+            test -f "$dir/index.ts" || {
+              echo "::error::Edge Function $(basename "$dir") has no index.ts"
+              exit 1
+            }
+            echo "Would deploy: $(basename "$dir")"
+            count=$((count + 1))
+          done
+          test "$count" -gt 0 || {
+            echo "::error::No Edge Function found in $SUPABASE_WORKDIR/supabase/functions"
+            exit 1
+          }
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID"
+
       - name: Deploy Edge Functions
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           FUNCTION_NAME: ${{ github.event.inputs.function_name || 'all' }}
         run: |

@@ -544,7 +544,7 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 - `components/admin/SocialGraphicsPanel.tsx`
   - gli slot social usano match reali e possono avere `assignedMatchIds` espliciti;
   - se i match cambiano dopo una rigenerazione torneo/preliminari, le assegnazioni stale vengono potate automaticamente per evitare slot manuali "vuoti fantasma".
-- `components/admin/tabs/data/IntegrationsHof.tsx`
+- `components/admin/tabs/data/EditionEditor.tsx` (all'epoca `IntegrationsHof.tsx`, poi sostituito dall'editor edizione unificato)
   - l'editor torneo in Integrazioni resta separato dall'area squadre e usa un solo pulsante di reset snapshot per evitare ridondanza nella toolbar.
 - `components/AdminDashboard.tsx`
   - in import XLSX multi-sheet il foglio scelto è quello più coerente col profilo iniziale;
