@@ -2,6 +2,10 @@ name: Deploy Supabase database
 
 # Applica le migration di "FLBP ONLINE/supabase/migrations" al progetto hosted.
 #
+# push su main: solo anteprima (dry-run), non modifica schema o storia remota.
+# L'apply parte esclusivamente da workflow_dispatch con mode=apply e
+# confirm=RUN. Il job usa l'environment "production" (revisori obbligatori:
+# si configurano nelle impostazioni del repository, non da questo file).
 # dry-run non modifica schema o storia remota. apply non ripara la storia:
 # un disallineamento deve fallire e venire esaminato dall'operatore.
 # repair-history è un'operazione manuale separata, con versioni esplicite e
@@ -154,13 +158,13 @@ jobs:
           supabase db push --dry-run
 
       - name: Apply pending migrations
-        if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'apply' }}
         run: |
           set -euo pipefail
           supabase db push --yes
 
       - name: Verify convergence
-        if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'apply' }}
         run: |
           set -euo pipefail
           out="$(supabase db push --dry-run 2>&1)"
@@ -171,7 +175,7 @@ jobs:
           fi
 
       - name: Verify deployed authorization and restore contract
-        if: ${{ github.event_name == 'push' || github.event.inputs.mode == 'apply' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'apply' }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |

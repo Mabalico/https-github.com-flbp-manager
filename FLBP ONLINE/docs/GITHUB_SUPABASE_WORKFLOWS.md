@@ -59,8 +59,9 @@ File: `.github/workflows/supabase-db-deploy.yml`
 
 Uso:
 
-- parte automaticamente su `main` quando cambiano `config.toml` o `supabase/migrations/**`
-- puo' essere lanciato manualmente in modalita' `dry-run` o `apply`
+- su `main`, quando cambiano `config.toml` o `supabase/migrations/**`, esegue solo l'anteprima (dry-run) e non applica nulla
+- l'apply parte solo da avvio manuale (`mode=apply`, `confirm=RUN`); il job usa l'environment GitHub `production`
+- la CLI Supabase e' fissata a `2.122.1` (vedi `SUPABASE_DATABASE_WORKFLOW.md`)
 - esegue `supabase link --project-ref "$SUPABASE_PROJECT_ID"`
 - mostra le migration pendenti con `supabase db push --linked --dry-run`
 - applica le migration con `supabase db push --linked --yes`
@@ -76,9 +77,9 @@ File: `.github/workflows/supabase-functions-deploy.yml`
 
 Uso:
 
-- parte automaticamente su `main` quando cambiano `supabase/functions/**`
-- puo' essere lanciato manualmente per `all` o per una singola function
-- deploya le function con `supabase functions deploy ... --use-api`
+- su `main`, quando cambiano `supabase/functions/**`, esegue solo un'anteprima (elenco delle function locali e di quelle remote): non pubblica nulla
+- il deploy parte solo da avvio manuale (`confirm=RUN`), per `all` o per una singola function, dentro l'environment GitHub `production`
+- deploya le function con `supabase functions deploy ... --use-api`, con la CLI fissata a `2.122.1`
 
 Secret richiesto:
 

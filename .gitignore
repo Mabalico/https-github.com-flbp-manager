@@ -43,6 +43,21 @@ AuthKey_*.p8
 
 # Archives and generated bundles
 *.zip
+*.apk
+
+# Generated SSR bundles (the .tsx next to them is the tracked source).
+# Already tracked, so these rules only stop NEW copies from being added; and
+# "check:ssr-tv" still executes the tracked _ssr_tv_check.cjs: give that script
+# a build step before removing the bundle from the index.
+**/_ssr_tv_check.cjs
+**/_ssr_tv_check.mjs
+
+# Working folders at the repository root (analysis dumps, exports, attachments)
+/analisi_pertini/
+/raccolta_pertini/
+/output/
+/outputs/
+/.codex-remote-attachments/
 
 # Windows desktop app build artifacts
 **/.packages/

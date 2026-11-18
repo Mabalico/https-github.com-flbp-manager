@@ -383,7 +383,7 @@ Questa sezione raccoglie il resto delle cose ancora da fare che non sono solo SQ
 - verificare periodicamente che `main` deployi davvero su `flbp-pages`
 - evitare nuove dipendenze operative dal vecchio Worker legacy
 - importare il backup dati corretto finale:
-  - `backups/flbp_backup_2026-03-29_codex-fixed-v7.json`
+  - `backups/flbp_backup_2026-03-29_codex-fixed-v7.json` (file locale non versionato: non è nel repository, la cartella `backups/` non esiste)
 - fare hard refresh / cache refresh della build pubblica dopo il deploy
 - verificare online, dopo il deploy:
   - tabellone/TV aggiornati dai referti arbitri

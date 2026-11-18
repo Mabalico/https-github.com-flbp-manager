@@ -19,10 +19,14 @@ on:
         required: true
         default: 'NO'
 
+permissions:
+  contents: read
+
 jobs:
   cleanup:
     if: ${{ github.event.inputs.confirm == 'RUN' }}
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout
@@ -100,5 +104,5 @@ jobs:
             from public.player_account_merge_requests
             where workspace_id = :'workspace_id'
               and lower(requester_email) = lower(:'requester_email');
-            SQL
+          SQL
           fi
