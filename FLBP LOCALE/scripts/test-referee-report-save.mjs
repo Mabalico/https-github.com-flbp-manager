@@ -50,28 +50,31 @@ const loadPureModule = (relativePath) => {
 };
 const matchUtils = loadPureModule('services/matchUtils.ts');
 const reportAudit = loadPureModule('services/refereeReportAudit.ts');
+const selectors = loadPureModule('services/tournamentStructureSelectors.ts');
 const fault = code => Object.assign(new Error(code), { code });
 const plain = value => JSON.parse(JSON.stringify(value));
 const drainMicrotasks = () => new Promise(resolve => setImmediate(resolve));
 
 const createCase = (options = {}) => {
-  const teams = [
+  const teams = options.teams || [
     { id: 'a', name: 'A', player1: 'Rossi Mario', player2: 'Verdi Anna' },
     { id: 'b', name: 'B', player1: 'Neri Luca', player2: 'Bianchi Sara' },
   ];
-  const match = { id: 'm1', code: 'A1', teamAId: 'a', teamBId: 'b', phase: 'groups', status: 'playing', played: false, scoreA: 0, scoreB: 0 };
+  const match = options.foundMatch || { id: 'm1', code: 'A1', teamAId: 'a', teamBId: 'b', phase: 'groups', status: 'playing', played: false, scoreA: 0, scoreB: 0 };
+  const localMatches = options.matches || [match];
   const state = {
-    teams, tournamentMatches: [match],
-    tournament: { id: 't1', type: 'round_robin', teams, matches: [match], refereesPassword: options.configuredSecret || '' },
+    teams, tournamentMatches: localMatches,
+    tournament: { id: 't1', type: options.tournamentType || 'round_robin', teams, matches: localMatches, refereesPassword: options.configuredSecret || '' },
   };
   const events = [];
-  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [] };
+  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [] };
   let snapshotAttempts = 0;
   const context = {
     ...matchUtils, ...reportAudit,
+    findLockedSuccessorForWinnerChange: selectors.findLockedSuccessorForWinnerChange,
     state, foundMatch: match, activeRefereeName: 'Arbitro test',
-    derivedScoresByTeam: options.tie ? { a: 10, b: 10 } : { a: 10, b: 7 },
-    reportStatsForm: {
+    derivedScoresByTeam: options.derivedScoresByTeam || (options.tie ? { a: 10, b: 10 } : { a: 10, b: 7 }),
+    reportStatsForm: options.reportStatsForm || {
       'a||Rossi Mario': { canestri: '6', soffi: '1' },
       'a||Verdi Anna': { canestri: '4', soffi: '2' },
       'b||Neri Luca': { canestri: '4', soffi: '0' },
@@ -95,7 +98,9 @@ const createCase = (options = {}) => {
     syncBracketFromGroups: (_tournament, matches) => matches,
     autoResolveBracketByes: matches => matches,
     ensureFinalTieBreakIfNeeded: (_tournament, matches) => matches,
-    propagateWinnerFromMatch: (_match, matches) => matches,
+    propagateWinnerFromMatch: options.realBracket
+      ? (finished, matches) => selectors.advanceWinner(matches, finished)
+      : (_match, matches) => matches,
     clearDbSyncCurrentIssue: () => events.push('clear-error'),
     markDbSyncOk: () => events.push('synced'),
     markDbSyncConflict: () => events.push('conflict'),
@@ -123,7 +128,11 @@ const createCase = (options = {}) => {
       snapshotAttempts++;
       if (options.snapshotError && (snapshotAttempts === 1 || options.snapshotAlwaysFails)) throw fault(options.snapshotError);
     },
-    pullRefereeLiveState: async () => ({ ok: true, state: { ...state, remoteNote: 'preserve concurrent change' }, updated_at: 'new-base-version' }),
+    pullRefereeLiveState: async (tournamentId, secret) => {
+      calls.pulls.push({ tournamentId, secret }); events.push('pull');
+      if (options.pullError) throw fault(options.pullError);
+      return { ok: true, state: options.pulledState || { ...state, remoteNote: 'preserve concurrent change' }, updated_at: 'new-base-version' };
+    },
     tryMergeRemoteStateConflict: ({ localState, remoteState }) => options.mergeBlocked
       ? { ok: false }
       : { ok: true, state: { ...localState, remoteNote: remoteState.remoteNote } },
@@ -251,6 +260,102 @@ await check('tied scores still block report and cleanup', async () => {
   assert.deepEqual(result.calls.alerts, ['alert_tie_not_allowed']);
   assert.equal(result.calls.states.length + result.calls.cleanup.length, 0);
   assert.deepEqual(result.calls.busy, [true, false]);
+});
+
+// Bracket fixture: two semifinals feeding one final.
+const bracketTeams = [
+  { id: 'a1', name: 'A1', player1: 'Rossi Mario', player2: 'Verdi Anna' },
+  { id: 'b1', name: 'B1', player1: 'Neri Luca', player2: 'Bianchi Sara' },
+  { id: 'c1', name: 'C1', player1: 'Gialli Paolo', player2: 'Blu Marta' },
+  { id: 'd1', name: 'D1', player1: 'Viola Ugo', player2: 'Rosa Ida' },
+];
+const bracketStats = {
+  'a1||Rossi Mario': { canestri: '6', soffi: '0' }, 'a1||Verdi Anna': { canestri: '4', soffi: '0' },
+  'b1||Neri Luca': { canestri: '4', soffi: '0' }, 'b1||Bianchi Sara': { canestri: '3', soffi: '0' },
+  'c1||Gialli Paolo': { canestri: '6', soffi: '0' }, 'c1||Blu Marta': { canestri: '4', soffi: '0' },
+  'd1||Viola Ugo': { canestri: '4', soffi: '0' }, 'd1||Rosa Ida': { canestri: '3', soffi: '0' },
+};
+const bracketMatch = (id, code, round, orderIndex, teamAId, teamBId, extra = {}) => ({
+  id, code, phase: 'bracket', round, orderIndex, teamAId, teamBId,
+  status: 'scheduled', played: false, scoreA: 0, scoreB: 0, ...extra,
+});
+const finishedBy = (scoreA, scoreB, savedAt) => ({
+  status: 'finished', played: true, scoreA, scoreB,
+  refereeReportFinalId: `report-${savedAt}`, refereeReportSavedAt: savedAt,
+});
+const bracketState = (matches) => ({
+  teams: bracketTeams, tournamentMatches: matches,
+  tournament: { id: 't1', type: 'elimination', teams: bracketTeams, matches, refereesPassword: '' },
+});
+
+if (usesOutbox) {
+  await check('B3 #2: a stale referee rebuilds the patch from the live state and keeps the winner advanced by another referee', async () => {
+    // R2 logged in before R1 saved semifinal 1: its copy still has the final on TBD vs TBD.
+    const semi2 = bracketMatch('s2', 'B12', 1, 1, 'c1', 'd1', { status: 'playing' });
+    const local = [bracketMatch('s1', 'B11', 1, 0, 'a1', 'b1'), semi2, bracketMatch('f', 'B21', 2, 0, 'TBD-W-B11', 'TBD-W-B12')];
+    const live = [
+      bracketMatch('s1', 'B11', 1, 0, 'a1', 'b1', finishedBy(10, 6, '2026-11-17T10:00:00.000Z')),
+      { ...semi2 },
+      bracketMatch('f', 'B21', 2, 0, 'a1', 'TBD-W-B12'),
+    ];
+    const result = createCase({
+      secret: 'ref-secret', teams: bracketTeams, foundMatch: semi2, matches: local, tournamentType: 'elimination',
+      pulledState: bracketState(live), derivedScoresByTeam: { c1: 10, d1: 7 }, reportStatsForm: bracketStats, realBracket: true,
+    });
+    await result.saveReport();
+    assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+    const sentFinal = result.calls.rpc[0].matches.find(match => match.id === 'f');
+    assert.equal(sentFinal?.teamAId, 'a1', 'the patch must keep the winner advanced by the other referee');
+    assert.equal(sentFinal?.teamBId, 'c1', 'the patch must advance this referee\'s winner');
+    assert.equal(result.calls.pulls.length, 1, 'the live state is read once before building the patch');
+    assert(result.events.indexOf('pull') < result.events.indexOf('queue'), 'the read happens before the report is queued');
+    assert.equal(result.calls.queued[0].matches.find(match => match.id === 'f')?.teamAId, 'a1', 'the durable queue holds the same rebuilt patch');
+    const shownFinal = result.calls.states[0].tournamentMatches.find(match => match.id === 'f');
+    assert.equal(`${shownFinal.teamAId}-${shownFinal.teamBId}`, 'a1-c1');
+  });
+  await check('B3 #2: if the live state cannot be read the local copy still reaches the device queue', async () => {
+    const result = createCase({ secret: 'ref-secret', pullError: 'NETWORK_ERROR', rpcError: 'NETWORK_ERROR' });
+    await result.saveReport();
+    assert.equal(result.calls.pulls.length, 1);
+    assert.equal(result.calls.queued.length, 1, 'the report is still queued');
+    assert.equal(result.calls.failed.length, 1);
+    assert.equal(result.calls.states[0].tournamentMatches[0].scoreA, 10, 'the local copy is kept on screen');
+  });
+}
+await check('B3 #3: a correction that flips the winner is blocked when the next round was already played', async () => {
+  const semi1 = bracketMatch('s1', 'B11', 1, 0, 'a1', 'b1', finishedBy(10, 6, '2026-11-17T10:00:00.000Z'));
+  const matches = [
+    semi1,
+    bracketMatch('s2', 'B12', 1, 1, 'c1', 'd1', finishedBy(10, 7, '2026-11-17T10:05:00.000Z')),
+    bracketMatch('f', 'B21', 2, 0, 'a1', 'c1', finishedBy(10, 8, '2026-11-17T10:30:00.000Z')),
+  ];
+  const result = createCase({
+    local: true, teams: bracketTeams, foundMatch: semi1, matches, tournamentType: 'elimination',
+    derivedScoresByTeam: { a1: 6, b1: 10 }, reportStatsForm: bracketStats, realBracket: true,
+  });
+  await result.saveReport();
+  assert.equal(result.calls.alerts.length, 1);
+  assert(result.calls.alerts[0].startsWith('editor_winner_cannot_advance'), 'the referee is told why the report was not saved');
+  assert(result.calls.alerts[0].includes('B21'));
+  assert.equal(result.calls.states.length + result.calls.queued.length + result.calls.rpc.length, 0, 'nothing is written');
+  assert.deepEqual(result.calls.busy, [true, false]);
+});
+await check('B3 #3: a correction that keeps the same winner is still saved', async () => {
+  const semi1 = bracketMatch('s1', 'B11', 1, 0, 'a1', 'b1', finishedBy(10, 6, '2026-11-17T10:00:00.000Z'));
+  const matches = [
+    semi1,
+    bracketMatch('s2', 'B12', 1, 1, 'c1', 'd1', finishedBy(10, 7, '2026-11-17T10:05:00.000Z')),
+    bracketMatch('f', 'B21', 2, 0, 'a1', 'c1', finishedBy(10, 8, '2026-11-17T10:30:00.000Z')),
+  ];
+  const result = createCase({
+    local: true, teams: bracketTeams, foundMatch: semi1, matches, tournamentType: 'elimination',
+    derivedScoresByTeam: { a1: 10, b1: 7 }, reportStatsForm: bracketStats, realBracket: true,
+  });
+  await result.saveReport();
+  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  const saved = result.calls.states[0].tournamentMatches;
+  assert.equal(saved.find(match => match.id === 's1').scoreB, 7);
+  assert.equal(saved.find(match => match.id === 'f').teamAId, 'a1', 'the played final is untouched');
 });
 
 console.log(`Referee report save: ${passed} checks passed (${usesOutbox ? 'ONLINE outbox/RPC' : 'LOCALE snapshot'}).`);

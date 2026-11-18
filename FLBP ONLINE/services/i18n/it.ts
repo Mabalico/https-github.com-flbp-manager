@@ -1821,6 +1821,7 @@ export const dictionary: TranslationDictionary = {
   "referees_err_is_bye": "Impossibile aprire il referto per un BYE",
   "referees_err_missing_code": "Inserisci un codice",
   "referees_ocr_failed": "OCR non riuscito",
+  "referees_ocr_unavailable": "OCR non disponibile (controlla la connessione Internet). Usa l'inserimento manuale.",
   "referees_ocr_preview": "Anteprima OCR",
   "referees_ocr_score_placeholder": "Punteggio OCR",
   "referees_overwrite_confirm": "Sovrascrivere il referto esistente?",

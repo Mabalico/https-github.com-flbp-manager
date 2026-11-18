@@ -56,6 +56,34 @@ const getParticipants = (m: Match): string[] => {
   return ids.filter(Boolean) as string[];
 };
 
+const isCountableFinishedMatch = (m: Match): boolean => {
+  if (m.status !== 'finished') return false;
+  const participants = getParticipants(m);
+  if (participants.length < 2) return false;
+  if (m.hidden || m.isBye) return false;
+  return !participants.includes('BYE');
+};
+
+/**
+ * Tie-breaks never add points, cups or blows: they only order the teams they involve.
+ * The most recent finished tie-break containing both teams decides (higher score first).
+ * Returns < 0 when A is ahead, > 0 when B is ahead, 0 when no tie-break separates them.
+ */
+const compareInTieBreaks = (tieBreaks: Match[], aId: string, bId: string): number => {
+  let latest: Match | undefined;
+  for (const m of tieBreaks) {
+    const participants = getParticipants(m);
+    if (!participants.includes(aId) || !participants.includes(bId)) continue;
+    if (!latest || (m.orderIndex ?? 0) >= (latest.orderIndex ?? 0)) latest = m;
+  }
+  if (!latest) return 0;
+  const { canestriByTeam } = aggregateMatchStats(latest);
+  return scoreForTeam(latest, bId, canestriByTeam) - scoreForTeam(latest, aId, canestriByTeam);
+};
+
+export const compareTeamsByTieBreak = (matches: Match[], aId: string, bId: string): number =>
+  compareInTieBreaks((matches || []).filter(m => !!m.isTieBreak && isCountableFinishedMatch(m)), aId, bId);
+
 export const computeGroupStandings = (opts: { teams: Team[]; matches: Match[] }): GroupStandingsResult => {
   const { teams, matches } = opts;
 
@@ -76,13 +104,16 @@ export const computeGroupStandings = (opts: { teams: Team[]; matches: Match[] })
     };
   }
 
+  const tieBreaks: Match[] = [];
+
   for (const m of matches) {
-    if (m.status !== 'finished') continue;
+    if (!isCountableFinishedMatch(m)) continue;
+    // Tie-breaks only order tied teams (see compareInTieBreaks).
+    if (m.isTieBreak) {
+      tieBreaks.push(m);
+      continue;
+    }
     const participants = getParticipants(m);
-    if (participants.length < 2) continue;
-    if (m.hidden) continue;
-    if (m.isBye) continue;
-    if (participants.includes('BYE')) continue;
 
     const { canestriByTeam, soffiByTeam } = aggregateMatchStats(m);
 
@@ -146,6 +177,10 @@ export const computeGroupStandings = (opts: { teams: Team[]; matches: Match[] })
     const dSA = A?.blowDiff ?? 0;
     const dSB = B?.blowDiff ?? 0;
     if (dSB !== dSA) return dSB - dSA;
+
+    // Same tie-break key used by the engine (Pt -> ΔC -> ΔS): a played tie-break decides.
+    const tb = compareInTieBreaks(tieBreaks, a.id, b.id);
+    if (tb !== 0) return tb;
 
     const cfA = A?.cupsFor ?? 0;
     const cfB = B?.cupsFor ?? 0;

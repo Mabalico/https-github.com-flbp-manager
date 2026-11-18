@@ -366,6 +366,26 @@ export const advanceWinner = (matches: Match[], finishedMatch: Match): Match[] =
   return out;
 };
 
+/**
+ * Score correction on a bracket match that already advanced its winner: if the
+ * winner changes but the successor holding the old winner was already played
+ * or is being played, advanceWinner leaves it untouched (same rule as the
+ * structure editor). Returns that successor so a report save can stop or ask.
+ */
+export const findLockedSuccessorForWinnerChange = (
+  matches: Match[],
+  before: Match | null | undefined,
+  after: Match
+): Match | null => {
+  if (!before || after.phase !== 'bracket') return null;
+  const previousWinner = resolveWinnerTeamId(before);
+  if (!previousWinner || isPlaceholderTeamId(previousWinner)) return null;
+  if (resolveWinnerTeamId(after) === previousWinner) return null;
+  const successor = findSuccessorMatch(deriveBracketSuccessorLinks(matches || []), before.id);
+  if (!successor || !isLockedBracketMatchForStructureEdit(successor.match)) return null;
+  return String((successor.match as any)[successor.slot] || '').trim() === previousWinner ? successor.match : null;
+};
+
 export const reconcileBracketAdvancements = (
   matches: Match[],
   options: { resetFutureParticipants?: boolean } = {}

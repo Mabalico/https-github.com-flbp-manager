@@ -19,6 +19,7 @@ import { isResultsOnlyTournament } from '../services/tournamentModes';
 import {
     advanceWinner as advanceBracketWinner,
     autoResolveBracketByeMatch,
+    findLockedSuccessorForWinnerChange,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
 } from '../services/tournamentStructureSelectors';
 import { acknowledgeRefereeReport, enqueueRefereeReport, markRefereeReportAttemptFailed, readDurablePendingRefereeReports } from '../services/repository/refereeReportOutbox';
@@ -1071,13 +1072,48 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
         setSaveBusy(true);
         try {
-            let matches = [...(state.tournamentMatches || [])];
+            const configuredRefereePassword = String((state.tournament as any)?.refereesPassword || '').trim();
+            const refereePassword = configuredRefereePassword || (syncedPasswordRef.current || '').trim();
+            const shouldUseRefereeRemotePush = !isLocalOnlyMode() && !!getSupabaseConfig() && !getSupabaseAccessToken();
+
+            // The patch carries whole downstream matches (next bracket round,
+            // tie-breaks): build it from the live state, not from the copy read
+            // at login, or another referee's advanced winner is overwritten.
+            // If the read fails the local copy is kept and the report still
+            // reaches the durable device queue below.
+            let workingState: AppState = state;
+            if (shouldUseRefereeRemotePush && refereePassword) {
+                try {
+                    const pulled = await pullRefereeLiveState(state.tournament.id, refereePassword);
+                    if (pulled?.ok && pulled.state?.tournament?.id === state.tournament.id) {
+                        workingState = pulled.state;
+                    }
+                } catch {
+                    // offline / RPC unavailable: keep the local copy
+                }
+            }
+
+            let matches = [...(workingState.tournamentMatches || [])];
             const idx = matches.findIndex(m => m.id === foundMatch.id);
             if (idx === -1) {
                 alert(t('alert_select_match'));
                 return;
             }
             const base = matches[idx];
+            if (workingState !== state) {
+                if (getMatchParticipantIds(base).join('|') !== getMatchParticipantIds(foundMatch).join('|')) {
+                    setState(workingState);
+                    alert('La partita è cambiata nel torneo live. Ho ricaricato i dati: controlla il referto prima di salvare di nuovo.');
+                    return;
+                }
+                if (base.status === 'finished' && foundMatch.status !== 'finished') {
+                    const ok = confirm(t('referees_overwrite_confirm') || 'Match già finito. Vuoi sovrascrivere il referto?');
+                    if (!ok) {
+                        setState(workingState);
+                        return;
+                    }
+                }
+            }
             const matchesBeforeReportSave = cloneMatchesForResultSync(matches);
 
             const isMulti = !!(base.teamIds && base.teamIds.length >= 2);
@@ -1137,20 +1173,33 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             if (nextStats.length) updated.stats = nextStats;
 
+            // A corrected result that changes the winner cannot reach a next
+            // round already played: only the Admin can fix the bracket.
+            const lockedSuccessor = findLockedSuccessorForWinnerChange(matches, base, updated);
+            if (lockedSuccessor) {
+                alert([
+                    t('editor_winner_cannot_advance'),
+                    '',
+                    `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso.`,
+                    'Il referto non è stato salvato: chiedi all\'Admin di correggere il tabellone.',
+                ].join('\n'));
+                return;
+            }
+
             matches[idx] = withRefereeReportAudit(base, updated, {
                 source: 'referee',
                 refereeName: activeRefereeName || 'Arbitro',
             });
 
             // Sync bracket from groups in groups+elimination mode
-            if (updated.phase === 'groups' && state.tournament?.type === 'groups_elimination') {
-                matches = syncBracketFromGroups(state.tournament, matches);
+            if (updated.phase === 'groups' && workingState.tournament?.type === 'groups_elimination') {
+                matches = syncBracketFromGroups(workingState.tournament, matches);
                 matches = autoResolveBracketByes(matches);
             }
 
             // Final stage: if the final round-robin is activated and completed, auto-create FTB* if needed.
-            if (updated.phase === 'groups' && state.tournament) {
-                matches = ensureFinalTieBreakIfNeeded(state.tournament, matches);
+            if (updated.phase === 'groups' && workingState.tournament) {
+                matches = ensureFinalTieBreakIfNeeded(workingState.tournament, matches);
             }
 
             // Propagate winner in bracket
@@ -1158,13 +1207,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 matches = propagateWinnerFromMatch(updated, matches);
             }
 
-            const nextTournament = state.tournament ? { ...state.tournament, matches } : state.tournament;
-            const nextState: AppState = { ...state, tournament: nextTournament, tournamentMatches: matches };
+            const nextTournament = workingState.tournament ? { ...workingState.tournament, matches } : workingState.tournament;
+            const nextState: AppState = { ...workingState, tournament: nextTournament, tournamentMatches: matches };
             const reportMatchesToPersist = collectChangedMatchResults(matchesBeforeReportSave, matches, foundMatch.id);
 
-            const configuredRefereePassword = String((state.tournament as any)?.refereesPassword || '').trim();
-            const refereePassword = configuredRefereePassword || (syncedPasswordRef.current || '').trim();
-            const shouldUseRefereeRemotePush = !isLocalOnlyMode() && !!getSupabaseConfig() && !getSupabaseAccessToken();
             if (shouldUseRefereeRemotePush) {
                 if (!refereePassword) {
                     alert(t('referees_session_expired_relogin') || 'Sessione arbitro scaduta su questo dispositivo. Per sicurezza la password arbitri non viene salvata nel browser: effettua di nuovo il login arbitri.');
@@ -1223,7 +1269,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 const pulled = await pullRefereeLiveState(state.tournament.id, refereePassword);
                                 if (pulled?.ok && pulled.state) {
                                     const mergeResult = tryMergeRemoteStateConflict({
-                                        baseState: state,
+                                        baseState: workingState,
                                         localState: nextState,
                                         remoteState: pulled.state
                                     });
@@ -1381,11 +1427,14 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             let text = '';
             let structured: RefertoStructuredOcrResult | null = null;
+            let ocrUnavailable = false;
             try {
                 structured = await ocrStructuredRefertoFromAlignedCanvas(aligned);
                 text = buildStructuredOcrSupportText(structured, foundMatch) || structured.summaryText || '';
             } catch (e) {
                 console.error(e);
+                // tesseract could not start (typically offline: worker/WASM/language data are fetched from a CDN).
+                ocrUnavailable = true;
                 try {
                     text = await ocrTextFromAlignedCanvas(aligned);
                 } catch (inner) {
@@ -1411,6 +1460,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 imageUrl: imgUrl,
                 data: structured,
             });
+            // Without this the modal opened empty and silently when OCR could not run.
+            if (ocrUnavailable && !text) setOcrModalError(t('referees_ocr_unavailable'));
         } catch (e) {
             console.error(e);
             alert(t('referees_ocr_failed') || "Errore durante l'OCR. Prova un'altra foto.");

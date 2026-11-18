@@ -26,9 +26,29 @@ import { mergePublicViewState } from './services/publicViewState';
 import { buildTvProjectionUrl, readTvProjectionFromUrl } from './services/tvProjectionRoute';
 import { BadgeCheck, BellRing, Menu, X, Settings, Home as HomeIcon, BarChart3, Trophy, Swords, Gavel, ChevronDown, TriangleAlert, UserRound, LogOut, Shield } from 'lucide-react';
 
+// A stale chunk after a deploy is fixed by one reload; offline it would fail again
+// and loop forever. Allow at most one automatic reload per window (per tab session).
+const CHUNK_RELOAD_GUARD_KEY = 'flbp_chunk_reload_at_v1';
+const CHUNK_RELOAD_MIN_INTERVAL_MS = 10 * 60 * 1000;
+
+const reloadOnceForChunkError = (): boolean => {
+    try {
+        const last = Number(sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY) || 0);
+        if (last > 0 && Date.now() - last < CHUNK_RELOAD_MIN_INTERVAL_MS) return false;
+        sessionStorage.setItem(CHUNK_RELOAD_GUARD_KEY, String(Date.now()));
+    } catch {
+        // Without a working guard an automatic reload could loop: never reload.
+        return false;
+    }
+    window.location.reload();
+    return true;
+};
+
 type UiErrorBoundaryProps = {
     title: string;
     onReset?: () => void;
+    /** Clear the error after this delay so a transient render error cannot leave the screen stuck (TV). */
+    autoResetMs?: number;
     children: React.ReactNode;
 };
 
@@ -50,6 +70,8 @@ class UiErrorBoundary extends React.Component<UiErrorBoundaryProps, UiErrorBound
 
     state: UiErrorBoundaryState = { hasError: false, errorMsg: '' };
 
+    private autoResetTimer: number | null = null;
+
     static getDerivedStateFromError(err: any) {
         return { hasError: true, errorMsg: String(err?.message || err || 'Errore sconosciuto') };
     }
@@ -60,7 +82,27 @@ class UiErrorBoundary extends React.Component<UiErrorBoundaryProps, UiErrorBound
 
         const msg = String(err?.message || err || '');
         if (msg.includes('Failed to fetch dynamically imported module') || msg.includes('Importing a module script failed')) {
-            window.location.reload();
+            if (reloadOnceForChunkError()) return;
+        }
+
+        const autoResetMs = this.props.autoResetMs;
+        if (autoResetMs && autoResetMs > 0) {
+            this.clearAutoResetTimer();
+            this.autoResetTimer = window.setTimeout(() => {
+                this.autoResetTimer = null;
+                this.setState({ hasError: false, errorMsg: '' });
+            }, autoResetMs);
+        }
+    }
+
+    componentWillUnmount() {
+        this.clearAutoResetTimer();
+    }
+
+    private clearAutoResetTimer() {
+        if (this.autoResetTimer !== null) {
+            window.clearTimeout(this.autoResetTimer);
+            this.autoResetTimer = null;
         }
     }
 
@@ -117,7 +159,13 @@ const loadHelpGuideModule = () => import('./components/HelpGuide');
 const loadFantaBeerpongModule = () => import('./components/FantaBeerpong');
 
 const loadSupabasePublicModule = () => import('./services/supabasePublic');
-const loadAutoDbSyncModule = () => import('./services/autoDbSync');
+// Kept once loaded: a queued structured export can exist only after this
+// module was loaded, so remote updates never load it just to clear the queue.
+let loadedAutoDbSyncModule: typeof import('./services/autoDbSync') | null = null;
+const loadAutoDbSyncModule = () => import('./services/autoDbSync').then((module) => {
+    loadedAutoDbSyncModule = module;
+    return module;
+});
 
 
 const getSupabasePublicOps = async () => {
@@ -533,7 +581,10 @@ const App: React.FC = () => {
             return null;
         }
     });
-    const [language, setLanguage] = useState<Language>(() => safeLanguage(localStorage.getItem(LANG_KEY)));
+    const [language, setLanguage] = useState<Language>(() => {
+        // localStorage can throw (blocked/disabled storage): fall back to the default language.
+        try { return safeLanguage(localStorage.getItem(LANG_KEY)); } catch { return safeLanguage(null); }
+    });
     const [translationDictionaries, setTranslationDictionaries] = useState<Partial<Record<Language, TranslationDictionary>>>(() => translations);
     const [selectedTournament, setSelectedTournament] = useState<{ data: TournamentData, isLive: boolean } | null>(null);
     const [helpGuideReady, setHelpGuideReady] = useState(false);
@@ -914,6 +965,9 @@ const App: React.FC = () => {
             } catch {
                 // ignore
             }
+            // The base cursor now points at this state: a structured export
+            // still queued from before must not be pushed on top of it.
+            loadedAutoDbSyncModule?.replacePendingAutoStructuredSync(next);
             try {
                 localStorage.removeItem('flbp_remote_update_available');
             } catch {
@@ -953,11 +1007,25 @@ const App: React.FC = () => {
                 return true;
             }
         };
+        // Last live row applied by this effect run. The 1 Hz local poll gets the very
+        // same row back (HTTP 304 / unchanged updated_at): rebuilding the state each time
+        // made every useMemo (TV bracket included) recompute for hours.
+        let lastLiveRow: unknown = null;
+        let lastLiveSignature: string | null = null;
+        const liveRowSignature = (row: any): string | null => {
+            const updatedAt = typeof row?.updated_at === 'string' ? row.updated_at : '';
+            if (!updatedAt) return null;
+            return `${updatedAt}|${row?.version ?? ''}|${row?.primary_epoch ?? ''}`;
+        };
+
         const hydratePublicRow = async (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
             if (!row?.state) return false;
             try {
                 const next = await coerceLoadedAppState(row.state);
                 if (cancelled) return false;
+                // A full snapshot replaces the live overlay: the next live row must be applied again.
+                lastLiveRow = null;
+                lastLiveSignature = null;
                 setPublicDbState(next);
             } catch {
                 // silent fallback to local state
@@ -971,10 +1039,14 @@ const App: React.FC = () => {
 
         const hydratePublicLiveRow = async (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceLive']>>) => {
             if (!row?.state) return false;
+            const signature = liveRowSignature(row);
+            if (row === lastLiveRow || (signature !== null && signature === lastLiveSignature)) return true;
             try {
                 const raw = row.state as any;
                 const live = await coerceLoadedAppState(raw);
                 if (cancelled) return false;
+                lastLiveRow = row;
+                lastLiveSignature = signature;
                 setPublicDbState((current) => {
                     const next: AppState = { ...(current || live) };
                     if (rawHas(raw, '__schemaVersion')) next.__schemaVersion = live.__schemaVersion;
@@ -1376,6 +1448,10 @@ const App: React.FC = () => {
                                 if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) return;
                                 return flushAutoStructuredSync(confirmedState, { force: true });
                             });
+                        } else {
+                            // The caller exports this confirmed state itself; an
+                            // older queued export must not follow it.
+                            loadedAutoDbSyncModule?.replacePendingAutoStructuredSync(confirmedState);
                         }
                     } catch (error) {
                         detail.rejectDurableCommit?.(
@@ -1387,6 +1463,9 @@ const App: React.FC = () => {
             }
             if (detail?.skipRepositoryPersist) {
                 skipNextPersistRef.current = true;
+                // Already committed by an RPC (admin report, recovery, download)
+                // that also updates the normalized rows: drop the older queue.
+                loadedAutoDbSyncModule?.replacePendingAutoStructuredSync(null);
                 repo.acknowledgeExternalCommit?.(nextState, {
                     updatedAt: detail.committedUpdatedAt || undefined,
                     version: detail.committedVersion ?? null,
@@ -1463,6 +1542,11 @@ const App: React.FC = () => {
 
     useEffect(() => {
         try { localStorage.setItem(LANG_KEY, language); } catch {}
+        // Keep the document language/direction in sync (index.html ships lang="it").
+        try {
+            document.documentElement.lang = language;
+            document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+        } catch {}
     }, [language]);
 
     useEffect(() => {
@@ -1515,12 +1599,12 @@ const App: React.FC = () => {
         }
 
         if (tvMode) {
-            localStorage.setItem('flbp_tv_mode', tvMode);
+            try { localStorage.setItem('flbp_tv_mode', tvMode); } catch {}
             // TV mode is sacred: keep it as "fresh" as possible.
             // Best-effort: unregister SW and clear caches to avoid stale builds.
             void bestEffortDisableSWForTv();
         } else {
-            localStorage.removeItem('flbp_tv_mode');
+            try { localStorage.removeItem('flbp_tv_mode'); } catch {}
         }
     }, [isDedicatedTvProjection, tvMode]);
 
@@ -1741,6 +1825,7 @@ const App: React.FC = () => {
                     <UiErrorBoundary
                         title={t('tv_signal_title')}
                         onReset={handleExitTv}
+                        autoResetMs={15_000}
                     >
                         <TvViewLazy 
                             state={stateForPublicViews} 
@@ -2259,7 +2344,14 @@ const App: React.FC = () => {
                     </header>
 
                     <div className="max-w-7xl mx-auto p-4 md:p-6">
-                        {renderView()}
+                        {/* Catch-all for views without their own boundary; key={view} clears the error when navigating. */}
+                        <UiErrorBoundary
+                            key={view}
+                            title={t('error')}
+                            onReset={view === 'home' ? undefined : () => { void navigateToView('home'); }}
+                        >
+                            {renderView()}
+                        </UiErrorBoundary>
 
                         {/* Help Guide */}
                         {helpGuideReady ? (

@@ -35,6 +35,7 @@ import { renameTournamentInState } from '../services/tournamentRename';
 import {
     advanceWinner as advanceBracketWinner,
     autoResolveBracketByeMatch,
+    findLockedSuccessorForWinnerChange,
     reconcileBracketAdvancements,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
 } from '../services/tournamentStructureSelectors';
@@ -1307,7 +1308,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             const existingKeys = profilesIndex.get(norm);
             if (existingKeys && existingKeys.size > 0 && resolved === rawKey && !existingKeys.has(resolved)) {
                 const list = Array.from(existingKeys).map(k => labelFromPlayerKey(k)).join(' | ');
-                warnings.push(`${name} Â· esistenti: ${list} Â· import: ${yobStr} (riga ${idx + 2})`);
+                warnings.push(`${name} · esistenti: ${list} · import: ${yobStr} (riga ${idx + 2})`);
             }
 
             entries.push({
@@ -1979,7 +1980,7 @@ const c2 = makeAliasConflict(next.player2, next.player2YoB, idxProfiles, (next a
 if (c2) conflicts.push(c2);
 
 if (conflicts.length > 0) {
-    setAliasModalTitle(`${t('possible_homonyms_birthdate')} â€” ${t('teams')}`);
+    setAliasModalTitle(`${t('possible_homonyms_birthdate')} — ${t('teams')}`);
     setAliasModalConflicts(conflicts);
     setPendingTeamSave(next);
     setPendingTeamSavePreviousTeam((state.teams || []).find((team) => team.id === next.id) || null);
@@ -2055,7 +2056,7 @@ const confirmAliasModal = () => {
             tournament: imported.tournament
         };
         syncFantaPretournamentTeamsBestEffort(imported.teams, 'confirm-team-import');
-        importCompletedMessage = `${t('admin_import_completed')}: ${pendingTeamsImport.teams.length} Â· ${t('admin_total_label')}: ${imported.teams.length}`;
+        importCompletedMessage = `${t('admin_import_completed')}: ${pendingTeamsImport.teams.length} · ${t('admin_total_label')}: ${imported.teams.length}`;
     }
 
     setState(nextState);
@@ -2494,7 +2495,7 @@ ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
-- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} Â· squadre ${alt.parsed.teams.length}`).join('\n- ')}`
+- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} · squadre ${alt.parsed.teams.length}`).join('\n- ')}`
             : '';
         return `${t('alert_import_error')}
 
@@ -2524,7 +2525,7 @@ ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
 
         const parseFlag = (value: unknown) => {
             const raw = String(value ?? '').trim().toLowerCase();
-            return raw === 'si' || raw === 'sÃ¬' || raw === 'true' || raw === '1' || raw === 'x';
+            return raw === 'si' || raw === 'sì' || raw === 'true' || raw === '1' || raw === 'x';
         };
 
         if (activeLayout === 'team_rows') {
@@ -2695,7 +2696,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             const nextTournament = imported.tournament;
             setState({ ...state, teams: merged, tournament: nextTournament });
             syncFantaPretournamentTeamsBestEffort(merged, 'import-teams-file');
-            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_total_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_total_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
@@ -2773,7 +2774,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 if (!existing.has(k)) merged.push(t);
             }
             setCreateArchiveTeams(merged);
-            alert(`${t('admin_import_completed')}: ${teams.length} Â· ${t('admin_in_wizard_label')}: ${merged.length}`);
+            alert(`${t('admin_import_completed')}: ${teams.length} · ${t('admin_in_wizard_label')}: ${merged.length}`);
         } catch (e) {
             console.error(e);
             alert(t('alert_import_error'));
@@ -3053,7 +3054,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!state.tournament) return;
         const match = (state.tournamentMatches || []).find((m) => m.id === matchId);
         if (!match) return;
-        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha giÃ  propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
+        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha già propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
         if (!ok) return;
         const nextMatches = (state.tournamentMatches || []).map((m) =>
             m.id === matchId ? clearRefereeReportFromMatch(m) : m
@@ -3567,7 +3568,7 @@ while (guard < 5000) {
                 }
 
                 // Score pattern: 10-8, 10 : 8, 10â€“8
-                const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-â€“:]\s*(\d{1,2})\b/);
+                const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-–:]\s*(\d{1,2})\b/);
                 if (scoreMatch) {
                     setReportScoreA(scoreMatch[1]);
                     setReportScoreB(scoreMatch[2]);
@@ -3740,6 +3741,20 @@ while (guard < 5000) {
                 pushStat(tt?.id, tt?.player2);
             });
             updated.stats = nextStats.length ? nextStats : updated.stats;
+        }
+
+        // A corrected result that changes the winner cannot reach a next round
+        // already played (same rule as the structure editor): ask first.
+        const lockedSuccessor = findLockedSuccessorForWinnerChange(matches, base, updated);
+        if (lockedSuccessor && !confirm([
+            t('editor_winner_cannot_advance'),
+            '',
+            `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso e resterà con la squadra precedente.`,
+            '',
+            'OK = salva comunque il referto e correggi poi il tabellone dall\'editor struttura.',
+            'Annulla = non salvare.',
+        ].join('\n'))) {
+            return;
         }
 
         matches[idx] = withRefereeReportAudit(base, updated, { source: 'admin', refereeName: 'Admin' });
@@ -4315,7 +4330,7 @@ while (guard < 5000) {
                                     adminSyncState.phase === 'error' || adminSyncState.phase === 'conflict' ? 'bg-red-50 text-red-800 border-red-200' :
                                     'bg-slate-100 text-slate-600 border-slate-200'
                                 }`}
-                                title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` Â· ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
+                                title={`${adminSyncState.message}${adminSyncState.lastSuccessAt ? ` · ${t('admin_last_ok')}: ${new Date(adminSyncState.lastSuccessAt).toLocaleString()}` : ''}`}
                             >
                                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                     adminSyncState.phase === 'syncing' ? 'bg-sky-500 animate-pulse' :

@@ -1594,6 +1594,7 @@ export const dictionary: TranslationDictionary = {
   "referees_err_is_bye": "BYE için rapor açılamıyor",
   "referees_err_missing_code": "Bir kod girin",
   "referees_ocr_failed": "OCR başarısız oldu",
+  "referees_ocr_unavailable": "OCR kullanılamıyor (İnternet bağlantısını kontrol edin). Manuel girişi kullanın.",
   "referees_ocr_preview": "Önizleme OCR",
   "referees_ocr_score_placeholder": "Puan OCR",
   "referees_overwrite_confirm": "Mevcut raporun üzerine yazılsın mı?",

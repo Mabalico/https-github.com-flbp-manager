@@ -19,6 +19,7 @@ import { isResultsOnlyTournament } from '../services/tournamentModes';
 import {
     advanceWinner as advanceBracketWinner,
     autoResolveBracketByeMatch,
+    findLockedSuccessorForWinnerChange,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
 } from '../services/tournamentStructureSelectors';
 
@@ -1081,6 +1082,19 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             if (nextStats.length) updated.stats = nextStats;
 
+            // A corrected result that changes the winner cannot reach a next
+            // round already played: only the Admin can fix the bracket.
+            const lockedSuccessor = findLockedSuccessorForWinnerChange(matches, base, updated);
+            if (lockedSuccessor) {
+                alert([
+                    t('editor_winner_cannot_advance'),
+                    '',
+                    `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso.`,
+                    'Il referto non è stato salvato: chiedi all\'Admin di correggere il tabellone.',
+                ].join('\n'));
+                return;
+            }
+
             matches[idx] = withRefereeReportAudit(base, updated, {
                 source: 'referee',
                 refereeName: activeRefereeName || 'Arbitro',
@@ -1279,11 +1293,14 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             let text = '';
             let structured: RefertoStructuredOcrResult | null = null;
+            let ocrUnavailable = false;
             try {
                 structured = await ocrStructuredRefertoFromAlignedCanvas(aligned);
                 text = buildStructuredOcrSupportText(structured, foundMatch) || structured.summaryText || '';
             } catch (e) {
                 console.error(e);
+                // tesseract could not start (typically offline: worker/WASM/language data are fetched from a CDN).
+                ocrUnavailable = true;
                 try {
                     text = await ocrTextFromAlignedCanvas(aligned);
                 } catch (inner) {
@@ -1309,6 +1326,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 imageUrl: imgUrl,
                 data: structured,
             });
+            // Without this the modal opened empty and silently when OCR could not run.
+            if (ocrUnavailable && !text) setOcrModalError(t('referees_ocr_unavailable'));
         } catch (e) {
             console.error(e);
             alert(t('referees_ocr_failed') || "Errore durante l'OCR. Prova un'altra foto.");

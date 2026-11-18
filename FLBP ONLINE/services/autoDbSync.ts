@@ -178,6 +178,14 @@ const safeFingerprint = (s: AppState): string => {
   }
 };
 
+const armFlushTimer = (delayMs: number) => {
+  if (timer != null) window.clearTimeout(timer);
+  timer = window.setTimeout(() => {
+    timer = null;
+    void flushAutoStructuredSync();
+  }, delayMs);
+};
+
 export const scheduleAutoStructuredSync = (state: AppState) => {
   if (externalRestorePaused) return;
   const cfg = getSupabaseConfig();
@@ -187,12 +195,18 @@ export const scheduleAutoStructuredSync = (state: AppState) => {
   installDataPlaneHook();
   if (!isAutoStructuredSyncEnabled() && !normalizedSyncRequired()) return;
   installRetryHooks();
-  if (timer != null) window.clearTimeout(timer);
+  armFlushTimer(DEBOUNCE_MS);
+};
 
-  timer = window.setTimeout(() => {
-    timer = null;
-    void flushAutoStructuredSync();
-  }, DEBOUNCE_MS);
+/**
+ * A state that reached React from outside the autosave (remote pull, or a
+ * commit already confirmed by an RPC) supersedes the queued one. The queue
+ * must never republish the older snapshot on top of it: `state` replaces it,
+ * `null` drops it. Nothing is queued if nothing was pending.
+ */
+export const replacePendingAutoStructuredSync = (state: AppState | null) => {
+  if (!pending) return;
+  pending = state;
 };
 
 const flushAutoStructuredSyncNow = async (
@@ -241,11 +255,13 @@ const flushAutoStructuredSyncNow = async (
   queuedFlushAfterInFlight = false;
   queuedForceAfterInFlight = false;
 
-  // Skip if too soon or identical fingerprint.
-  // When force=true (e.g. on pagehide/beforeunload), we best-effort try once immediately.
-  if (!forceThisRun) {
-    if ((now - lastRunAt) < MIN_INTERVAL_MS && fp === lastFingerprint) return;
-    if ((now - lastRunAt) < MIN_INTERVAL_MS) return;
+  // Throttle. `force` here only means "do not wait for the throttle"
+  // (retry, online, visible tab, explicit commits): the queued state stays in
+  // `pending` and the timer is re-armed for the remaining time, otherwise the
+  // last edit would wait for an unrelated lifecycle event.
+  if (!forceThisRun && (now - lastRunAt) < MIN_INTERVAL_MS) {
+    if (fp !== lastFingerprint) armFlushTimer(MIN_INTERVAL_MS - (now - lastRunAt));
+    return;
   }
 
   inFlight = true;
@@ -253,14 +269,17 @@ const flushAutoStructuredSyncNow = async (
 
   try {
     const strictRecoveryProjection = normalizedSyncRequired();
+    // Never forward `force` to the snapshot RPC: p_force would skip the
+    // updated_at compare-and-swap and let a queued state overwrite newer
+    // referee/admin commits. A conflict is handled below with a refresh.
     const summary = s.tournament
       ? await pushLiveTournamentIncremental(
           s,
           strictRecoveryProjection
             ? { force: false, strictPublicMirror: true }
-            : (forceThisRun ? { force: true } : undefined)
+            : undefined
         )
-      : await pushNormalizedFromState(s, forceThisRun ? { force: true } : undefined);
+      : await pushNormalizedFromState(s);
     lastRunAt = Date.now();
     lastFingerprint = fp;
     clearRetryBackoff();

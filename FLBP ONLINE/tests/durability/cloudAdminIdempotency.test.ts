@@ -1,5 +1,6 @@
-import { getSupabaseConfig, pushWorkspaceState, recoverWorkspaceFromLocalState, setSupabaseSession } from '../../services/supabaseRest';
+import { getSupabaseConfig, pushWorkspaceState, recoverWorkspaceFromLocalState, setRemoteBaseUpdatedAt, setSupabaseSession } from '../../services/supabaseRest';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { flushAutoStructuredSync, replacePendingAutoStructuredSync, scheduleAutoStructuredSync } from '../../services/autoDbSync';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -14,6 +15,8 @@ const session = new MemoryStorage();
 const calls: Array<{ url: string; body: any }> = [];
 let requireLegacyFallback = false;
 let workspaceStateRow: any = null;
+// Enabled only by the structured-autosync section: normalized/public rows accept writes.
+let allowProjectionWrites = false;
 
 Object.assign(globalThis, {
   localStorage: local,
@@ -55,6 +58,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.endsWith('/rpc/flbp_admin_push_workspace_state')) {
     return Response.json({ ok: true, updated_at: '2026-08-01T15:01:00.000Z' });
   }
+  if (allowProjectionWrites && url.includes('/rest/v1/')) return Response.json([]);
   return Response.json({ error: `unexpected ${url}` }, { status: 500 });
 }) as typeof fetch;
 
@@ -195,5 +199,68 @@ try {
 assert(staleVersionError?.code === 'FLBP_DB_CONFLICT', 'a changed Supabase version must invalidate the confirmed preview even if its timestamp matches');
 assert(countSnapshotWriteCalls() === writesBeforeStalePreview, 'a stale version must also stop before any additional snapshot write RPC');
 
+// B3 #1 (audit 16/11/2026): the structured autosync must never republish a
+// queued state over newer commits. `force` only skips the 20 s throttle.
+allowProjectionWrites = true;
+local.setItem('flbp_auto_structured_sync', '1');
+const autosyncTimers: Array<{ id: number; callback: () => void; delay: number; cleared: boolean }> = [];
+Object.assign((globalThis as any).window, {
+  setTimeout: (callback: () => void, delay?: number) => {
+    const timer = { id: autosyncTimers.length + 1, callback, delay: Number(delay) || 0, cleared: false };
+    autosyncTimers.push(timer);
+    return timer.id;
+  },
+  clearTimeout: (id: number) => {
+    const timer = autosyncTimers.find((entry) => entry.id === id);
+    if (timer) timer.cleared = true;
+  },
+});
+const settle = () => new Promise((resolve) => globalThis.setTimeout(resolve, 20));
+const autosyncState = (label: string) => ({ tournament: { id: 't1', name: `Autosync ${label}` }, tournamentMatches: [] } as any);
+const autosyncPushes = () => calls.filter((call) => (
+  call.url.endsWith('/rpc/flbp_admin_push_workspace_state_v2')
+  && String(call.body?.p_state?.tournament?.name || '').startsWith('Autosync ')
+));
+const pushedNames = () => autosyncPushes().map((call) => call.body.p_state.tournament.name);
+
+setRemoteBaseUpdatedAt('2026-08-01T15:00:00.000Z');
+await flushAutoStructuredSync(autosyncState('first'), { force: true });
+assert(autosyncPushes().length === 1, 'an explicit structured flush must reach the snapshot RPC');
+assert(autosyncPushes()[0].body.p_force === false, 'a forced autosync must keep the updated_at compare-and-swap (p_force=false)');
+assert(autosyncPushes()[0].body.p_base_updated_at === '2026-08-01T15:00:00.000Z', 'the autosync push must send the current base cursor');
+
+// Second edit inside the 20 s throttle: it must not stay parked until an unrelated event.
+scheduleAutoStructuredSync(autosyncState('throttled'));
+const debounce = autosyncTimers.filter((timer) => !timer.cleared).at(-1);
+assert(debounce?.delay === 1500, 'a scheduled edit starts the debounce timer');
+debounce!.cleared = true;
+debounce!.callback();
+await settle();
+assert(autosyncPushes().length === 1, 'the throttled edit is not pushed before the interval');
+const rearmed = autosyncTimers.filter((timer) => !timer.cleared).at(-1);
+assert(!!rearmed && rearmed !== debounce && rearmed.delay > 0 && rearmed.delay <= 20_000,
+  'the throttle must re-arm the timer for the remaining time');
+
+// A remote snapshot reaches React meanwhile (other referees' reports): the
+// queued pre-remote state must never be pushed on top of it.
+replacePendingAutoStructuredSync(autosyncState('remote'));
+await flushAutoStructuredSync(undefined, { force: true }); // e.g. the tab comes back to the foreground
+assert(pushedNames().at(-1) === 'Autosync remote', 'the queue must hold the remote state that replaced it');
+assert(!pushedNames().includes('Autosync throttled'), 'the stale queued state must never be republished');
+assert(autosyncPushes().at(-1)?.body.p_force === false, 'the lifecycle flush must keep compare-and-swap too');
+
+// A commit already confirmed by an RPC drops the queue entirely.
+scheduleAutoStructuredSync(autosyncState('dropped'));
+replacePendingAutoStructuredSync(null);
+await flushAutoStructuredSync(undefined, { force: true });
+assert(!pushedNames().includes('Autosync dropped'), 'a dropped queue must not be pushed');
+
+// Nothing pending: a remote state must not create a new structured export.
+const pushesBeforeIdleRemote = autosyncPushes().length;
+replacePendingAutoStructuredSync(autosyncState('idle-remote'));
+await flushAutoStructuredSync(undefined, { force: true });
+assert(autosyncPushes().length === pushesBeforeIdleRemote, 'a remote state alone never queues an export');
+
 console.log('PASS cloud Admin idempotency, rollout fallback and safe local recovery');
+console.log('PASS B3 structured autosync keeps compare-and-swap, re-arms the throttle and never republishes a stale queue');
 (globalThis as any).process.exit(0);
