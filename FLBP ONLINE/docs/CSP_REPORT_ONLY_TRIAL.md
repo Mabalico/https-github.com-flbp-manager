@@ -8,17 +8,17 @@ Il token admin sta in `localStorage` (`services/supabaseSession.ts`) e il sito n
 
 Una CSP che blocca, scritta a memoria, rischia di rompere il sito durante un torneo. Per questo si parte da **Report-Only**: il browser non blocca nulla, segnala solo in console cosa avrebbe bloccato. Il comportamento dell'app, TV Mode compresa (read-only, zero-click, 16:9), non cambia.
 
-Questa policy è stata costruita leggendo il codice e le librerie. **Non è ancora stata eseguita in un browser**: lo scopo della prova è proprio verificarla.
+Questa policy è stata costruita leggendo il codice e le librerie, poi provata il 18/11/2026 sull'anteprima Cloudflare del branch: vedi [Risultati della prova](#risultati-della-prova-18112026). La prova ha portato ad aggiungere `data:` a `connect-src`.
 
 ## Cosa cambia nel repository
 
 Una sola riga in `public/_headers`, nel blocco `/*`, accanto agli header già presenti (non modificati):
 
 ```
-Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/tesseract.js@v5.1.1/ https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.1/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://kgwhcemqkgqvtsctnwql.supabase.co wss://kgwhcemqkgqvtsctnwql.supabase.co https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/tesseract.js@v5.1.1/ https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.1/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' data: https://kgwhcemqkgqvtsctnwql.supabase.co wss://kgwhcemqkgqvtsctnwql.supabase.co https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
 ```
 
-Non c'è nessun header `Content-Security-Policy` che blocca, né `report-uri` / `report-to`: le violazioni si leggono nella console di DevTools. La riga è lunga circa 610 caratteri, ben sotto il limite di 2.000 per riga di Cloudflare Pages.
+Non c'è nessun header `Content-Security-Policy` che blocca, né `report-uri` / `report-to`: le violazioni si leggono nella console di DevTools. La riga è lunga circa 620 caratteri, ben sotto il limite di 2.000 per riga di Cloudflare Pages.
 
 ## Perché ogni origine c'è
 
@@ -37,6 +37,7 @@ Non c'è nessun header `Content-Security-Policy` che blocca, né `report-uri` / 
 | | `data:` | `canvas.toDataURL` per foto referto allineate (`RefereesArea.tsx`, `AdminDashboard.tsx`) e per le grafiche social. |
 | | `blob:` | `URL.createObjectURL` per le foto caricate (`imageProcessingService.ts`) e per le anteprime social. |
 | `connect-src` | `'self'` | Sonda `/api/v1/discovery` e `/control/local-session` quando l'app è servita dal server locale (`services/dataPlaneClient.ts`). |
+| | `data:` | Il core di tesseract.js incorpora il binario WASM come URL `data:` e lo legge con `fetch` (codice Emscripten). Emerso dalla prova del 18/11/2026. Un URL `data:` non esce dal browser, quindi non apre vie di invio dati. |
 | | `https://kgwhcemqkgqvtsctnwql.supabase.co` | Progetto Supabase (`VITE_SUPABASE_URL`, valore indicato in `README_DEPLOY.md`): REST `/rest/v1`, login `/auth/v1`, Edge Functions `/functions/v1` (`services/supabaseRest.ts`). Non c'è Supabase Storage. |
 | | `wss://kgwhcemqkgqvtsctnwql.supabase.co` | Realtime (`@supabase/realtime-js`, `services/repository/workspaceStateRealtime.ts`). |
 | | `https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/` | Il worker OCR scarica `eng.traineddata` con `fetch` (`worker-script/index.js`, percorso default). Dopo il primo download la lingua resta in IndexedDB. |
@@ -71,13 +72,13 @@ Scelte volute:
 
 **Prima di partire (decide Marco)**
 
-- Il branch va pubblicato su GitHub per avere un'anteprima. Non è detto che il progetto Pages (`flbp-pages`) abbia le anteprime dei branch non di produzione attive: da controllare in Cloudflare (Settings → Builds → Branch control).
+- Il branch va pubblicato su GitHub per avere un'anteprima. Il progetto Pages (`flbp-pages`) compila le anteprime dei branch non di produzione: il push del 18/11/2026 ha prodotto l'anteprima, segnalata dal controllo "Cloudflare Pages" sul commit in GitHub.
 - Le variabili `VITE_*` della scheda **Preview** devono esistere e puntare dove si vuole. Se la anteprima usa il Supabase di produzione, **ogni salvataggio in Admin scrive su produzione**: in prova si naviga e si legge, senza salvare, importare, applicare o ripristinare. In alternativa, usare un workspace/progetto di prova.
 - Il login Google dell'area giocatori richiede che l'indirizzo dell'anteprima sia tra i Redirect URL di Supabase Auth: probabilmente non lo è. Se il login non parte, è un limite della anteprima, non della CSP; provare il login con email, oppure limitarsi alla schermata.
 
 **1. Controllare che l'header ci sia**
 
-Indirizzo tipico: `https://csp-report-only-test.flbp-pages.pages.dev` (lo mostra la dashboard Pages).
+Indirizzo del branch: `https://csp-report-only-test.flbp-pages.pages.dev`. Ogni commit ha anche un indirizzo proprio, indicato nel controllo "Cloudflare Pages" su GitHub.
 
 ```bash
 curl -sI https://<indirizzo-anteprima>/ | grep -i "content-security"
@@ -118,6 +119,31 @@ Per ciascuna annotare: pagina e azione, direttiva (`effectiveDirective`), URI bl
 | Percorso | Direttiva | URI bloccato | File:riga | Decisione |
 |---|---|---|---|---|
 | | | | | |
+
+## Risultati della prova (18/11/2026)
+
+Anteprima `https://csp-report-only-test.flbp-pages.pages.dev`, commit `a88e979` (policy senza `data:` in `connect-src`). Browser: Chromium, quello integrato nell'app Claude, con il pannello nascosto. Navigazione solo in lettura: nessun login e nessun salvataggio. Come controllo dello strumento è stata provocata una violazione voluta verso un dominio `.invalid`: compariva sia in console sia nell'evento `securitypolicyviolation`.
+
+| Percorso | Esito |
+|---|---|
+| Header | Presente `content-security-policy-report-only`, nessuna `content-security-policy` che blocca; gli altri header di sicurezza sono invariati. |
+| Home, Tornei, Classifica Storica, Albo d'Oro, FantaBeerpong | Nessuna violazione. Richieste esterne effettive: Google Fonts (CSS e `woff2`) e Supabase REST (`flbp_resolve_data_plane`, `public_workspace_state`, `public_workspace_live`). |
+| Schermate di accesso Area Arbitri, Area Giocatore, Admin | Nessuna violazione. L'Area Arbitri indicava "nessun torneo live attivo". |
+| TV `?flbp_tv=groups`, `groups_bracket`, `bracket`, `scorers`, `bracket_scorers` | Nessuna violazione (dati vuoti, nessun torneo live). Richieste esterne solo verso host ammessi. |
+| OCR, con la libreria tesseract del bundle e `createWorker('eng')` come nell'app | Testo letto correttamente. **Unica violazione reale:** due segnalazioni `connect-src` per `data:application/octet-stream;base64,…`, cioè il `fetch` del WASM incorporato nel core. Nessuna violazione per worker, core o lingua da jsDelivr, né per `'wasm-unsafe-eval'`. |
+| OCR con la policy applicata davvero (iframe con meta CSP che blocca, cache della lingua svuotata prima) | Il `fetch` del `data:` viene bloccato, ma l'OCR legge comunque il testo grazie al ripiego interno (decodifica base64). La lingua viene riscaricata da jsDelivr senza violazioni. |
+| Stampa simulata (iframe `srcdoc` con `<style>`, attributo `style=` e `referto_template_flbp_2025.png`) | Nessuna violazione; immagine caricata e stili applicati. |
+| Grafiche social simulate (font Inter 900 su canvas, immagini `data:` e `blob:`) | Nessuna violazione. |
+| Import/export XLSX simulato (chunk `xlsx` caricato a richiesta, scrittura e rilettura) | Nessuna violazione. |
+
+Decisione presa: aggiungere `data:` a `connect-src`. Così l'OCR non dipende dal ripiego della libreria e la console resta pulita con una CSP che blocca.
+
+Non coperto da questa prova (da fare prima di attivare la CSP):
+
+- flussi Admin reali con login (pannelli, stampe, grafiche social, import e backup dall'interfaccia), Realtime `wss:`, login Supabase (`/auth/v1`) ed Edge Functions (`/functions/v1`);
+- referto arbitro completo durante un torneo live;
+- Safari (iOS e macOS), Firefox, Chrome Android;
+- la nuova riga con `data:`, da riverificare sull'anteprima dopo un nuovo push.
 
 ## Criteri per passare a una CSP che blocca
 
