@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLocalServer } from '../src/server.mjs';
+import { Readable } from 'node:stream';
+import * as serverModule from '../src/server.mjs';
+
+const { createLocalServer } = serverModule;
 
 const TOKEN = 'test-token-that-is-longer-than-thirty-two-characters';
 
@@ -781,7 +784,9 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
     app.store.importCloudSnapshot({ state, publicState: state, version: 1, operationId: 'cloud-v1' });
     app.store.setActive(true, 3);
     const originalBackup = app.store.createSecondaryBackup.bind(app.store);
-    let failOnce = true;
+    // Il recupero all'avvio (replica iniziale) parte dopo listen(): il guasto va armato
+    // solo dopo, così colpisce la replica della prima scrittura e non quella iniziale.
+    let failOnce = false;
     app.store.createSecondaryBackup = async (...args) => {
       if (failOnce) {
         failOnce = false;
@@ -790,6 +795,7 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
       return originalBackup(...args);
     };
     const address = await app.listen();
+    failOnce = true;
     const base = `http://127.0.0.1:${address.port}`;
     const writerId = await acquireWriter(base);
     const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
@@ -809,5 +815,292 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+const refereeBody = (overrides = {}) => ({
+  operationId: `referee-limit-${crypto.randomUUID()}`,
+  tournamentId: 't1',
+  matchId: 'm1',
+  refereePassword: 'ref-secret',
+  matches: [{ id: 'm1', scoreA: 3, scoreB: 2, refereeReportSavedAt: '2026-08-01T12:00:00.000Z' }],
+  ...overrides,
+});
+
+const postReferee = (base, endpoint, body) => fetch(`${base}/api/v1/referee/workspace/default/${endpoint}`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+test('referee password guesses are limited per client even when the tournamentId changes on every attempt', async () => {
+  const ctx = await startServer();
+  try {
+    const statuses = [];
+    for (let index = 0; index < 24; index += 1) {
+      const response = await postReferee(ctx.base, 'match-result', refereeBody({
+        tournamentId: `rotating-${index}`,
+        refereePassword: `guess-${index}`,
+      }));
+      statuses.push(response.status);
+    }
+    assert.deepEqual(statuses.slice(0, 20), Array(20).fill(401));
+    assert.deepEqual(statuses.slice(20), Array(4).fill(429));
+
+    // A locked-out client must not learn whether the next guess is right: the
+    // correct password is refused too until the window expires, and nothing is written.
+    const versionBefore = ctx.app.store.getCurrent().version;
+    const lockedOut = await postReferee(ctx.base, 'match-result', refereeBody());
+    assert.equal(lockedOut.status, 429);
+    assert.equal(ctx.app.store.getCurrent().version, versionBefore);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('the referee auth check is limited per client even when the tournamentId changes on every attempt', async () => {
+  const ctx = await startServer();
+  try {
+    const statuses = [];
+    for (let index = 0; index < 22; index += 1) {
+      const response = await postReferee(ctx.base, 'auth', {
+        tournamentId: `rotating-${index}`,
+        refereePassword: `guess-${index}`,
+      });
+      statuses.push(response.status);
+    }
+    assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
+    assert.deepEqual(statuses.slice(20), [429, 429]);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('a wrong tournament answers 401 like a wrong password, even with the right password, and writes nothing', async () => {
+  const ctx = await startServer();
+  try {
+    const versionBefore = ctx.app.store.getCurrent().version;
+    const wrongPassword = await postReferee(ctx.base, 'match-result', refereeBody({ refereePassword: 'wrong' }));
+    const wrongTournament = await postReferee(ctx.base, 'match-result', refereeBody({ tournamentId: 'other-tournament' }));
+    assert.equal(wrongPassword.status, 401);
+    assert.equal(wrongTournament.status, 401);
+    assert.deepEqual(await wrongTournament.json(), await wrongPassword.json());
+    assert.equal(ctx.app.store.getCurrent().version, versionBefore);
+
+    const accepted = await postReferee(ctx.base, 'match-result', refereeBody());
+    assert.equal(accepted.status, 200);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('a read error on a static file destroys only that response and never takes the process down', async () => {
+  const webDist = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-web-'));
+  fs.writeFileSync(path.join(webDist, 'index.html'), '<div id="root"></div>');
+  fs.mkdirSync(path.join(webDist, 'assets'));
+  fs.writeFileSync(path.join(webDist, 'assets', 'app.js'), 'console.log("app");');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-static-error-'));
+  const app = createLocalServer({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir,
+    webDist,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
+    workspaceId: 'default',
+    adminToken: TOKEN,
+    allowedOrigins: [],
+    publicUrl: '',
+    supabaseUrl: '',
+    supabaseServiceRoleKey: '',
+    heartbeatIntervalMs: 60_000,
+    fullBackupIntervalMs: 60_000,
+    databaseFilename: 'static-error.sqlite',
+  });
+  const uncaught = [];
+  const onUncaught = (error) => uncaught.push(error);
+  process.on('uncaughtException', onUncaught);
+  const realCreateReadStream = fs.createReadStream;
+  try {
+    const address = await app.listen();
+    const base = `http://127.0.0.1:${address.port}`;
+    fs.createReadStream = () => new Readable({
+      read() {
+        this.destroy(Object.assign(new Error('EIO simulato'), { code: 'EIO' }));
+      },
+    });
+    for (const route of ['/app/', '/assets/app.js']) {
+      await assert.rejects(
+        async () => {
+          const response = await fetch(`${base}${route}`, { signal: AbortSignal.timeout(2_000) });
+          await response.arrayBuffer();
+        },
+        (error) => error?.name !== 'TimeoutError',
+        `${route}: the response must be destroyed, not left hanging`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.deepEqual(uncaught.map((error) => error.message), []);
+
+    fs.createReadStream = realCreateReadStream;
+    assert.equal((await fetch(`${base}/health`)).status, 200);
+    const healthy = await fetch(`${base}/assets/app.js`);
+    assert.equal(healthy.status, 200);
+    assert.match(await healthy.text(), /console\.log/);
+  } finally {
+    fs.createReadStream = realCreateReadStream;
+    process.off('uncaughtException', onUncaught);
+    await app.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(webDist, { recursive: true, force: true });
+  }
+});
+
+test('a second server on a busy port starts no timers and no startup recovery', async () => {
+  const first = await startServer();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-busy-port-'));
+  const second = createLocalServer({
+    host: '127.0.0.1',
+    port: Number(new URL(first.base).port),
+    dataDir,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
+    workspaceId: 'default',
+    adminToken: TOKEN,
+    allowedOrigins: [],
+    publicUrl: '',
+    supabaseUrl: '',
+    supabaseServiceRoleKey: '',
+    heartbeatIntervalMs: 10,
+    fullBackupIntervalMs: 10,
+    publicLiveIntervalMs: 10,
+    databaseFilename: 'busy-port.sqlite',
+  });
+  const calls = { heartbeat: 0, publish: 0, outbox: 0, backup: 0 };
+  second.sync.heartbeat = async () => { calls.heartbeat += 1; return null; };
+  second.sync.publishLiveSnapshot = async () => { calls.publish += 1; return { published: false }; };
+  second.sync.scheduleOutboxSync = () => { calls.outbox += 1; return null; };
+  second.sync.backupSnapshot = async () => { calls.backup += 1; return { backedUp: false }; };
+  try {
+    second.store.importCloudSnapshot({
+      state: { tournament: { id: 't1', matches: [] }, tournamentMatches: [] },
+      publicState: { tournament: { id: 't1', matches: [] }, tournamentMatches: [] },
+    });
+    second.store.setActive(true, 1);
+    await assert.rejects(second.listen(), /EADDRINUSE/);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.deepEqual(calls, { heartbeat: 0, publish: 0, outbox: 0, backup: 0 });
+  } finally {
+    await second.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    await cleanup(first);
+  }
+});
+
+test('the client identity comes from cf-connecting-ip only when the request reaches the server from loopback', () => {
+  const identity = (remoteAddress, headers = {}) => serverModule.clientIdentity({ socket: { remoteAddress }, headers });
+  for (const loopback of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+    assert.notEqual(identity(loopback, { 'cf-connecting-ip': '203.0.113.10' }), identity(loopback));
+    assert.notEqual(
+      identity(loopback, { 'cf-connecting-ip': '203.0.113.10' }),
+      identity(loopback, { 'cf-connecting-ip': '203.0.113.11' }),
+    );
+    assert.equal(
+      identity(loopback, { 'cf-connecting-ip': '203.0.113.10' }),
+      identity(loopback, { 'cf-connecting-ip': '203.0.113.10' }),
+    );
+    assert.notEqual(
+      identity(loopback, { 'cf-connecting-ip': '2001:DB8::1' }),
+      identity(loopback, { 'cf-connecting-ip': '2001:db8::2' }),
+    );
+    // Not an IP address: ignored, the client keeps the loopback identity.
+    for (const garbage of ['not-an-ip', '203.0.113.10, 198.51.100.7', ' ', '']) {
+      assert.equal(identity(loopback, { 'cf-connecting-ip': garbage }), identity(loopback), garbage);
+    }
+  }
+  // A LAN client can send any header it likes: it must never choose its own identity.
+  assert.equal(identity('192.168.1.20', { 'cf-connecting-ip': '203.0.113.10' }), identity('192.168.1.20'));
+  assert.notEqual(identity('192.168.1.20'), identity('192.168.1.21'));
+  assert.equal(identity(undefined, { 'cf-connecting-ip': '203.0.113.10' }), identity(undefined));
+});
+
+test('tunnel clients are rate limited one by one and cannot lock out the panel on the server PC', async () => {
+  const ctx = await startServer();
+  try {
+    const invalid = (extraHeaders = {}) => fetch(`${ctx.base}/control/backup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': 'invalid-token', ...extraHeaders },
+      body: '{}',
+    });
+    let lastFromAttacker = null;
+    for (let index = 0; index < 31; index += 1) {
+      lastFromAttacker = await invalid({ 'cf-connecting-ip': '203.0.113.10' });
+    }
+    assert.equal(lastFromAttacker.status, 429);
+
+    assert.equal((await invalid({ 'cf-connecting-ip': '203.0.113.11' })).status, 401, 'another Internet client is not affected');
+    assert.equal((await invalid()).status, 401, 'the panel on the server PC is not affected');
+    const panel = await fetch(`${ctx.base}/control/reconcile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN },
+      body: '{}',
+    });
+    assert.equal(panel.status, 200);
+
+    // A header that is not an IP address cannot be used to pick a fresh bucket.
+    let lastFromGarbage = null;
+    for (let index = 0; index < 31; index += 1) {
+      lastFromGarbage = await invalid({ 'cf-connecting-ip': `rotating-${index}` });
+    }
+    assert.equal(lastFromGarbage.status, 429);
+    assert.equal((await invalid()).status, 429, 'garbage headers share the loopback identity');
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('a second activation request while the first one is running is rejected without a second cloud activation', async () => {
+  let releaseFirstPull = () => {};
+  const ctx = await startServer();
+  try {
+    ctx.app.store.setActive(false);
+    const activate = () => fetch(`${ctx.base}/control/activate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-flbp-local-token': TOKEN },
+      body: '{}',
+    });
+    let pulls = 0;
+    let signalEntered;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    const firstPullGate = new Promise((resolve) => { releaseFirstPull = resolve; });
+    ctx.app.sync.isConfigured = () => true;
+    ctx.app.sync.pullCloudSnapshot = async () => {
+      pulls += 1;
+      if (pulls === 1) {
+        signalEntered();
+        await firstPullGate;
+      }
+      return null;
+    };
+
+    const first = activate();
+    await entered;
+    const doubleClick = await activate();
+    assert.equal(doubleClick.status, 409);
+    assert.equal((await doubleClick.json()).code, 'FLBP_LOCAL_TRANSITION');
+    assert.equal(pulls, 1, 'the second request must not start another cloud activation');
+
+    releaseFirstPull();
+    const firstResponse = await first;
+    assert.equal(firstResponse.status, 500);
+    assert.equal(ctx.app.store.getTransitionState(), 'activation-error');
+
+    // After the failure the operator can still retry.
+    const retry = await activate();
+    assert.equal(retry.status, 500);
+    assert.equal(pulls, 2);
+  } finally {
+    releaseFirstPull();
+    await cleanup(ctx);
   }
 });

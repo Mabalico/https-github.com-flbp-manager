@@ -259,3 +259,39 @@ test('the local normalized migration seals archived tournament projections', () 
     /where coalesce\(op\.value ->> 'operation_kind', ''\) <> 'match-result'/,
   );
 });
+
+test('a failed live publication that re-launches a queued run leaves no unhandled rejection', () => withSync(async ({ sync }) => {
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    let calls = 0;
+    let signalEntered;
+    let release;
+    const entered = new Promise((resolve) => { signalEntered = resolve; });
+    const gate = new Promise((resolve) => { release = resolve; });
+    sync.rpc = async () => {
+      calls += 1;
+      if (calls === 1) {
+        signalEntered();
+        await gate;
+      }
+      throw new Error('Supabase in timeout');
+    };
+
+    const first = sync.publishLiveSnapshot();
+    await entered;
+    // A second publication request arrives while the first upload is in flight:
+    // the finally block of the first run re-launches it without a caller.
+    const second = sync.publishLiveSnapshot();
+    release();
+    await assert.rejects(first, /Supabase in timeout/);
+    await assert.rejects(second, /Supabase in timeout/);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.equal(calls, 2, 'the queued re-run must actually be launched');
+    assert.deepEqual(unhandled, [], 'the re-run must not leave an unhandled rejection (runtimeLogger exits the process on it)');
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+}));

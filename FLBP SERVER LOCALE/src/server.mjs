@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, validateOperationalConfig } from './config.mjs';
@@ -70,6 +71,21 @@ const operationId = (body) => {
   return value;
 };
 
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+// Identità del client usata dai limiti di frequenza. Dietro cloudflared ogni richiesta
+// arriva dal loopback: solo in quel caso l'IP reale è in cf-connecting-ip (Cloudflare
+// sovrascrive l'header del client). Da qualsiasi altro indirizzo l'header viene ignorato,
+// così un client LAN non può scegliersi l'identità. Un valore che non è un IP è ignorato.
+export const clientIdentity = (request) => {
+  const remoteAddress = String(request.socket?.remoteAddress || 'unknown').toLowerCase();
+  if (LOOPBACK_ADDRESSES.has(remoteAddress)) {
+    const tunnelClient = String(request.headers?.['cf-connecting-ip'] || '').trim().toLowerCase();
+    if (net.isIP(tunnelClient)) return `tunnel:${tunnelClient}`;
+  }
+  return remoteAddress;
+};
+
 const parseRequestUrl = (request) => {
   try {
     const host = request.headers.host || 'localhost';
@@ -98,6 +114,7 @@ export const createLocalServer = (overrides = {}) => {
   let secondaryBackupChain = Promise.resolve();
   let durableWriteChain = Promise.resolve();
   let secondaryBackedVersion = 0;
+  let activationInFlight = false;
   if (config.secondaryBackupDir) {
     try {
       const reusable = store.findReusableSecondaryBackup(config.secondaryBackupDir);
@@ -121,23 +138,33 @@ export const createLocalServer = (overrides = {}) => {
     }
   };
 
-  const requestIdentity = (request) => String(request.socket?.remoteAddress || 'unknown').toLowerCase();
+  // Il suffisso non deve mai derivare da dati scelti dal client (es. body.tournamentId):
+  // cambiandolo a ogni tentativo si otterrebbe un bucket nuovo e il limite non scatterebbe.
+  const rateLimitKey = (request, bucketName, suffix = '') => `${bucketName}:${clientIdentity(request)}:${String(suffix || '').slice(0, 160)}`;
+
+  const rateLimitError = (bucket, now) => Object.assign(new Error('Troppe richieste: riprova tra poco.'), {
+    statusCode: 429,
+    code: 'FLBP_RATE_LIMITED',
+    retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+  });
 
   const consumeRateLimit = (request, bucketName, limit, suffix = '') => {
     const now = Date.now();
-    const key = `${bucketName}:${requestIdentity(request)}:${String(suffix || '').slice(0, 160)}`;
+    const key = rateLimitKey(request, bucketName, suffix);
     let bucket = rateBuckets.get(key);
     if (!bucket || bucket.resetAt <= now) bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
     bucket.count += 1;
     rateBuckets.set(key, bucket);
-    if (bucket.count > limit) {
-      const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-      throw Object.assign(new Error('Troppe richieste: riprova tra poco.'), {
-        statusCode: 429,
-        code: 'FLBP_RATE_LIMITED',
-        retryAfter,
-      });
-    }
+    if (bucket.count > limit) throw rateLimitError(bucket, now);
+  };
+
+  // Rifiuta, senza consumare, quando il bucket è già esaurito. Serve alle rotte che
+  // contano solo i tentativi falliti: senza questo controllo preventivo, a limite
+  // esaurito solo la password sbagliata riceverebbe 429 e quella giusta passerebbe.
+  const assertRateLimitOpen = (request, bucketName, limit, suffix = '') => {
+    const now = Date.now();
+    const bucket = rateBuckets.get(rateLimitKey(request, bucketName, suffix));
+    if (bucket && bucket.resetAt > now && bucket.count >= limit) throw rateLimitError(bucket, now);
   };
 
   const requireJsonRequest = (request) => {
@@ -311,7 +338,9 @@ export const createLocalServer = (overrides = {}) => {
       return;
     }
     response.writeHead(200, { 'content-type': MIME[path.extname(finalPath).toLowerCase()] || 'application/octet-stream', 'cache-control': finalPath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable' });
-    fs.createReadStream(finalPath).pipe(response);
+    // Senza listener 'error' un errore di lettura (EIO, EBUSY, file rimosso) è
+    // un'eccezione non gestita e runtimeLogger chiude il processo.
+    fs.createReadStream(finalPath).on('error', () => response.destroy()).pipe(response);
   };
 
   const serveDistAsset = (pathname, response) => {
@@ -319,7 +348,7 @@ export const createLocalServer = (overrides = {}) => {
     const root = path.resolve(config.webDist) + path.sep;
     if (!candidate.startsWith(root) || !fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) return false;
     response.writeHead(200, { 'content-type': MIME[path.extname(candidate).toLowerCase()] || 'application/octet-stream', 'cache-control': candidate.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable' });
-    fs.createReadStream(candidate).pipe(response);
+    fs.createReadStream(candidate).on('error', () => response.destroy()).pipe(response);
     return true;
   };
 
@@ -469,8 +498,8 @@ export const createLocalServer = (overrides = {}) => {
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/auth`) {
         requireActive();
+        consumeRateLimit(request, 'referee-auth', 20);
         const body = await readBody(request);
-        consumeRateLimit(request, 'referee-auth', 20, body.tournamentId);
         const current = store.getCurrent();
         const expected = resolveRefereeSecret(current?.state, process.env.FLBP_REFEREE_PASSWORD || '');
         const tournamentOk = String(current?.state?.tournament?.id || '') === String(body.tournamentId || '');
@@ -478,14 +507,21 @@ export const createLocalServer = (overrides = {}) => {
       }
       if (request.method === 'POST' && url.pathname === `/api/v1/referee/workspace/${encodeURIComponent(config.workspaceId)}/match-result`) {
         requireWritable();
+        // Si contano solo i tentativi falliti; a limite esaurito anche la password giusta
+        // riceve 429, altrimenti il limite non impedirebbe di indovinarla.
+        assertRateLimitOpen(request, 'referee-auth', 20);
         const body = await readBody(request);
         const current = store.getCurrent();
         const expected = resolveRefereeSecret(current?.state, process.env.FLBP_REFEREE_PASSWORD || '');
-        if (!safeEqual(body.refereePassword, expected)) {
-          consumeRateLimit(request, 'referee-auth', 20, body.tournamentId);
+        // Torneo e password si valutano insieme: torneo sbagliato con password giusta
+        // risponde 401 come una password sbagliata, senza fare da oracolo.
+        const tournamentOk = String(current?.state?.tournament?.id || '') === String(body.tournamentId || '');
+        const passwordOk = safeEqual(body.refereePassword, expected);
+        if (!tournamentOk || !passwordOk) {
+          consumeRateLimit(request, 'referee-auth', 20);
           return sendJson(response, 401, { error: 'Password arbitri non valida' }, cors);
         }
-        consumeRateLimit(request, 'authenticated-write', 240, body.tournamentId);
+        consumeRateLimit(request, 'referee-write', 240);
         ensureSecondaryTargetAvailable();
         const committed = await runDurableWrite(async () => {
           const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'referee' });
@@ -544,8 +580,14 @@ export const createLocalServer = (overrides = {}) => {
             if (currentTransition === 'idle') return sendJson(response, 200, { ok: true, alreadyActive: true, ...store.status() }, cors);
             throw Object.assign(new Error(`Impossibile attivare durante la transizione ${currentTransition}.`), { statusCode: 409, code: 'FLBP_LOCAL_TRANSITION' });
           }
+          // Un secondo clic mentre l'attivazione è in corso non deve avviarne una seconda:
+          // due attivazioni cloud concorrenti lasciano 'activation-error' su un nodo attivo.
+          if (activationInFlight) {
+            throw Object.assign(new Error('Attivazione già in corso: attendi l\'esito prima di riprovare.'), { statusCode: 409, code: 'FLBP_LOCAL_TRANSITION' });
+          }
           ensureSecondaryTargetAvailable();
           store.setTransitionState('activating');
+          activationInFlight = true;
           try {
             let activated;
             if (sync.isConfigured()) {
@@ -572,6 +614,8 @@ export const createLocalServer = (overrides = {}) => {
           } catch (error) {
             store.setTransitionState('activation-error');
             throw error;
+          } finally {
+            activationInFlight = false;
           }
         }
         if (url.pathname === '/control/backup') {
@@ -622,7 +666,6 @@ export const createLocalServer = (overrides = {}) => {
     }
   });
 
-  startTimers();
   return {
     config,
     store,
@@ -630,7 +673,18 @@ export const createLocalServer = (overrides = {}) => {
     server,
     listen: () => new Promise((resolve, reject) => {
       server.once('error', reject);
-      server.listen(config.port, config.host, () => resolve(server.address()));
+      server.listen(config.port, config.host, () => {
+        // Timer e recupero all'avvio partono solo dopo aver ottenuto la porta: un secondo
+        // processo su una porta occupata non deve toccare Supabase né il database
+        // condiviso (heartbeat, backup, pubblicazione) prima di fallire.
+        try {
+          startTimers();
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        resolve(server.address());
+      });
     }),
     close: () => new Promise((resolve) => {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -663,9 +717,9 @@ if (isMain) {
     if (validateOperationalConfig(app.config).length) console.log('Configurazione incompleta: apri il pannello per i dettagli.');
   }).catch((error) => {
     console.error(error);
-    // startTimers() is initialized before listen so recovery can begin at
-    // startup. If the HTTP port cannot be acquired those timers would keep a
-    // dead, unreachable process alive and Task Scheduler could not restart it.
+    // Timers start only after listen() succeeds, so nothing keeps this process
+    // alive here: exit explicitly with a failure code so Task Scheduler can
+    // restart it once the port is free.
     process.exit(1);
   });
 }
