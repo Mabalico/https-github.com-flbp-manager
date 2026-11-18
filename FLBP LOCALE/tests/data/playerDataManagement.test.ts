@@ -1,6 +1,6 @@
 import { registerEditionManagementCases } from './editionManagementCases';
 import { registerStateConflictMergeCases } from './stateConflictMergeCases';
-import { archiveTournamentV2, coerceAppState, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
+import { archiveTournamentV2, buildTournamentAwards, coerceAppState, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
 import type { HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentData } from '../../types';
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
 import { buildPlayerProfileSnapshot, getAliasRemovalImpact, removePlayerAliasMapping } from '../../services/playerDataProvenance';
@@ -605,6 +605,77 @@ defineCase('normalized tournament row mapper matches the legacy export mapping f
   const legacyRows = buildLegacyTournamentRowsForTest(sampleState, entry, workspaceId, nowIso);
 
   assertEqual(JSON.stringify(nextRows), JSON.stringify(legacyRows));
+});
+
+// B2 audit 2026-11-16: tie-breaks no longer change standings rows, the final group winner must still be found.
+const buildTiedFinalGroupTournament = () => {
+  const teams = ['F1', 'F2', 'F3', 'F4'].map((id) => makeTeam(id, `Team ${id}`, `${id} One`, 1998, `${id} Two`, 1999));
+  const finalName = 'Girone Finale';
+  const result = (id: string, a: string, b: string, aWins: boolean): Match => ({
+    id,
+    phase: 'groups',
+    groupName: finalName,
+    teamAId: a,
+    teamBId: b,
+    scoreA: aWins ? 10 : 4,
+    scoreB: aWins ? 4 : 10,
+    played: true,
+    status: 'finished',
+  });
+  // F1 and F2 end tied on Pt, ΔC, ΔS and cups for.
+  const matches: Match[] = [
+    result('f1', 'F1', 'F2', true),
+    result('f2', 'F1', 'F3', false),
+    result('f3', 'F1', 'F4', true),
+    result('f4', 'F2', 'F3', true),
+    result('f5', 'F2', 'F4', true),
+    result('f6', 'F3', 'F4', false),
+  ];
+  const tournament: TournamentData = {
+    id: 'final_rr_tb',
+    name: 'Final Tie Break',
+    type: 'elimination',
+    startDate: '2026-11-16T00:00:00.000Z',
+    teams,
+    rounds: [],
+    groups: [{ id: 'gf', name: finalName, teams, stage: 'final' }],
+    matches,
+    config: { advancingPerGroup: 2, finalRoundRobin: { enabled: true, activated: true, topTeams: 4 } },
+  };
+  const tieBreak = (status: Match['status'], winner?: string): Match => ({
+    id: 'ftb1',
+    phase: 'groups',
+    groupName: finalName,
+    code: 'FTB1',
+    teamAId: 'F1',
+    teamBId: 'F2',
+    scoreA: winner === 'F1' ? 1 : 0,
+    scoreB: winner === 'F2' ? 1 : 0,
+    played: status === 'finished',
+    status,
+    isTieBreak: true,
+    targetScore: 1,
+    orderIndex: 10,
+  });
+  return { tournament, teams, matches, tieBreak };
+};
+
+const getAwardWinnerName = (entries: HallOfFameEntry[]) => entries.find((entry) => entry.type === 'winner')?.teamName;
+
+defineCase('final group awards: tied leaders without a played tie-break have no winner', () => {
+  const { tournament, teams, matches, tieBreak } = buildTiedFinalGroupTournament();
+  assertEqual(getAwardWinnerName(buildTournamentAwards(tournament, matches, teams)), undefined, 'no tie-break: no winner');
+  assertEqual(
+    getAwardWinnerName(buildTournamentAwards(tournament, [...matches, tieBreak('scheduled')], teams)),
+    undefined,
+    'pending tie-break: no winner'
+  );
+});
+
+defineCase('final group awards: the team that wins the final tie-break is the winner', () => {
+  const { tournament, teams, matches, tieBreak } = buildTiedFinalGroupTournament();
+  assertEqual(getAwardWinnerName(buildTournamentAwards(tournament, [...matches, tieBreak('finished', 'F2')], teams)), 'Team F2');
+  assertEqual(getAwardWinnerName(buildTournamentAwards(tournament, [...matches, tieBreak('finished', 'F1')], teams)), 'Team F1');
 });
 
 registerEditionManagementCases(defineCase);

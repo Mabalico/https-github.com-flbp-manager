@@ -1,7 +1,7 @@
 import { Team, Match, TournamentData, Group, FinalRoundRobinConfig } from '../types';
-import { computeGroupStandings } from './groupStandings';
+import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings';
 import { isFinalGroup } from './groupUtils';
-import { buildBracketRoundsFromMatches, reconcileBracketAdvancements } from './tournamentStructureSelectors';
+import { buildBracketRoundsFromMatches, isLockedBracketMatchForStructureEdit, reconcileBracketAdvancements } from './tournamentStructureSelectors';
 
 const uuid = () => Math.random().toString(36).substr(2, 9);
 
@@ -783,14 +783,38 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
         return buildRound1PairsWithPrelimsBottom(seeded, targetSize, round1.length);
     })();
 
+    // Placeholders of the groups that are complete right now, resolved to their teams.
+    const placeholderToTeamId: Record<string, string> = {};
+    groups.forEach(g => {
+        if (!isGroupComplete(g, out)) return;
+        const letter = getGroupLetter(g.name);
+        const { ranked } = computeGroupRanking(g, out);
+        for (let r = 1; r <= advancing; r++) {
+            const ph = `TBD-${letter}-${r}`;
+            const team = ranked[r - 1];
+            if (team) placeholderToTeamId[ph] = team.id;
+        }
+    });
+
+    const resolveId = (id?: string) => {
+        if (!id) return id;
+        return placeholderToTeamId[id] || id;
+    };
+
+    // A slot is already in place when it holds the desired value, or a placeholder/team
+    // that resolves to the same team today (e.g. "TBD-A-1" already replaced by the A winner).
     const needsRound1Reset = desiredPairs.some((pair, i) => {
         const m = round1[i];
-        return (m?.teamAId !== pair[0]) || (m?.teamBId !== pair[1]);
+        return (resolveId(m?.teamAId) !== resolveId(pair[0])) || (resolveId(m?.teamBId) !== resolveId(pair[1]));
     });
+
+    // Never wipe real results: if a bracket match was played or is being played,
+    // keep the bracket as it is and only fill the placeholders that can be resolved below.
+    const bracketHasLockedMatch = out.some(m => m.phase === 'bracket' && isLockedBracketMatchForStructureEdit(m));
 
     // If Round1 participants are not in the desired state (e.g. we inserted a tie-break and need to go back to placeholders),
     // reset the whole bracket skeleton and apply the desired Round1 pairs.
-    if (needsRound1Reset) {
+    if (needsRound1Reset && !bracketHasLockedMatch) {
         const round1Ids = new Set(round1.map(m => m.id));
         const reset = out.map(m => {
             if (m.phase !== 'bracket') return m;
@@ -862,27 +886,8 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
         });
     };
 
-    // If all groups are complete, we are done after applying Round1 pairs.
-    if (allGroupsComplete) return reconcileBracketAdvancements(sanitizeBracketPlaceholders(out));
-
-    // Not all groups complete: resolve placeholders only for completed groups.
-    const placeholderToTeamId: Record<string, string> = {};
-    groups.forEach(g => {
-        if (!isGroupComplete(g, out)) return;
-        const letter = getGroupLetter(g.name);
-        const { ranked } = computeGroupRanking(g, out);
-        for (let r = 1; r <= advancing; r++) {
-            const ph = `TBD-${letter}-${r}`;
-            const team = ranked[r - 1];
-            if (team) placeholderToTeamId[ph] = team.id;
-        }
-    });
-
-    const resolveId = (id?: string) => {
-        if (!id) return id;
-        return placeholderToTeamId[id] || id;
-    };
-
+    // Resolve the placeholders of completed groups still present in Round 1
+    // (after a reset to the desired pairs there is nothing left to resolve).
     const baseRound1 = round1From(out);
     const nextRound1 = baseRound1.map(m => ({
         ...m,
@@ -1118,6 +1123,8 @@ export const ensureFinalTieBreakIfNeeded = (tournament: TournamentData, matches:
             const kTop = getRowKey(rows, top.id);
             const kSecond = getRowKey(rows, second.id);
             if (!isSameKey(kTop, kSecond)) return matches;
+            // Tie-breaks do not change the table rows: an already played FTB decides the leader.
+            if (compareTeamsByTieBreak(finished, top.id, second.id) < 0) return matches;
         } else {
             return matches;
         }

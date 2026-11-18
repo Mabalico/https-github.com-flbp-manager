@@ -1594,6 +1594,7 @@ export const dictionary: TranslationDictionary = {
   "referees_err_is_bye": "BYE のレポートを開けません",
   "referees_err_missing_code": "コードを入力してください",
   "referees_ocr_failed": "OCR が失敗しました",
+  "referees_ocr_unavailable": "OCR を利用できません（インターネット接続を確認してください）。手動入力を使用してください。",
   "referees_ocr_preview": "プレビュー OCR",
   "referees_ocr_score_placeholder": "スコア OCR",
   "referees_overwrite_confirm": "既存のレポートを上書きしますか?",

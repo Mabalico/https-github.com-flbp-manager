@@ -1594,6 +1594,7 @@ export const dictionary: TranslationDictionary = {
   "referees_err_is_bye": "无法打开 BYE 的报告",
   "referees_err_missing_code": "输入代码",
   "referees_ocr_failed": "OCR 失败",
+  "referees_ocr_unavailable": "OCR 不可用（请检查网络连接）。请使用手动输入。",
   "referees_ocr_preview": "预览OCR",
   "referees_ocr_score_placeholder": "得分OCR",
   "referees_overwrite_confirm": "覆盖现有报告？",

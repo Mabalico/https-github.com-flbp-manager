@@ -7,7 +7,8 @@ import {
   undoTournamentStructureDraft,
 } from '../../services/tournamentStructureDraft';
 import { diffTournamentStructure } from '../../services/tournamentStructureDiff';
-import { generateTournamentStructure } from '../../services/tournamentEngine';
+import { ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
+import { computeGroupStandings } from '../../services/groupStandings';
 import {
   canInsertTeamIntoBracketSlot,
   canReplaceBracketSlot,
@@ -772,6 +773,245 @@ defineCase('insert into a future-round slot waits for the real opponent instead 
   assertEqual(final?.teamAId, 'X', 'inserted team survives the realign');
   assertEqual(final?.teamBId, 'C', 'feeder-fed side keeps the advancing winner instead of a BYE');
   assertEqual(final?.status, 'scheduled', 'the pairing stays playable');
+});
+
+// --- B2 audit 2026-11-16: groups -> bracket sync must never wipe played bracket results ---
+
+const twelveGroupTeams = () => Array.from({ length: 12 }, (_, index) => makeTeam(`T${index + 1}`, `Team ${String(index + 1).padStart(2, '0')}`));
+
+const generateFourGroupsTournament = () => {
+  const generated = generateTournamentStructure(twelveGroupTeams(), {
+    mode: 'groups_elimination',
+    numGroups: 4,
+    advancingPerGroup: 2,
+    tournamentName: 'Four groups',
+  });
+  const groups = [...(generated.tournament.groups || [])].sort((a, b) => a.name.localeCompare(b.name));
+  return { tournament: generated.tournament, matches: generated.matches, groups };
+};
+
+// Finishes every regular match of the group so that the ranking follows `order` (first = group winner).
+const finishGroupInOrder = (matches: Match[], group: Group, order: string[] = group.teams.map((team) => team.id)): Match[] => {
+  const rank = new Map(order.map((teamId, index) => [teamId, index]));
+  return matches.map((match) => {
+    if (match.phase !== 'groups' || match.groupName !== group.name || match.isTieBreak) return match;
+    const aAhead = (rank.get(match.teamAId || '') ?? 99) < (rank.get(match.teamBId || '') ?? 99);
+    return { ...match, status: 'finished', played: true, scoreA: aAhead ? 10 : 4, scoreB: aAhead ? 4 : 10 };
+  });
+};
+
+const playBracketMatch = (matches: Match[], matchId: string, scoreA: number, scoreB: number): Match[] => {
+  const target = matches.find((match) => match.id === matchId)!;
+  const finished: Match = { ...target, status: 'finished', played: true, scoreA, scoreB };
+  return advanceWinner(matches.map((match) => (match.id === matchId ? finished : match)), finished);
+};
+
+const getBracketRound = (matches: Match[], round: number) => matches
+  .filter((match) => match.phase === 'bracket' && (match.round || 1) === round)
+  .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+defineCase('a group report never wipes a bracket match already played while other groups are running', () => {
+  const { tournament, groups } = generateFourGroupsTournament();
+  let matches = tournament.matches || [];
+  const [groupA, groupB, groupC, groupD] = groups;
+  const first = (group: Group) => group.teams[0].id;
+  const second = (group: Group) => group.teams[1].id;
+
+  matches = finishGroupInOrder(matches, groupA);
+  matches = finishGroupInOrder(matches, groupB);
+  matches = syncBracketFromGroups(tournament, matches);
+
+  const opening = getBracketRound(matches, 1)[0];
+  assertEqual(opening.teamAId, first(groupA), 'A1 is resolved into the first Round 1 match');
+  assertEqual(opening.teamBId, second(groupB), 'B2 is resolved into the first Round 1 match');
+
+  matches = playBracketMatch(matches, opening.id, 10, 6);
+  assertEqual(getBracketRound(matches, 2)[0].teamAId, first(groupA), 'the bracket winner advances');
+
+  // A report of group C arrives: the played bracket match must survive.
+  matches = finishGroupInOrder(matches, groupC);
+  matches = syncBracketFromGroups(tournament, matches);
+
+  let played = matches.find((match) => match.id === opening.id)!;
+  assertEqual(played.status, 'finished', 'played bracket match stays finished after a group C report');
+  assertEqual(played.scoreA, 10);
+  assertEqual(played.scoreB, 6);
+  assertEqual(getBracketRound(matches, 2)[0].teamAId, first(groupA), 'the advanced winner stays in Round 2');
+  assertEqual(getBracketRound(matches, 1)[2].teamAId, first(groupC), 'C1 is still resolved while D is running');
+  assertEqual(getBracketRound(matches, 1)[2].teamBId, 'TBD-D-2', 'D2 stays a placeholder while D is running');
+
+  // The last group closes: placeholders must resolve without resetting the played match.
+  matches = finishGroupInOrder(matches, groupD);
+  matches = syncBracketFromGroups(tournament, matches);
+
+  played = matches.find((match) => match.id === opening.id)!;
+  assertEqual(played.status, 'finished', 'played bracket match stays finished when the last group closes');
+  assertEqual(played.scoreA, 10);
+  assertEqual(played.scoreB, 6);
+  assertEqual(getBracketRound(matches, 2)[0].teamAId, first(groupA), 'the advanced winner stays in Round 2 at the end');
+  const round1 = getBracketRound(matches, 1);
+  assertEqual(round1[2].teamBId, second(groupD), 'D2 is resolved when group D closes');
+  assertEqual(round1[3].teamAId, second(groupC), 'C2 is resolved when group D closes');
+  assertEqual(round1[3].teamBId, first(groupD), 'D1 is resolved when group D closes');
+  assertOk(round1.every((match) => !String(match.teamAId).startsWith('TBD') && !String(match.teamBId).startsWith('TBD')), 'no TBD left in Round 1');
+});
+
+defineCase('correcting a group result after the bracket started keeps played bracket matches untouched', () => {
+  const { tournament, groups } = generateFourGroupsTournament();
+  let matches = tournament.matches || [];
+  groups.forEach((group) => {
+    matches = finishGroupInOrder(matches, group);
+  });
+  matches = syncBracketFromGroups(tournament, matches);
+
+  const opening = getBracketRound(matches, 1)[0];
+  matches = playBracketMatch(matches, opening.id, 10, 7);
+
+  // Correct group A so that its first and second place swap.
+  const [groupA] = groups;
+  matches = finishGroupInOrder(matches, groupA, [groupA.teams[1].id, groupA.teams[0].id, groupA.teams[2].id]);
+  matches = syncBracketFromGroups(tournament, matches);
+
+  const played = matches.find((match) => match.id === opening.id)!;
+  assertEqual(played.status, 'finished', 'played bracket match is not reset by a group correction');
+  assertEqual(played.scoreA, 10);
+  assertEqual(played.scoreB, 7);
+  assertEqual(played.teamAId, groupA.teams[0].id, 'participants of a played match are never rewritten');
+  assertEqual(getBracketRound(matches, 2)[0].teamAId, groupA.teams[0].id, 'the advanced winner stays in Round 2');
+});
+
+defineCase('a tie-break inserted before the bracket starts still resets resolved slots to placeholders', () => {
+  const { tournament, groups } = generateFourGroupsTournament();
+  let matches = tournament.matches || [];
+  const [groupA, groupB] = groups;
+  matches = finishGroupInOrder(matches, groupA);
+  matches = finishGroupInOrder(matches, groupB);
+  matches = syncBracketFromGroups(tournament, matches);
+  assertEqual(getBracketRound(matches, 1)[0].teamAId, groupA.teams[0].id, 'A1 resolved before the correction');
+
+  // Correct group A into a perfect three-way tie (each team wins once, same cups): a tie-break is needed.
+  const [x, y, z] = groupA.teams.map((team) => team.id);
+  const beats: Record<string, string> = { [x]: y, [y]: z, [z]: x };
+  matches = matches.map((match) => {
+    if (match.phase !== 'groups' || match.groupName !== groupA.name) return match;
+    const aWins = beats[match.teamAId || ''] === match.teamBId;
+    return { ...match, status: 'finished', played: true, scoreA: aWins ? 10 : 4, scoreB: aWins ? 4 : 10 };
+  });
+  matches = syncBracketFromGroups(tournament, matches);
+
+  assertOk(matches.some((match) => match.groupName === groupA.name && match.isTieBreak && match.status === 'scheduled'), 'tie-break created');
+  const round1 = getBracketRound(matches, 1);
+  assertEqual(round1[0].teamAId, 'TBD-A-1', 'A1 goes back to its placeholder while the tie-break is pending');
+  assertEqual(round1[1].teamAId, 'TBD-A-2', 'A2 goes back to its placeholder while the tie-break is pending');
+  assertEqual(round1[1].teamBId, groupB.teams[0].id, 'B1 stays resolved');
+});
+
+// --- B2 audit 2026-11-16: a group tie-break only orders the tied teams ---
+
+const fiveTeamGroupScenario = () => {
+  const teams = ['T1', 'T2', 'T3', 'T4', 'T5'].map((id) => makeTeam(id, `Team ${id}`));
+  const result = (id: string, a: string, b: string, scoreA: number, scoreB: number) =>
+    makeGroupMatch(id, 'Girone A', a, b, { status: 'finished', played: true, scoreA, scoreB });
+  // T1: 3 wins, cups diff +2. T2 and T3: 2 wins, cups diff +4 (tied on Pt/ΔC/ΔS).
+  const matches = [
+    result('a1', 'T1', 'T2', 10, 9),
+    result('a2', 'T1', 'T3', 10, 9),
+    result('a3', 'T1', 'T4', 5, 10),
+    result('a4', 'T1', 'T5', 10, 5),
+    result('a5', 'T2', 'T3', 10, 8),
+    result('a6', 'T2', 'T4', 9, 10),
+    result('a7', 'T2', 'T5', 10, 6),
+    result('a8', 'T3', 'T4', 10, 5),
+    result('a9', 'T3', 'T5', 10, 8),
+    result('a10', 'T4', 'T5', 9, 10),
+  ];
+  return { teams, matches };
+};
+
+defineCase('a played group tie-break does not add points or cups and only orders the tied teams', () => {
+  const { teams, matches } = fiveTeamGroupScenario();
+  const tieBreak = makeGroupMatch('atb1', 'Girone A', 'T3', 'T2', {
+    status: 'finished',
+    played: true,
+    scoreA: 1,
+    scoreB: 0,
+    isTieBreak: true,
+    targetScore: 1,
+    orderIndex: 20,
+  });
+
+  const { rows, rankedTeams } = computeGroupStandings({ teams, matches: [...matches, tieBreak] });
+  assertEqual(rankedTeams.map((team) => team.id).join(','), 'T1,T3,T2,T4,T5', 'T1 keeps first place, the tie-break winner is second');
+  assertEqual(rows.T3.points, 2, 'the tie-break win is not a point');
+  assertEqual(rows.T3.cupsDiff, 4, 'the tie-break cups are not counted');
+  assertEqual(rows.T3.played, 4, 'the tie-break is not a group match');
+  assertEqual(rows.T2.cupsDiff, 4);
+});
+
+defineCase('the bracket seeds the real group winner after a group tie-break and no second tie-break is created', () => {
+  const { teams: groupATeams, matches: groupAMatches } = fiveTeamGroupScenario();
+  const groupBTeams = [makeTeam('U1', 'Team U1'), makeTeam('U2', 'Team U2')];
+  const tournament = makeTournament(
+    'tb-seed',
+    'groups_elimination',
+    [...groupATeams, ...groupBTeams],
+    [makeGroup('ga', 'Girone A', groupATeams), makeGroup('gb', 'Girone B', groupBTeams)],
+    []
+  );
+  let matches: Match[] = [
+    ...groupAMatches,
+    makeGroupMatch('b1', 'Girone B', 'U1', 'U2'),
+    makeBracketMatch('r1m1', 1, 'TBD-A-1', 'TBD-B-2', { orderIndex: 101 }),
+    makeBracketMatch('r1m2', 1, 'TBD-A-2', 'TBD-B-1', { orderIndex: 102 }),
+    makeBracketMatch('r2m1', 2, undefined, undefined, { orderIndex: 103 }),
+  ];
+
+  matches = syncBracketFromGroups(tournament, matches);
+  const tieBreaks = matches.filter((match) => match.isTieBreak);
+  assertEqual(tieBreaks.length, 1, 'T2/T3 tie at the cutline creates one tie-break');
+  assertEqual(matches.find((match) => match.id === 'r1m1')?.teamAId, 'TBD-A-1', 'group A stays unresolved while the tie-break is pending');
+
+  matches = matches.map((match) => (match.isTieBreak
+    ? { ...match, status: 'finished', played: true, scoreA: match.teamAId === 'T3' ? 1 : 0, scoreB: match.teamBId === 'T3' ? 1 : 0 }
+    : match));
+  matches = syncBracketFromGroups(tournament, matches);
+
+  assertEqual(matches.filter((match) => match.isTieBreak).length, 1, 'a played tie-break is not created again');
+  assertEqual(matches.find((match) => match.id === 'r1m1')?.teamAId, 'T1', 'A1 is the team that was ahead before the tie-break');
+  assertEqual(matches.find((match) => match.id === 'r1m2')?.teamAId, 'T3', 'A2 is the tie-break winner');
+});
+
+defineCase('a played final tie-break decides the final group leader without creating another one', () => {
+  const finalTeams = ['F1', 'F2', 'F3', 'F4'].map((id) => makeTeam(id, `Team ${id}`));
+  const finalGroup: Group = { id: 'gf', name: 'Girone Finale', teams: finalTeams, stage: 'final' };
+  const tournament: TournamentData = {
+    ...makeTournament('final-rr', 'elimination', finalTeams, [finalGroup], []),
+    config: { advancingPerGroup: 2, finalRoundRobin: { enabled: true, activated: true, topTeams: 4 } },
+  };
+  const result = (id: string, a: string, b: string, aWins: boolean) =>
+    makeGroupMatch(id, 'Girone Finale', a, b, { status: 'finished', played: true, scoreA: aWins ? 10 : 4, scoreB: aWins ? 4 : 10 });
+  // F1 and F2 end tied on Pt, ΔC, ΔS and cups for.
+  let matches: Match[] = [
+    result('f1', 'F1', 'F2', true),
+    result('f2', 'F1', 'F3', false),
+    result('f3', 'F1', 'F4', true),
+    result('f4', 'F2', 'F3', true),
+    result('f5', 'F2', 'F4', true),
+    result('f6', 'F3', 'F4', false),
+  ];
+
+  matches = ensureFinalTieBreakIfNeeded(tournament, matches);
+  const ftb = matches.find((match) => match.code === 'FTB1');
+  assertOk(ftb, 'FTB1 is created for the tied leaders');
+  assertEqual([ftb!.teamAId, ftb!.teamBId].sort().join(','), 'F1,F2');
+
+  matches = matches.map((match) => (match.code === 'FTB1'
+    ? { ...match, status: 'finished', played: true, scoreA: match.teamAId === 'F2' ? 1 : 0, scoreB: match.teamBId === 'F2' ? 1 : 0 }
+    : match));
+  const after = ensureFinalTieBreakIfNeeded(tournament, matches);
+  assertEqual(after.length, matches.length, 'no FTB2 after FTB1 decided the leader');
+  const standings = computeGroupStandings({ teams: finalTeams, matches: after.filter((match) => match.status === 'finished') });
+  assertEqual(standings.rankedTeams[0].id, 'F2', 'the FTB winner leads the final group');
 });
 
 let failed = 0;

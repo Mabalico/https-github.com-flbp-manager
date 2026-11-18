@@ -1594,6 +1594,7 @@ export const dictionary: TranslationDictionary = {
   "referees_err_is_bye": "Невозможно открыть отчет для BYE.",
   "referees_err_missing_code": "Введите код",
   "referees_ocr_failed": "OCR не удалось",
+  "referees_ocr_unavailable": "OCR недоступен (проверьте подключение к Интернету). Используйте ручной ввод.",
   "referees_ocr_preview": "Предварительный просмотр OCR",
   "referees_ocr_score_placeholder": "Оценка OCR",
   "referees_overwrite_confirm": "Перезаписать существующий отчет?",

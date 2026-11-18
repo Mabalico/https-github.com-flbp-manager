@@ -1594,6 +1594,7 @@ export const dictionary: TranslationDictionary = {
   "referees_err_is_bye": "Não é possível abrir o relatório para um BYE",
   "referees_err_missing_code": "Insira um código",
   "referees_ocr_failed": "OCR falhou",
+  "referees_ocr_unavailable": "OCR indisponível (verifique a ligação à Internet). Use a entrada manual.",
   "referees_ocr_preview": "Visualização OCR",
   "referees_ocr_score_placeholder": "Pontuação OCR",
   "referees_overwrite_confirm": "Substituir o relatório existente?",

@@ -1,5 +1,5 @@
 import { Team, Match, TournamentData, TvProjection, TV_PROJECTIONS, HallOfFameEntry, IntegrationScorerEntry } from '../types';
-import { computeGroupStandings } from './groupStandings';
+import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings';
 import { isFinalGroup } from './groupUtils';
 import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from './playerIdentity';
 import { buildMetricAwardEntries } from './awardRules';
@@ -222,7 +222,8 @@ const getUniqueLeaderFromGroup = (tournament: TournamentData, matches: Match[], 
     const k1 = key(top.id);
     const k2 = key(second.id);
     const tied = k1[0] === k2[0] && k1[1] === k2[1] && k1[2] === k2[2] && k1[3] === k2[3];
-    if (tied) return undefined;
+    // Tie-breaks do not change the table rows: an already played tie-break decides the leader.
+    if (tied && compareTeamsByTieBreak(finished, top.id, second.id) >= 0) return undefined;
     return top.id;
 };
 

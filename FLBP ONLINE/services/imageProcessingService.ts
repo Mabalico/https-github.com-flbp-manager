@@ -2,10 +2,19 @@
 // Helper: Load Image from File
 const loadImage = (file: File): Promise<HTMLImageElement> => {
     return new Promise((resolve, reject) => {
+        // Release the object URL as soon as the image is decoded (or fails):
+        // each referto photo can be several MB and was never freed before.
+        const objectUrl = URL.createObjectURL(file);
         const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(img);
+        };
+        img.onerror = (event) => {
+            URL.revokeObjectURL(objectUrl);
+            reject(event);
+        };
+        img.src = objectUrl;
     });
 };
 
@@ -743,9 +752,13 @@ export const ocrTextFromAlignedCanvas = async (canvas: HTMLCanvasElement): Promi
 
         const { createWorker } = await import('tesseract.js');
         const worker = await createWorker('eng');
-        const { data } = await worker.recognize(canvas);
-        await worker.terminate();
-        return (data && (data as any).text) ? String((data as any).text) : '';
+        try {
+            const { data } = await worker.recognize(canvas);
+            return (data && (data as any).text) ? String((data as any).text) : '';
+        } finally {
+            // Also terminate when recognize() throws, otherwise the worker leaks.
+            await worker.terminate();
+        }
     } catch (err) {
         console.warn('[OCR] failed', err);
         return '';
