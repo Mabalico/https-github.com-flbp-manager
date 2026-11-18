@@ -107,15 +107,44 @@ const ensureWorkspace = async (adminClient: ReturnType<typeof createAdminClient>
     });
   }
 
-  const { error } = await adminClient
+  // Never create workspaces: this function also serves unauthenticated callers.
+  const { data, error } = await adminClient
     .from('workspaces')
-    .upsert({ id: safeWorkspaceId }, { onConflict: 'id' });
+    .select('id')
+    .eq('id', safeWorkspaceId)
+    .maybeSingle();
 
   if (error) {
     throw new Error(error.message);
   }
+  if (!data) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Workspace not found.' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
   return safeWorkspaceId;
+};
+
+// A request row is applied to an account only when that account owns the
+// request email (protects rows created before the requester binding below).
+const ensureRequesterOwnsEmail = async (
+  adminClient: ReturnType<typeof createAdminClient>,
+  userId: string,
+  email: unknown,
+) => {
+  const { data, error } = await adminClient.auth.admin.getUserById(userId);
+  if (error) {
+    throw new Error(error.message);
+  }
+  const accountEmail = normalizeEmail(data?.user?.email ?? '');
+  if (!accountEmail || accountEmail !== normalizeEmail(email)) {
+    throw new Response(JSON.stringify({ ok: false, reason: 'Merge request account does not match the requester email.' }), {
+      status: 409,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 };
 
 const deletePlayerAccount = async (
@@ -284,11 +313,15 @@ const submitMergeRequest = async (
   authenticatedUser: User | null
 ) => {
   const workspaceId = await ensureWorkspace(adminClient, normalizeText(body.workspaceId));
-  const requesterEmail = normalizeEmail(body.requesterEmail ?? authenticatedUser?.email ?? '');
+  // The account is never taken from the body: with a valid session the request
+  // belongs to that user and email. Without one (sign-up awaiting email
+  // confirmation) it stays unbound and is applied later only to the account
+  // that signs in with that verified email (list_my_merge_requests).
+  const requesterEmail = normalizeEmail(authenticatedUser ? (authenticatedUser.email ?? '') : (body.requesterEmail ?? ''));
   const requesterFirstName = normalizeText(body.requesterFirstName);
   const requesterLastName = normalizeText(body.requesterLastName);
   const requesterBirthDate = normalizeDate(body.requesterBirthDate);
-  const requesterUserId = normalizeText(body.requesterUserId ?? authenticatedUser?.id ?? '') || null;
+  const requesterUserId = normalizeText(authenticatedUser?.id ?? '') || null;
   const requesterCanonicalPlayerId = normalizeText(body.requesterCanonicalPlayerId) || null;
   const requesterCanonicalPlayerName =
     normalizeText(body.requesterCanonicalPlayerName)
@@ -313,13 +346,18 @@ const submitMergeRequest = async (
     });
   }
 
-  const { data: existing, error: existingError } = await adminClient
+  // An unauthenticated caller can only refresh unbound requests, never one
+  // that belongs to an account.
+  const existingQuery = adminClient
     .from('player_account_merge_requests')
     .select('*')
     .eq('workspace_id', workspaceId)
     .eq('status', 'pending')
     .eq('requester_email', requesterEmail)
-    .eq('candidate_player_id', candidatePlayerId)
+    .eq('candidate_player_id', candidatePlayerId);
+  const { data: existing, error: existingError } = await (requesterUserId
+    ? existingQuery.eq('requester_user_id', requesterUserId)
+    : existingQuery.is('requester_user_id', null))
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -414,7 +452,7 @@ const listMyMergeRequests = async (
   }
 
   const safeWorkspaceId = await ensureWorkspace(adminClient, normalizeText(body.workspaceId));
-  const requesterEmail = normalizeEmail(authenticatedUser.email ?? body.requesterEmail ?? '');
+  const requesterEmail = normalizeEmail(authenticatedUser.email ?? '');
   const requesterUserId = normalizeText(authenticatedUser.id);
   if (!requesterEmail) {
     throw new Response(JSON.stringify({ ok: false, reason: 'Requester email unavailable.' }), {
@@ -452,8 +490,22 @@ const listMyMergeRequests = async (
   }
 
   const latestResolvedRow = rows.find((row) => normalizeMergeRequestStatus(row?.status) === 'resolved');
-  if (latestResolvedRow && normalizeText(latestResolvedRow?.requester_user_id)) {
-    await applyResolvedMergeRequestToProfile(adminClient, safeWorkspaceId, latestResolvedRow as Record<string, unknown>);
+  if (latestResolvedRow) {
+    const rowUserId = normalizeText(latestResolvedRow?.requester_user_id);
+    // Bound rows apply only to their own account; unbound rows only to the
+    // account whose verified email sent them.
+    const ownsRow = rowUserId
+      ? rowUserId === requesterUserId
+      : Boolean(authenticatedUser.email_confirmed_at)
+        && normalizeEmail(latestResolvedRow?.requester_email) === requesterEmail;
+    if (ownsRow) {
+      await applyResolvedMergeRequestToProfile(
+        adminClient,
+        safeWorkspaceId,
+        latestResolvedRow as Record<string, unknown>,
+        requesterUserId,
+      );
+    }
   }
 
   return {
@@ -466,8 +518,9 @@ const applyResolvedMergeRequestToProfile = async (
   adminClient: ReturnType<typeof createAdminClient>,
   workspaceId: string,
   requestRow: Record<string, unknown>,
+  targetUserId: string,
 ) => {
-  const requesterUserId = normalizeText(requestRow.requester_user_id);
+  const requesterUserId = normalizeText(targetUserId);
   if (!requesterUserId) return null;
 
   const payload = {
@@ -528,7 +581,18 @@ const setMergeRequestStatus = async (
   }
 
   if (requestStatus === 'resolved') {
-    await applyResolvedMergeRequestToProfile(adminClient, safeWorkspaceId, currentRow as Record<string, unknown>);
+    // Unbound requests (sent before sign-in) are applied by
+    // list_my_merge_requests to the account that owns the verified email.
+    const requesterUserId = normalizeText(currentRow?.requester_user_id);
+    if (requesterUserId) {
+      await ensureRequesterOwnsEmail(adminClient, requesterUserId, currentRow?.requester_email);
+      await applyResolvedMergeRequestToProfile(
+        adminClient,
+        safeWorkspaceId,
+        currentRow as Record<string, unknown>,
+        requesterUserId,
+      );
+    }
   }
 
   const { data, error } = await adminClient

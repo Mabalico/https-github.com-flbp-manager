@@ -294,5 +294,63 @@ begin
     'public U25 projection follows existing completed-years rules at birthday and leap-day boundaries');
 end;
 $$;
+-- The shared failure threshold is a real lock, and call cancellation uses the
+-- same audited credential check as every other referee RPC.
+do $$
+declare v_i integer; v_out jsonb;
+begin
+  perform flbp_test_referee.assert_true(not has_function_privilege('anon','public.flbp_referee_auth_is_locked(text,text)','execute')
+    and not has_function_privilege('authenticated','public.flbp_referee_auth_is_locked(text,text)','execute')
+    and has_function_privilege('anon','public.flbp_referee_cancel_player_calls(text,text,text,text[],text)','execute'),
+    'attempt-lock helper is internal while call cancellation stays reachable');
+  insert into public.workspaces(id) values('referee-security-lock');
+  insert into public.workspace_state(workspace_id,state,updated_at) values('referee-security-lock',
+    '{"teams":[{"id":"a","name":"A"},{"id":"b","name":"B"}],
+      "tournament":{"id":"lock-test","name":"Lock","refereesPassword":"fixture-only-secret","refereesAuthVersion":"v1"},
+      "tournamentMatches":[{"id":"m1","teamAId":"a","teamBId":"b","phase":"bracket","scoreA":0,"scoreB":0,"played":false,"status":"scheduled"}]}',
+    '2026-01-01T00:00:00Z');
+  insert into public.player_app_calls(id,workspace_id,tournament_id,team_id,target_user_id,status,metadata) values
+    ('lock-call-a','referee-security-lock','lock-test','a',gen_random_uuid(),'ringing','{"match_id":"m1"}'),
+    ('lock-call-b','referee-security-lock','lock-test','b',gen_random_uuid(),'ringing','{"match_id":"m1"}');
+
+  v_out:=public.flbp_referee_cancel_player_calls('referee-security-lock','lock-test','wrong',array['a'],'m1');
+  perform flbp_test_referee.assert_true(jsonb_typeof(v_out)='object' and (v_out->>'ok')::boolean=false
+    and v_out->>'reason'='bad_password' and not(v_out?'state'),'call cancellation rejects a wrong password without disclosing state');
+  perform flbp_test_referee.assert_true(current_setting('response.status')='403','rejected call cancellation returns HTTP 403 instead of raising');
+  perform flbp_test_referee.assert_true(exists(select 1 from public.referee_auth_audit where workspace_id='referee-security-lock'
+    and action='cancel_player_calls' and not ok and reason='bad_password'),'rejected call cancellation is audited and counted');
+  perform flbp_test_referee.assert_true((select count(*)=2 from public.player_app_calls where workspace_id='referee-security-lock' and status='ringing'),
+    'rejected call cancellation changes no call');
+  v_out:=public.flbp_referee_cancel_player_calls('referee-security-lock','lock-test','fixture-only-secret',array['a'],'m1');
+  perform flbp_test_referee.assert_true(jsonb_typeof(v_out)='array' and jsonb_array_length(v_out)=1
+    and v_out->0->>'id'='lock-call-a' and v_out->0->>'status'='cancelled','valid call cancellation still returns the cancelled call rows');
+
+  -- 1 failure so far: 28 more stay below the 30-failure lock.
+  for v_i in 1..28 loop perform public.flbp_referee_auth_check('referee-security-lock','lock-test','wrong'); end loop;
+  perform flbp_test_referee.assert_true(not public.flbp_referee_auth_is_locked('referee-security-lock','lock-test'),'29 failures do not lock');
+  v_out:=public.flbp_referee_auth_check('referee-security-lock','lock-test','fixture-only-secret');
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean,'a valid password still passes just below the hard threshold');
+  perform public.flbp_referee_auth_check('referee-security-lock','lock-test','wrong');
+  perform flbp_test_referee.assert_true(public.flbp_referee_auth_is_locked('referee-security-lock','lock-test'),
+    '30 failed comparisons in 10 minutes activate the lock');
+  v_out:=public.flbp_referee_auth_check('referee-security-lock','lock-test','fixture-only-secret');
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean=false and v_out->>'reason'='rate_limited' and not(v_out?'auth_version'),
+    'while locked a valid password gets the same answer as a wrong one');
+  v_out:=public.flbp_referee_pull_live_state('referee-security-lock','lock-test','fixture-only-secret');
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean=false and not(v_out?'state'),'while locked the private state cannot be pulled');
+  v_out:=public.flbp_referee_push_match_result('referee-security-lock','lock-test','m1','fixture-only-secret','[{"id":"m1"}]','v1');
+  perform flbp_test_referee.assert_true(v_out->>'reason'='rate_limited' and current_setting('response.status')='429',
+    'while locked a referee push is refused with HTTP 429');
+  v_out:=public.flbp_referee_cancel_player_calls('referee-security-lock','lock-test','fixture-only-secret',array['b'],'m1');
+  perform flbp_test_referee.assert_true(v_out->>'reason'='rate_limited' and current_setting('response.status')='429'
+    and (select status='ringing' from public.player_app_calls where id='lock-call-b'),'while locked call cancellation is refused too');
+  perform flbp_test_referee.assert_true((select count(*)=4 from public.referee_auth_audit where workspace_id='referee-security-lock' and reason='locked')
+    and (select count(*)=30 from public.referee_auth_audit where workspace_id='referee-security-lock' and reason in ('bad_password','rate_limited')),
+    'locked attempts are audited as locked and do not extend the lock');
+  update public.referee_auth_audit set created_at=created_at-interval '11 minutes' where workspace_id='referee-security-lock';
+  v_out:=public.flbp_referee_auth_check('referee-security-lock','lock-test','fixture-only-secret');
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean,'the lock lifts by itself once the failures leave the 10-minute window');
+end;
+$$;
 select 'PASS: '||count(*)||' real SQL assertions including missing/stale public mirror repair' as result from flbp_test_referee.checks;
 rollback;

@@ -128,5 +128,19 @@ select flbp_test_auth.assert_true(not exists (
     and (has_function_privilege('anon', p.oid, 'execute')
       or has_function_privilege('authenticated', p.oid, 'execute'))
 ), 'internal write and audit helpers are not executable by client roles');
+select flbp_test_auth.assert_true(not exists (
+  select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in ('flbp_referee_auth_is_locked', 'flbp_referee_check_credentials')
+    and (has_function_privilege('anon', p.oid, 'execute')
+      or has_function_privilege('authenticated', p.oid, 'execute'))
+), 'referee credential and attempt-lock helpers are not executable by client roles');
+select flbp_test_auth.assert_true(not exists (
+  select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind = 'r'
+    and c.relname in ('fanta_teams', 'fanta_rosters')
+    and (has_table_privilege('anon', c.oid, 'INSERT, UPDATE, DELETE')
+      or has_table_privilege('authenticated', c.oid, 'INSERT, UPDATE, DELETE'))
+), 'Fanta teams and rosters are written only through their RPCs');
 
 rollback;

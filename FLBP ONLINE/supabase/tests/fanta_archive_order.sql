@@ -97,5 +97,49 @@ begin
   end loop;
 end;
 $$;
+-- Rosters are written only through the RPCs and never publish a birth date.
+do $$
+declare v_user uuid := gen_random_uuid(); v_team uuid; v_denied boolean := false;
+begin
+  perform fanta_order_test.check(
+    not has_table_privilege('anon','public.fanta_teams','INSERT, UPDATE, DELETE')
+    and not has_table_privilege('anon','public.fanta_rosters','INSERT, UPDATE, DELETE')
+    and not has_table_privilege('authenticated','public.fanta_teams','INSERT, UPDATE, DELETE')
+    and not has_table_privilege('authenticated','public.fanta_rosters','INSERT, UPDATE, DELETE')
+    and has_table_privilege('anon','public.fanta_teams','SELECT') and has_table_privilege('anon','public.fanta_rosters','SELECT'),
+    'Fanta teams and rosters stay publicly readable but are not directly writable by client roles');
+  insert into public.workspaces(id) values('fanta-order-privacy');
+  insert into auth.users(id,email) values(v_user,'fanta-order-privacy@example.invalid');
+  perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',v_user)::text,true);
+  execute 'set local role authenticated';
+  v_team:=public.fanta_save_team('fanta-order-privacy','__pre_tournament__','Privacy Fanta','[
+    {"player_id":"anna_2009-04-01","player_name":"Anna","real_team_id":"a","real_team_name":"A","real_team_slot":"player1","role":"captain"},
+    {"player_id":"bea_ND","player_name":"Bea","real_team_id":"a","real_team_name":"A","real_team_slot":"player2","role":"defender"},
+    {"player_id":"carla_ND","player_name":"Carla","real_team_id":"b","real_team_name":"B","real_team_slot":"player1","role":"defender"},
+    {"player_id":"dora_ND","player_name":"Dora","real_team_id":"b","real_team_name":"B","real_team_slot":"player2","role":"starter"}]');
+  begin
+    update public.fanta_rosters set role='starter' where team_id=v_team and role='captain';
+  exception when insufficient_privilege then v_denied:=true;
+  end;
+  execute 'reset role';
+  perform fanta_order_test.check(v_team is not null and (select count(*)=4 from public.fanta_rosters where team_id=v_team),
+    'fanta_save_team still saves the owner roster after the direct grants are revoked');
+  perform fanta_order_test.check(v_denied and (select count(*)=1 from public.fanta_rosters where team_id=v_team and role='captain'),
+    'the owner cannot PATCH their roster around fanta_save_team');
+  perform fanta_order_test.check(exists(select 1 from public.fanta_rosters where team_id=v_team and player_id='anna_ND')
+    and not exists(select 1 from public.fanta_rosters where player_id ~ '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+    and not exists(select 1 from public.fanta_roster_live_rows where player_id ~ '[0-9]{4}-[0-9]{2}-[0-9]{2}'),
+    'a birth-date player key is stored and published as the builder name_ND key');
+  insert into public.fanta_archived_editions(workspace_id,tournament_id,tournament_name) values('fanta-order-privacy','archived-privacy','Archived privacy');
+  insert into public.fanta_archived_players(workspace_id,tournament_id,player_id,rank,player_name)
+    values('fanta-order-privacy','archived-privacy','anna_2009-04-01',1,'Anna');
+  insert into public.fanta_archived_rosters(workspace_id,tournament_id,team_id,team_name,player_id,player_name)
+    values('fanta-order-privacy','archived-privacy',v_team,'Privacy Fanta','anna_2009-04-01','Anna');
+  perform fanta_order_test.check((select player_id='anna_ND' from public.fanta_archived_players where workspace_id='fanta-order-privacy')
+    and (select player_id='anna_ND' from public.fanta_archived_rosters where workspace_id='fanta-order-privacy')
+    and public.flbp_fanta_public_player_id('fixture-alice')='fixture-alice',
+    'archived Fanta players and rosters never store a birth date; other ids are untouched');
+end;
+$$;
 select 'PASS: '||label from fanta_order_test.checks;
 rollback;

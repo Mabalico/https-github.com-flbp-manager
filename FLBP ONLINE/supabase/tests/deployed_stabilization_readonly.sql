@@ -90,6 +90,36 @@ begin
       ) and strpos(pg_get_functiondef(p.oid), 'A09_ADVISORY_BEFORE_WORKSPACE_ROW') = 0
     ) then raise exception 'An Admin write path lacks the common lock order'; end if;
   end if;
+  -- Fanta rosters, referee attempt lock, Fanta birth dates, anonymous counters.
+  foreach v_table in array array['public.fanta_teams'::regclass, 'public.fanta_rosters'::regclass] loop
+    if has_table_privilege('anon', v_table, 'INSERT, UPDATE, DELETE')
+      or has_table_privilege('authenticated', v_table, 'INSERT, UPDATE, DELETE')
+    then raise exception 'Direct client writes remain enabled on a Fanta roster table: %', v_table; end if;
+    if not has_table_privilege('anon', v_table, 'SELECT')
+    then raise exception 'Fanta roster table is no longer publicly readable: %', v_table; end if;
+  end loop;
+  v_signature := 'public.flbp_referee_auth_is_locked(text,text)'::regprocedure;
+  if has_function_privilege('anon', v_signature, 'EXECUTE')
+    or has_function_privilege('authenticated', v_signature, 'EXECUTE')
+  then raise exception 'Referee attempt-lock helper accessible to client roles'; end if;
+  if strpos(pg_get_functiondef('public.flbp_referee_check_credentials(text,text,text,text,text)'::regprocedure), 'flbp_referee_auth_is_locked') = 0
+    or strpos(pg_get_functiondef('public.flbp_referee_cancel_player_calls(text,text,text,text[],text)'::regprocedure), 'flbp_referee_check_credentials') = 0
+  then raise exception 'A referee password check bypasses the attempt lock'; end if;
+  foreach v_table in array array[
+    'public.fanta_rosters'::regclass, 'public.fanta_archived_rosters'::regclass, 'public.fanta_archived_players'::regclass
+  ] loop
+    if not exists (
+      select 1 from pg_trigger
+      where tgrelid = v_table and not tgisinternal and tgname like 'flbp\_fanta\_%strip\_player\_birthdate'
+    ) then raise exception 'Fanta birth-date guard missing on %', v_table; end if;
+  end loop;
+  if exists (select 1 from public.fanta_rosters where player_id ~ '_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    or exists (select 1 from public.fanta_archived_rosters where player_id ~ '_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    or exists (select 1 from public.fanta_archived_players where player_id ~ '_[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+  then raise exception 'A public Fanta player id still contains a birth date'; end if;
+  if strpos(pg_get_functiondef('public.flbp_track_supabase_usage_batch(text,jsonb)'::regprocedure), 'workspace_missing') = 0
+    or strpos(pg_get_functiondef('public.flbp_track_site_view(text,date)'::regprocedure), 'v_today - 1') = 0
+  then raise exception 'Anonymous tracking RPCs still accept unbounded input'; end if;
 end;
 $$;
 set local role anon;

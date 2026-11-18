@@ -65,7 +65,7 @@ if(databaseUrl){
       create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt()->>'sub','')::uuid $$;
     `);
     const migrationDir=path.join(legacy?path.resolve(root,'../FLBP LOCALE'):root,'supabase/migrations');
-    const files=(await fs.readdir(migrationDir)).filter(name=>name.endsWith('.sql') && (!legacy || name<'20260701000000' || name.startsWith('20260924000100') || name.startsWith('20260924000200') || name.startsWith('20260924000300') || name.startsWith('20260924000400'))).sort();
+    const files=(await fs.readdir(migrationDir)).filter(name=>name.endsWith('.sql') && (!legacy || name<'20260701000000' || name.startsWith('20260924000100') || name.startsWith('20260924000200') || name.startsWith('20260924000300') || name.startsWith('20260924000400') || name.startsWith('20261117100400'))).sort();
     for(const name of files){
       try{
         const sql=await fs.readFile(path.join(migrationDir,name),'utf8');

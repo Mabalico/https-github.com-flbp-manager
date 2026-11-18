@@ -67,7 +67,10 @@ Manca o richiede configurazione nativa:
 - Android: verificare su device reale che Firebase rilasci un token FCM e che il device venga salvato in `player_app_devices`;
 - iOS: configurare Signing & Capabilities in Xcode, Push Notifications, Background Modes se si vogliono remote notification background, provisioning APNs valido;
 - apertura diretta delle impostazioni notifiche: il bridge chiama un plugin nativo opzionale `FLBPAppSettings`, non ancora implementato nel repo generato;
-- parita' Android background/killed: il plugin Capacitor riceve token e foreground events, ma la parita' con la vecchia app dedicata per payload FCM data-only in background/killed va testata e potrebbe richiedere un piccolo servizio nativo Android o un payload backend distinto per wrapper;
+- parita' Android background/killed: il plugin Capacitor non costruisce notifiche da messaggi FCM solo-data. Per questo `player-call-push` invia per `ringing` anche un blocco `notification` (titolo/corpo) con `android.notification.channel_id = team_calls` e `tag = call-<id>`, cosi' la notifica la mostra il sistema; `cancelled` e `acknowledged` restano solo-data. Da provare su telefono (app in background e chiusa); la notifica `ringing` gia' mostrata non viene rimossa da un `cancelled` ricevuto in background;
+- token non piu' validi: se FCM risponde 404 con `UNREGISTERED`, o APNs 410 / 400 `BadDeviceToken`, `player-call-push` imposta `push_enabled = false` e `device_token = null` sulla riga del device (il token si rigenera alla successiva apertura dell'app); un 404 FCM generico non cancella nulla;
+- cambio account sullo stesso telefono: `registerPlayerAppDevice` chiama la RPC `flbp_player_claim_device` (migration `20261117000100`), che riassegna la riga del device all'utente loggato (fallback all'upsert se la RPC non e' ancora deployata);
+- iOS: `AppDelegate` inoltra a Capacitor i token APNs (`didRegisterForRemoteNotificationsWithDeviceToken` / `didFailToRegister...`); restano da fare entitlements `aps-environment` e `DEVELOPMENT_TEAM`;
 - parita' iOS silent cancel: resta best-effort per limiti iOS/APNs, come gia' vale per la shell dedicata.
 
 Non fare cleanup di `FLBP ANDROID` o `FLBP IOS` finche' i test manuali sotto non dimostrano parita' funzionale del wrapper.
