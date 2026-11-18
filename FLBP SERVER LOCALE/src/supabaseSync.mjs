@@ -496,7 +496,9 @@ export class SupabaseSync {
       return result;
     }).finally(() => {
       this.livePublishInFlight = null;
-      if (this.livePublishRequested) queueMicrotask(() => void this.publishLiveSnapshot({ force: this.livePublishForce }));
+      // Nessun chiamante attende questa ri-esecuzione: senza catch una rete guasta
+      // produrrebbe una unhandledRejection e runtimeLogger chiuderebbe il processo.
+      if (this.livePublishRequested) queueMicrotask(() => void this.publishLiveSnapshot({ force: this.livePublishForce }).catch(() => null));
     });
     return this.livePublishInFlight;
   }
