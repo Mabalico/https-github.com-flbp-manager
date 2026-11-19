@@ -51,7 +51,7 @@
     "fix:perms": "node scripts/fix-perms.mjs",
     "check:ssr-admin": "node _ssr_admin_check.mjs",
     "check:ssr-editions": "node scripts/check-editions-ssr.mjs",
-    "check:ssr-tv": "node _ssr_tv_check.cjs",
+    "check:ssr-tv": "node scripts/check-ssr-tv.mjs",
     "audit:backup-profiles": "node scripts/audit-backup-profiles.mjs",
     "inspect:backup": "node scripts/inspect-backup-profile.mjs",
     "check:i18n": "node scripts/check-i18n-coverage.mjs",

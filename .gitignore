@@ -45,10 +45,9 @@ AuthKey_*.p8
 *.zip
 *.apk
 
-# Generated SSR bundles (the .tsx next to them is the tracked source).
-# Already tracked, so these rules only stop NEW copies from being added; and
-# "check:ssr-tv" still executes the tracked _ssr_tv_check.cjs: give that script
-# a build step before removing the bundle from the index.
+# Old generated SSR bundles (the .tsx next to them is the tracked source).
+# "check:ssr-tv" now compiles _ssr_tv_check.tsx into .tmp-ssr-tv/ on every run
+# (scripts/check-ssr-tv.mjs); stale local copies of these bundles stay ignored.
 **/_ssr_tv_check.cjs
 **/_ssr_tv_check.mjs
 
