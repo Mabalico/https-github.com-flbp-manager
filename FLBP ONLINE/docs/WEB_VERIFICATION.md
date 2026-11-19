@@ -3,8 +3,9 @@
 `npm run check:web` esegue il controllo TypeScript browser/test, le suite dati,
 editor, persistenza, referti, restore, fogli di calcolo, retry Fanta e route TV,
 SSR Admin/Edizioni/TV, vincoli TV, copertura chiavi lingua e build produzione.
-ONLINE aggiunge controlli durabilità, replica locale, idempotenza cloud e contratto
-Edge del backup e rifiuti del client arbitri. Il primo errore interrompe il gate.
+ONLINE aggiunge controlli durabilità, replica locale, idempotenza cloud, contratti
+Edge del backup e delle notifiche di convocazione (`test:call-push-edge`, anche sulla
+copia LOCALE della funzione) e rifiuti del client arbitri. Il primo errore interrompe il gate.
 
 `npm run release:check` usa lo stesso gate; un percorso backup opzionale aggiunge
 le sue verifiche di invarianti e sanitizzazione. `npm run check:backup -- file.json`

@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "SS",
   "referees_password_required_input": "審判パスワードを入力してください。",
   "referees_password_wrong": "パスワードが間違っています。",
+  "referees_rate_limited": "審判のアクセスが一時的にブロックされました。誤ったパスワードでの試行が多すぎます。数分後にもう一度お試しください。",
   "referees_access_not_configured": "審判のアクセスはこのトーナメント用に設定されていません。",
   "referees_remote_sync_not_enabled": "データベース上でリモート審判同期がまだアクティブ化されていません。専用の移行を実行します。",
   "referees_password_check_failed": "パスワードの検証に失敗しました。",

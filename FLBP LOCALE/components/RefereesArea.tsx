@@ -57,6 +57,19 @@ const sameSet = (a: string[], b: string[]) => {
 
 const sameRefereeName = (a: string, b: string) => normalizeName(a).toLowerCase() === normalizeName(b).toLowerCase();
 
+// Referee lock, not a wrong password: after 30 wrong passwords in 10 minutes
+// Supabase answers reason 'rate_limited' (HTTP 429 on writes) even to the right
+// password; the local server answers code FLBP_RATE_LIMITED. Accepts an RPC
+// result, an Error or a raw response body. `\W` keeps out names such as
+// flbp_referee_auth_is_rate_limited in database error messages.
+const isRefereeRateLimited = (value: unknown): boolean => {
+    if (!value) return false;
+    const candidate = value as { reason?: unknown; code?: unknown; message?: unknown };
+    return candidate.reason === 'rate_limited'
+        || candidate.code === 'FLBP_RATE_LIMITED'
+        || /(?:^|\W)rate_limited(?:\W|$)/.test(String(candidate.message ?? value));
+};
+
 export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onBack }) => {
     const { t } = useTranslation();
     const playerAreaSnapshot = useMemo(() => buildPlayerAreaSnapshot(state), [state]);
@@ -407,7 +420,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 if (!check?.ok) {
                     setLoginError(check?.reason === 'no_config'
                         ? (t('referees_access_not_configured') || 'Accesso arbitri non configurato per questo torneo.')
-                        : (t('referees_password_wrong') || 'Password errata.'));
+                        : isRefereeRateLimited(check)
+                            ? (t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.')
+                            : (t('referees_password_wrong') || 'Password errata.'));
                     return;
                 }
                 verifiedAuthVersion = String(check.auth_version || verifiedAuthVersion || '').trim();
@@ -416,6 +431,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     if (pulled?.ok && pulled.state) {
                         verifiedAuthVersion = String(pulled.auth_version || verifiedAuthVersion || '').trim();
                         setState(pulled.state);
+                    } else if (isRefereeRateLimited(pulled)) {
+                        setLoginError(t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.');
+                        return;
                     }
                 } catch (syncError: any) {
                     const syncMessage = String(syncError?.message || syncError || '');
@@ -442,7 +460,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         } catch (e: any) {
             const msg = String(e?.message || e || '');
             setLoginError(
-                msg.includes('flbp_referee_auth_check')
+                isRefereeRateLimited(e)
+                    ? (t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.')
+                    : msg.includes('flbp_referee_auth_check')
                     ? (t('referees_remote_sync_not_enabled') || 'Sync arbitri remoto non ancora attivato sul database. Esegui la migration dedicata.')
                     : (msg || (t('referees_password_check_failed') || 'Verifica password non riuscita.'))
             );
@@ -1166,7 +1186,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
                     } else {
                         markDbSyncError(e?.message || String(e), 'snapshot');
-                        alert(t('referees_db_save_failed') || 'Salvataggio DB arbitri non riuscito. Controlla connessione e riprova.');
+                        alert(isRefereeRateLimited(e)
+                            ? (t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.')
+                            : (t('referees_db_save_failed') || 'Salvataggio DB arbitri non riuscito. Controlla connessione e riprova.'));
                     }
                     return;
                 }

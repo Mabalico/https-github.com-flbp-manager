@@ -33,6 +33,7 @@
     "test:referee-security": "node scripts/test-referee-security.mjs",
     "test:admin-auth": "node scripts/test-admin-auth.mjs",
     "test:backup-edge": "node scripts/test-database-backup-edge.mjs",
+    "test:call-push-edge": "node scripts/test-player-call-push-edge.mjs",
     "test:database-restore": "node scripts/test-database-restore.mjs",
     "test:database-restore-schema": "node scripts/test-database-restore-schema.mjs",
     "test:spreadsheet-compat": "node scripts/test-spreadsheet-compat.mjs",

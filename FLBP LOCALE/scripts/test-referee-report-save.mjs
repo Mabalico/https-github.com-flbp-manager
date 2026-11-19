@@ -14,7 +14,7 @@ const source = readFileSync(componentPath, 'utf8');
 // IO is injected; unrelated tournament transitions are held stable in this
 // fixture. No browser, real credentials, network or filesystem writes are used.
 const ast = ts.createSourceFile(componentPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['closeLiveCallsForMatch', 'saveReport'];
+const names = ['isRefereeRateLimited', 'closeLiveCallsForMatch', 'saveReport', 'doLogin'];
 const declarations = new Map();
 const visit = (node) => {
   if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && names.includes(node.name.text)) {
@@ -26,7 +26,7 @@ const visit = (node) => {
 visit(ast);
 for (const name of names) assert(declarations.has(name), `Missing real callback: ${name}`);
 const callbacks = ts.transpileModule(
-  names.map(name => declarations.get(name)).join('\n') + '\nglobalThis.callbacks = { closeLiveCallsForMatch, saveReport };',
+  names.map(name => declarations.get(name)).join('\n') + `\nglobalThis.callbacks = { ${names.join(', ')} };`,
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
 ).outputText;
 
@@ -51,7 +51,9 @@ const loadPureModule = (relativePath) => {
 const matchUtils = loadPureModule('services/matchUtils.ts');
 const reportAudit = loadPureModule('services/refereeReportAudit.ts');
 const selectors = loadPureModule('services/tournamentStructureSelectors.ts');
-const fault = code => Object.assign(new Error(code), { code });
+const fault = code => typeof code === 'string' ? Object.assign(new Error(code), { code }) : code;
+// What supabaseRest throws for an HTTP 429 referee rejection: the raw body.
+const rateLimitedBody = () => new Error('{"ok":false,"reason":"rate_limited"}');
 const plain = value => JSON.parse(JSON.stringify(value));
 const drainMicrotasks = () => new Promise(resolve => setImmediate(resolve));
 
@@ -67,7 +69,7 @@ const createCase = (options = {}) => {
     tournament: { id: 't1', type: options.tournamentType || 'round_robin', teams, matches: localMatches, refereesPassword: options.configuredSecret || '' },
   };
   const events = [];
-  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [] };
+  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [] };
   let snapshotAttempts = 0;
   const context = {
     ...matchUtils, ...reportAudit,
@@ -131,7 +133,22 @@ const createCase = (options = {}) => {
     pullRefereeLiveState: async (tournamentId, secret) => {
       calls.pulls.push({ tournamentId, secret }); events.push('pull');
       if (options.pullError) throw fault(options.pullError);
+      if (options.pullResult) return options.pullResult;
       return { ok: true, state: options.pulledState || { ...state, remoteNote: 'preserve concurrent change' }, updated_at: 'new-base-version' };
+    },
+    // Login (doLogin): remote check path, the password is not configured locally.
+    liveTournament: { id: 't1', name: 'Torneo test', refereesPassword: '' },
+    password: ' fixture-entered ',
+    setLoginBusy: () => {},
+    setLoginError: value => calls.loginErrors.push(value),
+    setAuthed: value => calls.authed.push(value),
+    setPassword: () => {},
+    sessionStorage: { setItem: () => {}, removeItem: () => {} },
+    replayPendingReports: async () => 0,
+    verifyRefereePassword: async (tournamentId, secret) => {
+      calls.verifies.push({ tournamentId, secret });
+      if (options.verifyError) throw options.verifyError;
+      return options.verifyResult || { ok: true, auth_version: 'v1' };
     },
     tryMergeRemoteStateConflict: ({ localState, remoteState }) => options.mergeBlocked
       ? { ok: false }
@@ -245,6 +262,64 @@ await check('remote failure retains existing failure handling without cleanup', 
   assert(!result.calls.alerts.includes('alert_report_saved')); assert(result.events.includes('save-error'));
   assert.deepEqual(result.calls.busy, [true, false]);
   if (usesOutbox) assert.equal(result.calls.failed.length, 1);
+});
+await check('B6: a locked referee report push explains the lock instead of a connection error', async () => {
+  const locked = usesOutbox
+    ? createCase({ secret: 'ref-secret', rpcError: rateLimitedBody() })
+    : createCase({ secret: 'ref-secret', snapshotError: rateLimitedBody() });
+  await locked.saveReport();
+  assert.equal(locked.calls.alerts.length, 1);
+  assert(locked.calls.alerts[0].startsWith('referees_rate_limited'), locked.calls.alerts[0]);
+  assert.equal(locked.calls.cleanup.length + locked.calls.acknowledged.length, 0, 'a rejected report is neither confirmed nor cleaned up');
+  assert(locked.events.includes('save-error'));
+  if (usesOutbox) {
+    assert.equal(locked.calls.queued.length, 1, 'the report stays in the device queue');
+    assert.equal(locked.calls.failed.length, 1);
+    assert(locked.calls.alerts[0].includes('salvato sul dispositivo'), 'the referee is told the report is kept');
+    const fallback = createCase({ secret: 'ref-secret', rpcError: 'PGRST202', snapshotError: rateLimitedBody(), snapshotAlwaysFails: true });
+    await fallback.saveReport();
+    assert(fallback.calls.alerts[0].startsWith('referees_rate_limited'), 'snapshot fallback explains the lock too');
+    assert.equal(fallback.calls.acknowledged.length, 0);
+  } else {
+    assert.equal(locked.calls.states.length, 0, 'LOCALE keeps the old no-write behaviour');
+  }
+  const offline = usesOutbox
+    ? createCase({ secret: 'ref-secret', rpcError: 'NETWORK_ERROR' })
+    : createCase({ secret: 'ref-secret', snapshotError: 'NETWORK_ERROR' });
+  await offline.saveReport();
+  assert(!offline.calls.alerts[0].startsWith('referees_rate_limited'), 'other failures keep their message');
+});
+await check('B6: referee login tells a lock apart from a wrong password', async () => {
+  const lockedCheck = createCase({ verifyResult: { ok: false, reason: 'rate_limited' } });
+  await lockedCheck.doLogin();
+  assert.deepEqual(lockedCheck.calls.loginErrors, ['referees_rate_limited']);
+  assert.deepEqual(lockedCheck.calls.authed, []);
+  assert.equal(lockedCheck.calls.verifies[0].secret, 'fixture-entered');
+
+  const wrong = createCase({ verifyResult: { ok: false, reason: 'bad_password' } });
+  await wrong.doLogin();
+  assert.deepEqual(wrong.calls.loginErrors, ['referees_password_wrong']);
+
+  const lockedRead = createCase({ pullResult: { ok: false, reason: 'rate_limited', state: null } });
+  await lockedRead.doLogin();
+  assert.deepEqual(lockedRead.calls.loginErrors, ['referees_rate_limited'], 'a locked state read stops the login');
+  assert.deepEqual(lockedRead.calls.authed, []);
+  assert.equal(lockedRead.calls.states.length, 0);
+
+  const localServer = createCase({ verifyError: Object.assign(new Error('Troppe richieste: riprova tra poco.'), { code: 'FLBP_RATE_LIMITED' }) });
+  await localServer.doLogin();
+  assert.deepEqual(localServer.calls.loginErrors, ['referees_rate_limited']);
+
+  const helperName = 'permission denied for function flbp_referee_auth_is_rate_limited';
+  const unrelated = createCase({ verifyError: new Error(helperName) });
+  await unrelated.doLogin();
+  assert.deepEqual(unrelated.calls.loginErrors, [helperName], 'a database error naming the helper is not the lock');
+
+  const accepted = createCase();
+  await accepted.doLogin();
+  assert.deepEqual(accepted.calls.authed, [true]);
+  assert.deepEqual(accepted.calls.loginErrors, [null]);
+  assert.equal(accepted.calls.states.length, 1, 'the live state read at login is applied');
 });
 await check('cleanup ignores BYE/TBD and deduplicates real participants', async () => {
   const result = createCase({ token: true });

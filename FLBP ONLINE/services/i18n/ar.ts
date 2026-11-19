@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "سس",
   "referees_password_required_input": "أدخل كلمة مرور الحكام.",
   "referees_password_wrong": "كلمة مرور غير صحيحة.",
+  "referees_rate_limited": "تم حظر وصول الحكم مؤقتًا: محاولات كثيرة جدًا بكلمة مرور غير صحيحة. حاول مرة أخرى بعد بضع دقائق.",
   "referees_access_not_configured": "لم يتم تكوين وصول الحكم لهذه البطولة.",
   "referees_remote_sync_not_enabled": "لم يتم تفعيل مزامنة الحكم عن بعد في قاعدة البيانات بعد. قم بتشغيل الترحيل المخصص.",
   "referees_password_check_failed": "فشل التحقق من كلمة المرور.",
