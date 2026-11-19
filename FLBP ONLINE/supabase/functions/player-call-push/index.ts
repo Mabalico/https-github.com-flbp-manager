@@ -224,22 +224,26 @@ const ensureRefereeCallDispatch = async (
     });
   }
 
-  const { data, error } = await adminClient
-    .from('workspace_state')
-    .select('state')
-    .eq('workspace_id', call.workspace_id)
-    .maybeSingle<{ state: Record<string, unknown> | null }>();
+  // Same credential check as every referee RPC: a wrong password is audited and
+  // counts towards the 30-failure lock, and while the lock is active every
+  // attempt (right password included) is rejected as rate_limited.
+  const { data, error } = await adminClient.rpc('flbp_referee_check_credentials', {
+    p_workspace_id: call.workspace_id,
+    p_tournament_id: tournamentId,
+    p_password: refereePassword,
+    p_action: 'player_call_push',
+    p_auth_version: null,
+  });
   if (error) throw new Error(error.message);
 
-  const state = (data?.state || {}) as Record<string, unknown>;
-  const liveTournament = state.tournament && typeof state.tournament === 'object'
-    ? state.tournament as Record<string, unknown>
-    : {};
-  const liveTournamentId = normalizeText(liveTournament.id);
-  const expectedPassword = normalizeText(liveTournament.refereesPassword);
-  if (!liveTournamentId || liveTournamentId !== tournamentId || !expectedPassword || expectedPassword !== refereePassword) {
-    throw new Response(JSON.stringify({ ok: false, reason: 'Referee access required for this live tournament.' }), {
-      status: 403,
+  const auth = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  if (auth.ok !== true) {
+    const rateLimited = normalizeText(auth.reason) === 'rate_limited';
+    throw new Response(JSON.stringify({
+      ok: false,
+      reason: rateLimited ? 'rate_limited' : 'Referee access required for this live tournament.',
+    }), {
+      status: rateLimited ? 429 : 403,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

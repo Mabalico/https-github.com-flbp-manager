@@ -11,7 +11,7 @@ const common = [
   'test:fanta-save-retry', 'test:draft-navigation', 'test:tv-route', 'check:ssr-admin', 'check:ssr-editions',
   'check:ssr-tv', 'check:tv-readonly', 'check:i18n', 'build',
 ];
-const onlineOnly = ['check:durability', 'test:local-data-plane', 'test:cloud-durability', 'test:backup-edge', 'test:referee-client', 'test:public-mirrors-client'];
+const onlineOnly = ['check:durability', 'test:local-data-plane', 'test:cloud-durability', 'test:backup-edge', 'test:call-push-edge', 'test:referee-client', 'test:public-mirrors-client'];
 const isOnline = fs.existsSync(path.join(root, 'scripts/check-data-durability.mjs'));
 const tasks = [...common, ...(isOnline ? onlineOnly : [])];
 if (process.argv.includes('--list')) {

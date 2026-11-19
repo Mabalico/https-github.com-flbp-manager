@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "SS",
   "referees_password_required_input": "Wprowadź hasło sędziego.",
   "referees_password_wrong": "Nieprawidłowe hasło.",
+  "referees_rate_limited": "Dostęp sędziego tymczasowo zablokowany: zbyt wiele prób z nieprawidłowym hasłem. Spróbuj ponownie za kilka minut.",
   "referees_access_not_configured": "Dostęp sędziego nie jest skonfigurowany dla tego turnieju.",
   "referees_remote_sync_not_enabled": "Zdalna synchronizacja sędziów nie została jeszcze aktywowana w bazie danych. Uruchom dedykowaną migrację.",
   "referees_password_check_failed": "Weryfikacja hasła nie powiodła się.",

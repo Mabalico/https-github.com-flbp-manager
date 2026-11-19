@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "SS",
   "referees_password_required_input": "Hakemlerin şifresini girin.",
   "referees_password_wrong": "Yanlış şifre.",
+  "referees_rate_limited": "Hakem erişimi geçici olarak engellendi: yanlış şifreyle çok fazla deneme yapıldı. Birkaç dakika sonra tekrar deneyin.",
   "referees_access_not_configured": "Hakem erişimi bu turnuva için yapılandırılmadı.",
   "referees_remote_sync_not_enabled": "Uzaktan hakem senkronizasyonu henüz veritabanında etkinleştirilmedi. Özel geçişi çalıştırın.",
   "referees_password_check_failed": "Şifre doğrulaması başarısız oldu.",

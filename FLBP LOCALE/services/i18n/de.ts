@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "SS",
   "referees_password_required_input": "Geben Sie das Schiedsrichterpasswort ein.",
   "referees_password_wrong": "Falsches Passwort.",
+  "referees_rate_limited": "Schiedsrichterzugriff vorübergehend gesperrt: zu viele Versuche mit falschem Passwort. Versuche es in ein paar Minuten erneut.",
   "referees_access_not_configured": "Der Schiedsrichterzugriff ist für dieses Turnier nicht konfiguriert.",
   "referees_remote_sync_not_enabled": "Die Remote-Schiedsrichtersynchronisierung ist in der Datenbank noch nicht aktiviert. Führen Sie die dedizierte Migration aus.",
   "referees_password_check_failed": "Die Passwortüberprüfung ist fehlgeschlagen.",

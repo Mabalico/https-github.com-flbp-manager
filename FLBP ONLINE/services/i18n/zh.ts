@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "SS",
   "referees_password_required_input": "输入裁判密码。",
   "referees_password_wrong": "密码不正确。",
+  "referees_rate_limited": "裁判访问已被暂时锁定：错误密码尝试次数过多。请几分钟后重试。",
   "referees_access_not_configured": "未为本次锦标赛配置裁判访问权限。",
   "referees_remote_sync_not_enabled": "数据库上尚未激活远程裁判同步。运行专用迁移。",
   "referees_password_check_failed": "密码验证失败。",

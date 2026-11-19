@@ -41,13 +41,15 @@ La migration `20261117100200_referee_password_attempt_limit.sql` sostituisce la 
 - da 12 a 29 la password errata resta etichettata `rate_limited` (HTTP 429 sui push) e la password corretta passa ancora;
 - da 30 confronti falliti in 10 minuti ogni tentativo arbitri (login, lettura dello stato, push, cancellazione convocazioni) riceve `rate_limited` **prima** del confronto della password, quindi anche quella corretta: un tentativo non rivela più nulla. Questi rifiuti sono registrati nell'audit come `locked` e non vengono contati, così il blocco si scioglie da solo quando i fallimenti escono dalla finestra di 10 minuti.
 
-Compromesso accettato: chi continua a inviare password errate può tenere fuori gli arbitri di quel torneo finché insiste. Le scritture Admin non sono toccate e i referti restano nella coda del dispositivo. Durante il blocco la schermata di login arbitri mostra ancora "Password errata": un messaggio dedicato a `rate_limited` è da aggiungere in `components/RefereesArea.tsx`.
+Compromesso accettato: chi continua a inviare password errate può tenere fuori gli arbitri di quel torneo finché insiste. Le scritture Admin non sono toccate e i referti restano nella coda del dispositivo. Durante il blocco `components/RefereesArea.tsx` mostra un messaggio dedicato (chiave `referees_rate_limited`) invece di "Password errata" o di un errore di connessione: al login, se la lettura dello stato subito dopo il login viene rifiutata (in quel caso l'accesso non viene aperto) e quando un referto viene rifiutato. In ONLINE il referto resta nella coda del dispositivo e il messaggio lo dice; in LOCALE, come prima, il referto non viene salvato e va reinviato a blocco sciolto. Lo stesso messaggio compare per il limite del server locale (`FLBP_RATE_LIMITED`).
 
 `flbp_referee_cancel_player_calls` ora usa `flbp_referee_check_credentials`: i rifiuti sono registrati nell'audit, contano per il blocco e tornano come `{ok:false,reason}` con HTTP 403/429 invece di un'eccezione; in caso di successo restituisce come prima le convocazioni annullate.
 
+Lo stesso vale per la funzione Edge `player-call-push` quando l'arbitro invia la notifica silenziosa di convocazione annullata: la password non è più confrontata nella funzione ma passa da `flbp_referee_check_credentials` (azione `player_call_push` nell'audit), quindi i rifiuti contano per il blocco. A blocco attivo la funzione risponde HTTP 429 `{ok:false,reason:'rate_limited'}`; gli altri rifiuti restano HTTP 403 con il messaggio di prima e la risposta di successo non cambia. I controlli di ambito (solo azione `cancelled`, torneo della convocazione, convocazione già annullata) restano prima del controllo della password e non generano tentativi. Il percorso Admin (sessione Supabase e `admin_users`) non è toccato. La funzione si pubblica a mano con il workflow "Deploy Supabase Edge Functions".
+
 ## Limite rimasto: protezione dai tentativi automatici
 
-Il blocco è condiviso per workspace e torneo, non per dispositivo. Non va presentato come una protezione completa contro il brute force: il flusso anonimo non fornisce un'identità verificata per distinguere due dispositivi. La funzione Edge `player-call-push` verifica ancora la stessa password da sola, senza audit né blocco: va instradata su `flbp_referee_check_credentials`.
+Il blocco è condiviso per workspace e torneo, non per dispositivo. Non va presentato come una protezione completa contro il brute force: il flusso anonimo non fornisce un'identità verificata per distinguere due dispositivi.
 
 Un intervento distinto deve portare tutte le verifiche della password attraverso un gateway attendibile, con limiti per origine verificata dal gateway, contatori persistenti e sessioni arbitro revocabili. Il piano deve includere cancellazione/push delle convocazioni, disattivazione delle vecchie vie dirette e migrazione dei client. Non usare semplicemente `x-forwarded-for`, `x-real-ip` o un identificatore scelto dal browser. Questa migration non realizza né simula quel gateway.
 
@@ -59,7 +61,11 @@ I runner risiedono nella copia canonica `FLBP ONLINE/scripts`. Non aggiungono di
 node scripts/test-referee-security.mjs --pglite /absolute/path/to/pglite/dist/index.js
 node scripts/test-referee-security.mjs --pglite /absolute/path/to/pglite/dist/index.js --legacy
 node scripts/test-referee-client-contract.mjs
+node scripts/test-player-call-push-edge.mjs
+node scripts/test-referee-report-save.mjs
 ```
+
+`test-player-call-push-edge.mjs` (`npm run test:call-push-edge`) esegue la vera funzione `player-call-push` delle due copie con client Supabase, `fetch` e `Deno.env` sostituiti da stub: la password passa da `flbp_referee_check_credentials`, il blocco risponde 429, gli altri rifiuti 403, i controlli di ambito precedono il controllo password e il percorso Admin non cambia. `test-referee-report-save.mjs` esegue le vere funzioni di `RefereesArea.tsx` (login e salvataggio) e controlla il messaggio dedicato al blocco.
 
 Al 25 settembre 2026: **64 asserzioni SQL** sullo schema ONLINE completo (70 migrations), **52** sullo schema LOCALE fino a giugno con le nuove migration di autorizzazione e arbitri, **36** casi del servizio frontend effettivo. Copertura: privilegi reali anon, password corrette/errate, header falsificati, audit, exploit dello snapshot, campi privati, conflitti, FTB, snapshot legacy con soli `rounds`, errore successivo alla scrittura e rollback di snapshot/righe normalizzate/versioni, leadership locale/recovery, riparazione mirror assente/torneo errato/partita mancante, righe pubbliche correnti e obsolete, privacy annidata e confini U25. Il runner verifica anche riapplicazione della migration e lock Admin con corpi CRLF. La suite legacy non comprende le migrations LOCALE successive a giugno: la sequenza completa contiene una collisione storica di versione già documentata nel rapporto audit.
 

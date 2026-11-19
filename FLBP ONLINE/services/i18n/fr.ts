@@ -1438,6 +1438,7 @@ export const dictionary: TranslationDictionary = {
   "standings_blows_against_short": "SS",
   "referees_password_required_input": "Entrez le mot de passe des arbitres.",
   "referees_password_wrong": "Mot de passe incorrect.",
+  "referees_rate_limited": "Accès arbitre temporairement bloqué : trop de tentatives avec un mot de passe incorrect. Réessayez dans quelques minutes.",
   "referees_access_not_configured": "Accès arbitre non configuré pour ce tournoi.",
   "referees_remote_sync_not_enabled": "La synchronisation des arbitres à distance n'est pas encore activée sur la base de données. Exécutez la migration dédiée.",
   "referees_password_check_failed": "La vérification du mot de passe a échoué.",
