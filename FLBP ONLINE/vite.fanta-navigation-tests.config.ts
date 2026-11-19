@@ -20,9 +20,13 @@ export default defineConfig({
   plugins: [{
     name: 'fanta-navigation-io-fixture',
     enforce: 'pre',
-    resolveId(source, importer) {
+    resolveId(source, importer, options) {
       if (!importer || !source.startsWith('.')) return;
       if (source.endsWith('/getRepository') || source.endsWith('/AdminDashboard')) return ioFixture;
+      // The dependency scanner caches resolutions per source and importer directory, so an
+      // importer-specific redirect would leak to sibling files and break the scan. Vite passes
+      // `scan` to plugin hooks at runtime but its public hook type does not declare it.
+      if ((options as { scan?: boolean } | undefined)?.scan) return;
       const parent = importer.replace(/\\/g, '/').split('?')[0];
       if (source.endsWith('/fantaSupabaseService') && (
         parent.endsWith('/components/FantaBeerpong.tsx')
