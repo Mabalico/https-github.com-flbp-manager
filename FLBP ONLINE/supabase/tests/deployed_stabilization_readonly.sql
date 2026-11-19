@@ -120,6 +120,12 @@ begin
   if strpos(pg_get_functiondef('public.flbp_track_supabase_usage_batch(text,jsonb)'::regprocedure), 'workspace_missing') = 0
     or strpos(pg_get_functiondef('public.flbp_track_site_view(text,date)'::regprocedure), 'v_today - 1') = 0
   then raise exception 'Anonymous tracking RPCs still accept unbounded input'; end if;
+  -- Referee pull: live-tournament view only, still reachable by referees.
+  v_signature := 'public.flbp_referee_pull_live_state(text,text,text)'::regprocedure;
+  if strpos(pg_get_functiondef(v_signature), 'flbp_referee_public_projection') = 0
+  then raise exception 'Referee pull still returns the private workspace state'; end if;
+  if not has_function_privilege('anon', v_signature, 'EXECUTE')
+  then raise exception 'Referee pull is no longer executable by referees'; end if;
 end;
 $$;
 set local role anon;

@@ -25,7 +25,7 @@ import {
 
 interface RefereesAreaProps {
     state: AppState;
-    setState: (s: AppState) => void;
+    setState: React.Dispatch<React.SetStateAction<AppState>>;
     onBack: () => void;
 }
 
@@ -70,8 +70,86 @@ const isRefereeRateLimited = (value: unknown): boolean => {
         || /(?:^|\W)rate_limited(?:\W|$)/.test(String(candidate.message ?? value));
 };
 
+// Since migration 20261119000100 flbp_referee_pull_live_state returns only the
+// referee view of the live tournament (teams, groups, config, roster, matches):
+// no referee password, birth dates, archives or aliases. Older databases still
+// return the whole private state, which always carries the referee password.
+// A view must never replace a complete Admin copy, or the next Admin save
+// would remove those data from the cloud.
+const PRIVATE_APP_STATE_KEYS = new Set([
+    'refereesPassword', 'player1BirthDate', 'player2BirthDate', 'player1YoB', 'player2YoB',
+    'birthDate', 'yob', 'playerBirthDate', 'playerBirthDates', 'playerId', 'playerIds',
+    'playerAliases', 'playerAccountAliasIgnores',
+]);
+
+const hasPrivateAppData = (value: unknown, depth = 0): boolean => {
+    if (!value || typeof value !== 'object') return false;
+    if (depth > 32) return true; // unexpected shape: keep the local copy
+    if (Array.isArray(value)) return value.some((item) => hasPrivateAppData(item, depth + 1));
+    return Object.entries(value as Record<string, unknown>).some(([key, child]) => {
+        if (PRIVATE_APP_STATE_KEYS.has(key) && child != null && child !== '' && child !== false
+            && !(typeof child === 'object' && Object.keys(child as object).length === 0)) return true;
+        return hasPrivateAppData(child, depth + 1);
+    });
+};
+
+// Match fields carried by the referee view (the same fields a referee patch may write).
+const REFEREE_VIEW_MATCH_KEYS = new Set([
+    'id', 'teamAId', 'teamBId', 'teamIds', 'scoresByTeam', 'scoreA', 'scoreB', 'played', 'status', 'stats',
+    'round', 'code', 'phase', 'groupName', 'roundName', 'orderIndex', 'nextMatchId', 'nextSlot', 'hidden', 'isBye',
+    'isTieBreak', 'targetScore', 'refereeReportAudit', 'refereeReportFinalId', 'refereeReportSource',
+    'refereeReportAuthorName', 'refereeReportSavedAt',
+]);
+
+// Applies a state read by (or built in) the referee area onto `current`.
+// - Complete incoming state (it has the referee password) or a `current` with
+//   no private data: replace only the live parts (teams, tournament, matches).
+// - Otherwise `current` is a complete copy and `incoming` a view: take only
+//   what referees change (matches, roster) for the same tournament, keeping
+//   match fields the view does not carry; anything else stays as it is.
+const mergeRefereeLiveState = (current: AppState, incoming: AppState | null | undefined): AppState => {
+    const incomingTournament = incoming?.tournament;
+    if (!incoming || !incomingTournament) return current;
+    if (String(incomingTournament.refereesPassword || '').trim() || !hasPrivateAppData(current)) {
+        return { ...current, teams: incoming.teams, tournament: incomingTournament, tournamentMatches: incoming.tournamentMatches };
+    }
+    const currentTournament = current.tournament;
+    if (!currentTournament || currentTournament.id !== incomingTournament.id) return current;
+    const localById = new Map<string, Match>();
+    const remember = (list: unknown) => {
+        if (Array.isArray(list)) for (const match of list) if (match?.id) localById.set(String(match.id), match);
+    };
+    remember(current.tournamentMatches);
+    remember(currentTournament.matches);
+    (Array.isArray(currentTournament.rounds) ? currentTournament.rounds : []).forEach(remember);
+    const mergeList = (list: Match[]) => list.map((remote) => {
+        const local = remote?.id ? localById.get(String(remote.id)) : undefined;
+        if (!local) return remote;
+        const localOnly = Object.fromEntries(Object.entries(local).filter(([key]) => !REFEREE_VIEW_MATCH_KEYS.has(key)));
+        return { ...localOnly, ...remote } as Match;
+    });
+    const nextTournament = { ...currentTournament };
+    if (Array.isArray(incomingTournament.matches) && incomingTournament.matches.length) {
+        nextTournament.matches = mergeList(incomingTournament.matches);
+    }
+    if (Array.isArray(incomingTournament.rounds) && incomingTournament.rounds.length) {
+        nextTournament.rounds = incomingTournament.rounds.map((round) => Array.isArray(round) ? mergeList(round) : round);
+    }
+    if (Array.isArray(incomingTournament.refereesRoster)) nextTournament.refereesRoster = [...incomingTournament.refereesRoster];
+    return {
+        ...current,
+        tournament: nextTournament,
+        tournamentMatches: Array.isArray(incoming.tournamentMatches) && incoming.tournamentMatches.length
+            ? mergeList(incoming.tournamentMatches)
+            : current.tournamentMatches,
+    };
+};
+
 export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onBack }) => {
     const { t } = useTranslation();
+    // `state` may be the public snapshot while the App holds the Admin copy:
+    // merge into the App's current state instead of replacing it.
+    const applyRefereeState = (incoming: AppState) => setState((current) => mergeRefereeLiveState(current, incoming));
     const playerAreaSnapshot = useMemo(() => buildPlayerAreaSnapshot(state), [state]);
     const previewRefereeBypass = !!playerAreaSnapshot.liveStatus.refereeBypassEligible;
     const previewRefereeName = String(playerAreaSnapshot.profile?.canonicalPlayerName || '').trim();
@@ -225,7 +303,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             const ok = sessionStorage.getItem('flbp_ref_authed') === '1'
                 && (sessionStorage.getItem('flbp_ref_authed_for') || '') === liveId
                 && (!liveAuthVersion || (sessionStorage.getItem('flbp_ref_authed_ver') || '') === liveAuthVersion);
-            if (!ok || requiresTransientRefereeSecret) {
+            // The referee view read at login has no password: the session lasts
+            // while the secret typed at login is in memory (lost on reload).
+            if (!ok || (requiresTransientRefereeSecret && !syncedPasswordRef.current.trim())) {
                 sessionStorage.removeItem('flbp_ref_authed');
                 sessionStorage.removeItem('flbp_ref_authed_for');
                 sessionStorage.removeItem('flbp_ref_authed_ver');
@@ -430,7 +510,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     const pulled = await pullRefereeLiveState(live.id, entered);
                     if (pulled?.ok && pulled.state) {
                         verifiedAuthVersion = String(pulled.auth_version || verifiedAuthVersion || '').trim();
-                        setState(pulled.state);
+                        applyRefereeState(pulled.state);
                     } else if (isRefereeRateLimited(pulled)) {
                         setLoginError(t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.');
                         return;
@@ -585,7 +665,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         const nextRoster = [...current, n];
         const nextTournament = { ...(liveTournament as any), refereesRoster: nextRoster };
 
-        setState({ ...state, tournament: nextTournament });
+        applyRefereeState({ ...state, tournament: nextTournament });
         setManualName('');
         setManualError(null);
         setAddingManual(false);
@@ -1160,10 +1240,12 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         try {
                             const pulled = await pullRefereeLiveState(state.tournament.id, refereePassword);
                             if (pulled?.ok && pulled.state) {
+                                // A view lacks archives/aliases: lift it onto the base
+                                // first, or the three-way merge reads them as deleted.
                                 const mergeResult = tryMergeRemoteStateConflict({
                                     baseState: state,
                                     localState: nextState,
-                                    remoteState: pulled.state
+                                    remoteState: mergeRefereeLiveState(state, pulled.state)
                                 });
                                 if (mergeResult.ok) {
                                     await pushRefereeLiveState(mergeResult.state, {
@@ -1173,7 +1255,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                     });
                                     clearDbSyncCurrentIssue();
                                     markDbSyncOk('snapshot');
-                                    setState(mergeResult.state);
+                                    applyRefereeState(mergeResult.state);
                                     alert(t('alert_report_saved'));
                                     void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
                                     return;
@@ -1194,7 +1276,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 }
             }
 
-            setState(nextState);
+            applyRefereeState(nextState);
             alert(t('alert_report_saved'));
             void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
         } finally {

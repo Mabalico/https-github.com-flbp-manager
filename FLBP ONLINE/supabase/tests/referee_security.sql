@@ -352,5 +352,90 @@ begin
   perform flbp_test_referee.assert_true((v_out->>'ok')::boolean,'the lock lifts by itself once the failures leave the 10-minute window');
 end;
 $$;
+-- The referee pull returns the live tournament only (20261119000100): no
+-- password, birth dates, archives, aliases or private extensions, but every
+-- field the referee area needs, and a report built on it still saves.
+do $$
+declare v_state jsonb; v_after jsonb; v_out jsonb; v_view jsonb; v_match jsonb; v_text text;
+begin
+  insert into public.workspaces(id) values('referee-security-pull');
+  v_state:='{"__schemaVersion":1,"logo":"PRIVATE-MARKER-logo","playerAliases":{"rossi mario_2001-02-03":"rossi mario_nd"},
+    "playerAccountAliasIgnores":{"rossi mario_2001-02-03":1},"fantaSettings":{"enabled":true,"secret":"PRIVATE-MARKER"},
+    "tournamentHistory":[{"id":"archived-2025","name":"Archivio","teams":[{"id":"old","name":"Old","player1":"Rossi Mario","player1BirthDate":"2001-02-03"}]}],
+    "hallOfFame":[{"id":"hof","year":"2025","tournamentId":"archived-2025","tournamentName":"Archivio","type":"winner","playerNames":["Rossi Mario"],
+      "playerIds":["rossi mario_2001-02-03"],"playerBirthDates":["2001-02-03"]}],
+    "integrationsScorers":[{"id":"int","name":"Rossi Mario","birthDate":"2001-02-03","yob":2001,"games":1,"points":1,"soffi":0}],
+    "matches":[{"id":"legacy-top-level","secret":"PRIVATE-MARKER"}],
+    "teams":[{"id":"a","name":"Team A","player1":"Rossi Mario","player2":"Verdi Anna","player1BirthDate":"2001-02-03","player2YoB":1999,"secret":"PRIVATE-MARKER"},
+      {"id":"b","name":"Team B","player1":"Neri Luca","player2":"Bianchi Sara","player1IsReferee":true}],
+    "tournament":{"id":"pull-test","name":"Pull","type":"groups_elimination","startDate":"2026-11-19","refereesPassword":"fixture-only-secret",
+      "refereesAuthVersion":"v7","refereesRoster":["Arbitro Uno"],"secret":"PRIVATE-MARKER",
+      "config":{"advancingPerGroup":1,"refTables":2,"finalRoundRobin":{"enabled":true,"topTeams":4,"activated":false},"secret":"PRIVATE-MARKER"},
+      "teams":[{"id":"a","name":"Team A","player1":"Rossi Mario","player2":"Verdi Anna","player1BirthDate":"2001-02-03","player2YoB":1999},
+        {"id":"b","name":"Team B","player1":"Neri Luca","player2":"Bianchi Sara","player1IsReferee":true}],
+      "groups":[{"id":"g1","name":"Girone A","stage":"groups","teams":[{"id":"a","name":"Team A","player1":"Rossi Mario","player1BirthDate":"2001-02-03"},
+        {"id":"b","name":"Team B","player1":"Neri Luca"}]}]},
+    "tournamentMatches":[
+      {"id":"m1","code":"A1","teamAId":"a","teamBId":"b","phase":"groups","groupName":"Girone A","scoreA":0,"scoreB":0,"played":false,"status":"playing",
+        "privateMatchNote":"PRIVATE-MARKER"},
+      {"id":"m2","code":"A2","teamAId":"a","teamBId":"b","teamIds":["a","b"],"scoresByTeam":{"a":10,"b":7},"phase":"groups","groupName":"Girone A",
+        "scoreA":10,"scoreB":7,"played":true,"status":"finished","refereeReportSavedAt":"2026-11-19T10:00:00Z","refereeReportFinalId":"rep-m2",
+        "refereeReportSource":"referee","refereeReportAuthorName":"Arbitro Uno",
+        "stats":[{"teamId":"a","playerName":"Rossi Mario","canestri":6,"soffi":1,"secret":"PRIVATE-MARKER"}],
+        "refereeReportAudit":[{"id":"rep-m2","matchId":"m2","source":"referee","refereeName":"Arbitro Uno","savedAt":"2026-11-19T10:00:00Z","scoreA":10,"scoreB":7,
+          "stats":[{"teamId":"a","playerName":"Rossi Mario","canestri":6,"soffi":1}]}]}]}';
+  v_state:=jsonb_set(v_state,'{tournament,matches}',v_state->'tournamentMatches');
+  v_state:=jsonb_set(v_state,'{tournament,rounds}',jsonb_build_array(v_state->'tournamentMatches'));
+  insert into public.workspace_state(workspace_id,state,updated_at) values('referee-security-pull',v_state,'2026-11-19T09:00:00Z');
+  insert into public.public_workspace_state(workspace_id,state,updated_at)
+    values('referee-security-pull',public.flbp_referee_public_projection(v_state,'state'),'2026-11-19T09:00:00Z');
+
+  v_out:=public.flbp_referee_pull_live_state('referee-security-pull','pull-test','wrong');
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean=false and not(v_out?'state'),'pull with a wrong password carries no state');
+
+  v_out:=public.flbp_referee_pull_live_state('referee-security-pull','pull-test','fixture-only-secret');
+  v_view:=v_out->'state';
+  v_text:=v_out::text;
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean and v_out->>'auth_version'='v7'
+    and (v_out->>'updated_at')::timestamptz='2026-11-19T09:00:00Z' and jsonb_typeof(v_view)='object',
+    'valid pull keeps its response shape');
+  perform flbp_test_referee.assert_true((select array_agg(k order by k) from jsonb_object_keys(v_view) k)
+    =array['__schemaVersion','teams','tournament','tournamentMatches'],'pull returns only the live tournament keys');
+  perform flbp_test_referee.assert_true(v_text not like '%fixture-only-secret%' and v_text not like '%2001-02-03%'
+    and v_text not ilike '%birthdate%' and v_text not ilike '%yob%' and v_text not like '%PRIVATE-MARKER%'
+    and v_text not like '%legacy-top-level%' and v_text not like '%archived-2025%' and v_text not like '%rossi mario\_%',
+    'pull carries no password, birth dates, archives, aliases or private extensions');
+  perform flbp_test_referee.assert_true(v_view#>>'{tournament,id}'='pull-test' and v_view#>>'{tournament,name}'='Pull'
+    and v_view#>>'{tournament,type}'='groups_elimination' and v_view#>>'{tournament,startDate}'='2026-11-19'
+    and v_view#>>'{tournament,refereesAuthVersion}'='v7' and v_view#>'{tournament,refereesRoster}'='["Arbitro Uno"]'
+    and v_view#>'{tournament,config}'='{"advancingPerGroup":1,"refTables":2,"finalRoundRobin":{"enabled":true,"topTeams":4,"activated":false}}'::jsonb
+    and v_view#>>'{tournament,groups,0,stage}'='groups' and v_view#>>'{tournament,groups,0,teams,1,id}'='b',
+    'pull keeps tournament fields, auth version, roster, configuration and groups');
+  perform flbp_test_referee.assert_true(v_view#>>'{tournament,teams,0,player1}'='Rossi Mario' and v_view#>>'{tournament,teams,0,player2}'='Verdi Anna'
+    and v_view#>'{tournament,teams,1,player1IsReferee}'='true' and v_view#>>'{teams,1,player2}'='Bianchi Sara',
+    'pull keeps teams, player names and referee flags');
+  v_match:=v_view->'tournamentMatches'->1;
+  perform flbp_test_referee.assert_true(jsonb_array_length(v_view->'tournamentMatches')=2 and jsonb_array_length(v_view#>'{tournament,matches}')=2
+    and jsonb_array_length(v_view#>'{tournament,rounds,0}')=2 and v_view#>'{tournament,matches,1}'=v_match and v_view#>'{tournament,rounds,0,1}'=v_match
+    and v_match-'stats'=(v_state->'tournamentMatches'->1)-'stats'
+    and v_match#>'{stats,0}'='{"teamId":"a","playerName":"Rossi Mario","canestri":6,"soffi":1}'::jsonb
+    and v_view->'tournamentMatches'->0=(v_state->'tournamentMatches'->0)-'privateMatchNote',
+    'pull keeps every referee match field in all three match representations');
+  perform flbp_test_referee.assert_true((select state=v_state from public.workspace_state where workspace_id='referee-security-pull')
+    and exists(select 1 from public.referee_auth_audit where workspace_id='referee-security-pull' and action='pull_live_state' and ok),
+    'pull is read-only and still audited');
+
+  -- A report built on the view is accepted and the private state survives.
+  v_match:=(v_view->'tournamentMatches'->0)||'{"scoreA":10,"scoreB":4,"played":true,"status":"finished",
+    "refereeReportSavedAt":"2026-11-19T11:00:00Z","refereeReportFinalId":"rep-m1"}';
+  v_out:=public.flbp_referee_push_match_result('referee-security-pull','pull-test','m1','fixture-only-secret',jsonb_build_array(v_match),'v7');
+  perform flbp_test_referee.assert_true((v_out->>'ok')::boolean,'a report built on the referee view is accepted');
+  select state into v_after from public.workspace_state where workspace_id='referee-security-pull';
+  perform flbp_test_referee.assert_true(v_after#>>'{tournamentMatches,0,scoreA}'='10'
+    and v_after#>>'{tournamentMatches,0,privateMatchNote}'='PRIVATE-MARKER'
+    and v_after-'tournamentMatches'#-'{tournament,matches}'#-'{tournament,rounds}'=v_state-'tournamentMatches'#-'{tournament,matches}'#-'{tournament,rounds}',
+    'saving from the view keeps password, birth dates, archives and private match fields');
+end;
+$$;
 select 'PASS: '||count(*)||' real SQL assertions including missing/stale public mirror repair' as result from flbp_test_referee.checks;
 rollback;

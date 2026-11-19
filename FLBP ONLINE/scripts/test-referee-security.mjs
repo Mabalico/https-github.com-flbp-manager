@@ -65,7 +65,7 @@ if(databaseUrl){
       create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt()->>'sub','')::uuid $$;
     `);
     const migrationDir=path.join(legacy?path.resolve(root,'../FLBP LOCALE'):root,'supabase/migrations');
-    const files=(await fs.readdir(migrationDir)).filter(name=>name.endsWith('.sql') && (!legacy || name<'20260701000000' || name.startsWith('20260924000100') || name.startsWith('20260924000300') || name.startsWith('20261117100200'))).sort();
+    const files=(await fs.readdir(migrationDir)).filter(name=>name.endsWith('.sql') && (!legacy || name<'20260701000000' || name.startsWith('20260924000100') || name.startsWith('20260924000300') || name.startsWith('20261117100200') || name.startsWith('20261119000100'))).sort();
     for(const name of files){
       try{
         const sql=await fs.readFile(path.join(migrationDir,name),'utf8');
@@ -101,6 +101,13 @@ if(databaseUrl){
       const attemptLimit=await fs.readFile(path.join(migrationDir,attemptLimitName),'utf8');
       await db.exec(attemptLimit);await db.exec(attemptLimit);
       console.log('PASS: referee attempt-limit migration reapplied twice after the September hardening replay');
+    }
+    // The replay also reinstalls the full-state pull: re-apply the referee view.
+    const pullViewName=files.find(name=>name.startsWith('20261119000100'));
+    if(pullViewName){
+      const pullView=await fs.readFile(path.join(migrationDir,pullViewName),'utf8');
+      await db.exec(pullView);await db.exec(pullView);
+      console.log('PASS: referee pull view migration reapplied twice after the September hardening replay');
     }
       const results=await db.exec(await fs.readFile(suiteFile,'utf8'));
       for(const row of results.flatMap(result=>result.rows||[])){
