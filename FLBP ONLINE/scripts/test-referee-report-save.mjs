@@ -14,7 +14,9 @@ const source = readFileSync(componentPath, 'utf8');
 // IO is injected; unrelated tournament transitions are held stable in this
 // fixture. No browser, real credentials, network or filesystem writes are used.
 const ast = ts.createSourceFile(componentPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['isRefereeRateLimited', 'closeLiveCallsForMatch', 'saveReport', 'doLogin'];
+const names = ['isRefereeRateLimited', 'closeLiveCallsForMatch', 'saveReport', 'doLogin',
+  'PRIVATE_APP_STATE_KEYS', 'hasPrivateAppData', 'REFEREE_VIEW_MATCH_KEYS', 'mergeRefereeLiveState', 'applyRefereeState',
+  ...(usesOutbox ? ['replayPendingReports'] : [])];
 const declarations = new Map();
 const visit = (node) => {
   if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && names.includes(node.name.text)) {
@@ -65,11 +67,14 @@ const createCase = (options = {}) => {
   const match = options.foundMatch || { id: 'm1', code: 'A1', teamAId: 'a', teamBId: 'b', phase: 'groups', status: 'playing', played: false, scoreA: 0, scoreB: 0 };
   const localMatches = options.matches || [match];
   const state = {
+    ...(options.extraState || {}),
     teams, tournamentMatches: localMatches,
     tournament: { id: 't1', type: options.tournamentType || 'round_robin', teams, matches: localMatches, refereesPassword: options.configuredSecret || '' },
   };
+  // What the App holds: the component hands it updates through setState.
+  let appState = options.appState || state;
   const events = [];
-  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [] };
+  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [], mergeInputs: [] };
   let snapshotAttempts = 0;
   const context = {
     ...matchUtils, ...reportAudit,
@@ -89,7 +94,10 @@ const createCase = (options = {}) => {
     getSupabaseAccessToken: () => options.token ? 'fixture-token' : null,
     getRemoteBaseUpdatedAt: () => 'base-version',
     setSaveBusy: value => { calls.busy.push(value); events.push(`busy:${value}`); },
-    setState: value => { calls.states.push(value); events.push('state'); },
+    setState: value => {
+      appState = typeof value === 'function' ? value(appState) : value;
+      calls.states.push(appState); events.push('state');
+    },
     t: key => key,
     alert: message => { calls.alerts.push(message); events.push(`alert:${message}`); },
     confirm: () => true,
@@ -134,7 +142,7 @@ const createCase = (options = {}) => {
       calls.pulls.push({ tournamentId, secret }); events.push('pull');
       if (options.pullError) throw fault(options.pullError);
       if (options.pullResult) return options.pullResult;
-      return { ok: true, state: options.pulledState || { ...state, remoteNote: 'preserve concurrent change' }, updated_at: 'new-base-version' };
+      return { ok: true, state: options.pulledState || { ...state, tournament: { ...state.tournament, remoteNote: 'preserve concurrent change' } }, updated_at: 'new-base-version' };
     },
     // Login (doLogin): remote check path, the password is not configured locally.
     liveTournament: { id: 't1', name: 'Torneo test', refereesPassword: '' },
@@ -145,14 +153,18 @@ const createCase = (options = {}) => {
     setPassword: () => {},
     sessionStorage: { setItem: () => {}, removeItem: () => {} },
     replayPendingReports: async () => 0,
+    readDurablePendingRefereeReports: async () => options.pending || [],
     verifyRefereePassword: async (tournamentId, secret) => {
       calls.verifies.push({ tournamentId, secret });
       if (options.verifyError) throw options.verifyError;
       return options.verifyResult || { ok: true, auth_version: 'v1' };
     },
-    tryMergeRemoteStateConflict: ({ localState, remoteState }) => options.mergeBlocked
-      ? { ok: false }
-      : { ok: true, state: { ...localState, remoteNote: remoteState.remoteNote } },
+    tryMergeRemoteStateConflict: (input) => {
+      calls.mergeInputs.push(input);
+      return options.mergeBlocked
+        ? { ok: false }
+        : { ok: true, state: { ...input.localState, tournament: { ...input.localState.tournament, remoteNote: input.remoteState.tournament?.remoteNote } } };
+    },
   };
   vm.runInNewContext(callbacks, context, { filename: componentPath });
   return { ...context.callbacks, calls, events, match, state };
@@ -225,7 +237,7 @@ await check('merged snapshot is confirmed once even when cleanup fails', async (
   const result = createCase({ secret: 'ref-secret', rpcError: usesOutbox ? 'PGRST202' : undefined, snapshotError: 'FLBP_DB_CONFLICT', cleanup: 'sync' });
   await result.saveReport(); assertSaved(result);
   assert.equal(result.calls.snapshots.length, 2);
-  assert.equal(result.calls.states[0].remoteNote, 'preserve concurrent change');
+  assert.equal(result.calls.states[0].tournament.remoteNote, 'preserve concurrent change');
   assert.equal(result.calls.snapshots[1].input.baseUpdatedAt, 'new-base-version');
   assert.equal(result.calls.cleanup[0].refereePassword, 'ref-secret');
   if (usesOutbox) assert.deepEqual(result.calls.acknowledged, ['report-op-1']);
@@ -320,6 +332,147 @@ await check('B6: referee login tells a lock apart from a wrong password', async 
   assert.deepEqual(accepted.calls.authed, [true]);
   assert.deepEqual(accepted.calls.loginErrors, [null]);
   assert.equal(accepted.calls.states.length, 1, 'the live state read at login is applied');
+});
+// B6 #1: the referee RPC now returns only the live tournament (no password,
+// birth dates, archives or aliases). A device holding the complete Admin copy
+// keeps all of it, whatever path applies the state it reads.
+const completeTeams = [
+  { id: 'a', name: 'A', player1: 'Rossi Mario', player2: 'Verdi Anna', player1BirthDate: '2001-02-03', player2YoB: 1999 },
+  { id: 'b', name: 'B', player1: 'Neri Luca', player2: 'Bianchi Sara', player1BirthDate: '1998-05-06' },
+];
+const completeExtra = {
+  logo: 'admin-logo',
+  tournamentHistory: [{ id: 'archived-2025', name: 'Archivio 2025', teams: [{ id: 'old', name: 'Old', player1: 'Rossi Mario', player1BirthDate: '2001-02-03' }] }],
+  hallOfFame: [{ id: 'hof-1', type: 'winner', playerNames: ['Rossi Mario'], playerIds: ['rossi mario_2001-02-03'], playerBirthDates: ['2001-02-03'] }],
+  integrationsScorers: [{ id: 'int-1', name: 'Rossi Mario', birthDate: '2001-02-03', games: 1, points: 1, soffi: 0 }],
+  playerAliases: { 'rossi mario_2001-02-03': 'rossi mario_nd' },
+};
+const viewTeams = completeTeams.map(({ player1BirthDate, player2YoB, ...team }) => team);
+const refereeView = (matches, tournament = {}) => ({
+  __schemaVersion: 1, teams: viewTeams, tournamentMatches: matches,
+  tournament: { id: 't1', type: 'round_robin', teams: viewTeams, matches, refereesRoster: ['Arbitro remoto'], ...tournament },
+});
+const adminMatch = (extra = {}) => ({ id: 'm1', code: 'A1', teamAId: 'a', teamBId: 'b', phase: 'groups', status: 'playing', played: false, scoreA: 0, scoreB: 0, privateMatchNote: 'admin only', ...extra });
+const otherMatch = (extra = {}) => ({ id: 'm2', code: 'A2', teamAId: 'b', teamBId: 'a', phase: 'groups', status: 'scheduled', played: false, scoreA: 0, scoreB: 0, ...extra });
+const viewMatch = ({ privateMatchNote, ...match }) => match;
+const remoteM2 = otherMatch({ status: 'finished', played: true, scoreA: 10, scoreB: 3, refereeReportSavedAt: '2026-11-19T10:00:00.000Z' });
+const completeCase = (options = {}) => createCase({
+  teams: completeTeams, configuredSecret: 'admin-secret', extraState: completeExtra,
+  foundMatch: adminMatch(), matches: [adminMatch(), otherMatch()],
+  pulledState: refereeView([viewMatch(adminMatch()), remoteM2]),
+  ...options,
+});
+const assertCompleteDataKept = (saved, label) => {
+  assert.equal(saved.tournament.refereesPassword, 'admin-secret', `${label}: referee password kept`);
+  assert.equal(saved.teams[0].player1BirthDate, '2001-02-03', `${label}: birth dates kept`);
+  assert.equal(saved.tournament.teams[0].player1BirthDate, '2001-02-03', `${label}: live team birth dates kept`);
+  assert.equal(saved.tournament.teams[0].player2YoB, 1999, `${label}: years of birth kept`);
+  assert.equal(saved.logo, 'admin-logo', `${label}: logo kept`);
+  assert.deepEqual(plain(saved.tournamentHistory), completeExtra.tournamentHistory, `${label}: archives kept`);
+  assert.deepEqual(plain(saved.hallOfFame), completeExtra.hallOfFame, `${label}: Hall of Fame identities kept`);
+  assert.deepEqual(plain(saved.integrationsScorers), completeExtra.integrationsScorers, `${label}: scorer integrations kept`);
+  assert.deepEqual(plain(saved.playerAliases), completeExtra.playerAliases, `${label}: aliases kept`);
+};
+
+await check('B6 #1: merging a referee view never drops private data from a complete Admin copy', async () => {
+  const { mergeRefereeLiveState } = createCase();
+  const localMatches = [adminMatch({ stats: [{ teamId: 'a', playerName: 'Rossi Mario', canestri: 1, soffi: 0 }] }), otherMatch()];
+  const complete = {
+    ...completeExtra, teams: completeTeams, tournamentMatches: localMatches,
+    tournament: { id: 't1', type: 'round_robin', teams: completeTeams, matches: localMatches, rounds: [localMatches], refereesPassword: 'admin-secret', refereesRoster: ['Arbitro locale'] },
+  };
+  // Another referee finished m1; its stats were reset remotely (key absent in the view).
+  const remoteM1 = viewMatch(adminMatch({ status: 'finished', played: true, scoreA: 10, scoreB: 4 }));
+  const view = refereeView([remoteM1, remoteM2], { rounds: [[remoteM1, remoteM2]] });
+  const merged = mergeRefereeLiveState(complete, view);
+  assertCompleteDataKept(merged, 'view merge');
+  for (const list of [merged.tournamentMatches, merged.tournament.matches, merged.tournament.rounds[0]]) {
+    assert.equal(list[0].scoreA, 10, 'the referee result reaches every match representation');
+    assert.equal(list[0].privateMatchNote, 'admin only', 'match fields the view does not carry are kept');
+    assert.equal(list[0].stats, undefined, 'a referee field removed remotely stays removed');
+    assert.equal(list[1].status, 'finished');
+  }
+  assert.deepEqual(plain(merged.tournament.refereesRoster), ['Arbitro remoto'], 'the roster follows the live tournament');
+  assert.equal(mergeRefereeLiveState(complete, refereeView([remoteM1], { id: 't2' })), complete, 'a view of another tournament changes nothing');
+  assert.equal(mergeRefereeLiveState(complete, { ...view, tournament: null }), complete, 'a state without live tournament changes nothing');
+
+  // Databases without the migration return the complete private state, password included.
+  const legacyFull = { ...complete, logo: 'remote-logo', tournamentMatches: [remoteM1], tournament: { ...complete.tournament, matches: [remoteM1], rounds: undefined } };
+  const fromLegacy = mergeRefereeLiveState(complete, legacyFull);
+  assert.equal(fromLegacy.tournamentMatches[0].scoreA, 10, 'old RPC: the live parts are applied as before');
+  assert.equal(fromLegacy.tournament.refereesPassword, 'admin-secret');
+  assert.equal(fromLegacy.logo, 'admin-logo', 'old RPC: parts outside the live tournament stay local');
+
+  // A public or referee device holds nothing private: the view replaces its live parts.
+  const publicDevice = { logo: 'public-logo', tournamentHistory: [{ id: 'public-archive' }], teams: [], matches: [], tournamentMatches: [], tournament: null, hallOfFame: [], integrationsScorers: [], playerAliases: {} };
+  const onPublic = mergeRefereeLiveState(publicDevice, view);
+  assert.equal(onPublic.tournament.id, 't1');
+  assert.equal(onPublic.tournamentMatches[1].scoreA, 10);
+  assert.equal(onPublic.logo, 'public-logo');
+  assert.deepEqual(plain(onPublic.tournamentHistory), [{ id: 'public-archive' }]);
+});
+await check('B6 #1: a report saved on a device with the complete Admin copy keeps every private field', async () => {
+  const result = completeCase();
+  await result.saveReport();
+  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  if (usesOutbox) {
+    assert.equal(result.calls.pulls.length, 1, 'the live view is read before building the patch');
+    const sent = JSON.stringify(result.calls.rpc[0].matches);
+    assert(result.calls.rpc[0].matches.some(match => match.id === 'm1' && match.status === 'finished'));
+    assert(!sent.includes('2001-02-03') && !sent.includes('admin-secret'), 'the patch carries matches only');
+  }
+  assert.equal(result.calls.states.length, 1);
+  const saved = result.calls.states[0];
+  assertCompleteDataKept(saved, 'report save');
+  const savedM1 = saved.tournamentMatches.find(match => match.id === 'm1');
+  assert.equal(savedM1.status, 'finished'); assert.equal(savedM1.scoreA, 10);
+  assert.equal(savedM1.privateMatchNote, 'admin only', 'a private match field survives the report');
+  if (usesOutbox) assert.equal(saved.tournamentMatches.find(match => match.id === 'm2').scoreA, 10, 'another referee result read with the view is kept');
+});
+await check('B6 #1: a snapshot conflict lifts the referee view onto the local copy before the three-way merge', async () => {
+  const result = completeCase({ rpcError: usesOutbox ? 'PGRST202' : undefined, snapshotError: 'FLBP_DB_CONFLICT' });
+  await result.saveReport();
+  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  assert.equal(result.calls.mergeInputs.length, 1);
+  const { baseState, remoteState } = result.calls.mergeInputs[0];
+  assertCompleteDataKept(baseState, 'base side of the merge');
+  assertCompleteDataKept(remoteState, 'remote side of the merge (archives are not read as deleted)');
+  assert.equal(remoteState.tournamentMatches.find(match => match.id === 'm2').scoreA, 10, 'the remote result still reaches the merge');
+  assertCompleteDataKept(result.calls.states[0], 'merged state');
+});
+if (usesOutbox) {
+  await check('B6 #1: replaying queued reports on an Admin device applies the referee view without losing data', async () => {
+    const result = completeCase({ pending: [{ tournamentId: 't1', matchId: 'm2', operationId: 'queued-op', matches: [remoteM2] }] });
+    assert.equal(await result.replayPendingReports('admin-secret'), 1);
+    assert.deepEqual(result.calls.acknowledged, ['queued-op']);
+    assert.equal(result.calls.pulls.length, 1, 'the live view is read after the replay');
+    assert.equal(result.calls.states.length, 1);
+    const saved = result.calls.states[0];
+    assertCompleteDataKept(saved, 'replay');
+    assert.equal(saved.tournamentMatches.find(match => match.id === 'm2').scoreA, 10);
+    assert.equal(saved.tournamentMatches.find(match => match.id === 'm1').privateMatchNote, 'admin only');
+  });
+}
+await check('B6 #1: login applies the view on a referee device and never over an Admin copy', async () => {
+  const view = refereeView([viewMatch(adminMatch()), remoteM2]);
+  // The App holds the Admin copy without the live tournament, so the area
+  // shows the public snapshot and reads the view at login.
+  const adminCopy = { ...completeExtra, teams: completeTeams, matches: [], tournamentMatches: [], tournament: null };
+  const onAdmin = createCase({ appState: adminCopy, pulledState: view });
+  await onAdmin.doLogin();
+  assert.deepEqual(onAdmin.calls.authed, [true]);
+  assert.equal(onAdmin.calls.states.length, 1);
+  assert.equal(onAdmin.calls.states[0], adminCopy, 'the Admin copy is not replaced by the view');
+
+  const onReferee = createCase({ appState: { teams: [], matches: [], tournamentMatches: [], tournament: null }, pulledState: view });
+  await onReferee.doLogin();
+  assert.deepEqual(onReferee.calls.authed, [true]);
+  assert.equal(onReferee.calls.states[0].tournament.refereesPassword, undefined, 'the view carries no password');
+  assert.equal(onReferee.calls.states[0].tournamentMatches[1].scoreA, 10, 'a referee device shows the live view');
+});
+await check('B6 #1: a referee session opened with the typed password survives a view without password', async () => {
+  assert.match(source, /if \(!ok \|\| \(requiresTransientRefereeSecret && !syncedPasswordRef\.current\.trim\(\)\)\)/,
+    'the auth guard must keep the session while the password typed at login is in memory');
 });
 await check('cleanup ignores BYE/TBD and deduplicates real participants', async () => {
   const result = createCase({ token: true });

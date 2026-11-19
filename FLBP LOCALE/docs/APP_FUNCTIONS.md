@@ -16,7 +16,7 @@ Questo file descrive **cosa fa l’app e come lavora**, collegando ogni macro-fu
 - `player_area` web e' stata riallineata al rollout live additivo: quando il backend player e' disponibile usa sessione Supabase, profilo reale, registrazione device web e call alerts reali; se il rollout SQL non e' ancora applicato, resta compatibile con la preview locale.
 - `Gestione dati -> Account giocatori` prova ora a leggere il catalogo live via `flbp_admin_list_player_accounts(...)` e a modificare il profilo collegato su `player_app_profiles`, con fallback prudente quando il backend non e' ancora disponibile.
 - `ReportsTab` prova ora a usare i target/call reali (`player_app_profiles`, `player_app_calls`, `flbp_player_call_team`, `flbp_player_cancel_call`) e torna alla preview locale solo se il backend additivo non e' ancora presente.
-- `RefereesArea` al login puo' riallineare lo snapshot live leggendo `flbp_referee_pull_live_state(...)` quando la RPC additiva e' disponibile.
+- `RefereesArea` al login puo' riallineare lo snapshot live leggendo `flbp_referee_pull_live_state(...)` quando la RPC additiva e' disponibile. Dal 19/11/2026 la RPC restituisce solo la vista del torneo live (niente password, date di nascita o archivi) e l'area la fonde nello stato locale con `mergeRefereeLiveState` senza mai sostituire una copia Admin completa (vedi `docs/REFEREE_SECURITY_HARDENING.md`).
 
 ## Aggiornamento 2026-04-02b
 
