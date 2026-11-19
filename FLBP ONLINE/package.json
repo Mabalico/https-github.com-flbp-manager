@@ -67,7 +67,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
-    "@capacitor/core": "^8.3.1",
+    "@capacitor/core": "^8.4.3",
     "@capacitor/push-notifications": "^8.0.3",
     "@supabase/realtime-js": "^2.10.7",
     "lucide-react": "^0.561.0",
@@ -77,9 +77,9 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.3.1",
-    "@capacitor/cli": "^8.3.1",
-    "@capacitor/ios": "^8.3.1",
+    "@capacitor/android": "^8.4.3",
+    "@capacitor/cli": "^8.4.3",
+    "@capacitor/ios": "^8.4.3",
     "@types/node": "^22.14.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
