@@ -8,7 +8,7 @@ Il token admin sta in `localStorage` (`services/supabaseSession.ts`) e il sito n
 
 Una CSP che blocca, scritta a memoria, rischia di rompere il sito durante un torneo. Per questo si parte da **Report-Only**: il browser non blocca nulla, segnala solo in console cosa avrebbe bloccato. Il comportamento dell'app, TV Mode compresa (read-only, zero-click, 16:9), non cambia.
 
-Questa policy è stata costruita leggendo il codice e le librerie, poi provata il 18/11/2026 sull'anteprima Cloudflare del branch: vedi [Risultati della prova](#risultati-della-prova-18112026). La prova ha portato ad aggiungere `data:` a `connect-src`.
+Questa policy è stata costruita leggendo il codice e le librerie, poi provata il 18/11/2026 sull'anteprima Cloudflare del branch: vedi [Risultati della prova](#risultati-della-prova-18112026). La prova ha portato ad aggiungere `data:` a `connect-src`, riverificato il 19/11/2026.
 
 ## Cosa cambia nel repository
 
@@ -37,7 +37,7 @@ Non c'è nessun header `Content-Security-Policy` che blocca, né `report-uri` / 
 | | `data:` | `canvas.toDataURL` per foto referto allineate (`RefereesArea.tsx`, `AdminDashboard.tsx`) e per le grafiche social. |
 | | `blob:` | `URL.createObjectURL` per le foto caricate (`imageProcessingService.ts`) e per le anteprime social. |
 | `connect-src` | `'self'` | Sonda `/api/v1/discovery` e `/control/local-session` quando l'app è servita dal server locale (`services/dataPlaneClient.ts`). |
-| | `data:` | Il core di tesseract.js incorpora il binario WASM come URL `data:` e lo legge con `fetch` (codice Emscripten). Emerso dalla prova del 18/11/2026. Un URL `data:` non esce dal browser, quindi non apre vie di invio dati. |
+| | `data:` | Il core di tesseract.js incorpora il binario WASM come URL `data:` e lo legge con `fetch` (codice Emscripten). Emerso dalla prova del 18/11/2026 e riverificato il 19/11/2026. Un URL `data:` non esce dal browser, quindi non apre vie di invio dati. |
 | | `https://kgwhcemqkgqvtsctnwql.supabase.co` | Progetto Supabase (`VITE_SUPABASE_URL`, valore indicato in `README_DEPLOY.md`): REST `/rest/v1`, login `/auth/v1`, Edge Functions `/functions/v1` (`services/supabaseRest.ts`). Non c'è Supabase Storage. |
 | | `wss://kgwhcemqkgqvtsctnwql.supabase.co` | Realtime (`@supabase/realtime-js`, `services/repository/workspaceStateRealtime.ts`). |
 | | `https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng/` | Il worker OCR scarica `eng.traineddata` con `fetch` (`worker-script/index.js`, percorso default). Dopo il primo download la lingua resta in IndexedDB. |
@@ -142,8 +142,15 @@ Non coperto da questa prova (da fare prima di attivare la CSP):
 
 - flussi Admin reali con login (pannelli, stampe, grafiche social, import e backup dall'interfaccia), Realtime `wss:`, login Supabase (`/auth/v1`) ed Edge Functions (`/functions/v1`);
 - referto arbitro completo durante un torneo live;
-- Safari (iOS e macOS), Firefox, Chrome Android;
-- la nuova riga con `data:`, da riverificare sull'anteprima dopo un nuovo push.
+- Safari (iOS e macOS), Firefox, Chrome Android.
+
+### Riverifica con `data:` (19/11/2026)
+
+Commit `4f6ab59`, stessa anteprima e stesso browser.
+
+- L'header dell'anteprima contiene `connect-src 'self' data: …`.
+- Un `fetch` di un URL `data:` fatto dalla pagina non produce violazioni: il browser applica la policy nuova. La violazione di controllo verso `.invalid` compare regolarmente.
+- OCR con la cache della lingua svuotata: testo letto correttamente in circa 2 secondi, lingua riscaricata da jsDelivr, **nessuna violazione** in console (né `data:`, né worker, core o lingua).
 
 ## Criteri per passare a una CSP che blocca
 
