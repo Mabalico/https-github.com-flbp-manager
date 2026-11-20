@@ -1,5 +1,6 @@
 import { getSupabaseConfig, pushWorkspaceState, recoverWorkspaceFromLocalState, setRemoteBaseUpdatedAt, setSupabaseSession } from '../../services/supabaseRest';
-import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { readAdminLeaseInfo, setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { initAdminWriteLease, reclaimCloudAcceptingMissingOperations, releaseAdminWriteLease } from '../../services/adminWriteLease';
 import { flushAutoStructuredSync, replacePendingAutoStructuredSync, scheduleAutoStructuredSync } from '../../services/autoDbSync';
 
 class MemoryStorage {
@@ -17,6 +18,10 @@ let requireLegacyFallback = false;
 let workspaceStateRow: any = null;
 // Enabled only by the structured-autosync section: normalized/public rows accept writes.
 let allowProjectionWrites = false;
+// Data-plane reclaim section: coordinator route and scripted reclaim answers.
+let resolvedRoute: any = { mode: 'cloud', epoch: 4 };
+let resolveFails = false;
+let reclaimReplies: any[] = [];
 
 Object.assign(globalThis, {
   localStorage: local,
@@ -40,7 +45,19 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   calls.push({ url, body });
   if (url.endsWith('/api/v1/discovery')) return Response.json({ error: 'not local' }, { status: 404 });
-  if (url.endsWith('/rpc/flbp_resolve_data_plane')) return Response.json({ mode: 'cloud', epoch: 4 });
+  if (url.endsWith('/rpc/flbp_resolve_data_plane')) {
+    if (resolveFails) return Response.json({ message: 'coordinator unreachable' }, { status: 503 });
+    return Response.json(resolvedRoute);
+  }
+  if (url.endsWith('/rpc/flbp_admin_reclaim_cloud_data_plane')) {
+    const reply = reclaimReplies.shift() || { ok: false, reason: 'unexpected' };
+    if (reply.ok && reply.mode === 'cloud') resolvedRoute = { mode: 'cloud', epoch: reply.epoch };
+    return Response.json(reply);
+  }
+  if (url.endsWith('/rpc/flbp_admin_acquire_write_lease')) {
+    return Response.json({ acquired: true, holder_id: body?.p_holder_id, holder_label: body?.p_holder_label });
+  }
+  if (url.endsWith('/rpc/flbp_admin_release_write_lease')) return Response.json({ released: true });
   if (url.includes('/rest/v1/workspace_state?')) return Response.json(workspaceStateRow ? [workspaceStateRow] : []);
   if (url.endsWith('/rpc/flbp_admin_push_workspace_state_v2')) {
     if (requireLegacyFallback) {
@@ -261,6 +278,61 @@ replacePendingAutoStructuredSync(autosyncState('idle-remote'));
 await flushAutoStructuredSync(undefined, { force: true });
 assert(autosyncPushes().length === pushesBeforeIdleRemote, 'a remote state alone never queues an export');
 
+// Forgotten local mode: the tournament PC stopped answering without closing
+// local mode, so the coordinator reports recovery for its expired lease.
+const reclaimCalls = () => calls.filter((call) => call.url.endsWith('/rpc/flbp_admin_reclaim_cloud_data_plane'));
+resolvedRoute = { mode: 'recovery', authority: 'local', epoch: 7, reason: 'local_lease_expired' };
+reclaimReplies = [{
+  ok: false,
+  reason: 'grace',
+  epoch: 7,
+  lease_expired_at: '2026-11-20T22:00:00.000Z',
+  reclaim_at: '2026-11-21T10:00:00.000Z',
+  missing_operations: 0,
+}];
+await initAdminWriteLease();
+let leaseInfo = readAdminLeaseInfo();
+assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'grace'
+  && leaseInfo.recovery.reclaimAt === '2026-11-21T10:00:00.000Z',
+  'before the grace period the window stays read-only and knows when it unlocks');
+assert(reclaimCalls().at(-1)?.body.p_expected_epoch === 7 && reclaimCalls().at(-1)?.body.p_accept_missing === false,
+  'the automatic attempt targets the expired epoch and never accepts losses');
+await releaseAdminWriteLease();
+
+reclaimReplies = [
+  { ok: false, reason: 'missing_operations', epoch: 7, missing_operations: 3, last_missing_operation_at: '2026-11-20T21:58:00.000Z' },
+  { ok: true, reclaimed: true, mode: 'cloud', epoch: 8 },
+];
+await initAdminWriteLease();
+leaseInfo = readAdminLeaseInfo();
+assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'missing_operations'
+  && leaseInfo.recovery.missingOperations === 3,
+  'operations missing from the cloud snapshot stop the automatic reclaim');
+await reclaimCloudAcceptingMissingOperations();
+leaseInfo = readAdminLeaseInfo();
+assert(leaseInfo.status === 'active' && !leaseInfo.recovery, 'an explicit choice reclaims cloud authority and acquires the lease');
+assert(reclaimCalls().at(-1)?.body.p_accept_missing === true, 'only the explicit choice accepts the missing operations');
+assert(local.getItem('flbp_normalized_sync_required_v1') === '1' && !!local.getItem('flbp_data_plane_change_v1'),
+  'a reclaim asks for a normalized rebuild and notifies the other tabs');
+await releaseAdminWriteLease();
+
+resolvedRoute = { mode: 'recovery', authority: 'local', epoch: 8, reason: 'local_lease_expired' };
+reclaimReplies = [{ ok: true, reclaimed: true, mode: 'cloud', epoch: 9 }];
+await initAdminWriteLease();
+assert(readAdminLeaseInfo().status === 'active', 'a fully backed-up journal is reclaimed without asking');
+await releaseAdminWriteLease();
+
+const reclaimCountBeforeOutage = reclaimCalls().length;
+resolveFails = true;
+await initAdminWriteLease();
+leaseInfo = readAdminLeaseInfo();
+assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'unavailable'
+  && reclaimCalls().length === reclaimCountBeforeOutage,
+  'a coordinator outage is never treated as an expired local lease');
+await releaseAdminWriteLease();
+resolveFails = false;
+
 console.log('PASS cloud Admin idempotency, rollout fallback and safe local recovery');
+console.log('PASS forgotten local mode: the Admin reclaims cloud authority only after the grace period');
 console.log('PASS B3 structured autosync keeps compare-and-swap, re-arms the throttle and never republishes a stale queue');
 (globalThis as any).process.exit(0);

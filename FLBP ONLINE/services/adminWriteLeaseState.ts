@@ -15,12 +15,33 @@
 
 export type AdminLeaseStatus = 'off' | 'acquiring' | 'active' | 'passive' | 'error';
 
+// Why the coordinator still refuses cloud authority after a local tournament
+// PC stopped answering (see flbp_admin_reclaim_cloud_data_plane).
+export type AdminLeaseRecoveryReason =
+  | 'grace'
+  | 'missing_operations'
+  | 'local_active'
+  | 'epoch_changed'
+  | 'manual_recovery_required'
+  | 'unavailable';
+
+export type AdminLeaseRecovery = {
+  reason: AdminLeaseRecoveryReason;
+  epoch: number | null;
+  leaseExpiredAt?: string | null;
+  reclaimAt?: string | null;
+  missingOperations?: number;
+  lastMissingOperationAt?: string | null;
+  lastBackupAt?: string | null;
+};
+
 export type AdminLeaseInfo = {
   status: AdminLeaseStatus;
   holderId: string | null;
   otherLabel?: string | null;
   otherSince?: string | null;
   lastError?: string | null;
+  recovery?: AdminLeaseRecovery | null;
 };
 
 let info: AdminLeaseInfo = { status: 'off', holderId: null };

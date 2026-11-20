@@ -115,6 +115,13 @@ export const createLocalServer = (overrides = {}) => {
   let durableWriteChain = Promise.resolve();
   let secondaryBackedVersion = 0;
   let activationInFlight = false;
+  // Last durable write (Admin, referee, recovery) or activation. Drives the
+  // idle cloud backup and the automatic close of a forgotten local mode.
+  let lastActivityAt = Date.now();
+  let idleTimer = null;
+  let idleMaintenanceInFlight = false;
+  let autoDeactivateRetryAt = 0;
+  let secondaryWarning = null;
   if (config.secondaryBackupDir) {
     try {
       const reusable = store.findReusableSecondaryBackup(config.secondaryBackupDir);
@@ -233,6 +240,12 @@ export const createLocalServer = (overrides = {}) => {
 
   const requireAdminWriter = (request) => store.requireAdminWriterLease(request.headers['x-flbp-writer-id']);
 
+  const noteSecondaryWarning = (error) => {
+    const message = error?.message || String(error);
+    if (secondaryWarning !== message) console.warn('[secondary-backup]', message);
+    secondaryWarning = message;
+  };
+
   const ensureSecondaryTargetAvailable = () => {
     if (!config.secondaryBackupDir) {
       if (config.requireSecondaryBackup) {
@@ -250,13 +263,18 @@ export const createLocalServer = (overrides = {}) => {
       fs.accessSync(config.secondaryBackupDir, fs.constants.R_OK | fs.constants.W_OK);
       return { available: true };
     } catch {
-      throw Object.assign(new Error('Disco secondario non disponibile o non scrivibile.'), { statusCode: 503, code: 'FLBP_SECONDARY_UNAVAILABLE' });
+      const error = Object.assign(new Error('Disco secondario non disponibile o non scrivibile.'), { statusCode: 503, code: 'FLBP_SECONDARY_UNAVAILABLE' });
+      if (config.requireSecondaryBackup) throw error;
+      // Optional replica: the tournament goes on and the periodic timer copies
+      // the current version as soon as the disk is connected again.
+      noteSecondaryWarning(error);
+      return { available: false, unavailable: true };
     }
   };
 
   const ensureSecondaryBackup = async (requiredVersion = null) => {
     const target = ensureSecondaryTargetAvailable();
-    if (!target.available) return { backedUp: false, disabled: true };
+    if (!target.available) return { backedUp: false, disabled: !!target.disabled, unavailable: !!target.unavailable };
     const requested = Number(requiredVersion ?? store.getCurrentMetadata()?.version ?? 0);
     const work = secondaryBackupChain.then(async () => {
       if (secondaryBackedVersion >= requested) return { backedUp: true, version: secondaryBackedVersion, reused: true };
@@ -269,10 +287,86 @@ export const createLocalServer = (overrides = {}) => {
     return work;
   };
 
+  // FLBP_REQUIRE_SECONDARY_BACKUP=1 confirms a write only once the external
+  // replica holds it. Otherwise the replica is a safety copy: a missing or
+  // failing disk is logged and caught up later, never blocking the tournament.
+  const replicateAfterWrite = async (version) => {
+    if (config.requireSecondaryBackup) return ensureSecondaryBackup(version);
+    try {
+      const result = await ensureSecondaryBackup(version);
+      if (result?.backedUp) secondaryWarning = null;
+      return result;
+    } catch (error) {
+      noteSecondaryWarning(error);
+      return { backedUp: false, error: error?.message || String(error) };
+    }
+  };
+
   const runDurableWrite = (work) => {
-    const current = durableWriteChain.then(work);
+    const current = durableWriteChain.then(work).then((result) => {
+      lastActivityAt = Date.now();
+      return result;
+    });
     durableWriteChain = current.catch(() => {});
     return current;
+  };
+
+  const deactivateLocalMode = async () => {
+    const currentTransition = store.getTransitionState();
+    if (!store.isActive() && currentTransition === 'idle') return { alreadyInactive: true };
+    if (sync.isConfigured()) {
+      const heartbeat = await sync.heartbeat({ force: true });
+      if (!heartbeat?.accepted) throw new Error('Supabase non ha confermato la leadership locale: disattivazione non avviata.');
+    }
+    store.setTransitionState('deactivating');
+    try {
+      const result = await sync.deactivate();
+      store.setTransitionState('idle');
+      return { result };
+    } catch (error) {
+      // Persistita in SQLite: anche dopo un crash/riavvio nessuna nuova
+      // scrittura viene accettata finché l'esito remoto non è risolto.
+      store.setTransitionState('deactivation-error');
+      throw error;
+    }
+  };
+
+  // A forgotten "Chiudi modalità locale" must not lock the online Admin. After a
+  // short pause the whole local state goes into the cloud snapshot, so a PC
+  // switched off later loses nothing when the site reclaims control; after a
+  // long pause with no writes the server closes local mode by itself.
+  let idleBackupRetryAt = 0;
+  const runIdleMaintenance = async () => {
+    if (idleMaintenanceInFlight || !store.isActive() || !sync.isConfigured()) return;
+    idleMaintenanceInFlight = true;
+    try {
+      const now = Date.now();
+      const idleMs = now - lastActivityAt;
+      const transition = store.getTransitionState();
+      const version = Number(store.getCurrentMetadata()?.version || 0);
+      const backedUpVersion = Number(store.getMeta('last_backup_version', '0')) || 0;
+      if (transition === 'idle' && idleMs >= config.idleBackupMs && version > backedUpVersion && now >= idleBackupRetryAt) {
+        try {
+          await sync.backupSnapshot();
+        } catch (error) {
+          idleBackupRetryAt = now + config.autoDeactivateRetryMs;
+          console.error('[idle-backup]', error?.message || String(error));
+        }
+      }
+      if (config.autoDeactivateIdleMs > 0 && idleMs >= config.autoDeactivateIdleMs
+        && (transition === 'idle' || transition === 'deactivation-error')
+        && now >= autoDeactivateRetryAt) {
+        try {
+          await runDurableWrite(() => deactivateLocalMode());
+          console.log(`[auto-close] modalità locale chiusa dopo ${Math.round(idleMs / 60_000)} minuti senza modifiche`);
+        } catch (error) {
+          autoDeactivateRetryAt = Date.now() + config.autoDeactivateRetryMs;
+          console.error('[auto-close]', error?.message || String(error));
+        }
+      }
+    } finally {
+      idleMaintenanceInFlight = false;
+    }
   };
 
   const runBackgroundHeartbeat = (label) => {
@@ -293,7 +387,7 @@ export const createLocalServer = (overrides = {}) => {
     if (!backupTimer) backupTimer = setInterval(() => {
       if (store.isActive()) void (async () => {
         const cloudBackup = await sync.backupSnapshot();
-        const secondary = await ensureSecondaryBackup(store.getCurrent()?.version);
+        const secondary = await replicateAfterWrite(store.getCurrent()?.version);
         if (cloudBackup?.backedUp && cloudBackup?.verified && store.pendingOutboxCount() === 0 && (!config.requireSecondaryBackup || secondary?.backedUp)) {
           store.pruneHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions });
           await sync.pruneCloudHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions });
@@ -307,6 +401,7 @@ export const createLocalServer = (overrides = {}) => {
       void ensureSecondaryBackup().catch((error) => console.error('[secondary-backup]', error.message));
     }, config.secondaryBackupIntervalMs);
     if (!maintenanceTimer) maintenanceTimer = setInterval(cleanupEphemeralState, 60_000);
+    if (!idleTimer) idleTimer = setInterval(() => void runIdleMaintenance(), config.idleCheckIntervalMs);
     if (firstStart) {
       const transition = store.getTransitionState();
       const ambiguous = ['activating', 'deactivating', 'deactivation-error', 'activation-error', 'restore-pending'].includes(transition);
@@ -387,7 +482,22 @@ export const createLocalServer = (overrides = {}) => {
       if (request.method === 'GET' && !url.pathname.startsWith('/api/') && !url.pathname.startsWith('/control/') && serveDistAsset(url.pathname, response)) return;
       if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/v1/discovery')) {
         const { databaseFile: _databaseFile, ...publicStatus } = store.status();
-        return sendJson(response, 200, { ok: true, nodeId: sync.nodeId, publicUrl: config.publicUrl || null, ...publicStatus, configErrors }, cors);
+        const autoCloseAt = store.isActive() && sync.isConfigured() && config.autoDeactivateIdleMs > 0
+          ? new Date(lastActivityAt + config.autoDeactivateIdleMs).toISOString()
+          : null;
+        return sendJson(response, 200, {
+          ok: true,
+          nodeId: sync.nodeId,
+          publicUrl: config.publicUrl || null,
+          ...publicStatus,
+          secondaryBackup: {
+            configured: !!config.secondaryBackupDir,
+            required: !!config.requireSecondaryBackup,
+            warning: secondaryWarning,
+          },
+          autoClose: { idleMs: config.autoDeactivateIdleMs, closesAt: autoCloseAt },
+          configErrors,
+        }, cors);
       }
       if (request.method === 'GET' && url.pathname === `/api/v1/public/workspace/${encodeURIComponent(config.workspaceId)}`) {
         requireActive();
@@ -445,7 +555,7 @@ export const createLocalServer = (overrides = {}) => {
           const result = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: false, source: 'admin' });
           void sync.scheduleOutboxSync();
           sync.scheduleLivePublish();
-          await ensureSecondaryBackup(result.version);
+          await replicateAfterWrite(result.version);
           return result;
         });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, operation_id: committed.operationId, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
@@ -466,7 +576,7 @@ export const createLocalServer = (overrides = {}) => {
           // The pre-recovery snapshot must be independently readable before
           // creating the replacement version. Snapshot history remains in
           // SQLite as an additional rollback point.
-          await ensureSecondaryBackup(before.version);
+          await replicateAfterWrite(before.version);
           const protectedRecovery = preserveAuthoritativeRefereeReports({
             currentState: before.state,
             incomingState: body.state,
@@ -481,7 +591,7 @@ export const createLocalServer = (overrides = {}) => {
           });
           void sync.scheduleOutboxSync();
           sync.scheduleLivePublish();
-          await ensureSecondaryBackup(result.version);
+          await replicateAfterWrite(result.version);
           return { result, preservedMatchIds: protectedRecovery.preservedMatchIds };
         });
         return sendJson(response, 200, {
@@ -527,7 +637,7 @@ export const createLocalServer = (overrides = {}) => {
           const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'referee' });
           void sync.scheduleOutboxSync();
           sync.scheduleLivePublish();
-          await ensureSecondaryBackup(result.version);
+          await replicateAfterWrite(result.version);
           return result;
         });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, matches_count: Array.isArray(body.matches) ? body.matches.length : 0, auth_version: committed.state?.tournament?.refereesAuthVersion || null, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
@@ -543,7 +653,7 @@ export const createLocalServer = (overrides = {}) => {
           const result = store.commitMatchPatch({ tournamentId: body.tournamentId, matchId: body.matchId, matches: body.matches, operationId: operationId(body), source: 'admin' });
           void sync.scheduleOutboxSync();
           sync.scheduleLivePublish();
-          await ensureSecondaryBackup(result.version);
+          await replicateAfterWrite(result.version);
           return result;
         });
         return sendJson(response, 200, { ok: true, updated_at: committed.updatedAt, version: committed.version, matches_count: Array.isArray(body.matches) ? body.matches.length : 0, idempotent: committed.idempotent, primary_epoch: committed.primaryEpoch }, cors);
@@ -596,16 +706,17 @@ export const createLocalServer = (overrides = {}) => {
               store.validateCloudSnapshotImport(cloud);
               activated = await sync.activate(cloud);
               store.importCloudSnapshot(cloud);
-              await ensureSecondaryBackup(store.getCurrent()?.version);
+              await replicateAfterWrite(store.getCurrent()?.version);
               store.setActive(true, activated.epoch);
               store.setMeta('pending_primary_epoch', '');
             } else {
               if (!store.getCurrent()) throw new Error('DB locale vuoto: importa prima uno snapshot iniziale.');
-              await ensureSecondaryBackup(store.getCurrent()?.version);
+              await replicateAfterWrite(store.getCurrent()?.version);
               store.setActive(true, 1);
               activated = { ok: true, epoch: 1, offlineOnly: true };
             }
             store.setTransitionState('idle');
+            lastActivityAt = Date.now();
             startTimers();
             void runBackgroundHeartbeat('[heartbeat:activation]');
             void sync.scheduleOutboxSync({ immediate: true });
@@ -620,7 +731,7 @@ export const createLocalServer = (overrides = {}) => {
         }
         if (url.pathname === '/control/backup') {
           const result = await sync.backupSnapshot();
-          const secondary = await ensureSecondaryBackup(store.getCurrent()?.version);
+          const secondary = await replicateAfterWrite(store.getCurrent()?.version);
           const canPrune = !!result?.backedUp && !!result?.verified && store.pendingOutboxCount() === 0 && (!config.requireSecondaryBackup || !!secondary?.backedUp);
           const retention = canPrune
             ? store.pruneHistory({ retentionDays: config.historyRetentionDays, minVersions: config.historyMinVersions })
@@ -635,25 +746,8 @@ export const createLocalServer = (overrides = {}) => {
           return sendJson(response, 200, { ok: true, normalized: result, ...store.status() }, cors);
         }
         if (url.pathname === '/control/deactivate') {
-          const currentTransition = store.getTransitionState();
-          if (!store.isActive() && currentTransition === 'idle') {
-            return sendJson(response, 200, { ok: true, alreadyInactive: true, ...store.status() }, cors);
-          }
-          if (sync.isConfigured()) {
-            const heartbeat = await sync.heartbeat({ force: true });
-            if (!heartbeat?.accepted) throw new Error('Supabase non ha confermato la leadership locale: disattivazione non avviata.');
-          }
-          store.setTransitionState('deactivating');
-          try {
-            const result = await sync.deactivate();
-            store.setTransitionState('idle');
-            return sendJson(response, 200, { ok: true, result, ...store.status() }, cors);
-          } catch (error) {
-            // Persistita in SQLite: anche dopo un crash/riavvio nessuna nuova
-            // scrittura viene accettata finché l'esito remoto non è risolto.
-            store.setTransitionState('deactivation-error');
-            throw error;
-          }
+          const out = await deactivateLocalMode();
+          return sendJson(response, 200, { ok: true, ...out, ...store.status() }, cors);
         }
       }
       return sendJson(response, 404, { error: 'Endpoint non trovato' }, cors);
@@ -692,6 +786,7 @@ export const createLocalServer = (overrides = {}) => {
       if (publicLiveTimer) clearInterval(publicLiveTimer);
       if (secondaryBackupTimer) clearInterval(secondaryBackupTimer);
       if (maintenanceTimer) clearInterval(maintenanceTimer);
+      if (idleTimer) clearInterval(idleTimer);
       sync.cancelScheduledOutboxSync();
       sync.cancelScheduledLivePublish();
       server.close(() => {

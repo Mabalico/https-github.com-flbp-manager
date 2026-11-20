@@ -196,13 +196,23 @@ requirePattern(
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /control\/deactivate[\s\S]{0,2200}deactivation-error/,
+  /const deactivateLocalMode = async[\s\S]{0,900}setTransitionState\('deactivating'\)[\s\S]{0,400}deactivation-error/,
   'un esito remoto ambiguo deve restare persistito fino al retry',
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /const committed = await runDurableWrite[\s\S]{0,300}commitSnapshot[\s\S]{0,260}scheduleOutboxSync[\s\S]{0,160}ensureSecondaryBackup\(result\.version\)/,
-  'il commit Admin deve avviare il journal remoto e attendere la replica SQLite configurata prima dell’ack',
+  /control\/deactivate'\) \{[\s\S]{0,120}await deactivateLocalMode\(\)/,
+  'la chiusura manuale e quella automatica devono usare la stessa procedura protetta',
+);
+requirePattern(
+  '../FLBP SERVER LOCALE/src/server.mjs',
+  /const replicateAfterWrite = async[\s\S]{0,120}if \(config\.requireSecondaryBackup\) return ensureSecondaryBackup\(version\)/,
+  'con la replica obbligatoria il commit deve attendere la copia secondaria prima dell’ack',
+);
+requirePattern(
+  '../FLBP SERVER LOCALE/src/server.mjs',
+  /const committed = await runDurableWrite[\s\S]{0,300}commitSnapshot[\s\S]{0,260}scheduleOutboxSync[\s\S]{0,160}replicateAfterWrite\(result\.version\)/,
+  'il commit Admin deve avviare il journal remoto e attendere la replica SQLite collegata prima dell’ack',
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',

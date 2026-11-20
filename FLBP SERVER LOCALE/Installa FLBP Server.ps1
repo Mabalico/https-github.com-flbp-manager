@@ -32,9 +32,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $serverRoot '.env'))) {
     throw 'Configurazione annullata: .env non creato.'
 }
 
-$requiredBackup = Get-Content -LiteralPath (Join-Path $serverRoot '.env') | Where-Object { $_ -match '^FLBP_REQUIRE_SECONDARY_BACKUP=1$' }
-if (-not $requiredBackup) {
-    throw 'La configurazione non impone ancora il backup esterno. Rieseguire "Configura FLBP Server.cmd" con il supporto USB/SSD collegato.'
+$configuredBackup = Get-Content -LiteralPath (Join-Path $serverRoot '.env') | Where-Object { $_ -match '^FLBP_SECONDARY_BACKUP_DIR="?[^"\s]' }
+if (-not $configuredBackup) {
+    Write-Host 'Replica secondaria non configurata: e facoltativa, ma consigliata durante i tornei ("Configura backup secondario.cmd").' -ForegroundColor Yellow
 }
 
 if (-not (Test-Path -LiteralPath $windowsAppBuilder)) {

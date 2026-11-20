@@ -126,6 +126,15 @@ begin
   then raise exception 'Referee pull still returns the private workspace state'; end if;
   if not has_function_privilege('anon', v_signature, 'EXECUTE')
   then raise exception 'Referee pull is no longer executable by referees'; end if;
+  -- Forgotten local mode: Admin-only reclaim after the 12-hour grace period.
+  v_signature := 'public.flbp_admin_reclaim_cloud_data_plane(text,bigint,boolean)'::regprocedure;
+  if has_function_privilege('anon', v_signature, 'EXECUTE')
+    or not has_function_privilege('authenticated', v_signature, 'EXECUTE')
+  then raise exception 'Incorrect data-plane reclaim RPC privileges'; end if;
+  if not (select prosecdef from pg_proc where oid = v_signature)
+    or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
+    or strpos(pg_get_functiondef(v_signature), '12 hours') = 0
+  then raise exception 'Data-plane reclaim RPC lacks its Admin gate or grace period'; end if;
 end;
 $$;
 set local role anon;

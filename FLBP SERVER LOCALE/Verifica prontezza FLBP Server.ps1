@@ -36,6 +36,12 @@ $dataValue = Get-FlbpEnvValue -Lines $lines -Name 'FLBP_DATA_DIR'
 if (-not $dataValue) { $dataValue = './data' }
 $dataPath = if ([System.IO.Path]::IsPathRooted($dataValue)) { [System.IO.Path]::GetFullPath($dataValue) } else { [System.IO.Path]::GetFullPath((Join-Path $serverRoot $dataValue)) }
 $backupPath = Get-FlbpEnvValue -Lines $lines -Name 'FLBP_SECONDARY_BACKUP_DIR'
+$requireBackup = (Get-FlbpEnvValue -Lines $lines -Name 'FLBP_REQUIRE_SECONDARY_BACKUP') -in @('1', 'true', 'yes', 'si', 'on')
+if ($backupPath -and -not (Test-Path -LiteralPath $backupPath)) {
+    if ($requireBackup) { throw "Backup secondario obbligatorio non raggiungibile: $backupPath" }
+    Write-Host "AVVISO  Disco della replica non collegato ($backupPath): la replica e facoltativa e riprende quando il disco torna disponibile." -ForegroundColor Yellow
+    $backupPath = ''
+}
 
 Assert-FlbpRestrictedAcl -TargetPath $envPath -RequireProtected $true
 Assert-FlbpRestrictedAcl -TargetPath $dataPath -RequireProtected $true
