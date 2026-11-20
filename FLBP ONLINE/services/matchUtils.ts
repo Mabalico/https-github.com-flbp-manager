@@ -14,6 +14,54 @@ export const isTbdTeamId = (id?: string) => {
 
 export const isPlaceholderTeamId = (id?: string) => isByeTeamId(id) || isTbdTeamId(id);
 
+/** Match codes are compared trimmed and case-insensitive ('' when missing). */
+export const normalizeMatchCode = (code?: string | null) => String(code || '').trim().toUpperCase();
+
+/**
+ * Bracket matches are created as B{round}{n} (B11, B12, B21...). Group codes are the group letter
+ * plus a tournament-wide counter, so group B can already hold the same codes (B7-B12 with 4 groups
+ * of 4). When any bracket code is taken, the whole bracket switches to E{round}{n}: E as
+ * "Eliminazione diretta" on the paper referto, read by both the admin OCR ([GBE]\d{1,4}) and the
+ * referee OCR. From five groups up group E can hold E codes too: a bracket code still taken there
+ * gets the first E number above every E code in the tournament. Updates `bracketMatches` in place.
+ */
+export const avoidBracketCodeClashes = (bracketMatches: Match[], takenCodes: Array<string | null | undefined>) => {
+  const taken = new Set(takenCodes.map(normalizeMatchCode).filter(Boolean));
+  if (bracketMatches.every((match) => !taken.has(normalizeMatchCode(match.code)))) return;
+
+  const clashes: Match[] = [];
+  for (const match of bracketMatches) {
+    const code = normalizeMatchCode(match.code).replace(/^B/, 'E');
+    if (!code || taken.has(code)) {
+      clashes.push(match);
+      continue;
+    }
+    match.code = code;
+    taken.add(code);
+  }
+  let nextNumber = 1;
+  taken.forEach((code) => {
+    const number = /^E(\d+)$/.exec(code);
+    if (number) nextNumber = Math.max(nextNumber, Number(number[1]) + 1);
+  });
+  for (const match of clashes) match.code = `E${nextNumber++}`;
+};
+
+/**
+ * Picks the match a referto code refers to. Tournaments saved before codes were unique can hold the
+ * same code twice (group B and bracket B11): the match still to be played wins. Returns null when
+ * the caller must ask: several matches still to be played, or only finished ones while another
+ * match shares the code (e.g. a bracket match still on TBD). A code used once opens its match even
+ * when finished, so a report can be corrected. `reportable` is the subset of `sameCode` that can
+ * take a report.
+ */
+export const pickMatchForCode = (sameCode: Match[], reportable: Match[]): Match | null => {
+  const toPlay = reportable.filter((match) => match.status !== 'finished' && !match.played);
+  if (toPlay.length === 1) return toPlay[0];
+  if (!toPlay.length && reportable.length === 1 && sameCode.length === 1) return reportable[0];
+  return null;
+};
+
 /** Returns true when the match is a structural BYE slot and should not count as a real playable match. */
 export const isByeMatch = (m: Match): boolean => {
   if (!m) return false;

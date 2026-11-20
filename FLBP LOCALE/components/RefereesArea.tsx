@@ -6,7 +6,7 @@ import { loadImageProcessingService, type RefertoStructuredOcrResult } from '../
 import { syncBracketFromGroups, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
-import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
+import { isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
 import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
@@ -924,7 +924,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        if (hits.length > 1) {
+        // Saved tournaments can share a code (group B and bracket B11): the match still to be played
+        // wins, otherwise the referee confirms from the list instead of reopening a finished match.
+        const hit = pickMatchForCode(hitsAll, hits);
+        if (!hit) {
             const sorted = [...hits].sort((a, b) => {
                 const rank = (m: Match) => (m.status === 'playing' ? 0 : (m.status === 'scheduled' ? 1 : 2));
                 const ra = rank(a);
@@ -937,8 +940,6 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             setReportCodeError(t('referees_duplicate_code_select_match') || 'Codice duplicato: seleziona il match corretto dalla lista qui sotto.');
             return;
         }
-
-        const hit = hits[0];
 
         setFoundMatchId(hit.id);
         persistReportCode(hit.code || code);
@@ -1327,7 +1328,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        const hitsAll = tournamentMatchesSorted.filter(m => (m.code || '').trim().toUpperCase() === code);
+        // The open match keeps its own code: it may be the one picked from the list of a shared code.
+        const selected = foundMatch && (foundMatch.code || '').trim().toUpperCase() === code ? foundMatch : null;
+        const hitsAll = selected ? [selected] : tournamentMatchesSorted.filter(m => (m.code || '').trim().toUpperCase() === code);
         if (!hitsAll.length) {
             setOcrModalError(t('referees_err_code_not_found') || 'Codice non trovato nel torneo live.');
             return;
@@ -1360,12 +1363,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        if (hits.length > 1) {
+        const hit = pickMatchForCode(hitsAll, hits);
+        if (!hit) {
             setOcrModalError(t('referees_duplicate_code_use_manual') || 'Codice duplicato: usa l\'inserimento manuale e seleziona il match corretto dalla lista.');
             return;
         }
-
-        const hit = hits[0];
 
         // Apply
         persistReportCode(code);

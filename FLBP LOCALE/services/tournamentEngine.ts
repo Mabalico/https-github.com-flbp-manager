@@ -1,6 +1,7 @@
 import { Team, Match, TournamentData, Group, FinalRoundRobinConfig } from '../types';
 import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings';
 import { isFinalGroup } from './groupUtils';
+import { avoidBracketCodeClashes, normalizeMatchCode } from './matchUtils';
 import { buildBracketRoundsFromMatches, isLockedBracketMatchForStructureEdit, reconcileBracketAdvancements } from './tournamentStructureSelectors';
 
 const uuid = () => Math.random().toString(36).substr(2, 9);
@@ -574,6 +575,9 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
         roundNum++;
     }
 
+    // B{round}{n} can repeat a group B code (B11, B12 with 4 groups of 4): switch prefix if so.
+    avoidBracketCodeClashes(rounds.flat(), allMatches.filter(m => m.phase !== 'bracket').map(m => m.code));
+
     // Auto-advance BYEs by pre-filling Round 2 slots.
     if (rounds.length > 1) {
         const r1 = rounds[0] || [];
@@ -693,7 +697,8 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
             });
             if (existing) continue;
 
-            const tbNums = gMatches
+            // Count the whole tournament: group F tie-breaks and final tie-breaks are both FTB{n}.
+            const tbNums = out
                 .filter(m => m.isTieBreak && (m.code || '').startsWith(tbPrefix))
                 .map(m => {
                     const mm = String(m.code || '').match(/TB(\d+)$/);
@@ -1030,7 +1035,15 @@ export const activateFinalRoundRobinStage = (tournament: TournamentData, matches
         }
     }
 
-    const finalMatches: Match[] = rrPairs.map((pair, i) => ({
+    // F{n}, skipping codes group F already uses (F16-F18 with 6 groups of 3 and 8 finalists).
+    const takenCodes = new Set((matches || []).map(m => normalizeMatchCode(m.code)).filter(Boolean));
+    let codeNumber = 1;
+    const nextFinalCode = () => {
+        while (takenCodes.has(`F${codeNumber}`)) codeNumber++;
+        return `F${codeNumber++}`;
+    };
+
+    const finalMatches: Match[] = rrPairs.map((pair) => ({
         id: uuid(),
         teamAId: pair[0],
         teamBId: pair[1],
@@ -1040,7 +1053,7 @@ export const activateFinalRoundRobinStage = (tournament: TournamentData, matches
         status: 'scheduled',
         phase: 'groups',
         groupName: finalName,
-        code: `F${i + 1}`,
+        code: nextFinalCode(),
         orderIndex: orderIndex++,
     }));
 
@@ -1138,9 +1151,9 @@ export const ensureFinalTieBreakIfNeeded = (tournament: TournamentData, matches:
     const tiedIds = tied.map(t => t.id).filter(Boolean);
     if (tiedIds.length < 2) return matches;
 
-    // Determine next FTB index.
+    // Determine next FTB index over the whole tournament: group F tie-breaks are FTB{n} too.
     let maxN = 0;
-    for (const m of allFinalMatches) {
+    for (const m of matches || []) {
         const c = String(m.code || '').trim().toUpperCase();
         const mm = c.match(/^FTB(\d+)$/);
         if (mm) maxN = Math.max(maxN, parseInt(mm[1], 10) || 0);

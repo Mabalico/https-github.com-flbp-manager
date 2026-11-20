@@ -16,6 +16,7 @@ const source = readFileSync(componentPath, 'utf8');
 const ast = ts.createSourceFile(componentPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const names = ['isRefereeRateLimited', 'closeLiveCallsForMatch', 'saveReport', 'doLogin',
   'PRIVATE_APP_STATE_KEYS', 'hasPrivateAppData', 'REFEREE_VIEW_MATCH_KEYS', 'mergeRefereeLiveState', 'applyRefereeState',
+  'lookupMatchByCode', 'confirmOcrModal',
   ...(usesOutbox ? ['replayPendingReports'] : [])];
 const declarations = new Map();
 const visit = (node) => {
@@ -74,7 +75,7 @@ const createCase = (options = {}) => {
   // What the App holds: the component hands it updates through setState.
   let appState = options.appState || state;
   const events = [];
-  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [], mergeInputs: [] };
+  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [], mergeInputs: [], foundIds: [], codeChoices: [], codeErrors: [], forms: [], pages: [], ocrErrors: [] };
   let snapshotAttempts = 0;
   const context = {
     ...matchUtils, ...reportAudit,
@@ -165,6 +166,19 @@ const createCase = (options = {}) => {
         ? { ok: false }
         : { ok: true, state: { ...input.localState, tournament: { ...input.localState.tournament, remoteNote: input.remoteState.tournament?.remoteNote } } };
     },
+    // Report code lookup (lookupMatchByCode, confirmOcrModal): what the component reads and shows.
+    tournamentMatchesSorted: [...localMatches].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)),
+    reportCode: options.reportCode || '',
+    ocrModalCode: options.ocrModalCode || '',
+    ocrModalImageUrl: '', ocrModalText: '', ocrModalData: null,
+    setReportCodeError: value => calls.codeErrors.push(value),
+    setCodeChoices: value => calls.codeChoices.push(value),
+    setFoundMatchId: value => calls.foundIds.push(value),
+    initReportFormFromMatch: value => calls.forms.push(value.id),
+    setPage: value => calls.pages.push(value),
+    setOcrModalError: value => calls.ocrErrors.push(value),
+    setEntryMode: () => {}, clearOcrSupport: () => {}, persistReportCode: () => {}, scrollToPageTop: () => {},
+    setSupportImageUrl: () => {}, setSupportOcrText: () => {}, setSupportOcrData: () => {}, closeOcrModal: () => {},
   };
   vm.runInNewContext(callbacks, context, { filename: componentPath });
   return { ...context.callbacks, calls, events, match, state };
@@ -584,6 +598,81 @@ await check('B3 #3: a correction that keeps the same winner is still saved', asy
   const saved = result.calls.states[0].tournamentMatches;
   assert.equal(saved.find(match => match.id === 's1').scoreB, 7);
   assert.equal(saved.find(match => match.id === 'f').teamAId, 'a1', 'the played final is untouched');
+});
+
+// B2 audit #3: a tournament saved before the fix, 4 groups of 4 and 8 qualifiers. Group codes
+// A1-A6, B7-B12, C13-C18, D19-D24; bracket B11-B14, B21, B22, B31: B11 and B12 exist twice.
+// Group B11 is b2-b4 (id g11); bracket B11 is A1 vs B2 (id r1m1).
+const legacyLetters = ['A', 'B', 'C', 'D'];
+const legacyTeams = legacyLetters.flatMap(letter => [1, 2, 3, 4].map(n => ({
+  id: `${letter.toLowerCase()}${n}`, name: `${letter}${n}`, player1: `Uno ${letter}${n}`, player2: `Due ${letter}${n}`,
+})));
+const legacyFourByFour = ({ finishedGroups = [], resolvedBracket = {} } = {}) => {
+  const matches = [];
+  let counter = 0;
+  for (const letter of legacyLetters) {
+    const ids = [1, 2, 3, 4].map(n => `${letter.toLowerCase()}${n}`);
+    const done = finishedGroups.includes(letter);
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        counter++;
+        matches.push({
+          id: `g${counter}`, code: `${letter}${counter}`, phase: 'groups', groupName: `Girone ${letter}`, orderIndex: counter,
+          teamAId: ids[i], teamBId: ids[j], status: done ? 'finished' : 'scheduled', played: done, scoreA: done ? 10 : 0, scoreB: done ? 6 : 0,
+        });
+      }
+    }
+  }
+  [['TBD-A-1', 'TBD-B-2'], ['TBD-A-2', 'TBD-B-1'], ['TBD-C-1', 'TBD-D-2'], ['TBD-C-2', 'TBD-D-1']].forEach((slots, index) => {
+    const id = `r1m${index + 1}`;
+    const [teamAId, teamBId] = resolvedBracket[id] || slots;
+    matches.push(bracketMatch(id, `B1${index + 1}`, 1, 100 + index, teamAId, teamBId));
+  });
+  matches.push(bracketMatch('r2m1', 'B21', 2, 104), bracketMatch('r2m2', 'B22', 2, 105), bracketMatch('r3m1', 'B31', 3, 106));
+  return matches;
+};
+const legacyCase = (matches, options = {}) => createCase({ local: true, teams: legacyTeams, matches, tournamentType: 'groups_elimination', ...options });
+
+await check('B2 #3: a code shared with a bracket match still on TBD asks before opening the finished group match', async () => {
+  // Group B is over, group A is not: bracket B11 is still TBD-A-1 vs b2.
+  const result = legacyCase(legacyFourByFour({ finishedGroups: ['B'] }), { reportCode: 'b11' });
+  result.lookupMatchByCode();
+  assert.deepEqual(result.calls.forms, [], 'the finished group match is not opened on its own');
+  assert.deepEqual(result.calls.pages, []);
+  assert.deepEqual(plain(result.calls.codeChoices.at(-1)).map(match => match.id), ['g11'], 'the referee confirms it from the list');
+  assert.equal(result.calls.codeErrors.at(-1), 'referees_duplicate_code_select_match');
+  assert.equal(result.calls.foundIds.at(-1), '');
+});
+await check('B2 #3: a shared code opens the match still to be played', async () => {
+  const matches = legacyFourByFour({ finishedGroups: ['A', 'B'], resolvedBracket: { r1m1: ['a1', 'b2'], r1m2: ['a2', 'b1'] } });
+  const result = legacyCase(matches, { reportCode: 'B11' });
+  result.lookupMatchByCode();
+  assert.deepEqual(result.calls.forms, ['r1m1'], 'bracket B11 (scheduled) wins over group B11 (finished)');
+  assert.deepEqual(result.calls.pages, ['report']);
+  assert.equal(result.calls.foundIds.at(-1), 'r1m1');
+});
+await check('B2 #3: a code used once still opens its match, finished or not', async () => {
+  const matches = legacyFourByFour({ finishedGroups: ['A'] });
+  for (const [code, id] of [['A1', 'g1'], ['C13', 'g13']]) {
+    const result = legacyCase(matches, { reportCode: code });
+    result.lookupMatchByCode();
+    assert.deepEqual(result.calls.forms, [id], `${code} opens directly`);
+  }
+});
+await check('B2 #3: OCR confirmation keeps the match the referee picked from the list', async () => {
+  const matches = legacyFourByFour({ finishedGroups: ['A', 'B'], resolvedBracket: { r1m1: ['a1', 'b2'], r1m2: ['a2', 'b1'] } });
+  const picked = matches.find(match => match.id === 'g11');
+  const result = legacyCase(matches, { foundMatch: picked, ocrModalCode: 'B11' });
+  result.confirmOcrModal();
+  assert.deepEqual(result.calls.ocrErrors, []);
+  assert.deepEqual(result.calls.forms, ['g11'], 'the correction of group B11 is not moved to bracket B11');
+});
+await check('B2 #3: OCR confirmation of a different shared code asks for the manual choice', async () => {
+  const matches = legacyFourByFour({ finishedGroups: ['B'] });
+  const result = legacyCase(matches, { foundMatch: matches.find(match => match.id === 'g13'), ocrModalCode: 'B11' });
+  result.confirmOcrModal();
+  assert.deepEqual(result.calls.forms, []);
+  assert.deepEqual(result.calls.ocrErrors, ['referees_duplicate_code_use_manual']);
 });
 
 console.log(`Referee report save: ${passed} checks passed (${usesOutbox ? 'ONLINE outbox/RPC' : 'LOCALE snapshot'}).`);
