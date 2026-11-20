@@ -564,6 +564,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const isWinnerB = match.status === 'finished' && match.scoreB > match.scoreA;
 
                          const isFinalRound = rIdx === rounds.length - 1;
+                         // The badge sits on the edge of the winning row: a card-level badge read as
+                         // pointing at the top team even when the bottom team had won the final.
+                         const finalWinnerSide: 'A' | 'B' | null = (readOnly && isFinalRound && !preserveEmptySlot)
+                             ? (isWinnerA ? 'A' : isWinnerB ? 'B' : null)
+                             : null;
                          const roundAriaLabel = isFinalRound ? t('bracket_final_label') : `${t('round')} ${rIdx + 1}`;
                          const matchAriaLabel = `${t('match')} ${mIdx + 1}`;
                          const matchStatusAriaLabel = t(`match_status_${match.status}`);
@@ -578,6 +583,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                              roundAriaLabel,
                              matchAriaLabel,
                              formatTeamLabel(teamId, team, allowByeSlotsThisRound),
+                             finalWinnerSide === side ? t('winner') : '',
                              matchStatusAriaLabel,
                              state.locked ? t('editor_status_locked') : '',
                              state.invalid ? t('editor_invalid_target') : '',
@@ -637,12 +643,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                              : spectatorLayout
                                  ? 'px-3 py-2 rounded-xl border border-slate-200/90 bg-white shadow-[0_10px_24px_-20px_rgba(15,23,42,0.6)]'
                                  : 'px-2 py-1 rounded border-2 border-slate-400 bg-white';
+                         // TV pills are white inside a white-text container: every non-winning row needs
+                         // its own dark text, or losers and scheduled teams are unreadable.
                          const rowWinAClass = isWinnerA
                              ? (tvMode ? 'bg-beer-50 border-beer-500 font-black text-beer-900' : editorStructuredLayout ? 'bg-[var(--editor-warning-50)] border-[color:var(--editor-warning-100)] text-[var(--editor-text-primary)] font-semibold' : spectatorLayout ? 'bg-amber-50 border-amber-300 text-amber-950 font-black' : 'bg-beer-100 font-bold text-beer-900')
-                             : '';
+                             : (tvMode ? 'text-slate-800' : '');
                          const rowWinBClass = isWinnerB
                              ? (tvMode ? 'bg-beer-50 border-beer-500 font-black text-beer-900' : editorStructuredLayout ? 'bg-[var(--editor-warning-50)] border-[color:var(--editor-warning-100)] text-[var(--editor-text-primary)] font-semibold' : spectatorLayout ? 'bg-amber-50 border-amber-300 text-amber-950 font-black' : 'bg-beer-100 font-bold text-beer-900')
-                             : '';
+                             : (tvMode ? 'text-slate-800' : '');
                          const changedRowAClass = changedA ? 'border-violet-200 bg-violet-50/85 shadow-[0_0_0_1px_rgba(124,58,237,0.06)]' : '';
                          const changedRowBClass = changedB ? 'border-violet-200 bg-violet-50/85 shadow-[0_0_0_1px_rgba(124,58,237,0.06)]' : '';
                          const lockedRowAClass = lockedA ? 'border-slate-200 bg-slate-100 text-slate-500' : '';
@@ -691,8 +699,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         {t('live_badge')}
                                     </div>
                                 )}
-                                {match.status === 'finished' && readOnly && !preserveEmptySlot && rIdx === rounds.length - 1 && (
-                                    <div className={`absolute -top-2 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full text-[9px] font-black shadow flex items-center gap-1 ${editorStructuredLayout ? 'bg-amber-100 text-amber-800 border border-amber-200' : spectatorLayout ? 'bg-amber-300 text-slate-950 border border-white/30' : 'bg-yellow-500 text-white'}`}>
+                                {finalWinnerSide && (
+                                    <div className={`absolute ${finalWinnerSide === 'A' ? '-top-2' : '-bottom-2'} left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full text-[9px] font-black shadow flex items-center gap-1 ${editorStructuredLayout ? 'bg-amber-100 text-amber-800 border border-amber-200' : spectatorLayout ? 'bg-amber-300 text-slate-950 border border-white/30' : 'bg-yellow-500 text-white'}`}>
                                         <Trophy className="w-3 h-3"/> {t('winner')}
                                     </div>
                                 )}
