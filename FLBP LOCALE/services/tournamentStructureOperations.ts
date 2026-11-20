@@ -1,7 +1,7 @@
 import type { Match, Team } from '../types';
 import { uuid } from './id';
 import { generateTournamentStructure, syncBracketFromGroups } from './tournamentEngine';
-import { getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
+import { avoidBracketCodeClashes, getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId, normalizeMatchCode } from './matchUtils';
 import {
   canClearBracketSlot,
   canInsertTeamIntoBracketSlot,
@@ -81,6 +81,14 @@ const createGroupMatchesForInsertedTeam = (
   let orderIndex = nextOrderIndexForMatches(next);
   let codeCounter = nextGroupCodeForMatches(next, groupName);
   const groupLetter = getGroupLetter(groupName);
+  // The group counter can reach codes used elsewhere (bracket B13, B14 after group B's B12): skip them.
+  const takenCodes = new Set(next.map((match) => normalizeMatchCode(match.code)).filter(Boolean));
+  const nextGroupCode = () => {
+    while (takenCodes.has(normalizeMatchCode(`${groupLetter}${codeCounter}`))) codeCounter++;
+    const code = `${groupLetter}${codeCounter++}`;
+    takenCodes.add(normalizeMatchCode(code));
+    return code;
+  };
   const newMatches: Match[] = [];
 
   for (const team of existingTeams) {
@@ -105,7 +113,7 @@ const createGroupMatchesForInsertedTeam = (
       status: 'scheduled',
       phase: 'groups',
       groupName,
-      code: `${groupLetter}${codeCounter++}`,
+      code: nextGroupCode(),
       orderIndex: orderIndex++,
     });
   }
@@ -743,6 +751,11 @@ const applyAddPreliminaryBracketRound = (
       match.orderIndex = orderIndex++;
     });
   }
+
+  avoidBracketCodeClashes(
+    [...newRound1, ...shiftedMatches.filter((match) => match.phase === 'bracket')],
+    shiftedMatches.filter((match) => match.phase !== 'bracket').map((match) => match.code)
+  );
 
   next.matches = deriveBracketSuccessorLinks(
     [...shiftedMatches.filter((match) => match.phase !== 'bracket'), ...newRound1, ...shiftedMatches.filter((match) => match.phase === 'bracket')],

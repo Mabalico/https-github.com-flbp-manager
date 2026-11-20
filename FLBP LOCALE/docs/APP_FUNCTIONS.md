@@ -157,7 +157,8 @@ Fonte dati pubblica attuale:
   - Step R2: selezione arbitro da giocatori del torneo live + aggiunta manuale
     - la lista manuale viene persistita in `tournament.refereesRoster` (solo torneo live)
   - Step R3: pagina "Referto" → inserimento **codice referto** e ricerca match in `state.tournamentMatches` per `match.code`
-    - Gestione codici duplicati: se più match condividono lo stesso `code` (possibile dopo modifiche manuali/rigenerazioni), l’UI mostra una **lista di candidati** e richiede una scelta esplicita (evita referti sul match sbagliato).
+    - Codici partita: gironi = lettera del girone + contatore del torneo (`A1`…`A6`, `B7`…`B12`); tabellone = `B{turno}{n}` (`B11`, `B21`…). Se uno di questi codici è già usato da un girone (es. `B11`/`B12` del girone B con 4 gironi da 4), tutto il tabellone usa `E{turno}{n}` (E = Eliminazione diretta, come sul referto; letto da OCR admin e arbitri). Inserimenti tardivi, turno preliminare, Girone Finale (`F*`) e spareggi (`*TB*`) saltano i codici già presenti nel torneo.
+    - Gestione codici duplicati (tornei salvati prima di questa regola, dove girone B e tabellone possono condividere `B11`/`B12`): se uno solo dei match con quel codice è ancora da giocare si apre quello; altrimenti l’UI mostra una **lista di candidati** e richiede una scelta esplicita, anche quando l’unico refertabile è già concluso (evita di sovrascrivere un referto). Stessa regola nella conferma OCR arbitri e nell’OCR admin.
     - blocchi hard: BYE (`teamId===BYE`), TBD (placeholder `TBD` / `TBD-*`), match `hidden` e match **incompleti** (slot vuoto / 1 sola squadra)
   - Step R4: caricamento referto
     - **Lista match da refertare** (scheduled/playing) con selezione rapida del codice

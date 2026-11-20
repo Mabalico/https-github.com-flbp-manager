@@ -9,7 +9,7 @@ import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, 
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
-import { isPlaceholderTeamId } from '../services/matchUtils';
+import { isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
@@ -3698,9 +3698,16 @@ while (guard < 5000) {
                 const codeMatch = cleaned.match(/\b([GBE]\d{1,4})\b/i);
                 if (codeMatch) {
                     const code = codeMatch[1].toUpperCase();
-                    const mByCode = (state.tournamentMatches || []).find(mm => (mm.code || '').toUpperCase() === code);
+                    // Saved tournaments can share a code (group B and bracket B11): never pick the first one.
+                    const sameCode = (state.tournamentMatches || []).filter(mm => (mm.code || '').trim().toUpperCase() === code);
+                    const reportable = sameCode.filter(isReportableMatch);
+                    const mByCode = pickMatchForCode(sameCode, reportable);
                     if (mByCode) {
                         initReportFormFromMatch(mByCode);
+                    } else if (reportable.length) {
+                        alert(t('referees_duplicate_code_choose_match'));
+                    } else if (sameCode.length) {
+                        alert(t('report_unavailable_placeholder'));
                     }
                 }
 

@@ -7,7 +7,7 @@ import {
   undoTournamentStructureDraft,
 } from '../../services/tournamentStructureDraft';
 import { diffTournamentStructure } from '../../services/tournamentStructureDiff';
-import { ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
+import { activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
 import { computeGroupStandings } from '../../services/groupStandings';
 import {
   canInsertTeamIntoBracketSlot,
@@ -965,6 +965,191 @@ defineCase('a played final tie-break decides the final group leader without crea
   assertEqual(after.length, matches.length, 'no FTB2 after FTB1 decided the leader');
   const standings = computeGroupStandings({ teams: finalTeams, matches: after.filter((match) => match.status === 'finished') });
   assertEqual(standings.rankedTeams[0].id, 'F2', 'the FTB winner leads the final group');
+});
+
+// --- B2 audit 2026-11-16 #3: a match code is used once per tournament ---
+
+// Code readers of the referto: admin OCR (AdminDashboard) and referee OCR (RefereesArea).
+const ADMIN_OCR_CODE = /\b([GBE]\d{1,4})\b/i;
+const REFEREE_OCR_CODE = /\b([A-Z]{1,2}TB\d{1,4}|[A-Z]{1,2}\d{1,4})\b/i;
+
+const findDuplicateCodes = (matches: Match[]) => {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  matches.forEach((match) => {
+    const code = String(match.code || '').trim().toUpperCase();
+    if (!code) return;
+    if (seen.has(code)) duplicates.add(code);
+    seen.add(code);
+  });
+  return Array.from(duplicates);
+};
+
+const assertUniqueCodes = (matches: Match[], label: string) => {
+  assertOk(matches.every((match) => !!String(match.code || '').trim()), `${label}: every match has a code`);
+  const duplicates = findDuplicateCodes(matches);
+  assertEqual(duplicates.join(', '), '', `${label}: codes used twice: ${duplicates.join(', ')}`);
+};
+
+const codesOf = (matches: Match[]) => matches.map((match) => match.code).join(',');
+
+const getBracketInPlayOrder = (matches: Match[]) => matches
+  .filter((match) => match.phase === 'bracket')
+  .sort((a, b) => ((a.round || 1) - (b.round || 1)) || ((a.orderIndex || 0) - (b.orderIndex || 0)));
+
+const generateFourByFourTournament = () => generateTournamentStructure(
+  Array.from({ length: 16 }, (_, index) => makeTeam(`T${index + 1}`, `Team ${String(index + 1).padStart(2, '0')}`)),
+  { mode: 'groups_elimination', numGroups: 4, advancingPerGroup: 2, tournamentName: 'Four by four' }
+);
+
+// Group codes are the group letter plus a tournament-wide counter: A1-A6, B7-B12, C13-C18, D19-D24.
+const FOUR_BY_FOUR_GROUP_CODES = ['A', 'B', 'C', 'D']
+  .flatMap((letter, group) => Array.from({ length: 6 }, (_, index) => `${letter}${group * 6 + index + 1}`))
+  .join(',');
+
+// A tournament saved before the fix: its bracket kept B{round}{n} even where group B used the same code.
+const withLegacyBracketCodes = (matches: Match[]): Match[] => {
+  const position = new Map<number, number>();
+  const legacy = new Map<string, string>();
+  getBracketInPlayOrder(matches).forEach((match) => {
+    const round = match.round || 1;
+    const index = (position.get(round) || 0) + 1;
+    position.set(round, index);
+    legacy.set(match.id, `B${round}${index}`);
+  });
+  return matches.map((match) => (legacy.has(match.id) ? { ...match, code: legacy.get(match.id) } : match));
+};
+
+defineCase('4 groups of 4 with 8 qualifiers: bracket codes no longer repeat the codes of group B', () => {
+  const { matches } = generateFourByFourTournament();
+  assertEqual(codesOf(matches.filter((match) => match.phase === 'groups')), FOUR_BY_FOUR_GROUP_CODES, 'group codes keep their form');
+  assertEqual(
+    codesOf(getBracketInPlayOrder(matches)),
+    'E11,E12,E13,E14,E21,E22,E31',
+    'B11 and B12 belong to group B, so the bracket uses E{round}{n}'
+  );
+  assertUniqueCodes(matches, '4x4 with 8 qualifiers');
+  matches.forEach((match) => {
+    const code = String(match.code);
+    assertEqual(code.match(REFEREE_OCR_CODE)?.[1].toUpperCase(), code, `referee OCR reads ${code}`);
+  });
+  getBracketInPlayOrder(matches).forEach((match) => {
+    const code = String(match.code);
+    assertEqual(code.match(ADMIN_OCR_CODE)?.[1].toUpperCase(), code, `admin OCR reads ${code}`);
+  });
+});
+
+defineCase('a bracket that does not clash with any group code keeps the B{round}{n} codes', () => {
+  const elimination = generateTournamentStructure(
+    Array.from({ length: 8 }, (_, index) => makeTeam(`E${index + 1}`)),
+    { mode: 'elimination', tournamentName: 'Elimination' }
+  );
+  assertEqual(codesOf(getBracketInPlayOrder(elimination.matches)), 'B11,B12,B13,B14,B21,B22,B31', 'elimination brackets are unchanged');
+
+  // Groups of 3: group B uses B4-B6, far from the bracket codes.
+  const { tournament } = generateFourGroupsTournament();
+  assertEqual(codesOf(getBracketInPlayOrder(tournament.matches || [])), 'B11,B12,B13,B14,B21,B22,B31');
+  assertUniqueCodes(tournament.matches || [], '4 groups of 3');
+});
+
+defineCase('a team inserted late in group B skips the codes the bracket of a saved tournament already uses', () => {
+  const generated = generateFourByFourTournament();
+  const matches = withLegacyBracketCodes(generated.matches);
+  const tournament: TournamentData = { ...generated.tournament, matches };
+  const late = makeTeam('LATE', 'Late team');
+  const groupB = (tournament.groups || []).find((group) => group.name === 'Girone B')!;
+
+  const result = applyStructuralOperation(
+    makeSnapshot(tournament, matches, [...tournament.teams, late]),
+    { type: 'INSERT_TEAM_IN_GROUP', teamId: late.id, groupId: groupB.id }
+  );
+  assertEqual(result.ok, true);
+  const next = result.nextSnapshot!.matches;
+  const added = next.filter((match) => !matches.some((saved) => saved.id === match.id));
+  assertEqual(codesOf(added), 'B15,B16,B17,B18', 'B13 and B14 are bracket matches of the saved tournament');
+  matches.forEach((saved) => {
+    assertEqual(next.find((match) => match.id === saved.id)?.code, saved.code, `saved code ${saved.code} is not rewritten`);
+  });
+});
+
+defineCase('adding a preliminary round never gives the bracket a code used by a group', () => {
+  const generated = generateFourByFourTournament();
+  let matches = generated.matches;
+  (generated.tournament.groups || []).forEach((group) => {
+    matches = finishGroupInOrder(matches, group);
+  });
+  matches = syncBracketFromGroups(generated.tournament, matches);
+  const tournament: TournamentData = { ...generated.tournament, matches };
+
+  const result = applyStructuralOperation(makeSnapshot(tournament, matches), { type: 'ADD_PRELIMINARY_BRACKET_ROUND' });
+  assertEqual(result.ok, true);
+  const next = result.nextSnapshot!.matches;
+  assertEqual(getBracketRound(next, 1).length, 8, 'the new Round 1 has 8 matches (B11-B18 would hit B11 and B12 of group B)');
+  assertEqual(codesOf(next.filter((match) => match.phase === 'groups')), FOUR_BY_FOUR_GROUP_CODES, 'group codes are untouched');
+  assertUniqueCodes(next, 'after the preliminary round');
+});
+
+defineCase('the final round robin skips F codes already used by group F', () => {
+  const teams = Array.from({ length: 18 }, (_, index) => makeTeam(`S${index + 1}`));
+  const generated = generateTournamentStructure(teams, {
+    mode: 'groups_elimination',
+    numGroups: 6,
+    advancingPerGroup: 2,
+    tournamentName: 'Six groups',
+    finalRoundRobin: { enabled: true, topTeams: 8 },
+  });
+  // Group F holds F16-F18; the quarter-finals get the eight finalists as if the bracket had been played.
+  const quarters = getBracketRound(generated.matches, 2);
+  assertEqual(quarters.length, 4);
+  const matches = generated.matches.map((match) => {
+    const index = quarters.findIndex((quarter) => quarter.id === match.id);
+    return index < 0 ? match : { ...match, teamAId: teams[index * 2].id, teamBId: teams[index * 2 + 1].id };
+  });
+
+  const activated = activateFinalRoundRobinStage(generated.tournament, matches);
+  const finals = activated.matches.filter((match) => match.groupName === 'Girone Finale');
+  assertEqual(finals.length, 28, 'eight finalists play 28 matches');
+  assertEqual(finals[0].code, 'F1');
+  assertUniqueCodes(activated.matches, 'after activating the final round robin');
+});
+
+defineCase('a group F tie-break and a final tie-break never share an FTB code', () => {
+  const groupTeams = ['G1', 'G2', 'G3'].map((id) => makeTeam(id));
+  const finalTeams = ['F1', 'F2', 'F3', 'F4'].map((id) => makeTeam(id));
+  const groupF: Group = makeGroup('gf', 'Girone F', groupTeams);
+  const finalGroup: Group = { id: 'gfinal', name: 'Girone Finale', teams: finalTeams, stage: 'final' };
+  const finished = (scoreA: number, scoreB: number): Partial<Match> => ({ status: 'finished', played: true, scoreA, scoreB });
+
+  // 1) Group F already used FTB1: the final tie-break must take another number.
+  const finalTournament: TournamentData = {
+    ...makeTournament('ftb-final', 'elimination', finalTeams, [groupF, finalGroup], []),
+    config: { advancingPerGroup: 2, finalRoundRobin: { enabled: true, activated: true, topTeams: 4 } },
+  };
+  const finalResult = (id: string, a: string, b: string, aWins: boolean) =>
+    makeGroupMatch(id, 'Girone Finale', a, b, finished(aWins ? 10 : 4, aWins ? 4 : 10));
+  const withFinal = ensureFinalTieBreakIfNeeded(finalTournament, [
+    makeGroupMatch('gtb', 'Girone F', 'G1', 'G2', { ...finished(1, 0), code: 'FTB1', isTieBreak: true, targetScore: 1 }),
+    finalResult('f1', 'F1', 'F2', true),
+    finalResult('f2', 'F1', 'F3', false),
+    finalResult('f3', 'F1', 'F4', true),
+    finalResult('f4', 'F2', 'F3', true),
+    finalResult('f5', 'F2', 'F4', true),
+    finalResult('f6', 'F3', 'F4', false),
+  ]);
+  const finalTieBreak = withFinal.find((match) => match.groupName === 'Girone Finale' && match.isTieBreak);
+  assertEqual(finalTieBreak?.code, 'FTB2', 'the final tie-break skips the FTB1 of group F');
+
+  // 2) The final already used FTB1: a new group F tie-break must take another number.
+  const groupTournament = makeTournament('ftb-group', 'groups_elimination', [...groupTeams, ...finalTeams], [groupF, finalGroup], []);
+  const withGroup = syncBracketFromGroups(groupTournament, [
+    makeGroupMatch('g1', 'Girone F', 'G1', 'G2', finished(10, 4)),
+    makeGroupMatch('g2', 'Girone F', 'G2', 'G3', finished(10, 4)),
+    makeGroupMatch('g3', 'Girone F', 'G3', 'G1', finished(10, 4)),
+    makeGroupMatch('ftb', 'Girone Finale', 'F1', 'F2', { ...finished(1, 0), code: 'FTB1', isTieBreak: true, targetScore: 1 }),
+  ]);
+  const groupTieBreak = withGroup.find((match) => match.groupName === 'Girone F' && match.isTieBreak);
+  assertOk(groupTieBreak, 'the three-way tie in group F creates a tie-break');
+  assertEqual(groupTieBreak!.code, 'FTB2', 'the group F tie-break skips the FTB1 of the final');
 });
 
 let failed = 0;
