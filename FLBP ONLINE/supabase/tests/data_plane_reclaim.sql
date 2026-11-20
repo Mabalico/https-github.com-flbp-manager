@@ -70,9 +70,12 @@ reset role;
 
 -- Twelve hours of silence, but the remote journal is ahead of the snapshot.
 update public.flbp_data_plane set lease_expires_at = now() - interval '13 hours' where workspace_id = 'reclaim-test';
+-- The journal guard accepts only the server role, as the local node's RPC does.
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 insert into public.flbp_local_operation_log(workspace_id, node_id, primary_epoch, operation_id, local_version, operation_kind, payload, created_at)
   values ('reclaim-test', 'fixture-node', 3, 'reclaim-op-5', 5, 'state-patch', '{}', now() - interval '14 hours'),
          ('reclaim-test', 'fixture-node', 3, 'reclaim-op-6', 6, 'state-patch', '{}', now() - interval '13 hours');
+select set_config('request.jwt.claims', '{"role":"authenticated","app_metadata":{"role":"admin"}}', true);
 set local role authenticated;
 do $$
 declare v_out jsonb;
