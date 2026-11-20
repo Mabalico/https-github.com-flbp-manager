@@ -37,6 +37,18 @@ La scheda **Gestione dati → Persistenza e backup** separa le operazioni quotid
 - **Strumenti avanzati** raccoglie le operazioni che non servono durante il normale svolgimento del torneo: restore/merge da file, snapshot manuali, recovery strutturato, migrazione, auto-sync, token tecnico, diagnostica e backup/ripristino dell’intero database applicativo.
 - Il failover verso Supabase rimane un comando di emergenza e compare soltanto quando il coordinatore segnala uno stato che richiede recupero. Non va usato per risolvere un normale conflitto tra due bozze.
 
+## Chiusura dimenticata della modalità locale
+
+Se il PC del torneo viene spento senza **Chiudi modalità locale**, la lease scade e il coordinatore espone `recovery`: ogni finestra Admin online resta in sola lettura. Per non dipendere dal ricordo dell'operatore:
+
+- il server locale copia lo stato completo su Supabase dopo 5 minuti senza modifiche e chiude da solo la modalità locale dopo 6 ore senza modifiche;
+- `public.flbp_admin_reclaim_cloud_data_plane(...)` riporta l'autorità al cloud quando la lease è scaduta da almeno 12 ore. Il client Admin la chiama da solo quando trova `recovery` con motivo `local_lease_expired`;
+- se il journal remoto contiene operazioni più recenti dello snapshot cloud, il ritorno richiede `p_accept_missing = true`: la finestra **Sola lettura** mostra quante operazioni mancano e chiede conferma. Le operazioni non vengono riprodotte;
+- l'epoch avanza come nel failover d'emergenza: il PC, se si riaccende, riceve il rifiuto dell'heartbeat e passa in standby;
+- prima delle 12 ore la finestra **Sola lettura** spiega da quando il PC non risponde, l'orario di sblocco automatico e come sbloccare subito dal PC.
+
+Le 12 ore coprono un'assenza di Internet durante il torneo: in quel caso il PC continua a lavorare da solo e il sito non deve diventare scrivibile prima della fine della giornata.
+
 Lo stato principale indica sempre dove vengono confermate le scritture del torneo: **PC locale**, **Supabase** oppure **scritture sospese**. La modalità tecnica “solo su questo browser” non equivale al server locale del torneo e resta tra gli strumenti avanzati per evitare ambiguità.
 
 ## Recupero guidato di un conflitto
@@ -72,7 +84,7 @@ Per garantire questa separazione, il recupero automatico viene bloccato se la bo
 6. Una finestra Admin passiva non crea nemmeno una bozza ripristinabile.
 7. Nell'app Windows il processo host assegna alla finestra un'identità stabile, reiniettata prima di ogni navigazione WebView2: un reload riprende immediatamente la propria lease senza attendere i 90 secondi del TTL. Una seconda istanza dell'app riceve invece un'identità diversa e resta correttamente in sola lettura. Un singolo heartbeat abortito viene ritentato senza bloccare una finestra che possiede ancora una lease valida; il server continua comunque a verificare `x-flbp-writer-id` su ogni commit. La rotta locale e la navigazione Admin non sensibile vengono salvate e ripristinate dopo un errore o riavvio WebView2, con stato di attesa e retry progressivi; token e password non vengono persistiti da questo meccanismo.
 7. Supabase e server locale non sono mai scrivibili contemporaneamente per lo stesso workspace.
-8. La scadenza della leadership locale produce `recovery`, non un failover cloud automatico.
+8. La scadenza della leadership locale produce `recovery`. Il ritorno automatico al cloud avviene solo dopo 12 ore di silenzio del PC e, se mancano operazioni del journal, solo con conferma esplicita dell'Admin.
 9. La disattivazione locale riesce solo dopo il backup finale atomico.
 10. Un nodo sostitutivo riproduce il journal remoto dopo l’ultimo backup e si arresta se manca una versione.
 11. L’attivazione è un compare-and-switch: se il cloud cambia dopo il download, il nodo locale non diventa scrivibile e deve ripartire da uno snapshot aggiornato.

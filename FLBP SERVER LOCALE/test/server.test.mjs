@@ -758,7 +758,7 @@ test('deactivation drains writes and keeps them blocked across a restart until t
   }
 });
 
-test('a failed secondary replica keeps the Admin draft retryable until that version is copied', async () => {
+test('a failing optional secondary replica never blocks the Admin write and catches up on retry', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-secondary-http-'));
   const secondaryBackupDir = path.join(dataDir, 'usb-backup');
   const app = createLocalServer({
@@ -803,7 +803,7 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
     const body = JSON.stringify({ operationId: 'secondary-retry-v2', baseVersion: 1, state: next, publicState: next });
 
     const first = await fetch(`${base}/api/v1/admin/workspace/default/commit`, { method: 'POST', headers, body });
-    assert.equal(first.status, 500);
+    assert.equal(first.status, 200);
     assert.equal(app.store.getCurrent().version, 2);
 
     const retry = await fetch(`${base}/api/v1/admin/workspace/default/commit`, { method: 'POST', headers, body });
@@ -815,6 +815,170 @@ test('a failed secondary replica keeps the Admin draft retryable until that vers
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+const startConfiguredServer = async (overrides = {}) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-idle-'));
+  const app = createLocalServer({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
+    workspaceId: 'default',
+    adminToken: TOKEN,
+    allowedOrigins: ['http://test.local'],
+    publicUrl: '',
+    supabaseUrl: 'http://supabase.invalid',
+    supabaseServiceRoleKey: 'test-secret-key',
+    heartbeatIntervalMs: 60_000,
+    fullBackupIntervalMs: 60_000,
+    idleCheckIntervalMs: 10,
+    idleBackupMs: 30,
+    autoDeactivateIdleMs: 200,
+    autoDeactivateRetryMs: 40,
+    databaseFilename: 'idle.sqlite',
+    ...overrides,
+  });
+  const calls = [];
+  // No network: every Supabase-facing step is replaced by an in-memory double.
+  app.sync.heartbeat = async () => ({ accepted: true });
+  app.sync.scheduleOutboxSync = async () => ({ synced: 0 });
+  app.sync.scheduleLivePublish = () => {};
+  app.sync.publishLiveSnapshot = async () => ({ published: false });
+  app.sync.backupSnapshot = async () => {
+    const current = app.store.getCurrent();
+    calls.push(`backup:v${current.version}`);
+    app.store.markSnapshotSynced(current.version, new Date().toISOString());
+    return { backedUp: true, verified: true, version: current.version };
+  };
+  app.sync.deactivate = async () => {
+    calls.push('deactivate');
+    app.store.setActive(false);
+    return { ok: true, deactivated: true };
+  };
+  const state = { tournament: { id: 't1', matches: [{ id: 'm1' }] }, tournamentMatches: [{ id: 'm1' }] };
+  app.store.importCloudSnapshot({ state, publicState: state, version: 1, operationId: 'cloud-v1' });
+  app.store.setActive(true, 1);
+  const address = await app.listen();
+  return { app, dataDir, calls, state, base: `http://127.0.0.1:${address.port}` };
+};
+
+const waitFor = async (predicate, timeoutMs = 3_000) => {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) throw new Error('condition not reached in time');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+};
+
+test('an idle local primary backs up to the cloud first, then closes local mode by itself', async () => {
+  const ctx = await startConfiguredServer();
+  try {
+    await waitFor(() => !ctx.app.store.isActive());
+    assert.deepEqual(ctx.calls, ['backup:v1', 'deactivate']);
+    assert.equal(ctx.app.store.getTransitionState(), 'idle');
+    const health = await (await fetch(`${ctx.base}/health`)).json();
+    assert.equal(health.active, false);
+    assert.equal(health.autoClose.closesAt, null);
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('writes keep the local primary open and each pause backs up the new version once', async () => {
+  const ctx = await startConfiguredServer({ autoDeactivateIdleMs: 400 });
+  try {
+    const writerId = await acquireWriter(ctx.base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
+    for (let index = 0; index < 4; index += 1) {
+      const next = { ...ctx.state, marker: `write-${index}` };
+      const response = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ operationId: `idle-write-${index}`, baseVersion: index + 1, state: next, publicState: next }),
+      });
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.equal(ctx.app.store.isActive(), true, 'a write within the idle window keeps local mode open');
+    }
+    const health = await (await fetch(`${ctx.base}/health`)).json();
+    assert.ok(Date.parse(health.autoClose.closesAt) > Date.now());
+    await waitFor(() => !ctx.app.store.isActive());
+    assert.equal(ctx.calls.at(-1), 'deactivate');
+    assert.ok(ctx.calls.includes('backup:v5'), 'the last written version reaches the cloud before closing');
+    assert.equal(new Set(ctx.calls).size, ctx.calls.length, 'no version is backed up twice');
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
+test('a failed automatic close is retried and a zero threshold disables it', async () => {
+  const failing = await startConfiguredServer();
+  try {
+    let attempts = 0;
+    const realDeactivate = failing.app.sync.deactivate;
+    failing.app.sync.deactivate = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Supabase momentaneamente irraggiungibile');
+      return realDeactivate();
+    };
+    await waitFor(() => !failing.app.store.isActive());
+    assert.equal(attempts, 2);
+    assert.equal(failing.app.store.getTransitionState(), 'idle');
+  } finally {
+    await cleanup(failing);
+  }
+
+  const disabled = await startConfiguredServer({ autoDeactivateIdleMs: 0 });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(disabled.app.store.isActive(), true);
+    assert.deepEqual(disabled.calls, ['backup:v1']);
+  } finally {
+    await cleanup(disabled);
+  }
+});
+
+test('a missing optional disk never blocks writes while a required one does', async () => {
+  const diskRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-usb-'));
+  const blockedPath = path.join(diskRoot, 'usb-not-connected');
+  fs.writeFileSync(blockedPath, 'not a directory');
+  const ctx = await startConfiguredServer({ autoDeactivateIdleMs: 0, secondaryBackupDir: blockedPath });
+  try {
+    const writerId = await acquireWriter(ctx.base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
+    const next = { ...ctx.state, marker: 'no-usb' };
+    const response = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ operationId: 'optional-disk-v2', baseVersion: 1, state: next, publicState: next }),
+    });
+    assert.equal(response.status, 200);
+    const health = await (await fetch(`${ctx.base}/health`)).json();
+    assert.equal(health.secondaryBackup.configured, true);
+    assert.equal(health.secondaryBackup.required, false);
+    assert.match(health.secondaryBackup.warning, /Disco secondario/);
+  } finally {
+    await cleanup(ctx);
+    fs.rmSync(diskRoot, { recursive: true, force: true });
+  }
+
+  const required = await startConfiguredServer({ autoDeactivateIdleMs: 0, requireSecondaryBackup: true });
+  try {
+    const writerId = await acquireWriter(required.base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
+    const response = await fetch(`${required.base}/api/v1/admin/workspace/default/commit`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ operationId: 'required-disk-v2', baseVersion: 1, state: required.state, publicState: required.state }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'FLBP_SECONDARY_REQUIRED');
+    assert.equal(required.app.store.getCurrent().version, 1);
+  } finally {
+    await cleanup(required);
   }
 });
 

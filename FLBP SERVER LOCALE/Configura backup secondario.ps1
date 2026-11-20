@@ -1,5 +1,8 @@
 param(
-    [string]$BackupPath = ''
+    [string]$BackupPath = '',
+    # Without -Required the replica is a safety copy: a missing disk never
+    # blocks the tournament. -Required restores the old fail-closed behavior.
+    [switch]$Required
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +54,14 @@ if (-not $BackupPath) {
         $_.DeviceID -and $_.DeviceID.TrimEnd('\') -ne $systemDrive -and $_.DriveType -in @(2, 3)
     })
     if ($volumes.Count -eq 0) {
-        throw 'Nessun disco USB/SSD non di sistema rilevato.'
+        $current = [System.Collections.Generic.List[string]]::new()
+        $current.AddRange([string[]](Get-Content -LiteralPath $envPath))
+        Set-FlbpEnvValue -Lines $current -Name 'FLBP_REQUIRE_SECONDARY_BACKUP' -Value '0'
+        [System.IO.File]::WriteAllLines($envPath, $current, [System.Text.UTF8Encoding]::new($false))
+        Set-FlbpRestrictedAcl -TargetPath $envPath -IsDirectory $false
+        Write-Host 'Nessun disco USB/SSD collegato: la replica secondaria ora e facoltativa e non blocca i salvataggi.' -ForegroundColor Yellow
+        Write-Host 'Quando colleghi il disco, la copia riprende da sola. Riavvia FLBP Server Locale per applicare.' -ForegroundColor Yellow
+        exit 0
     }
     Write-Host 'Dischi disponibili:' -ForegroundColor Cyan
     for ($index = 0; $index -lt $volumes.Count; $index += 1) {
@@ -79,10 +89,10 @@ if ([System.IO.Path]::GetPathRoot($dataPath) -eq [System.IO.Path]::GetPathRoot($
 New-Item -ItemType Directory -Path $resolvedBackup -Force | Out-Null
 Set-FlbpRestrictedAcl -TargetPath $resolvedBackup -IsDirectory $true
 Set-FlbpEnvValue -Lines $lines -Name 'FLBP_SECONDARY_BACKUP_DIR' -Value ('"' + $resolvedBackup + '"')
-Set-FlbpEnvValue -Lines $lines -Name 'FLBP_REQUIRE_SECONDARY_BACKUP' -Value '1'
+Set-FlbpEnvValue -Lines $lines -Name 'FLBP_REQUIRE_SECONDARY_BACKUP' -Value $(if ($Required) { '1' } else { '0' })
 [System.IO.File]::WriteAllLines($envPath, $lines, [System.Text.UTF8Encoding]::new($false))
 Set-FlbpRestrictedAcl -TargetPath $envPath -IsDirectory $false
 
 Write-Host ''
-Write-Host "Backup secondario configurato: $resolvedBackup" -ForegroundColor Green
+Write-Host "Backup secondario configurato: $resolvedBackup ($(if ($Required) { 'obbligatorio' } else { 'facoltativo' }))" -ForegroundColor Green
 Write-Host 'Riavvia FLBP Server Locale prima di attivare la modalita locale.' -ForegroundColor Yellow

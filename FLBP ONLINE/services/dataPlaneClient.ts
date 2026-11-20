@@ -22,8 +22,8 @@ export type LocalWorkspaceRow = {
 };
 
 const ROUTE_CACHE_MS = 25_000;
-// A durable local write is acknowledged only after SQLite and the required
-// secondary replica contain the same version. On the tournament PC that copy
+// A durable local write is acknowledged only after SQLite and, when its disk is
+// connected, the secondary replica contain the same version. On the tournament PC that copy
 // can legitimately take more than 12 seconds as history grows; aborting at the
 // old threshold produced a false UI failure even though the server completed
 // the idempotent commit. Keep the client window comfortably above the physical

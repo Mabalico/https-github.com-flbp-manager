@@ -61,18 +61,21 @@ $systemDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot).TrimEnd('\')
 $candidateVolumes = @(Get-CimInstance Win32_LogicalDisk | Where-Object {
     $_.DeviceID -and $_.DeviceID.TrimEnd('\') -ne $systemDrive -and $_.DriveType -in @(2, 3)
 })
+# The external replica is an optional safety copy: without a disk the server
+# works normally and the replica can be added later.
+$secondaryBackupDir = ''
 if ($candidateVolumes.Count -eq 1) {
     $secondaryBackupDir = Join-Path ($candidateVolumes[0].DeviceID + '\') 'FLBP Backup'
-    Write-Host "Supporto esterno rilevato: $secondaryBackupDir" -ForegroundColor Green
+    Write-Host "Supporto esterno rilevato per la replica facoltativa: $secondaryBackupDir" -ForegroundColor Green
 } elseif ($candidateVolumes.Count -eq 0) {
-    throw 'Collegare un solo supporto USB/SSD non di sistema e riavviare la configurazione.'
+    Write-Host 'Nessun supporto USB/SSD collegato: replica secondaria non configurata (facoltativa). Puoi aggiungerla dopo con "Configura backup secondario.cmd".' -ForegroundColor Yellow
 } else {
     $listed = ($candidateVolumes | ForEach-Object { $_.DeviceID }) -join ', '
-    throw "Rilevati più volumi non di sistema ($listed). Lasciarne collegato uno solo e riprovare."
+    Write-Host "Rilevati piu volumi non di sistema ($listed): replica non configurata. Scegli il disco dopo con ""Configura backup secondario.cmd""." -ForegroundColor Yellow
 }
 $dataDir = Join-Path $serverRoot 'data'
 New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-New-Item -ItemType Directory -Path $secondaryBackupDir -Force | Out-Null
+if ($secondaryBackupDir) { New-Item -ItemType Directory -Path $secondaryBackupDir -Force | Out-Null }
 
 $allowed = @('http://localhost:8787', 'http://127.0.0.1:8787')
 if ($cloudflareOrigin) { $allowed += $cloudflareOrigin }
@@ -84,7 +87,7 @@ $lines = @(
     'FLBP_DATA_DIR=./data',
     'FLBP_WEB_DIST=../FLBP ONLINE/dist',
     "FLBP_SECONDARY_BACKUP_DIR=`"$secondaryBackupDir`"",
-    'FLBP_REQUIRE_SECONDARY_BACKUP=1',
+    'FLBP_REQUIRE_SECONDARY_BACKUP=0',
     'FLBP_SECONDARY_BACKUP_RETENTION=24',
     'FLBP_SECONDARY_BACKUP_INTERVAL_MS=300000',
     'FLBP_HISTORY_RETENTION_DAYS=90',
@@ -100,13 +103,15 @@ $lines = @(
     'FLBP_PUBLIC_LIVE_INTERVAL_MS=15000',
     'FLBP_FULL_BACKUP_INTERVAL_MS=1800000',
     'FLBP_HEARTBEAT_INTERVAL_MS=15000',
-    'FLBP_LEASE_TTL_SECONDS=60'
+    'FLBP_LEASE_TTL_SECONDS=60',
+    'FLBP_IDLE_BACKUP_MS=300000',
+    'FLBP_AUTO_DEACTIVATE_IDLE_MS=21600000'
 )
 
 [System.IO.File]::WriteAllLines($envPath, $lines, [System.Text.UTF8Encoding]::new($false))
 Set-FlbpRestrictedAcl -TargetPath $envPath -IsDirectory $false
 Set-FlbpRestrictedAcl -TargetPath $dataDir -IsDirectory $true
-Set-FlbpRestrictedAcl -TargetPath $secondaryBackupDir -IsDirectory $true
+if ($secondaryBackupDir) { Set-FlbpRestrictedAcl -TargetPath $secondaryBackupDir -IsDirectory $true }
 Write-Host ''
 Write-Host 'Configurazione creata. Token, database e backup sono accessibili soltanto all’utente corrente e SYSTEM.' -ForegroundColor Green
 Write-Host 'Avvia ora "Avvia FLBP Server.cmd".'

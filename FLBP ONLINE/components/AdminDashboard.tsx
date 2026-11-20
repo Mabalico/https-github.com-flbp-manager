@@ -31,7 +31,8 @@ import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
-import { initAdminWriteLease, releaseAdminWriteLease, takeoverAdminWriteLease } from '../services/adminWriteLease';
+import { initAdminWriteLease, reclaimCloudAcceptingMissingOperations, releaseAdminWriteLease, takeoverAdminWriteLease } from '../services/adminWriteLease';
+import { LocalModeRecoveryNotice } from './admin/LocalModeRecoveryNotice';
 import { readAdminLeaseInfo, subscribeAdminLease, type AdminLeaseInfo } from '../services/adminWriteLeaseState';
 import { canContinueVerifiedAdminOnLocalNode, rememberVerifiedAdminSession } from '../services/localAdminContinuity';
 import { buildRefereeReportCounterRows, clearRefereeReportFromMatch, withRefereeReportAudit } from '../services/refereeReportAudit';
@@ -460,6 +461,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
     const [adminLeaseInfo, setAdminLeaseInfo] = useState<AdminLeaseInfo>(() => readAdminLeaseInfo());
+    const [leaseReclaimBusy, setLeaseReclaimBusy] = useState(false);
     const playerBootstrapDeniedKeyRef = useRef<string | null>(null);
     const reloadIntoAdmin = React.useCallback(() => {
         try {
@@ -4929,6 +4931,21 @@ while (guard < 5000) {
             <div className="flex items-center gap-2 text-amber-700 font-black text-sm uppercase tracking-wide">
                 <Lock className="w-4 h-4" /> Sola lettura
             </div>
+            {adminLeaseInfo.status === 'error' && adminLeaseInfo.recovery ? (
+                <LocalModeRecoveryNotice
+                    recovery={adminLeaseInfo.recovery}
+                    busy={leaseReclaimBusy}
+                    onReclaim={async () => {
+                        const missing = adminLeaseInfo.recovery?.missingOperations || 0;
+                        if (!window.confirm(`Riprendere il controllo dal sito?
+
+Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online andranno perse. Se il PC si può accendere, chiudi invece la modalità locale da lì.`)) return;
+                        setLeaseReclaimBusy(true);
+                        try { await reclaimCloudAcceptingMissingOperations(); } catch { /* il riquadro mostra l'esito al prossimo controllo */ }
+                        window.location.reload();
+                    }}
+                />
+            ) : (
             <p className="text-sm text-slate-700 font-semibold">
                 {adminLeaseInfo.status === 'passive' ? <>Un'altra sessione Admin sta scrivendo in questo momento
                 {adminLeaseInfo.otherLabel ? <> (<span className="font-black">{adminLeaseInfo.otherLabel}</span>)</> : null}.</> :
@@ -4936,6 +4953,7 @@ while (guard < 5000) {
                 <>Impossibile verificare in sicurezza l'autorità di scrittura{adminLeaseInfo.lastError ? <>: {adminLeaseInfo.lastError}</> : null}.</>}
                 {' '}Questa finestra è bloccata per evitare conflitti e sovrascritture.
             </p>
+            )}
             {adminLeaseInfo.otherSince && (
                 <p className="text-xs text-slate-500">Sessione attiva da: {new Date(adminLeaseInfo.otherSince).toLocaleString()}</p>
             )}
@@ -4958,9 +4976,11 @@ while (guard < 5000) {
                     Aggiorna
                 </button>
             </div>
+            {adminLeaseInfo.status === 'passive' && (
             <p className="text-[11px] text-slate-400">
                 Prendendo il controllo, l'altra finestra passa in sola lettura entro pochi secondi. Usalo se quella sessione è rimasta aperta per errore.
             </p>
+            )}
         </div>
     </div>
 )}

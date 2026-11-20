@@ -58,16 +58,19 @@ if (config.secondaryBackupDir) {
     fs.accessSync(secondaryParent, fs.constants.R_OK | fs.constants.W_OK);
     const primaryRoot = path.parse(config.dataDir).root.toLowerCase();
     const secondaryRoot = path.parse(config.secondaryBackupDir).root.toLowerCase();
-    add('Replica SQLite secondaria', primaryRoot !== secondaryRoot, primaryRoot !== secondaryRoot
+    const separateVolume = primaryRoot !== secondaryRoot;
+    add('Replica SQLite secondaria', separateVolume || !config.requireSecondaryBackup, separateVolume
       ? config.secondaryBackupDir
-      : 'La replica è scrivibile ma si trova sullo stesso volume del DB primario.');
+      : `La replica è scrivibile ma si trova sullo stesso volume del DB primario${config.requireSecondaryBackup ? '.' : ' (facoltativa).'}`);
   } catch (error) {
-    add('Replica SQLite secondaria', false, error?.message || error);
+    add('Replica SQLite secondaria', !config.requireSecondaryBackup, config.requireSecondaryBackup
+      ? (error?.message || error)
+      : `Disco non collegato: la replica è facoltativa e riprende quando il disco torna disponibile (${error?.message || error}).`);
   }
 } else {
   add('Replica SQLite secondaria', !config.requireSecondaryBackup, config.requireSecondaryBackup
     ? 'Supporto USB/SSD obbligatorio non configurato.'
-    : 'Non configurata (consentito soltanto in sviluppo).');
+    : 'Non configurata: facoltativa, consigliata durante i tornei.');
 }
 
 if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {

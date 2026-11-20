@@ -702,6 +702,7 @@ export class LocalStore {
     this.db.prepare('UPDATE snapshots SET synced_at = ? WHERE workspace_id = ? AND version = ?').run(syncedAt, this.workspaceId, version);
     this.db.prepare('UPDATE current_workspace SET cloud_updated_at = ? WHERE workspace_id = ?').run(cloudUpdatedAt || syncedAt, this.workspaceId);
     this.setMeta('last_backup_at', syncedAt);
+    this.setMeta('last_backup_version', String(Number(version) || 0));
   }
 
   pruneHistory({ retentionDays = 90, minVersions = 2_000 } = {}) {
@@ -741,6 +742,7 @@ export class LocalStore {
       primaryEpoch: Number.parseInt(this.getMeta('primary_epoch', '0'), 10) || null,
       transition: this.getTransitionState(),
       lastBackupAt: this.getMeta('last_backup_at'),
+      lastBackupVersion: Number(this.getMeta('last_backup_version', '0')) || null,
       lastPublicLiveAt: this.getMeta('last_public_live_at'),
       lastPublicLiveVersion: Number(this.getMeta('last_public_live_version', '0')) || null,
       lastNormalizedSyncAt: this.getMeta('last_normalized_sync_at'),

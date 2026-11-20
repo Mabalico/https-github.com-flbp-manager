@@ -27,6 +27,8 @@ const boolFromEnv = (name, fallback = false) => {
 
 export const loadConfig = (overrides = {}) => {
   const cwd = process.cwd();
+  // 0 disables the automatic close; any other value is at least ten minutes.
+  const autoDeactivateIdleMs = intFromEnv('FLBP_AUTO_DEACTIVATE_IDLE_MS', 21_600_000, 0, 604_800_000);
   return {
     host: process.env.FLBP_HOST || '0.0.0.0',
     port: intFromEnv('FLBP_PORT', 8787, 1, 65535),
@@ -63,6 +65,10 @@ export const loadConfig = (overrides = {}) => {
     historyRetentionDays: intFromEnv('FLBP_HISTORY_RETENTION_DAYS', 90, 7, 3650),
     historyMinVersions: intFromEnv('FLBP_HISTORY_MIN_VERSIONS', 2_000, 100, 100_000),
     nodeId: String(process.env.FLBP_NODE_ID || '').trim(),
+    idleBackupMs: intFromEnv('FLBP_IDLE_BACKUP_MS', 300_000, 60_000, 3_600_000),
+    autoDeactivateIdleMs: autoDeactivateIdleMs === 0 ? 0 : Math.max(autoDeactivateIdleMs, 600_000),
+    autoDeactivateRetryMs: intFromEnv('FLBP_AUTO_DEACTIVATE_RETRY_MS', 900_000, 60_000, 86_400_000),
+    idleCheckIntervalMs: intFromEnv('FLBP_IDLE_CHECK_INTERVAL_MS', 60_000, 10_000, 600_000),
     ...overrides,
   };
 };

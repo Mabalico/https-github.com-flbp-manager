@@ -13,9 +13,10 @@ Server Windows per il data plane critico del torneo. Serve la stessa build React
 - patch per singola partita con protezione anti-regressione del referto;
 - epoch di leadership e heartbeat Supabase;
 - attivazione compare-and-switch: versione, contenuto, journal ed epoch cloud devono essere ancora identici allo snapshot scaricato;
-- nessun fallback automatico scrivibile dopo il crash del PC: si entra in `recovery` per evitare split-brain;
+- nessun fallback automatico scrivibile subito dopo il crash del PC: si entra in `recovery` per evitare split-brain; il sito riprende il controllo da solo soltanto dopo 12 ore di silenzio del PC (vedi "Chiusura dimenticata");
+- backup cloud dopo 5 minuti senza modifiche e chiusura automatica della modalità locale dopo 6 ore senza modifiche;
 - backup completo dello snapshot privato/pubblico in una sola transazione Supabase ogni 30 minuti e alla disattivazione;
-- replica SQLite compatta e obbligatoria su un secondo disco/USB: la risposta al commit arriva solo dopo che stato applicativo corrente, metadati e outbox della stessa versione sono leggibili nella copia secondaria; lo storico versionato resta nel DB primario e non viene ricopiato a ogni referto;
+- replica SQLite compatta e facoltativa su un secondo disco/USB: quando il disco è collegato la risposta al commit arriva dopo la copia; se manca o la copia fallisce il salvataggio prosegue, il pannello lo segnala e la copia riprende appena il disco torna. Con `FLBP_REQUIRE_SECONDARY_BACKUP=1` la replica torna obbligatoria e senza disco i salvataggi vengono rifiutati; lo storico versionato resta nel DB primario e non viene ricopiato a ogni referto;
 - disattivazione in draining persistente: backup finale e ritorno al cloud sono una singola RPC atomica e ritentabile;
 - journal in piccoli batch (default 15 secondi, massimo 25 operazioni/512 KiB) quando Internet è disponibile;
 - heartbeat Supabase non sovrapposti: una risposta lenta viene condivisa fra i timer concorrenti e gli errori attivano un backoff progressivo fino a 60 secondi, evitando raffiche durante l'esaurimento Disk I/O;
@@ -39,14 +40,14 @@ Le richieste con `Host` o URL malformati ricevono HTTP 400 senza interrompere il
 
 1. Applicare in ordine tutte le migration fino a `20260811000500_local_reconcile_and_retention.sql` inclusa.
 2. Eseguire `Installa FLBP Server.cmd`: verifica Node.js 24, genera la build web, avvia la configurazione, compila l'app Windows e crea **FLBP Manager Locale** sul Desktop.
-3. Collegare un solo USB/SSD non di sistema. La configurazione lo rileva, crea `FLBP Backup`, rende la replica obbligatoria e limita via NTFS `.env`, database e backup all'utente corrente e `SYSTEM`.
+3. Facoltativo ma consigliato: collegare un solo USB/SSD non di sistema. La configurazione lo rileva, crea `FLBP Backup` come replica facoltativa e limita via NTFS `.env`, database e backup all'utente corrente e `SYSTEM`. Senza disco la configurazione prosegue senza replica.
 4. Durante la configurazione inserire URL Supabase e Secret key server. Il tunnel resta disabilitato: Admin e TV restano sul PC/LAN, mentre il sito Internet legge il mirror Supabase.
 5. Avviare il collegamento **FLBP Manager Locale**. Si apre una vera finestra Windows senza schede o barra degli indirizzi; il server viene avviato in background se non è già attivo.
 6. Nel pannello locale premere **Attiva modalità locale**. Solo dopo download iniziale, replica esterna verificata e acquisizione dell'epoch Supabase il server diventa primario.
 7. Facoltativo ma consigliato sul PC del torneo: eseguire `Installa avvio automatico.cmd`. Il task Windows riavvia il processo al login e conserva l’output in `logs/server.log`.
 8. Prima del torneo eseguire `Verifica prontezza FLBP Server.cmd`: controlla build, SQLite, replica fisica, snapshot Supabase, autorità di scrittura, origine delle letture pubbliche, epoch, lease, riconciliazione e retention senza modificare dati.
 
-Per cambiare soltanto il disco USB/SSD senza rigenerare token o credenziali, eseguire `Configura backup secondario.cmd`, scegliere il nuovo volume e riavviare il server. La procedura aggiorna esclusivamente il percorso della replica e riapplica le ACL.
+Per cambiare soltanto il disco USB/SSD senza rigenerare token o credenziali, eseguire `Configura backup secondario.cmd`, scegliere il nuovo volume e riavviare il server. La procedura aggiorna esclusivamente il percorso della replica e riapplica le ACL. Lanciata senza alcun disco collegato, rende facoltativa la replica già configurata (`FLBP_REQUIRE_SECONDARY_BACKUP=0`). Per renderla obbligatoria eseguire lo script PowerShell con `-Required`.
 
 La Secret key resta nel file locale `.env`, escluso da Git. Non va mai inserita in Cloudflare Pages o nel browser. È supportata anche la precedente `service_role`, ma per nuove installazioni usare una `sb_secret_...` dedicata al server locale.
 
@@ -69,6 +70,16 @@ Premere **Chiudi modalità locale** nel pannello. Il server:
 
 Dal primo istante della procedura il server rifiuta nuove scritture. Se la chiamata fallisce o la risposta viene persa, resta in `draining` anche dopo un riavvio e la stessa disattivazione può essere ritentata in sicurezza. SQLite torna in standby solo dopo la conferma di Supabase; questo impedisce una finestra in cui entrambi i database risultino scrivibili.
 
+## Chiusura dimenticata
+
+Se nessuno preme **Chiudi modalità locale**, tre meccanismi evitano che l'Admin online resti bloccato:
+
+1. **Backup dopo una pausa.** Dopo 5 minuti senza modifiche (`FLBP_IDLE_BACKUP_MS`) il server copia lo stato completo su Supabase, se non l'aveva già fatto per quella versione. Un PC spento dopo una pausa non ha quindi modifiche rimaste solo sul disco.
+2. **Chiusura automatica con il PC acceso.** Dopo 6 ore senza modifiche (`FLBP_AUTO_DEACTIVATE_IDLE_MS`, `0` disattiva) il server esegue da solo la normale chiusura della modalità locale. Se Supabase non risponde, riprova ogni 15 minuti (`FLBP_AUTO_DEACTIVATE_RETRY_MS`). Il pannello mostra l'orario previsto in **Chiusura automatica**.
+3. **Ritorno al sito con il PC spento.** Quando la lease del PC è scaduta da almeno 12 ore, il primo Admin che apre il sito riprende il controllo automaticamente, purché lo snapshot cloud contenga già tutte le operazioni del journal. Se ne mancano, la finestra **Sola lettura** spiega quante sono e chiede una conferma esplicita prima di riprendere il controllo perdendole. L'epoch avanza: se il PC si riaccende, Supabase rifiuta il suo heartbeat e il server passa in standby.
+
+Prima delle 12 ore la finestra **Sola lettura** dell'Admin online indica da quando il PC non risponde e l'orario di sblocco. Per sbloccare subito basta riaccendere il PC e premere **Chiudi modalità locale**.
+
 ## Crash, Internet assente e spegnimento PC
 
 - Internet assente: SQLite continua a ricevere referti; l’outbox resta sul disco e riparte al ritorno della rete.
@@ -77,12 +88,12 @@ Dal primo istante della procedura il server rifiuta nuove scritture. Se la chiam
 - Il task pianificato usa un host nascosto e inserisce Node in un Windows Job `kill-on-close`: arresto e riavvio chiudono anche il processo reale senza console visibili né figli orfani. Node scrive sempre un log persistente e ruotato in `logs/server.log`; i normali avvisi operativi (per esempio un disco secondario momentaneamente scollegato) non terminano il server.
 - Identità del nodo ed epoch restano nel DB: dopo un riavvio il server riprende subito lo stesso heartbeat.
 - Riavvio durante attivazione/disattivazione/ripristino: il server avvia automaticamente la riconciliazione. Se Supabase è irraggiungibile resta bloccato; non decide mai da solo di essere primario.
-- Heartbeat scaduto: Supabase espone `recovery`, non cloud scrivibile. Il pubblico continua a vedere l’ultimo mirror; le scritture restano sospese finché l’operatore recupera il PC o esegue un failover esplicito.
+- Heartbeat scaduto: Supabase espone `recovery`, non cloud scrivibile. Il pubblico continua a vedere l’ultimo mirror; le scritture restano sospese finché l’operatore recupera il PC, esegue un failover esplicito o passano 12 ore (vedi "Chiusura dimenticata"). Un torneo che resta senza Internet per più di 12 ore va chiuso dal PC prima di usare l'Admin online.
 - PC non recuperabile ma journal remoto integro: un server sostitutivo scarica l’ultimo backup, riproduce in ordine le operazioni successive dal journal Supabase e rifiuta l’attivazione se rileva un buco di versione.
 - PC e disco definitivamente persi: solo dopo la scadenza della lease, un Admin Supabase può usare il pulsante di failover d’emergenza; l’epoch viene incrementato e il vecchio processo resta revocato se ricompare.
 - Guasto fisico del disco prima che l’outbox sia arrivata a Supabase: nessun software su un solo disco può garantire zero perdita. Per il torneo usare UPS e un secondo supporto/backup del folder `data`.
 
-La replica sincrona è obbligatoria. Vengono conservate le ultime 24 copie autonomamente ripristinabili dello stato applicativo corrente, ciascuna con snapshot privato/pubblico, metadati e operazioni pending; le vecchie righe di audit restano nel DB primario. Questo evita di copiare centinaia di MB a ogni referto e mantiene libere le letture pubbliche anche durante una raffica. Al riavvio una copia già verificata della medesima versione viene riutilizzata, senza duplicarla. Se il supporto viene scollegato dopo il commit SQLite ma prima della copia, la risposta resta di errore ritentabile: lo stesso `operationId` completerà la replica senza duplicare la modifica. Proteggere il disco secondario con BitLocker perché contiene lo snapshot privato del torneo.
+La replica sincrona è facoltativa, salvo `FLBP_REQUIRE_SECONDARY_BACKUP=1`. Vengono conservate le ultime 24 copie autonomamente ripristinabili dello stato applicativo corrente, ciascuna con snapshot privato/pubblico, metadati e operazioni pending; le vecchie righe di audit restano nel DB primario. Questo evita di copiare centinaia di MB a ogni referto e mantiene libere le letture pubbliche anche durante una raffica. Al riavvio una copia già verificata della medesima versione viene riutilizzata, senza duplicarla. Con la replica obbligatoria, se il supporto viene scollegato dopo il commit SQLite ma prima della copia, la risposta resta di errore ritentabile: lo stesso `operationId` completerà la replica senza duplicare la modifica. Con la replica facoltativa il salvataggio viene confermato e la copia riprende al ritorno del disco. Proteggere il disco secondario con BitLocker perché contiene lo snapshot privato del torneo.
 
 ## Ripristino dalla replica secondaria
 

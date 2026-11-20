@@ -5,9 +5,10 @@
 // usa i timer globali e guarda le API browser solo se esistono.
 
 import { getSupabaseAccessToken, getSupabaseConfig } from './supabaseRest';
-import { readAdminLeaseInfo, setAdminLeaseInfo } from './adminWriteLeaseState';
+import { readAdminLeaseInfo, setAdminLeaseInfo, type AdminLeaseRecovery } from './adminWriteLeaseState';
 import {
   acquireLocalAdminWriteLease,
+  DATA_PLANE_CHANGE_LS_KEY,
   heartbeatLocalAdminWriteLease,
   releaseLocalAdminWriteLease,
   resolveDataPlane,
@@ -136,11 +137,75 @@ const acquireOnce = async (takeover: boolean): Promise<{ acquired: boolean; out:
   return { acquired: !!out?.acquired, out };
 };
 
-const acquireForCurrentPlane = async (takeover: boolean): Promise<{ acquired: boolean; out: any }> => {
-  const route = await resolveDataPlane({ force: true });
-  if (route.mode === 'recovery') {
-    throw new Error('Data plane in recovery: impossibile acquisire il controllo Admin.');
+const RECOVERY_MESSAGE = 'Data plane in recovery: impossibile acquisire il controllo Admin.';
+
+const toRecovery = (out: any, fallbackEpoch: number | null): AdminLeaseRecovery => {
+  const reason = String(out?.reason || '');
+  const known = ['grace', 'missing_operations', 'local_active', 'epoch_changed', 'manual_recovery_required'];
+  const epoch = Number(out?.epoch);
+  return {
+    reason: (known.includes(reason) ? reason : 'unavailable') as AdminLeaseRecovery['reason'],
+    epoch: Number.isFinite(epoch) ? epoch : fallbackEpoch,
+    leaseExpiredAt: out?.lease_expired_at || out?.lease_expires_at || null,
+    reclaimAt: out?.reclaim_at || null,
+    missingOperations: Math.max(0, Number(out?.missing_operations) || 0),
+    lastMissingOperationAt: out?.last_missing_operation_at || null,
+    lastBackupAt: out?.last_backup_at || null,
+  };
+};
+
+const notifyDataPlaneReclaimed = () => {
+  try {
+    // Same signals as the manual failover: other tabs drop their cached route
+    // and the next sync rebuilds the normalized projection from cloud state.
+    localStorage.setItem('flbp_normalized_sync_required_v1', '1');
+    localStorage.setItem(DATA_PLANE_CHANGE_LS_KEY, String(Date.now()));
+  } catch {
+    // This tab re-resolves the route right after the switch anyway.
   }
+};
+
+// A local tournament PC that stopped answering without closing local mode keeps
+// the coordinator in recovery. Ask the database whether cloud authority can come
+// back: it agrees only after the grace period, and only with the operations
+// already in the cloud snapshot unless the Admin explicitly accepts the loss.
+const tryReclaimCloud = async (route: DataPlaneRoute, acceptMissing: boolean): Promise<boolean> => {
+  if (route.reason !== 'local_lease_expired' || route.epoch == null) {
+    setAdminLeaseInfo({ recovery: { reason: 'unavailable', epoch: route.epoch ?? null } });
+    return false;
+  }
+  const cfg = getSupabaseConfig();
+  let out: any;
+  try {
+    out = await leaseRpc('flbp_admin_reclaim_cloud_data_plane', {
+      p_workspace_id: cfg?.workspaceId || 'default',
+      p_expected_epoch: route.epoch,
+      p_accept_missing: acceptMissing,
+    });
+  } catch (error) {
+    if (isMissingLeaseRpc(String((error as any)?.message || error || ''))) {
+      setAdminLeaseInfo({ recovery: { reason: 'unavailable', epoch: route.epoch } });
+      return false;
+    }
+    throw error;
+  }
+  if (out?.ok && out?.mode === 'cloud') {
+    notifyDataPlaneReclaimed();
+    setAdminLeaseInfo({ recovery: null });
+    return true;
+  }
+  setAdminLeaseInfo({ recovery: toRecovery(out, route.epoch) });
+  return false;
+};
+
+const acquireForCurrentPlane = async (takeover: boolean): Promise<{ acquired: boolean; out: any }> => {
+  let route = await resolveDataPlane({ force: true });
+  if (route.mode === 'recovery') {
+    if (!(await tryReclaimCloud(route, false))) throw new Error(RECOVERY_MESSAGE);
+    route = await resolveDataPlane({ force: true });
+    if (route.mode === 'recovery') throw new Error(RECOVERY_MESSAGE);
+  }
+  if (readAdminLeaseInfo().recovery) setAdminLeaseInfo({ recovery: null });
   if (route.mode === 'local') {
     if (!holderId) throw new Error('Identità finestra Admin mancante.');
     const canHeartbeat = !takeover
@@ -271,6 +336,15 @@ export const initAdminWriteLease = async (opts?: {
 export const takeoverAdminWriteLease = async (): Promise<void> => {
   if (!inited) return;
   await tick(true);
+};
+
+// Explicit Admin choice after the grace period when the cloud snapshot lacks
+// the last operations journaled by the silent tournament PC.
+export const reclaimCloudAcceptingMissingOperations = async (): Promise<void> => {
+  if (!inited) return;
+  const route = await resolveDataPlane({ force: true });
+  if (route.mode === 'recovery') await tryReclaimCloud(route, true);
+  await tick(false);
 };
 
 export const releaseAdminWriteLease = async (opts?: { keepalive?: boolean }): Promise<void> => {
