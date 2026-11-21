@@ -127,28 +127,31 @@ select flbp_test_restore.assert_true(not has_function_privilege('anon','public.f
   and not has_function_privilege('authenticated','public.flbp_restore_application_database(text,jsonb,uuid,text,text)','execute'),
   'restore RPC is unavailable to client API roles');
 
--- A long version history stays in the database but only the most recent
--- versions travel in the backup, so the export fits the statement timeout.
+-- A long version history stays in the database. The backup carries only the
+-- identifying metadata of the most recent versions, so the export stays small.
 insert into public.workspaces(id) values ('restore-test-C');
 insert into public.workspace_state(workspace_id,state,version,last_operation_id)
   values ('restore-test-C','{"teams":[],"tournament":null,"label":"long-history"}',1,'restore-test-long-history');
 insert into public.workspace_state_versions(workspace_id,version,state,operation_id)
   select 'restore-test-C', 100 + n, jsonb_build_object('past', n), 'restore-test-long-' || n
-  from generate_series(1, 25) n;
+  from generate_series(1, 230) n;
 do $$
 declare
   v_backup jsonb := public.flbp_export_application_database('restore-test-C');
   v_versions jsonb := v_backup->'recovery'->'workspace_state_versions';
   v_total bigint := (select count(*) from public.workspace_state_versions where workspace_id='restore-test-C');
 begin
-  perform flbp_test_restore.assert_true(v_total >= 25 and (v_versions->>'totalRowCount')::bigint = v_total,
+  perform flbp_test_restore.assert_true(v_total >= 230 and (v_versions->>'totalRowCount')::bigint = v_total,
     'the backup reports the full history length');
-  perform flbp_test_restore.assert_true((v_versions->>'rowCount')::int = 20 and jsonb_array_length(v_versions->'rows') = 20
+  perform flbp_test_restore.assert_true((v_versions->>'rowCount')::int = 200 and jsonb_array_length(v_versions->'rows') = 200
     and (v_versions->>'truncated')::boolean,
-    'only the 20 most recent versions are exported');
-  perform flbp_test_restore.assert_true((v_versions->'rows'->0->>'version')::bigint = 125
-    and (select min((row->>'version')::bigint) from jsonb_array_elements(v_versions->'rows') row) = 106,
-    'the exported versions are the newest ones');
+    'only the 200 most recent versions are listed');
+  perform flbp_test_restore.assert_true((v_versions->'rows'->0->>'version')::bigint = 330
+    and (select min((row->>'version')::bigint) from jsonb_array_elements(v_versions->'rows') row) = 131,
+    'the listed versions are the newest ones');
+  perform flbp_test_restore.assert_true(not exists (select 1 from jsonb_array_elements(v_versions->'rows') row where row ? 'state')
+    and (v_versions->'rows'->0) ? 'checksum' and v_versions->'omittedColumns' = '["state"]'::jsonb,
+    'listed versions keep their metadata but not the full state');
   perform flbp_test_restore.assert_true(v_backup#>>'{tables,workspace_state,rows,0,state,label}' = 'long-history',
     'application tables are still exported in full');
 end;
