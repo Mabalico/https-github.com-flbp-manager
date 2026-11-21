@@ -87,6 +87,9 @@ jobs:
       - name: Verify automatic cloud reclaim after a forgotten local mode
         run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -X -v ON_ERROR_STOP=1 -f supabase/tests/data_plane_reclaim.sql
 
+      - name: Verify bounded retention of the workspace version history
+        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -X -v ON_ERROR_STOP=1 -f supabase/tests/workspace_version_retention.sql
+
       - name: Verify transactional restore against the complete migrated schema
         run: node scripts/test-database-restore-schema.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
