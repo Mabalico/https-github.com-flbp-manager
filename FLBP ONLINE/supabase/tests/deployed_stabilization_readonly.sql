@@ -126,6 +126,9 @@ begin
   then raise exception 'Referee pull still returns the private workspace state'; end if;
   if not has_function_privilege('anon', v_signature, 'EXECUTE')
   then raise exception 'Referee pull is no longer executable by referees'; end if;
+  -- Full backup: recovery history is bounded so the export fits the timeout.
+  if strpos(pg_get_functiondef('public.flbp_collect_database_backup(text)'::regprocedure), 'totalRowCount') = 0
+  then raise exception 'Backup collector still exports the whole version history'; end if;
   -- Forgotten local mode: Admin-only reclaim after the 12-hour grace period.
   v_signature := 'public.flbp_admin_reclaim_cloud_data_plane(text,bigint,boolean)'::regprocedure;
   if has_function_privilege('anon', v_signature, 'EXECUTE')
