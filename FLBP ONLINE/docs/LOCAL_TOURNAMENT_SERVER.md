@@ -36,6 +36,7 @@ La scheda **Gestione dati → Persistenza e backup** separa le operazioni quotid
 - **Azioni rapide** mostra lo stato comprensibile del salvataggio, permette di scaricare subito un backup JSON, verificare il collegamento e confrontare i dati di questo PC con quelli presenti su Supabase.
 - **Strumenti avanzati** raccoglie le operazioni che non servono durante il normale svolgimento del torneo: restore/merge da file, snapshot manuali, recovery strutturato, migrazione, auto-sync, token tecnico, diagnostica e backup/ripristino dell’intero database applicativo.
 - Il failover verso Supabase rimane un comando di emergenza e compare soltanto quando il coordinatore segnala uno stato che richiede recupero. Non va usato per risolvere un normale conflitto tra due bozze.
+- Lo storico `workspace_state_versions` riceve uno stato completo a ogni scrittura cloud. Una versione viene eliminata solo se ha più di 30 giorni, è fuori dalle 200 più recenti del workspace e non è quella dell'operazione corrente. Ogni nuova versione ne elimina al massimo 50, quindi un arretrato si smaltisce gradualmente (`flbp_prune_workspace_state_versions`, eseguibile solo dal server). Il backup DB completo include come prova di recupero soltanto le 20 versioni più recenti.
 
 ## Chiusura dimenticata della modalità locale
 
