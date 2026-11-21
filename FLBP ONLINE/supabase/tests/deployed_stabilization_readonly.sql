@@ -126,9 +126,15 @@ begin
   then raise exception 'Referee pull still returns the private workspace state'; end if;
   if not has_function_privilege('anon', v_signature, 'EXECUTE')
   then raise exception 'Referee pull is no longer executable by referees'; end if;
-  -- Full backup: recovery history is bounded so the export fits the timeout.
-  if strpos(pg_get_functiondef('public.flbp_collect_database_backup(text)'::regprocedure), 'totalRowCount') = 0
-  then raise exception 'Backup collector still exports the whole version history'; end if;
+  -- Full backup: one linear aggregation and a metadata-only recovery section.
+  if strpos(pg_get_functiondef('public.flbp_collect_database_backup(text)'::regprocedure), 'jsonb_object_agg') = 0
+    or strpos(pg_get_functiondef('public.flbp_backup_recovery_rows(text,text)'::regprocedure), 'omittedColumns') = 0
+  then raise exception 'Backup collector still copies the export or carries full history states'; end if;
+  if has_function_privilege('anon', 'public.flbp_backup_table_rows(text,text)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.flbp_backup_table_rows(text,text)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.flbp_backup_recovery_rows(text,text)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.flbp_backup_recovery_rows(text,text)', 'EXECUTE')
+  then raise exception 'Backup helpers are executable by client roles'; end if;
   -- Version history retention: server-only pruning driven by a trigger.
   v_signature := 'public.flbp_prune_workspace_state_versions(text,integer,integer,integer)'::regprocedure;
   if has_function_privilege('anon', v_signature, 'EXECUTE')
