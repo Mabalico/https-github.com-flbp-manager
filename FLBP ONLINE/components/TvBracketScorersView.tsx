@@ -277,7 +277,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
               <span>{t('teams')} {visibleBracketTeamsCount}</span>
               <span>{t('turns_label')} {bracketRoundCount}</span>
               <span className="bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20">
-                {t('admin_tv_bracket')}{isDensePagedBracket ? ` - ${bracketPanelIndex === 0 ? 'SIDE A' : bracketPanelIndex === 1 ? 'SIDE B' : 'FINALS'}` : ''}
+                {t('admin_tv_bracket')}{isDensePagedBracket ? ` - ${bracketPanelIndex === 2 ? t('tv_final_rounds') : t('tv_bracket_side').replace('{side}', bracketPanelIndex === 0 ? 'A' : 'B')}` : ''}
               </span>
               <span className="font-mono font-black">{timeLeft}s</span>
             </div>
@@ -306,7 +306,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
             <div className="flex items-center justify-between gap-4 px-5 py-3 bg-slate-900 text-white border-b border-white/10 shrink-0">
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-300">
-                  {t('top_scorers_live')}
+                  {data?.name || t('tournament_name')}
                 </div>
                 <div
                   className="mt-0.5 text-[26px] font-black uppercase tracking-[0.04em] text-white leading-tight break-words"
@@ -331,7 +331,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-12 bg-slate-950 text-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.16em] border-b border-slate-800 shrink-0">
+            <div className="grid grid-cols-12 bg-slate-950 text-white px-4 py-2 text-[13px] font-black uppercase tracking-[0.16em] border-b border-slate-800 shrink-0">
               <div className="col-span-1 text-center">#</div>
               <div className="col-span-4">{t('player_view')}</div>
               <div className="col-span-4">{t('team_view')}</div>
@@ -341,7 +341,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
 
             <div className="flex-1 min-h-0 bg-slate-50 flex flex-col">
               {visible.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-slate-400 text-sm font-black">{t('no_data_available')}</div>
+                <div className="flex-1 flex items-center justify-center text-slate-500 text-xl font-black">{t('no_data_available')}</div>
               ) : (
                 visible.map((p, idx) => {
                   const rank = startIndex + idx + 1;
@@ -356,7 +356,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
                       </div>
                       <div className="col-span-4 pr-3 min-w-0">
                         <div
-                          className="text-slate-900 font-black text-[15px] leading-tight break-words"
+                          className="text-slate-900 font-black text-[18px] leading-tight break-words"
                           style={TV_CLAMP_2_STYLE}
                         >
                           {p.name}

@@ -103,11 +103,9 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
   }, [matches]);
 
   const isFinalMatch = React.useCallback((m: Match) => {
-    const gName = String(m.groupName || '');
-    if (finalGroup?.name && gName === finalGroup.name) return true;
-    if (/final/i.test(gName)) return true;
-    if (/^FTB/i.test(String(m.code || '').trim())) return true;
-    return false;
+    const group = String(m.groupName || '').trim();
+    if (group) return finalGroup ? group === finalGroup.name : /\bfinale?\b/i.test(group);
+    return /^FTB/i.test(String(m.code || '').trim());
   }, [finalGroup]);
 
   const pendingGroupTieBreaks = React.useMemo(() => {
@@ -197,10 +195,10 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
     return (
       <div className="min-h-0 h-full rounded-2xl border border-white/12 bg-slate-900/75 shadow-[0_24px_60px_rgba(2,6,23,0.28)] overflow-hidden flex flex-col">
         <div className={`px-3 py-2 border-b border-white/10 flex items-center justify-between gap-2 ${accentClass}`}>
-          <div className="text-[9px] font-black uppercase tracking-[0.18em] text-white/90">
+          <div className="text-[11px] font-black uppercase tracking-[0.18em] text-white/90">
             {title}
           </div>
-          <div className="text-[9px] font-mono font-black text-white/70">
+          <div className="text-[11px] font-mono font-black text-white/70">
             {total}
           </div>
         </div>
@@ -213,8 +211,8 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
             <table className="w-full table-fixed">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="pb-1 text-left text-[8px] font-black uppercase tracking-[0.14em] text-slate-400">{t('match_detail')}</th>
-                  <th className="w-[22%] pb-1 text-right text-[8px] font-black uppercase tracking-[0.14em] text-slate-400">
+                  <th className="pb-1 text-left text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{t('match_detail')}</th>
+                  <th className="w-[22%] pb-1 text-right text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">
                     {t('result_status')}
                   </th>
                 </tr>
@@ -228,7 +226,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
                     <tr key={m.id} className="border-b border-white/6 last:border-b-0">
                       <td className="py-1 pr-1.5 align-middle">
                         <div
-                          className="text-[10px] leading-tight font-black text-white break-words"
+                          className="text-[12px] leading-tight font-black text-white break-words"
                           style={TV_CLAMP_2_STYLE}
                         >
                           {renderTeamsLabel(m)}
@@ -240,7 +238,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
                         )}
                       </td>
                       <td className="py-1 align-middle text-right">
-                        <span className={`inline-flex min-w-[5rem] justify-center rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.06em] ${
+                        <span className={`inline-flex min-w-[5rem] justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.06em] ${
                           isFinished
                             ? 'border-rose-400/35 bg-rose-500/12 text-rose-100'
                             : isPlaying
@@ -299,7 +297,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
               <div className="rounded-2xl border border-white/10 bg-slate-900/72 px-4 py-2.5 shadow-[0_20px_50px_rgba(15,23,42,0.28)]">
                 <div className="flex items-center justify-between gap-6">
                   <div className="min-w-0">
-                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/80">
+                    <div className="text-[12px] font-black uppercase tracking-[0.22em] text-blue-200/80">
                       {currentPage.isFinal ? t('final_group_label') : t('group_word')}
                     </div>
                     <div
@@ -310,19 +308,19 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-200">
+                    <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-slate-200">
                       {t('teams')} {visibleTeams(currentPage.group.teams || []).length}
                     </div>
-                    <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-200">
+                    <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-slate-200">
                       {t('matches_label')} {currentPage.playedTotal}/{currentPage.totalMatches}
                     </div>
                     {currentPage.tieBreakCount > 0 && (
-                      <div className="rounded-full border border-amber-400/30 bg-amber-500/12 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-100">
+                      <div className="rounded-full border border-amber-400/30 bg-amber-500/12 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-amber-100">
                         {t('tiebreaks_label')} {currentPage.tieBreakCount}
                       </div>
                     )}
                     {currentPage.pageCount > 1 && (
-                      <div className="rounded-full border border-blue-400/25 bg-blue-500/12 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-blue-100">
+                      <div className="rounded-full border border-blue-400/25 bg-blue-500/12 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-blue-100">
                         {t('page')} {currentPage.pageIndex + 1}/{currentPage.pageCount}
                       </div>
                     )}
@@ -333,11 +331,11 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
               <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-[1%]">
                 <div className="min-h-0 rounded-2xl border border-white/12 bg-white overflow-hidden shadow-[0_24px_60px_rgba(15,23,42,0.22)]">
                   <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 flex items-center justify-between gap-3">
-                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
+                    <div className="text-[12px] font-black uppercase tracking-[0.18em] text-slate-600">
                       {t('standings_label')}
                     </div>
                     {!currentPage.isFinal && (
-                      <div className="text-[10px] font-mono font-black text-slate-500">
+                      <div className="text-[12px] font-mono font-black text-slate-500">
                         {t('qualified_label')} {data?.config?.advancingPerGroup ?? 0}
                       </div>
                     )}

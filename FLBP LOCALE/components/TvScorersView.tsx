@@ -175,7 +175,7 @@ export const TvScorersView: React.FC<TvScorersViewProps> = ({ teams, matches, da
         <div className="flex-1 min-h-0 rounded-2xl overflow-hidden border border-white/10 bg-white shadow-[0_28px_80px_rgba(2,6,23,0.28)] flex flex-col">
           <div className="flex items-center justify-between gap-4 px-5 py-3 bg-slate-900 text-white border-b border-white/10">
             <div className="min-w-0">
-              <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-300">{t('top_scorers_live')}</div>
+              <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-300">{t('top_scorers_plural')}</div>
               <div
                 className="mt-0.5 text-[26px] font-black uppercase tracking-[0.04em] text-white leading-tight break-words"
                 style={TV_CLAMP_2_STYLE}
@@ -196,7 +196,7 @@ export const TvScorersView: React.FC<TvScorersViewProps> = ({ teams, matches, da
             </div>
           </div>
 
-          <div className="grid grid-cols-12 bg-slate-950 text-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.16em] border-b border-slate-800">
+          <div className="grid grid-cols-12 bg-slate-950 text-white px-4 py-2 text-[13px] font-black uppercase tracking-[0.16em] border-b border-slate-800">
             <div className="col-span-1 text-center">#</div>
             <div className="col-span-4">{t('player_view')}</div>
             <div className="col-span-4">{t('team_view')}</div>
@@ -206,7 +206,7 @@ export const TvScorersView: React.FC<TvScorersViewProps> = ({ teams, matches, da
 
           <div className="flex-1 min-h-0 bg-slate-50 flex flex-col">
             {visible.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm font-black">{t('no_data_available')}</div>
+              <div className="flex-1 flex items-center justify-center text-slate-500 text-xl font-black">{t('no_data_available')}</div>
             ) : (
               visible.map((p, idx) => {
                 const rank = startIndex + idx + 1;
@@ -221,7 +221,7 @@ export const TvScorersView: React.FC<TvScorersViewProps> = ({ teams, matches, da
                     </div>
                     <div className="col-span-4 pr-3 min-w-0">
                       <div
-                        className="text-slate-900 font-black text-[15px] leading-tight break-words"
+                        className="text-slate-900 font-black text-[18px] leading-tight break-words"
                         style={TV_CLAMP_2_STYLE}
                       >
                         {p.name}
