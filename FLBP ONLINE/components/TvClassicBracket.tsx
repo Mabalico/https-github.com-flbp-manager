@@ -357,9 +357,10 @@ const TeamLine: React.FC<{
   profile: LayoutProfile;
   compact: boolean;
   winner?: boolean;
+  championLabel?: string;
   pendingAriaLabel: string;
   scoreAriaLabel: string;
-}> = ({ name, score, placementSide, profile, compact, winner = false, pendingAriaLabel, scoreAriaLabel }) => {
+}> = ({ name, score, placementSide, profile, compact, winner = false, championLabel, pendingAriaLabel, scoreAriaLabel }) => {
   const textFontSize = getTeamTextFontSize(name, profile.fontSize, compact);
   const scoreClass = scoreTextClass(profile, compact);
   const isPlaceholder = isPlaceholderTeamName(name);
@@ -390,10 +391,17 @@ const TeamLine: React.FC<{
     </span>
   );
 
+  const champion = championLabel ? (
+    <span className="shrink-0 rounded-full bg-amber-300/20 px-1.5 py-0.5 font-black leading-none text-amber-100" style={{ fontSize: Math.max(9, textFontSize * 0.73) }}>
+      {championLabel}
+    </span>
+  ) : null;
+
   if (placementSide === 'right') {
     return (
       <>
         {scoreNode}
+        {champion}
         {nameNode}
       </>
     );
@@ -402,6 +410,7 @@ const TeamLine: React.FC<{
   return (
     <>
       {nameNode}
+      {champion}
       {scoreNode}
     </>
   );
@@ -431,7 +440,6 @@ const getConnectorStyle = (profile: LayoutProfile, compact: boolean, isFinal: bo
 const getFinalCardVisuals = (profile: LayoutProfile, compact: boolean, finished: boolean) => {
   const dense = compact || profile.matchHeight <= 52;
   const veryDense = profile.matchHeight <= 44;
-  const badgeVisible = !veryDense;
 
   return {
     frameClass: finished
@@ -444,16 +452,6 @@ const getFinalCardVisuals = (profile: LayoutProfile, compact: boolean, finished:
     glowClass: finished
       ? 'bg-[radial-gradient(circle_at_50%_45%,rgba(251,191,36,0.22),transparent_64%)]'
       : 'bg-[radial-gradient(circle_at_50%_45%,rgba(251,191,36,0.12),transparent_64%)]',
-    badgeVisible,
-    badgeClass: !badgeVisible
-      ? 'hidden'
-      : (dense
-        ? 'top-1.5 left-1/2 -translate-x-1/2 text-[9px] px-2 py-0.5'
-        : 'top-2 left-1/2 -translate-x-1/2 text-[10px] px-2.5 py-1'),
-    codeClass: dense
-      ? 'bottom-1.5 text-[8px] opacity-60'
-      : 'bottom-2 text-[9px] opacity-70',
-    showCodeBadge: !badgeVisible,
     railWidthClass: veryDense ? 'w-[2px]' : dense ? 'w-[2.5px]' : 'w-[3px]',
   } as const;
 };
@@ -543,6 +541,8 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     if (!normalized) return compactMode ? 'R' : t('round_word');
 
     if (normalized === 'FINALE' || normalized === 'FINAL') return t('finale');
+    const semifinalSide = normalized.match(/^SEMIFINALE ([AB])$/);
+    if (semifinalSide) return t('semi') + ' ' + semifinalSide[1];
     if (normalized === 'SEMIFINALE' || normalized === 'SEMIFINALI' || normalized === 'SEMIFINAL' || normalized === 'SEMIFINALS') return t('semi');
     if (normalized === 'QUARTI DI FINALE' || normalized === 'QUARTERFINAL' || normalized === 'QUARTERFINALS') return t('quarti');
     if (normalized === 'OTTAVI DI FINALE' || normalized === 'ROUND OF 16') return t('ottavi');
@@ -785,16 +785,9 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     return getStageRenderStyle(displayLayout);
   }, [displayLayout]);
 
-  const densePanelTitle = densePanel === 'sideA'
-    ? 'LATO A'
-    : densePanel === 'sideB'
-      ? 'LATO B'
-      : 'FASE FINALE';
-  const densePanelSubtitle = densePanel === 'finals'
-    ? 'Dagli ottavi alla finale'
-    : densePanel === 'sideA'
-      ? 'Chiusura con semifinale A'
-      : 'Chiusura con semifinale B';
+  const densePanelTitle = densePanel === 'finals'
+    ? t('tv_final_rounds')
+    : t('tv_bracket_side').replace('{side}', densePanel === 'sideA' ? 'A' : 'B');
 
   if (!resolvedRounds.length) {
     return (
@@ -950,9 +943,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   : null;
                 const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
                 const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
-                const finalBadgeText = isDenseSidePanelFinal
-                  ? (densePanel === 'sideA' ? 'SEMIFINALE A' : 'SEMIFINALE B')
-                  : t('finale');
+
                 const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
                 const isWinnerA = match.raw.status === 'finished' && match.raw.scoreA > match.raw.scoreB;
                 const isWinnerB = match.raw.status === 'finished' && match.raw.scoreB > match.raw.scoreA;
@@ -960,6 +951,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 const bottomIsPlaceholder = isPlaceholderTeamName(match.bottom);
                 const isPendingMatch = match.raw.status !== 'finished';
                 const isUndecidedMatch = topIsPlaceholder || bottomIsPlaceholder;
+                const hasChampion = isFinal && !isDenseSidePanelFinal && !isUndecidedMatch && !data?.config?.finalRoundRobin?.enabled;
                 const rowPaddingClass = getRowPaddingClass(displayLayout.profile, compact);
                 const cardRadiusClass = getCardRadiusClass(displayLayout.profile, compact);
                 const finalCardVisuals = getFinalCardVisuals(displayLayout.profile, compact, match.raw.status === 'finished');
@@ -973,14 +965,9 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   >
                     <div className={`absolute inset-0 ${isUndecidedMatch ? 'bg-[linear-gradient(120deg,rgba(148,163,184,0.08),transparent_55%,rgba(148,163,184,0.06))]' : 'bg-[linear-gradient(120deg,rgba(97,230,255,0.08),transparent_55%,rgba(139,92,246,0.08))]'}`} />
                     {isFinal && <div className={`absolute inset-0 ${finalCardVisuals.glowClass}`} />}
-                    {isFinal && finalCardVisuals.badgeVisible && (
-                      <div className={`absolute z-10 inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-slate-950/70 font-black uppercase tracking-[0.18em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur-md ${finalCardVisuals.badgeClass}`}>
-                        <Trophy className="h-3 w-3" />
-                        <span>{finalBadgeText}</span>
-                      </div>
-                    )}
-                    {isFinal && (isWinnerA || isWinnerB) && (
-                      <div className={`absolute ${finalWinnerRailClass} top-0 z-10 h-full ${finalCardVisuals.railWidthClass} bg-[linear-gradient(180deg,rgba(252,211,77,0.9),rgba(245,158,11,0.36))]`} />
+
+                    {hasChampion && (isWinnerA || isWinnerB) && (
+                      <div className={`absolute ${finalWinnerRailClass} ${isWinnerA ? 'top-0' : 'bottom-0'} z-10 h-1/2 ${finalCardVisuals.railWidthClass} bg-[linear-gradient(180deg,rgba(252,211,77,0.9),rgba(245,158,11,0.36))]`} />
                     )}
 
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
@@ -991,6 +978,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                         profile={displayLayout.profile}
                         compact={compact}
                         winner={isWinnerA}
+                        championLabel={hasChampion && isWinnerA ? t('tv_champion') : undefined}
                         pendingAriaLabel={t('to_be_defined')}
                         scoreAriaLabel={t('score_label')}
                       />
@@ -1004,6 +992,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                         profile={displayLayout.profile}
                         compact={compact}
                         winner={isWinnerB}
+                        championLabel={hasChampion && isWinnerB ? t('tv_champion') : undefined}
                         pendingAriaLabel={t('to_be_defined')}
                         scoreAriaLabel={t('score_label')}
                       />
@@ -1018,7 +1007,6 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
           <div className="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-3 rounded-2xl border border-white/12 bg-slate-950/76 px-4 py-2 text-white shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-md">
             <div>
               <div className="text-[12px] font-black uppercase tracking-[0.2em] text-cyan-100">{densePanelTitle}</div>
-              <div className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300">{densePanelSubtitle}</div>
             </div>
             <div className="flex items-center gap-1.5">
               {DENSE_BRACKET_PANELS.map((panel, index) => (
@@ -1131,9 +1119,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 : null;
               const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
               const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
-              const finalBadgeText = isDenseSidePanelFinal
-                ? (densePanel === 'sideA' ? 'SEMIFINALE A' : 'SEMIFINALE B')
-                : t('finale');
+
               const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
               const isWinnerA = match.raw.status === 'finished' && match.raw.scoreA > match.raw.scoreB;
               const isWinnerB = match.raw.status === 'finished' && match.raw.scoreB > match.raw.scoreA;
@@ -1141,6 +1127,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               const bottomIsPlaceholder = isPlaceholderTeamName(match.bottom);
               const isPendingMatch = match.raw.status !== 'finished';
               const isUndecidedMatch = topIsPlaceholder || bottomIsPlaceholder;
+              const hasChampion = isFinal && !isDenseSidePanelFinal && !isUndecidedMatch && !data?.config?.finalRoundRobin?.enabled;
               const rowPaddingClass = getRowPaddingClass(displayLayout.profile, compact);
               const cardRadiusClass = getCardRadiusClass(displayLayout.profile, compact);
               const finalCardVisuals = getFinalCardVisuals(displayLayout.profile, compact, match.raw.status === 'finished');
@@ -1154,14 +1141,9 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 >
                   <div className={`absolute inset-0 ${isUndecidedMatch ? 'bg-[linear-gradient(120deg,rgba(148,163,184,0.08),transparent_55%,rgba(148,163,184,0.06))]' : 'bg-[linear-gradient(120deg,rgba(97,230,255,0.08),transparent_55%,rgba(139,92,246,0.08))]'}`} />
                   {isFinal && <div className={`absolute inset-0 ${finalCardVisuals.glowClass}`} />}
-                  {isFinal && finalCardVisuals.badgeVisible && (
-                    <div className={`absolute z-10 inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-slate-950/70 font-black uppercase tracking-[0.18em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur-md ${finalCardVisuals.badgeClass}`}>
-                      <Trophy className="h-3 w-3" />
-                      <span>{finalBadgeText}</span>
-                    </div>
-                  )}
-                  {isFinal && (isWinnerA || isWinnerB) && (
-                    <div className={`absolute ${finalWinnerRailClass} top-0 z-10 h-full ${finalCardVisuals.railWidthClass} bg-[linear-gradient(180deg,rgba(252,211,77,0.9),rgba(245,158,11,0.36))]`} />
+
+                  {hasChampion && (isWinnerA || isWinnerB) && (
+                    <div className={`absolute ${finalWinnerRailClass} ${isWinnerA ? 'top-0' : 'bottom-0'} z-10 h-1/2 ${finalCardVisuals.railWidthClass} bg-[linear-gradient(180deg,rgba(252,211,77,0.9),rgba(245,158,11,0.36))]`} />
                   )}
 
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
@@ -1172,6 +1154,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                       profile={displayLayout.profile}
                       compact={compact}
                       winner={isWinnerA}
+                      championLabel={hasChampion && isWinnerA ? t('tv_champion') : undefined}
                       pendingAriaLabel={t('to_be_defined')}
                       scoreAriaLabel={t('score_label')}
                     />
@@ -1185,6 +1168,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                       profile={displayLayout.profile}
                       compact={compact}
                       winner={isWinnerB}
+                      championLabel={hasChampion && isWinnerB ? t('tv_champion') : undefined}
                       pendingAriaLabel={t('to_be_defined')}
                       scoreAriaLabel={t('score_label')}
                     />

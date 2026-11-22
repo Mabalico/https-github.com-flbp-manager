@@ -22,7 +22,6 @@ interface TvBracketViewProps {
 
 export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, data, logo, onExit, mode }) => {
   const { t } = useTranslation();
-  const isSplit = mode === 'groups_bracket';
 
   // Detect an eventual "Girone Finale" in a backwards compatible way.
   // - preferred: group.stage === 'final' (if present in persisted data)
@@ -40,18 +39,11 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
     return groups.find(isFinalGroup) || null;
   }, [data?.groups, isFinalGroup]);
 
-  const stageGroups = React.useMemo(() => {
-    const groups = (data?.groups || []) as any[];
-    if (!finalGroup) return groups;
-    return groups.filter((g) => g?.id !== (finalGroup as any)?.id);
+  const displayedGroups = React.useMemo(() => {
+    const groups = data?.groups || [];
+    return finalGroup ? [finalGroup, ...groups.filter(group => group !== finalGroup)] : groups;
   }, [data?.groups, finalGroup]);
-
-  const isFinalMatch = React.useCallback((m: Match) => {
-    if (/^FTB/i.test(String(m.code || ''))) return true;
-    const gName = String(m.groupName || '');
-    if (finalGroup?.name && gName === finalGroup.name) return true;
-    return /\bfinale?\b/i.test(gName);
-  }, [finalGroup]);
+  const isSplit = mode === 'groups_bracket' && displayedGroups.length > 0;
 
   const isByeTeam = React.useCallback((t: Team) => {
     const anyT = t as any;
@@ -72,10 +64,8 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
       .filter((m) => {
         const ids = getMatchParticipantIds(m);
         return !ids.includes('BYE');
-      })
-      // In split mode, the "Gironi" banner must refer to stage groups only (exclude final-stage tie-breaks).
-      .filter((m) => !isFinalMatch(m));
-  }, [matches, isFinalMatch]);
+      });
+  }, [matches]);
 
   const groupMatchesByName = React.useMemo(() => {
     const byGroup = new Map<string, Match[]>();
@@ -119,12 +109,12 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
 
   // In split mode (Gironi + Tabellone), avoid scroll: paginate + auto-rotate like TV gironi.
   // If groups are "too large", show 1 per page; if small, allow 2 per page.
-  const maxTeamsInGroup = Math.max(0, ...stageGroups.map((g: any) => visibleTeams(g.teams || []).length));
-  const maxMatchesInGroup = Math.max(0, ...stageGroups.map((g: any) => (groupMatchesByName.get(g.name) || []).length));
+  const maxTeamsInGroup = Math.max(0, ...displayedGroups.map((g: any) => visibleTeams(g.teams || []).length));
+  const maxMatchesInGroup = Math.max(0, ...displayedGroups.map((g: any) => (groupMatchesByName.get(g.name) || []).length));
   const groupsPerPage = !isSplit
-    ? Math.max(1, stageGroups.length)
-    : (stageGroups.length <= 1 ? 1 : (maxTeamsInGroup <= 4 && maxMatchesInGroup <= 6 ? 2 : 1));
-  const pageCount = isSplit && stageGroups.length > 0 ? Math.ceil(stageGroups.length / groupsPerPage) : 0;
+    ? Math.max(1, displayedGroups.length)
+    : (displayedGroups.length <= 1 ? 1 : (maxTeamsInGroup <= 4 && maxMatchesInGroup <= 6 ? 2 : 1));
+  const pageCount = isSplit && displayedGroups.length > 0 ? Math.ceil(displayedGroups.length / groupsPerPage) : 0;
   const [page, setPage] = React.useState(0);
 
   React.useEffect(() => {
@@ -143,10 +133,10 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   }, [isSplit, pageCount, page]);
 
   const pageGroups = React.useMemo(() => {
-    if (!isSplit) return stageGroups;
-    if (stageGroups.length === 0) return [] as any[];
-    return stageGroups.slice(page * groupsPerPage, page * groupsPerPage + groupsPerPage);
-  }, [isSplit, stageGroups, page, groupsPerPage]);
+    if (!isSplit) return displayedGroups;
+    if (displayedGroups.length === 0) return [] as any[];
+    return displayedGroups.slice(page * groupsPerPage, page * groupsPerPage + groupsPerPage);
+  }, [isSplit, displayedGroups, page, groupsPerPage]);
 
   const renderGroupCard = React.useCallback((g: any) => {
     const rawMatches = groupMatchesByName.get(g.name) || [];
@@ -168,11 +158,11 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
         <div className="flex-1 min-h-0 p-3 grid grid-cols-1 gap-3">
           {/* Standings */}
           <div className="min-h-0">
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">{t('standings_label')}</div>
+            <div className="text-[12px] font-black uppercase tracking-widest text-slate-500 mb-2">{t('standings_label')}</div>
             <GroupStandingsTable
               rankedTeams={standings.rankedTeams}
               rows={standings.rows}
-              advancingCount={data?.config?.advancingPerGroup ?? 0}
+              advancingCount={g === finalGroup ? 0 : data?.config?.advancingPerGroup ?? 0}
               headerStyle="abbr"
               compact={true}
             />
@@ -180,14 +170,14 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
 
           {/* Matches */}
           <div className="min-h-0">
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">{t('matches_label')}</div>
+            <div className="text-[12px] font-black uppercase tracking-widest text-slate-500 mb-2">{t('matches_label')}</div>
 
             <div className="space-y-2">
               <div>
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('played_label')}</div>
+                <div className="text-[12px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('played_label')}</div>
                 <div className="space-y-1">
                   {played.length === 0 ? (
-                    <div className="text-[10px] text-slate-400">{t('none_short')}</div>
+                    <div className="text-[12px] text-slate-400">{t('none_short')}</div>
                   ) : (
                     played.slice(0, playedLimit).map((m) => (
                       <div
@@ -206,13 +196,16 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                     ))
                   )}
                 </div>
+                {played.length > playedLimit && (
+                  <div className="text-[12px] text-slate-400 font-bold">{t('more_in_list')}</div>
+                )}
               </div>
 
               <div>
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('to_play_state_label')}</div>
+                <div className="text-[12px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('to_play_state_label')}</div>
                 <div className="space-y-1">
                   {upcoming.length === 0 ? (
-                    <div className="text-[10px] text-slate-400">{t('none_short')}</div>
+                    <div className="text-[12px] text-slate-400">{t('none_short')}</div>
                   ) : (
                     upcoming.slice(0, upcomingLimit).map((m) => (
                       <div
@@ -229,17 +222,16 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                     ))
                   )}
                 </div>
+                {upcoming.length > upcomingLimit && (
+                  <div className="text-[12px] text-slate-400 font-bold">{t('more_in_list')}</div>
+                )}
               </div>
             </div>
-
-            {(played.length > playedLimit || upcoming.length > upcomingLimit) && (
-              <div className="mt-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest">{t('more_in_list')}</div>
-            )}
           </div>
         </div>
       </div>
     );
-  }, [groupMatchesByName, visibleTeams, data?.config?.advancingPerGroup, getName, isSplit]);
+  }, [groupMatchesByName, visibleTeams, data?.config?.advancingPerGroup, finalGroup, getName, isSplit, t]);
 
   return (
     <PublicTvShell data={data} logo={logo} onExit={onExit} variant="minimal">
@@ -271,19 +263,19 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                   <div className="rounded-2xl border border-white/10 bg-slate-900/78 px-4 py-2.5 shadow-[0_20px_50px_rgba(15,23,42,0.28)]">
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200/80">
-                          {t('admin_tv_groups_bracket')}
+                        <div className="text-[12px] font-black uppercase tracking-[0.22em] text-blue-200/80">
+                          {t('group_word')} + {t('bracket_word')}
                         </div>
                         <div className="mt-0.5 text-[26px] leading-[1.05] font-black uppercase tracking-[0.06em] text-white">
                           {t('group_word')}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-200">
-                          {t('groups')} {stageGroups.length}
+                        <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-slate-200">
+                          {t('groups')} {displayedGroups.length}
                         </div>
                         {pageCount > 1 && (
-                          <div className="rounded-full border border-blue-400/25 bg-blue-500/12 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-blue-100">
+                          <div className="rounded-full border border-blue-400/25 bg-blue-500/12 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-blue-100">
                             {t('page')} {page + 1}/{pageCount}
                           </div>
                         )}
@@ -293,10 +285,10 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
 
                   {pendingGroupTieBreaks.length > 0 && (
                     <div className="rounded-2xl border border-amber-400/30 bg-amber-500/15 px-4 py-2 shadow-[0_16px_40px_rgba(120,53,15,0.18)]">
-                      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-100">
+                      <div className="text-[12px] font-black uppercase tracking-[0.18em] text-amber-100">
                         {t('qualification_blocked_tiebreak')}
                       </div>
-                      <div className="mt-1 text-[10px] font-mono font-bold text-amber-50/85">
+                      <div className="mt-1 text-[12px] font-mono font-bold text-amber-50/85">
                         {pendingGroupTieBreaks
                           .slice(0, 4)
                           .map((m) => {

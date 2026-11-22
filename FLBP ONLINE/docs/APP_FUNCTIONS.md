@@ -395,6 +395,8 @@ Supporto UI:
 
 ## 5) TV Mode (read-only)
 
+- Nelle viste TV il tabellone indica il campione sulla sua riga. La vista mista mostra anche il Girone Finale e usa tutta la larghezza del tabellone quando non ci sono gironi.
+
 - Entry: `components/TvView.tsx` (lazy in `App.tsx`)
 - Shell: `components/PublicTvShell.tsx`
   - Logo federazione: se `state.logo` è vuoto o l'URL non è valido, usa fallback `public/flbp_logo_2025.svg` (path runtime: `/flbp_logo_2025.svg`).
