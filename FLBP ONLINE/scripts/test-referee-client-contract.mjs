@@ -13,7 +13,7 @@ for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
   const source=ts.createSourceFile(filename,fs.readFileSync(filename,'utf8'),ts.ScriptTarget.Latest,true);
   const names=new Set(['pushRefereeMatchResults','pushRefereeLiveState','throwMatchResultRpcError',
     'normalizeRpcConflictError','makeConflictError','isMissingRpcFunctionError','parseSupabaseErrorPayload',
-    'extractSupabaseErrorUpdatedAt','makeMissingMatchResultRpcError']);
+    'extractSupabaseErrorUpdatedAt','makeMissingMatchResultRpcError','getMatchResultRejectionReason']);
   const selected=source.statements.filter(s=>ts.isVariableStatement(s)&&s.declarationList.declarations.some(
     d=>ts.isIdentifier(d.name)&&names.has(d.name.text))).map(s=>s.getText(source)).join('\n');
   const exports={}; let response; const cursors=[];
@@ -49,7 +49,31 @@ for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
     }
     response={ok:true,json:async()=>({ok:true,updated_at:'new-baseline'})};
     assert.equal((await run()).ok,true); assert.deepEqual(cursors,['new-baseline']); passed++;
+    // P-29: a refused report is told apart from temporary failures.
+    const refusal='Creazione partita non autorizzata: partecipanti non validi';
+    for(const refused of [{ok:true,json:async()=>({ok:false,reason:'invalid_report',message:refusal})},
+      {ok:false,status:400,body:JSON.stringify({ok:false,reason:'invalid_report',message:refusal})}]){
+      response=refused;
+      assert.equal(exports.getMatchResultRejectionReason(await run().catch(error=>error)),refusal); passed++;
+    }
+    for(const payload of [{ok:false,reason:'rate_limited'},{ok:false,reason:'bad_password'},
+      {ok:false,reason:'conflict',message:'FLBP_DB_CONFLICT: newer result exists'},
+      {ok:false,reason:'invalid_report',message:'FLBP_LOCAL_PRIMARY: local server active'}]){
+      response={ok:false,status:409,body:JSON.stringify(payload)};
+      assert.equal(exports.getMatchResultRejectionReason(await run().catch(error=>error)),null,JSON.stringify(payload)); passed++;
+    }
     console.log(`PASS: ${edition} ${kind}: durable SQL rejections/conflicts throw; only success advances the cursor`);
   }
+  // The Admin RPC raises a database error; the local server sends its own code.
+  const reason=exports.getMatchResultRejectionReason;
+  assert.equal(reason(new Error(JSON.stringify({code:'P0001',details:null,hint:null,message:'Creazione partita non autorizzata: girone inesistente'}))),
+    'Creazione partita non autorizzata: girone inesistente');
+  assert.equal(reason(Object.assign(new Error('Creazione partita non autorizzata: codice spareggio non coerente'),{code:'FLBP_INVALID_TIE_BREAK'})),
+    'Creazione partita non autorizzata: codice spareggio non coerente');
+  assert.equal(reason(new Error(JSON.stringify({code:'P0001',message:'Match m1 non trovato nello snapshot live'}))),null);
+  assert.equal(reason(new Error('Failed to fetch')),null);
+  assert.equal(reason(null),null);
+  passed+=5;
+  console.log(`PASS: ${edition}: refused reports are recognised, connection and temporary errors are not`);
 }
 console.log(`${passed} real client contract cases passed; only network IO was replaced.`);

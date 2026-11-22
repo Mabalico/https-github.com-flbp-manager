@@ -3628,6 +3628,22 @@ const parseSupabaseErrorPayload = (message: string): Record<string, any> | null 
     }
 };
 
+// A report the server refused on validation: sending the same report again
+// cannot succeed, so the UI shows the reason instead of a connection warning.
+// Supabase answers referees {ok:false, reason:'invalid_report', message} and
+// the Admin a database error; the local server uses FLBP_INVALID_TIE_BREAK.
+// FLBP_* states (conflict, local primary, recovery) are temporary: not here.
+export const getMatchResultRejectionReason = (error: unknown): string | null => {
+    const raw = String((error as any)?.message ?? error ?? '').trim();
+    const payload = parseSupabaseErrorPayload(raw);
+    const message = String(payload?.message ?? raw).trim();
+    if (!message || /^FLBP_[A-Z_]+:/.test(message)) return null;
+    const rejected = (error as any)?.code === 'FLBP_INVALID_TIE_BREAK'
+        || payload?.reason === 'invalid_report'
+        || message.startsWith('Creazione partita non autorizzata');
+    return rejected ? message : null;
+};
+
 const extractSupabaseErrorUpdatedAt = (message: string): string | null => {
     const payload = parseSupabaseErrorPayload(message);
     const fromDetailsObject = payload?.details?.updated_at;

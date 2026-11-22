@@ -13,7 +13,7 @@ import { isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { resolveDataPlane } from '../services/dataPlaneClient';
 import type { AdminCommitOptions } from '../services/repository/AppStateRepository';
@@ -3963,7 +3963,16 @@ while (guard < 5000) {
             }
         } catch (error: any) {
             console.warn('Admin report save failed', error);
-            alert([
+            // A refused report (for example a tie-break the server cannot accept)
+            // is not a connection problem: saving the same data again would fail.
+            const rejectionReason = getMatchResultRejectionReason(error);
+            alert(rejectionReason ? [
+                'Il referto non è stato salvato: il server lo ha rifiutato.',
+                '',
+                `Motivo: ${rejectionReason}`,
+                '',
+                'Ricarica la pagina per avere i dati aggiornati del torneo, controlla il girone e poi riprova.',
+            ].join('\n') : [
                 'Il referto non è stato salvato su Supabase.',
                 '',
                 'Non chiudere questa finestra: controlla la connessione, poi riprova il salvataggio.',
