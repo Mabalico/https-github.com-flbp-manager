@@ -74,7 +74,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
     return (
       <button 
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-50 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center gap-2 group border-2 border-beer-500 sm:bottom-6 sm:right-6"
+        className="mt-4 ms-auto w-fit bg-slate-900 text-white p-3 rounded-full shadow-lg flex items-center gap-2 group border-2 border-beer-500"
       >
         <HelpCircle className="w-6 h-6 text-beer-500" />
         <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 font-bold whitespace-nowrap">{t('help_quick_label')}</span>

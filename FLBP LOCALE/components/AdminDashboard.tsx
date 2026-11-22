@@ -914,7 +914,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // UI helpers (Admin tabs)
     const tabBtnClass = (active: boolean) => {
-        const base = 'shrink-0 max-w-[calc(100vw-2rem)] whitespace-nowrap px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
+        const base = 'min-w-0 max-w-full break-words px-2 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
         return `${base} ${active ? 'bg-blue-700/95 backdrop-blur-md text-white border-blue-600 shadow-[0_4px_12px_-2px_rgba(29,78,216,0.3)] transform -translate-y-0.5' : 'bg-white/90 backdrop-blur-sm text-slate-700 border-slate-200/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-white'}`;
     };
     const liveTabMeta: Record<LiveAdminTab, { title: string; helper: string }> = {
@@ -4250,8 +4250,8 @@ while (guard < 5000) {
                     <p className="font-bold">{adminSyncState.message}</p>
                 </div>
             )}
-            <header className="relative z-10 flex flex-row items-center justify-between gap-1.5 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
-                <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+            <header className="relative z-10 flex flex-wrap items-center justify-between gap-2 bg-white px-2.5 py-2 rounded-[18px] shadow-sm border border-slate-200 sm:gap-2 sm:px-4 sm:py-3 lg:rounded-[28px]">
+                <div className="flex min-w-0 flex-[1_0_auto] flex-wrap items-center gap-1.5 sm:gap-2">
                     <h2 className="flex min-w-0 shrink-0 items-center gap-1 text-[12px] font-black leading-none text-slate-900 sm:gap-1.5 sm:text-base">
                         <ShieldCheck className="w-4 h-4 text-beer-500 drop-shadow-sm sm:w-5 sm:h-5" />
                         <span className="max-w-[82px] truncate sm:max-w-none">{t('admin')}</span>
@@ -4259,7 +4259,7 @@ while (guard < 5000) {
                     
                     <div className="hidden sm:block w-px h-5 bg-slate-200 mx-0.5"></div>
 
-                    <details ref={adminSectionMenuRef} className="relative group">
+                    <details ref={adminSectionMenuRef} className="group sm:relative">
                         <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex max-w-[112px] items-center gap-1 bg-slate-900 text-white px-2 py-1.5 rounded-xl text-[10px] font-black hover:bg-slate-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm sm:max-w-none sm:gap-1.5 sm:px-3 sm:text-xs">
                             {adminSection === 'live' ? (
                                 <>
@@ -4282,7 +4282,7 @@ while (guard < 5000) {
                             )}
                             <ChevronDown className="w-3 h-3 shrink-0 opacity-80 sm:w-3.5 sm:h-3.5" />
                         </summary>
-                        <div className="absolute left-0 mt-2 min-w-[220px] max-w-[90vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
+                        <div className="absolute start-2 top-full mt-2 w-64 max-w-[calc(100%_-_1rem)] sm:start-0 sm:top-auto sm:max-w-[80vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
                             <div className="grid gap-1">
                                 <button type="button" onClick={() => { closeAdminSectionMenu(); void switchAdminSection('live'); }} className={`w-full text-left px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 transition-colors ${adminSection==='live' ? 'bg-emerald-50 text-emerald-800' : 'bg-transparent text-slate-800 hover:bg-slate-100'}`}>
                                     <PlayCircle className="w-3.5 h-3.5" /> {t('admin_live_management')}
@@ -4304,15 +4304,15 @@ while (guard < 5000) {
                     )}
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
                     {adminSection === 'live' && (
                         <>
-                            <details ref={adminTvMenuRef} className="relative group">
+                            <details ref={adminTvMenuRef} className="group sm:relative">
                                 <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center gap-1.5 bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-black hover:bg-emerald-800 transition-colors cursor-pointer select-none focus-visible:outline-none shadow-sm">
                                     <MonitorPlay className="w-3.5 h-3.5" /> <span>{t('admin_open_tv')}</span>
                                     <ChevronDown className="w-3.5 h-3.5 opacity-80" />
                                 </summary>
-                                <div className="absolute right-0 mt-2 min-w-[220px] max-w-[90vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
+                                <div className="absolute end-2 top-full mt-2 w-72 max-w-[calc(100%_-_1rem)] sm:end-0 sm:top-auto sm:max-w-[80vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-2 z-[999]">
                                     <div className="grid gap-1">
                                         <button type="button" onClick={() => { closeAdminTvMenu(); onEnterTv('groups'); }} className="w-full text-left bg-transparent text-slate-800 px-3 py-2 rounded-[12px] text-xs font-black inline-flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                             <div className="p-1 rounded-full bg-slate-900 text-white"><MonitorPlay className="w-3 h-3"/></div> {t('admin_tv_groups')}
@@ -4379,11 +4379,11 @@ while (guard < 5000) {
                         </>
                     )}
 
-                    <details ref={adminToolsMenuRef} className="relative group">
+                    <details ref={adminToolsMenuRef} className="group sm:relative">
                         <summary className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center p-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm text-slate-700" title={t('admin_tools')}>
                             <Settings className="w-4 h-4" />
                         </summary>
-                        <div className="absolute right-0 mt-2 w-[260px] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-3 z-[999] flex flex-col gap-2">
+                        <div className="absolute end-2 top-full mt-2 w-[260px] max-w-[calc(100%_-_1rem)] sm:end-0 sm:top-auto sm:max-w-[80vw] bg-white border border-slate-200 shadow-2xl rounded-[20px] p-3 z-[999] flex flex-col gap-2">
                             {/* Account */}
                             <div className="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
                                 <span className="text-[11px] font-bold text-slate-600 truncate min-w-0" title={supabaseEmail || undefined}>
@@ -4475,7 +4475,7 @@ while (guard < 5000) {
                     {adminSection === 'live' ? (
                         <nav aria-label={t('admin_tabs_aria')} className="min-w-0 max-w-full overflow-hidden bg-white rounded-xl border border-slate-200 p-3">
                             <div className="flex min-w-0 max-w-full flex-col gap-3">
-                                <div className="flex min-w-0 max-w-full items-center gap-2.5 overflow-x-auto overscroll-x-contain pb-1">
+                                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 pb-1">
                                     <span className="shrink-0 text-[11px] font-black text-slate-500 uppercase tracking-wide">{t('admin_ops_hub')}</span>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-blue-800 bg-blue-50 border border-blue-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_area_label')}: <span className="font-black">{liveTabMeta[tab as LiveAdminTab]?.title || '-'}</span>
@@ -4495,7 +4495,7 @@ while (guard < 5000) {
                                 </div>
 
                                 <div className="relative min-w-0 max-w-full border-t border-slate-100 pt-3">
-                                    <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1">
+                                    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 pb-1">
                                         <button
                                             type="button"
                                             aria-current={tab === 'teams' ? 'page' : undefined}
