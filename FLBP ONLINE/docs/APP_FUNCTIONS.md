@@ -285,6 +285,9 @@ Note robuste emerse dalle ultime correzioni:
 
 ## 4) Area Admin (gestione)
 
+- **Completa e archivia** mostra i premi in anteprima. Dopo il salvataggio, il riepilogo offre il testo degli arbitraggi da copiare o aprire nel client email. Se la pubblicazione si interrompe, puoi riprovarla dal riepilogo.
+- Il sito pubblico mostra i premi pubblicati, compresi gli Under 25 e tutti i pari merito.
+
 Entry: `components/AdminDashboard.tsx`.
 
 Accesso:

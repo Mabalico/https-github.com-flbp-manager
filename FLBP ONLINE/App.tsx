@@ -1021,7 +1021,7 @@ const App: React.FC = () => {
         const hydratePublicRow = async (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
             if (!row?.state) return false;
             try {
-                const next = await coerceLoadedAppState(row.state);
+                const next = coerceAppState(row.state, { publicSnapshot: true });
                 if (cancelled) return false;
                 // A full snapshot replaces the live overlay: the next live row must be applied again.
                 lastLiveRow = null;
@@ -1043,7 +1043,7 @@ const App: React.FC = () => {
             if (row === lastLiveRow || (signature !== null && signature === lastLiveSignature)) return true;
             try {
                 const raw = row.state as any;
-                const live = await coerceLoadedAppState(raw);
+                const live = coerceAppState(raw, { publicSnapshot: true });
                 if (cancelled) return false;
                 lastLiveRow = row;
                 lastLiveSignature = signature;
@@ -1057,7 +1057,7 @@ const App: React.FC = () => {
                     if (next.tournament) {
                         next.tournament = { ...next.tournament, matches: next.tournamentMatches || [] };
                     }
-                    return coerceAppState(next);
+                    return coerceAppState(next, { publicSnapshot: true });
                 });
             } catch {
                 return false;

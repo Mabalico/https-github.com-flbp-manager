@@ -1,7 +1,8 @@
+import type { HallOfFameEntry } from '../types';
 import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
 import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from '../services/draftNavigationGuard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
+import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncTournamentAwardsToHallOfFame, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
@@ -15,6 +16,7 @@ import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
 import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, isSameSupabaseAuthSession, isSupabaseAdminSessionExpired, isSupabaseSessionPastExpiry, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutCurrentSupabaseSessions, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
+import { pullPublicTournamentsList } from '../services/supabaseRest';
 import { resolveDataPlane } from '../services/dataPlaneClient';
 import type { AdminCommitOptions } from '../services/repository/AppStateRepository';
 import { FANTA_APP_CHANGE_EVENT, signOutPlayerPreviewSession } from '../services/playerAppService';
@@ -936,6 +938,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [mvpSearch, setMvpSearch] = useState<string>('');
     const [mvpSelectedIds, setMvpSelectedIds] = useState<string[]>([]);
     const [archiveIncludeU25Awards, setArchiveIncludeU25Awards] = useState<boolean>(true);
+    const [archiveBusy, setArchiveBusy] = useState(false);
+    const [archiveDone, setArchiveDone] = useState(false);
+    const [archiveError, setArchiveError] = useState('');
+    const [archiveReceipt, setArchiveReceipt] = useState<{ tournamentId: string; awards: HallOfFameEntry[]; email: { text: string; href: string } | null } | null>(null);
+    const archiveSubmittingRef = useRef(false);
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
@@ -1939,10 +1946,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             alert(t('alert_no_live_active'));
             return;
         }
-        if (confirm(t('confirm_archive'))) {
-            // As requested: on tournament conclusion we ask to indicate MVP (supports ties).
-            openMvpModal(true);
-        }
+        openMvpModal(true);
     };
 
     const handleDeleteLiveTournament = () => {
@@ -3215,27 +3219,81 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         commitLiveMatches(nextMatches);
     };
 
-    const prepareRefereeCounterEmailDraft = (snapshot: AppState) => {
+    const archiveAwardPreview = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament
+        ? syncTournamentAwardsToHallOfFame(
+            applyMvpsToState(state, mvpSelectedIds).hallOfFame,
+            { ...state.tournament, includeU25Awards: archiveIncludeU25Awards },
+            state.tournamentMatches,
+        ).filter(award => award.tournamentId === state.tournament?.id)
+        : [];
+
+    const publishArchive = async (tournamentId: string, awards: HallOfFameEntry[]): Promise<boolean> => {
+        const route = await resolveDataPlane({ force: true });
+        if (route.mode === 'local') {
+            // The local server owns publication. Wait for its cloud mirror before
+            // computing the Fanta snapshot from normalized results and awards.
+            const published = await pullPublicTournamentsList();
+            if (!published.history.some(tournament => tournament.id === tournamentId)
+                || (awards.some(award => ['winner', 'mvp', 'top_scorer', 'defender'].includes(award.type))
+                    && !await hasPublicHallOfFameFinalAwards(tournamentId))) {
+                throw new Error(t('archive_publication_pending'));
+            }
+            return !!published.liveTournament;
+        }
+        if (route.mode === 'recovery') throw new Error(t('archive_publication_pending'));
+        const row = await pullWorkspaceState({ source: 'AdminDashboard.archive', kind: 'admin' });
+        if (!row?.state?.tournamentHistory?.some(tournament => tournament.id === tournamentId)) {
+            throw new Error(t('archive_publication_pending'));
+        }
+        // A retry exports the current authoritative state, including edits made
+        // since the archive was committed. The version guard protects that read.
+        await pushNormalizedFromState(row.state, { baseUpdatedAt: row.updated_at });
+        return !!row.state.tournament;
+    };
+
+    const buildRefereeArchiveSummary = (snapshot: AppState) => {
         const rows = buildRefereeReportCounterRows(snapshot.tournamentMatches || []);
-        if (!rows.length) return;
-        // The Windows tournament app hosts this page directly from the local
-        // server. Navigating that WebView to a mailto: URL aborts the local page
-        // before the archive autosave can reach SQLite. Keep the optional email
-        // draft for the normal web app, but never navigate away from a local
-        // tournament session.
-        const hostname = String(window.location.hostname || '').trim().toLowerCase();
-        if (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') return;
-        const tournamentName = snapshot.tournament?.name || 'Torneo FLBP';
-        const body = [
-            `Riepilogo arbitraggi - ${tournamentName}`,
-            '',
-            ...rows.map((row) => `${row.name}: ${row.count} partite arbitrate`),
-        ].join('\n');
-        const subject = `Riepilogo arbitraggi - ${tournamentName}`;
+        if (!rows.length) return null;
+        const subject = t('referees_counter_title') + ' - ' + (snapshot.tournament?.name || 'FLBP');
+        const text = [subject, '', ...rows.map(({ name, count }) => name + ': ' + count)].join('\n');
+        return { text, href: 'mailto:info@flbp.it?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text) };
+    };
+
+    const submitTournamentArchive = async (includeMvp: boolean) => {
+        if (archiveSubmittingRef.current) return;
+        archiveSubmittingRef.current = true;
+        setArchiveBusy(true);
+        setArchiveError('');
         try {
-            window.location.href = `mailto:info@flbp.it?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        } catch {
-            // If the device has no mail client configured, the tournament close must not fail.
+            let receipt = archiveReceipt;
+            if (!receipt) {
+                if (!state.tournament) return;
+                const tournamentId = state.tournament.id;
+                const email = buildRefereeArchiveSummary(state);
+                const decorated = applyMvpsToState(state, includeMvp ? mvpSelectedIds : []);
+                const next = archiveTournamentV2(decorated, { includeU25Awards: archiveIncludeU25Awards });
+                const confirmed = await commitAdminStateDurably(next, 'archive-tournament', { skipStructuredSync: true });
+                setState(confirmed);
+                receipt = { tournamentId, awards: confirmed.hallOfFame.filter(award => award.tournamentId === tournamentId), email };
+                setArchiveReceipt(receipt);
+                closeLiveCallsForTournament(tournamentId);
+            }
+            const { tournamentId, awards } = receipt;
+            if (getSupabaseConfig()) {
+                const hasNewLiveTournament = await publishArchive(tournamentId, awards);
+                const fanta = await archiveFantaTournamentEdition(tournamentId);
+                if (!fanta.ok) throw new Error(t('archive_publication_pending'));
+                if (!hasNewLiveTournament && !await resetFantaPhaseAfterTournamentArchive()) {
+                    throw new Error(t('archive_publication_pending'));
+                }
+                window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+            }
+            setArchiveDone(true);
+        } catch (error) {
+            setArchiveError(error instanceof Error ? error.message : String(error));
+        } finally {
+            archiveSubmittingRef.current = false;
+            setArchiveBusy(false);
         }
     };
 
@@ -5039,6 +5097,15 @@ Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online and
     />
 )}
 
+{archiveReceipt && archiveError && !mvpModalOpen && (
+    <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <p>{t('data_db_sync_error_title')}</p>
+        <button type="button" className="font-bold underline" onClick={() => { setMvpModalForArchive(true); setMvpModalOpen(true); }}>
+            {t('archive_retry')}
+        </button>
+    </div>
+)}
+
 {mvpModalOpen && (
     <MvpModal
         forArchive={mvpModalForArchive}
@@ -5049,72 +5116,43 @@ Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online and
         setSelectedIds={setMvpSelectedIds}
         searchPlaceholder={t('search')}
         t={t}
-        onClose={() => { setMvpModalOpen(false); setMvpModalForArchive(false); setArchiveIncludeU25Awards(true); }}
-        onArchiveWithoutMvp={async () => {
-            // Archivia anche senza MVP (premi automatici = campioni + classifica marcatori).
-            const archivedTournamentId = state.tournament?.id;
-            prepareRefereeCounterEmailDraft(state);
-            await snapshotFantaBeforeArchive(archivedTournamentId);
-            closeLiveCallsForTournament(archivedTournamentId);
-            const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
-            try {
-                const confirmedState = await commitAdminStateDurably(next, 'archive-without-mvp', { skipStructuredSync: true });
-                setState(confirmedState);
-                await pushFullStructuredExportBestEffort(confirmedState, 'archive without MVP');
-                const fantaPretournamentReady = await resetFantaPhaseAfterTournamentArchive();
-                void refreshFantaArchiveAfterAwards(confirmedState, archivedTournamentId);
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
-                alert(fantaPretournamentReady
-                    ? t('alert_tournament_ended')
-                    : `${t('alert_tournament_ended')}\n\nFantaBeerpong non è stato riallineato al Pretorneo: riprova da "Sincronizza Fanta".`);
-            } catch (error) {
-                alert(error instanceof Error ? error.message : String(error));
+        onClose={() => {
+            if (archiveBusy) return;
+            setMvpModalOpen(false);
+            if (archiveDone || !archiveReceipt) {
+                setArchiveReceipt(null);
+                setArchiveDone(false);
+                setArchiveError('');
             }
         }}
+        onArchiveWithoutMvp={() => void submitTournamentArchive(false)}
         onSave={async () => {
-            if (!state.tournament) {
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
+            if (mvpModalForArchive) {
+                await submitTournamentArchive(true);
                 return;
             }
-            if (mvpModalForArchive) {
-                let next = applyMvpsToState(state, mvpSelectedIds);
-                const archivedTournamentId = next.tournament?.id || state.tournament?.id;
-                prepareRefereeCounterEmailDraft(next);
-                await snapshotFantaBeforeArchive(archivedTournamentId);
-                closeLiveCallsForTournament(archivedTournamentId);
-                next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
-                try {
-                    const confirmedState = await commitAdminStateDurably(next, 'archive-with-mvp', { skipStructuredSync: true });
-                    setState(confirmedState);
-                    await pushFullStructuredExportBestEffort(confirmedState, 'archive with MVP');
-                    const fantaPretournamentReady = await resetFantaPhaseAfterTournamentArchive();
-                    void refreshFantaArchiveAfterAwards(confirmedState, archivedTournamentId);
-                    setMvpModalOpen(false);
-                    setMvpModalForArchive(false);
-                    alert(fantaPretournamentReady
-                        ? t('alert_tournament_ended')
-                        : `${t('alert_tournament_ended')}\n\nFantaBeerpong non è stato riallineato al Pretorneo: riprova da "Sincronizza Fanta".`);
-                } catch (error) {
-                    alert(error instanceof Error ? error.message : String(error));
-                }
-            } else {
-                const next = applyMvpsToState(state, mvpSelectedIds);
-                try {
-                    const confirmedState = await commitAdminStateDurably(next, 'set-mvp');
-                    setState(confirmedState);
-                    setMvpModalOpen(false);
-                    setMvpModalForArchive(false);
-                    alert(t('alert_mvp_set'));
-                } catch (error) {
-                    alert(error instanceof Error ? error.message : String(error));
-                }
+            if (!state.tournament) return;
+            const next = applyMvpsToState(state, mvpSelectedIds);
+            try {
+                const confirmed = await commitAdminStateDurably(next, 'set-mvp');
+                setState(confirmed);
+                setMvpModalOpen(false);
+                alert(t('alert_mvp_set'));
+            } catch (error) {
+                alert(error instanceof Error ? error.message : String(error));
             }
         }}
         saveLabel={mvpModalForArchive ? t('save_mvp_and_archive') : t('admin_set')}
         assignU25Awards={archiveIncludeU25Awards}
         setAssignU25Awards={mvpModalForArchive ? setArchiveIncludeU25Awards : undefined}
+        archive={mvpModalForArchive ? {
+            awards: archiveReceipt?.awards || archiveAwardPreview,
+            committed: !!archiveReceipt,
+            busy: archiveBusy,
+            done: archiveDone,
+            error: archiveError,
+            email: archiveDone ? archiveReceipt?.email : null,
+        } : undefined}
     />
 )}
 

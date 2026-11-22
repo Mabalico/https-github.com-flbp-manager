@@ -639,38 +639,33 @@ const visibleTeamsCount = React.useMemo(() => {
     return out;
   }, [matches, data.groups]);
 
-  const getAward = (type: string) => tournamentAwards.find((a) => a.type === (type as any));
-
-  const AwardRow = ({ label, type, icon, color }: any) => {
-    const entry = getAward(type);
-    const isIndividualAward = type !== 'winner';
-    const primaryLabel = !entry
-      ? null
-      : (isIndividualAward
-        ? (entry.playerNames?.join(', ') || entry.teamName || 'ND')
-        : (entry.teamName || entry.playerNames.join(', ')));
-    const secondaryLabel = !entry
-      ? ''
-      : (isIndividualAward
-        ? (entry.teamName || '')
-        : (entry.teamName ? entry.playerNames.join(' & ') : ''));
+  const AwardRow = ({ label, type, icon, color }: {
+    label: string;
+    type: HallOfFameEntry['type'];
+    icon: React.ReactNode;
+    color: string;
+  }) => {
+    const entries = tournamentAwards.filter((award) => award.type === type);
     return (
-      <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200">
+      <div className="flex items-center justify-between gap-3 p-3 bg-white rounded-2xl border border-slate-200">
         <div className="flex items-center gap-3">
-          <div className={`${color} p-2 rounded-full text-white`}>
-            {icon}
-          </div>
+          <div className={color + ' p-2 rounded-full text-white'}>{icon}</div>
           <span className="font-black text-sm text-slate-700 uppercase tracking-wide">{label}</span>
         </div>
-        <div className="font-black text-slate-900 text-right">
-          {entry ? (
-            <div>
-              <div>{primaryLabel}</div>
-              {secondaryLabel && <div className="text-[10px] text-slate-400 font-bold">{secondaryLabel}</div>}
-            </div>
-          ) : (
-            <span className="text-slate-400 italic">ND</span>
-          )}
+        <div className="min-w-0 break-words font-black text-slate-900 text-right">
+          {entries.length === 0 && <span className="text-slate-400 italic">ND</span>}
+          {entries.map((entry) => {
+            const names = entry.playerNames || [];
+            const isWinner = type === 'winner';
+            const primary = isWinner ? entry.teamName || names.join(', ') : names.join(', ') || entry.teamName;
+            const secondary = isWinner ? (entry.teamName && names.join(' & ')) : entry.teamName;
+            return (
+              <div key={entry.id}>
+                <div>{primary || 'ND'}</div>
+                {secondary && <div className="text-[10px] text-slate-400 font-bold">{secondary}</div>}
+              </div>
+            );
+          })}
         </div>
       </div>
     );

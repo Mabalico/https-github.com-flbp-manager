@@ -1,7 +1,8 @@
+import type { HallOfFameEntry } from '../types';
 import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
 import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from '../services/draftNavigationGuard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncArchivedHistoryToHallOfFame } from '../services/storageService';
+import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncTournamentAwardsToHallOfFame, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
@@ -849,6 +850,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [mvpSearch, setMvpSearch] = useState<string>('');
     const [mvpSelectedIds, setMvpSelectedIds] = useState<string[]>([]);
     const [archiveIncludeU25Awards, setArchiveIncludeU25Awards] = useState<boolean>(true);
+    const [archiveBusy, setArchiveBusy] = useState(false);
+    const [archiveDone, setArchiveDone] = useState(false);
+    const [archiveError, setArchiveError] = useState('');
+    const [archiveReceipt, setArchiveReceipt] = useState<{ tournamentId: string; awards: HallOfFameEntry[]; email: { text: string; href: string } | null } | null>(null);
+    const archiveSubmittingRef = useRef(false);
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
@@ -1822,10 +1828,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             alert(t('alert_no_live_active'));
             return;
         }
-        if (confirm(t('confirm_archive'))) {
-            // As requested: on tournament conclusion we ask to indicate MVP (supports ties).
-            openMvpModal(true);
-        }
+        openMvpModal(true);
     };
 
     const handleDeleteLiveTournament = () => {
@@ -3083,20 +3086,69 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         commitLiveMatches(nextMatches);
     };
 
-    const prepareRefereeCounterEmailDraft = (snapshot: AppState) => {
+    const archiveAwardPreview = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament
+        ? syncTournamentAwardsToHallOfFame(
+            applyMvpsToState(state, mvpSelectedIds).hallOfFame,
+            { ...state.tournament, includeU25Awards: archiveIncludeU25Awards },
+            state.tournamentMatches,
+        ).filter(award => award.tournamentId === state.tournament?.id)
+        : [];
+
+    const commitArchiveState = async (next: AppState): Promise<AppState> => {
+        if (getSupabaseConfig()) await pushWorkspaceState(next);
+        return next;
+    };
+
+    const publishArchive = async (tournamentId: string): Promise<boolean> => {
+        const row = await pullWorkspaceState({ source: 'AdminDashboard.archive', kind: 'admin' });
+        if (!row?.state?.tournamentHistory?.some(tournament => tournament.id === tournamentId)) {
+            throw new Error(t('archive_publication_pending'));
+        }
+        await pushNormalizedFromState(row.state, { baseUpdatedAt: row.updated_at });
+        return !!row.state.tournament;
+    };
+
+    const buildRefereeArchiveSummary = (snapshot: AppState) => {
         const rows = buildRefereeReportCounterRows(snapshot.tournamentMatches || []);
-        if (!rows.length) return;
-        const tournamentName = snapshot.tournament?.name || 'Torneo FLBP';
-        const body = [
-            `Riepilogo arbitraggi - ${tournamentName}`,
-            '',
-            ...rows.map((row) => `${row.name}: ${row.count} partite arbitrate`),
-        ].join('\n');
-        const subject = `Riepilogo arbitraggi - ${tournamentName}`;
+        if (!rows.length) return null;
+        const subject = t('referees_counter_title') + ' - ' + (snapshot.tournament?.name || 'FLBP');
+        const text = [subject, '', ...rows.map(({ name, count }) => name + ': ' + count)].join('\n');
+        return { text, href: 'mailto:info@flbp.it?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text) };
+    };
+
+    const submitTournamentArchive = async (includeMvp: boolean) => {
+        if (archiveSubmittingRef.current) return;
+        archiveSubmittingRef.current = true;
+        setArchiveBusy(true);
+        setArchiveError('');
         try {
-            window.location.href = `mailto:info@flbp.it?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        } catch {
-            // If the device has no mail client configured, the tournament close must not fail.
+            let receipt = archiveReceipt;
+            if (!receipt) {
+                if (!state.tournament) return;
+                const tournamentId = state.tournament.id;
+                const email = buildRefereeArchiveSummary(state);
+                const decorated = applyMvpsToState(state, includeMvp ? mvpSelectedIds : []);
+                const next = archiveTournamentV2(decorated, { includeU25Awards: archiveIncludeU25Awards });
+                const confirmed = await commitArchiveState(next);
+                setState(confirmed);
+                receipt = { tournamentId, awards: confirmed.hallOfFame.filter(award => award.tournamentId === tournamentId), email };
+                setArchiveReceipt(receipt);
+                closeLiveCallsForTournament(tournamentId);
+            }
+            const { tournamentId } = receipt;
+            if (getSupabaseConfig()) {
+                const hasNewLiveTournament = await publishArchive(tournamentId);
+                const fanta = await archiveFantaTournamentEdition(tournamentId);
+                if (!fanta.ok) throw new Error(t('archive_publication_pending'));
+                if (!hasNewLiveTournament) await resetFantaConfigToPretournament();
+                window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+            }
+            setArchiveDone(true);
+        } catch (error) {
+            setArchiveError(error instanceof Error ? error.message : String(error));
+        } finally {
+            archiveSubmittingRef.current = false;
+            setArchiveBusy(false);
         }
     };
 
@@ -4796,6 +4848,15 @@ while (guard < 5000) {
     />
 )}
 
+{archiveReceipt && archiveError && !mvpModalOpen && (
+    <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <p>{t('data_db_sync_error_title')}</p>
+        <button type="button" className="font-bold underline" onClick={() => { setMvpModalForArchive(true); setMvpModalOpen(true); }}>
+            {t('archive_retry')}
+        </button>
+    </div>
+)}
+
 {mvpModalOpen && (
     <MvpModal
         forArchive={mvpModalForArchive}
@@ -4806,50 +4867,38 @@ while (guard < 5000) {
         setSelectedIds={setMvpSelectedIds}
         searchPlaceholder={t('search')}
         t={t}
-        onClose={() => { setMvpModalOpen(false); setMvpModalForArchive(false); setArchiveIncludeU25Awards(true); }}
-        onArchiveWithoutMvp={async () => {
-            // Archivia anche senza MVP (premi automatici = campioni + classifica marcatori).
-            const archivedTournamentId = state.tournament?.id;
-            prepareRefereeCounterEmailDraft(state);
-            await snapshotFantaBeforeArchive(archivedTournamentId);
-            closeLiveCallsForTournament(archivedTournamentId);
-            const next = archiveTournamentV2(state, { includeU25Awards: archiveIncludeU25Awards });
-            await pushFullStructuredExportBestEffort(next, 'archive without MVP');
-            setState(next);
-            void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
+        onClose={() => {
+            if (archiveBusy) return;
             setMvpModalOpen(false);
-            setMvpModalForArchive(false);
+            if (archiveDone || !archiveReceipt) {
+                setArchiveReceipt(null);
+                setArchiveDone(false);
+                setArchiveError('');
+            }
         }}
+        onArchiveWithoutMvp={() => void submitTournamentArchive(false)}
         onSave={async () => {
-            if (!state.tournament) {
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
+            if (mvpModalForArchive) {
+                await submitTournamentArchive(true);
                 return;
             }
-            if (mvpModalForArchive) {
-                let next = applyMvpsToState(state, mvpSelectedIds);
-                const archivedTournamentId = next.tournament?.id || state.tournament?.id;
-                prepareRefereeCounterEmailDraft(next);
-                await snapshotFantaBeforeArchive(archivedTournamentId);
-                closeLiveCallsForTournament(archivedTournamentId);
-                next = archiveTournamentV2(next, { includeU25Awards: archiveIncludeU25Awards });
-                await pushFullStructuredExportBestEffort(next, 'archive with MVP');
-                setState(next);
-                void refreshFantaArchiveAfterAwards(next, archivedTournamentId);
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
-                alert(t('alert_tournament_ended'));
-            } else {
-                const next = applyMvpsToState(state, mvpSelectedIds);
-                setState(next);
-                setMvpModalOpen(false);
-                setMvpModalForArchive(false);
-                alert(t('alert_mvp_set'));
-            }
+            if (!state.tournament) return;
+            const next = applyMvpsToState(state, mvpSelectedIds);
+            setState(next);
+            setMvpModalOpen(false);
+            alert(t('alert_mvp_set'));
         }}
         saveLabel={mvpModalForArchive ? t('save_mvp_and_archive') : t('admin_set')}
         assignU25Awards={archiveIncludeU25Awards}
         setAssignU25Awards={mvpModalForArchive ? setArchiveIncludeU25Awards : undefined}
+        archive={mvpModalForArchive ? {
+            awards: archiveReceipt?.awards || archiveAwardPreview,
+            committed: !!archiveReceipt,
+            busy: archiveBusy,
+            done: archiveDone,
+            error: archiveError,
+            email: archiveDone ? archiveReceipt?.email : null,
+        } : undefined}
     />
 )}
 
