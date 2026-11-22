@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "Ödül özeti",
+  "archive_no_awards": "Ödül yok",
+  "archive_retry": "Yayımlamayı yeniden dene",
+  "archive_email": "Hakemlik özeti e-postası hazırla",
+  "archive_copy": "Metni kopyala",
+  "archive_copied": "Metin kopyalandı",
+  "archive_copy_failed": "Metni seçip elle kopyalayın.",
+  "archive_publication_pending": "Yayımlama bekliyor. Veriler eşitlenince yeniden deneyin.",
   "edition_duplicate_player": "Aynı oyuncu aynı ödülde birden fazla kez yer alıyor. Yinelenen kaydı kaldırın.",
   "edition_list": "Turnuvalar",
   "edition_new": "Yeni turnuva",

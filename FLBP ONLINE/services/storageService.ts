@@ -99,7 +99,7 @@ const initialState: AppState = {
  * - Preserves unknown keys (backward/forward compatible)
  * - Coerces known keys to expected shapes to avoid runtime crashes
  */
-export const coerceAppState = (raw: any): AppState => {
+export const coerceAppState = (raw: any, options?: { publicSnapshot?: boolean }): AppState => {
     const isObj = (v: any) => !!v && typeof v === 'object' && !Array.isArray(v);
     const asArr = <T,>(v: any, fallback: T[] = []) => (Array.isArray(v) ? (v as T[]) : fallback);
     const asObj = <T extends Record<string, any>>(v: any, fallback: T = {} as T) => (isObj(v) ? (v as T) : fallback);
@@ -140,7 +140,10 @@ export const coerceAppState = (raw: any): AppState => {
     }
 
     try {
-        merged.hallOfFame = syncArchivedHistoryToHallOfFame(merged as AppState);
+        // The published entries were computed before birth dates were removed.
+        if (!options?.publicSnapshot || !Array.isArray(raw.hallOfFame)) {
+            merged.hallOfFame = syncArchivedHistoryToHallOfFame(merged as AppState);
+        }
     } catch {
         merged.hallOfFame = asArr<HallOfFameEntry>(merged.hallOfFame);
     }

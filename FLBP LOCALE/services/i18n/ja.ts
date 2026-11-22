@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "表彰の概要",
+  "archive_no_awards": "表彰なし",
+  "archive_retry": "公開を再試行",
+  "archive_email": "審判集計メールを作成",
+  "archive_copy": "テキストをコピー",
+  "archive_copied": "コピーしました",
+  "archive_copy_failed": "テキストを選択して手動でコピーしてください。",
+  "archive_publication_pending": "公開待ちです。データの同期後に再試行してください。",
   "edition_duplicate_player": "同じ賞に同じ選手が複数回登録されています。重複を削除してください。",
   "edition_list": "大会一覧",
   "edition_new": "大会を追加",

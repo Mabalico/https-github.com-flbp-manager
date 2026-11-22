@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "ملخص الجوائز",
+  "archive_no_awards": "لا توجد جوائز",
+  "archive_retry": "إعادة محاولة النشر",
+  "archive_email": "إعداد بريد بملخص التحكيم",
+  "archive_copy": "نسخ النص",
+  "archive_copied": "تم نسخ النص",
+  "archive_copy_failed": "حدّد النص وانسخه يدويًا.",
+  "archive_publication_pending": "النشر قيد الانتظار. أعد المحاولة بعد مزامنة البيانات.",
   "edition_duplicate_player": "يظهر اللاعب نفسه أكثر من مرة في اللقب نفسه. أزل التكرار.",
   "edition_list": "نسخ البطولات",
   "edition_new": "نسخة جديدة",

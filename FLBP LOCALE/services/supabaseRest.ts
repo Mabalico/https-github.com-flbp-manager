@@ -3799,7 +3799,7 @@ const makeConflictError = (message: string, meta?: { remoteUpdatedAt?: string | 
     return e;
 };
 
-export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     await requireSupabaseWriteSession();
@@ -3809,7 +3809,7 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
         updated_at: new Date().toISOString()
     };
 
-    const baseUpdatedAt = getRemoteBaseUpdatedAt();
+    const baseUpdatedAt = opts?.baseUpdatedAt === undefined ? getRemoteBaseUpdatedAt() : opts.baseUpdatedAt;
     const publicState = sanitizeAppStateForPublic(state);
     const rpcName = 'flbp_admin_push_workspace_state';
 
@@ -4489,7 +4489,7 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
 };
 
 // NOTE: This is an explicit admin action. It overwrites normalized tables for the workspace.
-export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
+export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
 

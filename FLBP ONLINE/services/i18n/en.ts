@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "Awards summary",
+  "archive_no_awards": "No awards",
+  "archive_retry": "Retry publication",
+  "archive_email": "Prepare referee summary email",
+  "archive_copy": "Copy text",
+  "archive_copied": "Text copied",
+  "archive_copy_failed": "Select and copy the text manually.",
+  "archive_publication_pending": "Publication pending. Retry once the data has synced.",
   "edition_duplicate_player": "The same player appears more than once in the same award. Remove the duplicate.",
   "edition_list": "Editions",
   "edition_new": "New edition",

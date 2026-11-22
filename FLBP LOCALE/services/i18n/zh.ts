@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "奖项汇总",
+  "archive_no_awards": "暂无奖项",
+  "archive_retry": "重试发布",
+  "archive_email": "准备裁判汇总邮件",
+  "archive_copy": "复制文本",
+  "archive_copied": "已复制文本",
+  "archive_copy_failed": "请选择并手动复制文本。",
+  "archive_publication_pending": "等待发布。数据同步后请重试。",
   "edition_duplicate_player": "同一奖项中同一选手出现多次。请移除重复项。",
   "edition_list": "赛事届次",
   "edition_new": "新增届次",

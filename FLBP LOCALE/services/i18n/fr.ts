@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "Récapitulatif des récompenses",
+  "archive_no_awards": "Aucune récompense",
+  "archive_retry": "Réessayer la publication",
+  "archive_email": "Préparer le courriel sur les arbitrages",
+  "archive_copy": "Copier le texte",
+  "archive_copied": "Texte copié",
+  "archive_copy_failed": "Sélectionnez et copiez le texte manuellement.",
+  "archive_publication_pending": "Publication en attente. Réessayez après la synchronisation.",
   "edition_duplicate_player": "Le même joueur figure plusieurs fois pour le même titre. Retirez le doublon.",
   "edition_list": "Éditions",
   "edition_new": "Nouvelle édition",

@@ -9,7 +9,7 @@ import { deleteHallOfFameEntry, getHallOfFameEntryOrigin, reassignHallOfFameEntr
 import { buildTitledHallOfFameRows } from '../../services/hallOfFameView';
 import { generateTournamentStructure } from '../../services/tournamentEngine';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../services/playerIdentity';
-import { __buildNormalizedTournamentRowsForTest } from '../../services/supabaseRest';
+import { __buildNormalizedTournamentRowsForTest, sanitizeAppStateForPublic } from '../../services/supabaseRest';
 import { mergePublicViewState } from '../../services/publicViewState';
 import { renameTournamentInState } from '../../services/tournamentRename';
 import sampleBackup from '../../docs/sample_backup.json';
@@ -539,6 +539,36 @@ defineCase('live archive flow writes automatic hall of fame entries while preser
   assertOk(archived.hallOfFame.some((entry) => entry.tournamentId === 'arch_2025' && entry.type === 'winner'));
   assertOk(archived.hallOfFame.some((entry) => entry.tournamentId === 'arch_2025' && entry.type === 'top_scorer'));
   assertOk(archived.hallOfFame.some((entry) => entry.tournamentId === 'arch_2025' && entry.type === 'mvp'));
+});
+
+defineCase('public hydration preserves archived Under 25 awards, ties and data privacy', () => {
+  const match = makeMatch('archive-final', 'under-a', 'under-b', [
+    { playerName: 'TST Ada', teamId: 'under-a', canestri: 4, soffi: 2 },
+    { playerName: 'TST Bea', teamId: 'under-b', canestri: 4, soffi: 2 },
+  ]);
+  const live: AppState = {
+    ...baseState,
+    tournamentHistory: [],
+    hallOfFame: [],
+    tournament: {
+      ...tournament,
+      id: 'public-archive',
+      startDate: '2026-11-22',
+      teams: [makeTeam('under-a', 'A', 'TST Ada', 2006, 'Other A', 1990), makeTeam('under-b', 'B', 'TST Bea', 2006, 'Other B', 1990)],
+    },
+    tournamentMatches: [match],
+  };
+  const publish = (includeU25Awards: boolean) => {
+    const archived = archiveTournamentV2(live, { includeU25Awards });
+    const mirror = coerceAppState(sanitizeAppStateForPublic(archived), { publicSnapshot: true });
+    assertEqual(mirror.tournament, null);
+    assertOk(!mirror.tournamentHistory[0].teams[0].player1BirthDate);
+    assertOk(mirror.hallOfFame.every(award => !award.playerBirthDate && !award.playerId));
+    assertEqual(mirror.hallOfFame.filter(award => award.type === 'top_scorer').length, 2);
+    return mirror.hallOfFame.filter(award => award.type.endsWith('_u25'));
+  };
+  assertEqual(publish(true).length, 4);
+  assertEqual(publish(false).length, 0);
 });
 
 defineCase('archived history sync backfills missing hall of fame entries for archived tournaments', () => {

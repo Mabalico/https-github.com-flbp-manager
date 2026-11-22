@@ -1,6 +1,14 @@
 ﻿import type { TranslationDictionary } from '../i18nService';
 
 export const dictionary: TranslationDictionary = {
+  "archive_awards_summary": "Сводка наград",
+  "archive_no_awards": "Наград нет",
+  "archive_retry": "Повторить публикацию",
+  "archive_email": "Подготовить письмо со сводкой судейства",
+  "archive_copy": "Копировать текст",
+  "archive_copied": "Текст скопирован",
+  "archive_copy_failed": "Выделите и скопируйте текст вручную.",
+  "archive_publication_pending": "Публикация ожидается. Повторите попытку после синхронизации.",
   "edition_duplicate_player": "Один игрок указан несколько раз для одной награды. Удалите дубликат.",
   "edition_list": "Турниры",
   "edition_new": "Новый турнир",

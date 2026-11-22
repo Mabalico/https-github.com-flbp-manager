@@ -1040,7 +1040,7 @@ const App: React.FC = () => {
         const hydratePublicRow = async (row: Awaited<ReturnType<Awaited<ReturnType<typeof getSupabasePublicOps>>['pullPublicWorkspaceState']>>) => {
             if (!row?.state) return false;
             try {
-                const next = await coerceLoadedAppState(row.state);
+                const next = coerceAppState(row.state, { publicSnapshot: true });
                 if (cancelled) return false;
                 setPublicDbState(next);
                 const nextUpdatedAt = row.updated_at || null;
