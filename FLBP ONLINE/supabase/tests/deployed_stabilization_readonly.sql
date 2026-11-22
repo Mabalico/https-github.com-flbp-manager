@@ -154,6 +154,19 @@ begin
     or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
     or strpos(pg_get_functiondef(v_signature), '12 hours') = 0
   then raise exception 'Data-plane reclaim RPC lacks its Admin gate or grace period'; end if;
+  -- Report saves may create the tie-break they make necessary: one server-only
+  -- rule, used by both the Admin and the referee entrypoints.
+  foreach v_signature in array array[
+    'public.flbp_report_validate_new_tiebreak(jsonb,jsonb,jsonb)'::regprocedure,
+    'public.flbp_report_append_new_matches(jsonb,jsonb)'::regprocedure
+  ] loop
+    if has_function_privilege('anon', v_signature, 'EXECUTE')
+      or has_function_privilege('authenticated', v_signature, 'EXECUTE')
+    then raise exception 'Tie-break helper executable by client roles: %', v_signature; end if;
+  end loop;
+  if strpos(pg_get_functiondef('public.flbp_apply_match_result_patch(text,text,text,jsonb)'::regprocedure), 'flbp_report_validate_new_tiebreak') = 0
+    or strpos(pg_get_functiondef('public.flbp_referee_apply_match_updates(text,text,jsonb)'::regprocedure), 'flbp_report_validate_new_tiebreak') = 0
+  then raise exception 'A report save path does not validate the tie-breaks it creates'; end if;
 end;
 $$;
 set local role anon;

@@ -14,7 +14,7 @@ const source = readFileSync(componentPath, 'utf8');
 // IO is injected; unrelated tournament transitions are held stable in this
 // fixture. No browser, real credentials, network or filesystem writes are used.
 const ast = ts.createSourceFile(componentPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['isRefereeRateLimited', 'closeLiveCallsForMatch', 'saveReport', 'doLogin',
+const names = ['isRefereeRateLimited', 'refereeRejectedReportMessage', 'closeLiveCallsForMatch', 'saveReport', 'doLogin',
   'PRIVATE_APP_STATE_KEYS', 'hasPrivateAppData', 'REFEREE_VIEW_MATCH_KEYS', 'mergeRefereeLiveState', 'applyRefereeState',
   'lookupMatchByCode', 'confirmOcrModal',
   ...(usesOutbox ? ['replayPendingReports'] : [])];
@@ -32,6 +32,17 @@ const callbacks = ts.transpileModule(
   names.map(name => declarations.get(name)).join('\n') + `\nglobalThis.callbacks = { ${names.join(', ')} };`,
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
 ).outputText;
+
+// The real rejection classifier from supabaseRest: pure, no network.
+const restPath = resolve(root, 'services/supabaseRest.ts');
+const restAst = ts.createSourceFile(restPath, readFileSync(restPath, 'utf8'), ts.ScriptTarget.Latest, true);
+const restNames = new Set(['parseSupabaseErrorPayload', 'getMatchResultRejectionReason']);
+const restExports = {};
+vm.runInNewContext(ts.transpileModule(restAst.statements
+  .filter(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => ts.isIdentifier(d.name) && restNames.has(d.name.text)))
+  .map(node => node.getText(restAst)).join('\n'),
+{ compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, { exports: restExports });
+assert.equal(typeof restExports.getMatchResultRejectionReason, 'function', 'Missing real getMatchResultRejectionReason');
 
 const pureModules = new Map();
 const loadPureModule = (relativePath) => {
@@ -57,6 +68,9 @@ const selectors = loadPureModule('services/tournamentStructureSelectors.ts');
 const fault = code => typeof code === 'string' ? Object.assign(new Error(code), { code }) : code;
 // What supabaseRest throws for an HTTP 429 referee rejection: the raw body.
 const rateLimitedBody = () => new Error('{"ok":false,"reason":"rate_limited"}');
+// What supabaseRest throws when Supabase refuses the report itself (HTTP 400).
+const refusedBody = (message = 'Creazione partita non autorizzata: il girone non è ancora concluso') =>
+  new Error(JSON.stringify({ ok: false, reason: 'invalid_report', message }));
 const plain = value => JSON.parse(JSON.stringify(value));
 const drainMicrotasks = () => new Promise(resolve => setImmediate(resolve));
 
@@ -134,6 +148,7 @@ const createCase = (options = {}) => {
       if (options.rpcError) throw fault(options.rpcError);
     },
     isMatchResultRpcMissingError: error => error.code === 'PGRST202',
+    getMatchResultRejectionReason: restExports.getMatchResultRejectionReason,
     pushRefereeLiveState: async (nextState, input) => {
       calls.snapshots.push({ state: nextState, input }); events.push('snapshot');
       snapshotAttempts++;
@@ -314,6 +329,36 @@ await check('B6: a locked referee report push explains the lock instead of a con
     : createCase({ secret: 'ref-secret', snapshotError: 'NETWORK_ERROR' });
   await offline.saveReport();
   assert(!offline.calls.alerts[0].startsWith('referees_rate_limited'), 'other failures keep their message');
+});
+await check('P-29: a report the server refuses shows the reason instead of a connection error', async () => {
+  const refused = usesOutbox
+    ? createCase({ secret: 'ref-secret', rpcError: refusedBody() })
+    : createCase({ secret: 'ref-secret', snapshotError: refusedBody() });
+  await refused.saveReport();
+  assert.equal(refused.calls.alerts.length, 1);
+  assert(refused.calls.alerts[0].startsWith('Il server ha rifiutato il referto.'), refused.calls.alerts[0]);
+  assert(refused.calls.alerts[0].includes('il girone non è ancora concluso'), 'the referee sees the reason');
+  assert(!refused.calls.alerts[0].includes('Connessione'), 'a refusal is not a connection problem');
+  assert.equal(refused.calls.states.length, 0, 'a refused result is not shown as saved');
+  assert.equal(refused.calls.cleanup.length + refused.calls.acknowledged.length, 0);
+  assert(refused.events.includes('save-error'));
+  if (usesOutbox) {
+    assert.equal(refused.calls.queued.length, 1, 'the report stays in the device queue');
+    assert.equal(refused.calls.failed.length, 1);
+    assert.equal(refused.calls.snapshots.length, 0, 'a refusal never falls back to the snapshot write');
+    const local = createCase({ secret: 'ref-secret', rpcError: Object.assign(new Error('Creazione partita non autorizzata: codice spareggio non coerente'), { code: 'FLBP_INVALID_TIE_BREAK' }) });
+    await local.saveReport();
+    assert(local.calls.alerts[0].includes('codice spareggio non coerente'), 'the local server refusal is explained too');
+    const fallback = createCase({ secret: 'ref-secret', rpcError: 'PGRST202', snapshotError: refusedBody(), snapshotAlwaysFails: true });
+    await fallback.saveReport();
+    assert(fallback.calls.alerts[0].startsWith('Il server ha rifiutato il referto.'), 'snapshot fallback explains the refusal too');
+    assert.equal(fallback.calls.acknowledged.length, 0);
+  }
+  const moved = usesOutbox
+    ? createCase({ secret: 'ref-secret', rpcError: refusedBody('FLBP_LOCAL_PRIMARY: il server locale è attivo') })
+    : createCase({ secret: 'ref-secret', snapshotError: refusedBody('FLBP_LOCAL_PRIMARY: il server locale è attivo') });
+  await moved.saveReport();
+  assert(!moved.calls.alerts[0].startsWith('Il server ha rifiutato'), 'temporary FLBP_* states keep their message');
 });
 await check('B6: referee login tells a lock apart from a wrong password', async () => {
   const lockedCheck = createCase({ verifyResult: { ok: false, reason: 'rate_limited' } });

@@ -982,6 +982,79 @@ test('a missing optional disk never blocks writes while a required one does', as
   }
 });
 
+test('a referee report that leaves teams level saves the tie-break it creates', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flbp-tiebreak-'));
+  const app = createLocalServer({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir,
+    secondaryBackupDir: '',
+    requireSecondaryBackup: false,
+    workspaceId: 'default',
+    adminToken: TOKEN,
+    allowedOrigins: ['http://test.local'],
+    publicUrl: '',
+    supabaseUrl: '',
+    supabaseServiceRoleKey: '',
+    heartbeatIntervalMs: 60_000,
+    fullBackupIntervalMs: 60_000,
+    databaseFilename: 'tiebreak.sqlite',
+  });
+  const groupMatch = (id, code, teamAId, teamBId, finished = true) => ({
+    id, code, phase: 'groups', groupName: 'Girone C', teamAId, teamBId,
+    scoreA: finished ? 10 : 0, scoreB: finished ? 8 : 0, played: finished, status: finished ? 'finished' : 'scheduled',
+  });
+  const matches = [
+    groupMatch('c13', 'C13', 'c1', 'c2'), groupMatch('c14', 'C14', 'c1', 'c3'), groupMatch('c15', 'C15', 'c1', 'c4'),
+    groupMatch('c16', 'C16', 'c2', 'c3'), groupMatch('c17', 'C17', 'c2', 'c4'), groupMatch('c18', 'C18', 'c3', 'c4', false),
+  ];
+  const state = {
+    teams: [],
+    tournament: {
+      id: 't-tb',
+      name: 'Test spareggi',
+      type: 'groups_elimination',
+      refereesPassword: 'ref-secret',
+      groups: [{ name: 'Girone C', teams: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }, { id: 'c4' }] }],
+      matches: structuredClone(matches),
+    },
+    tournamentMatches: matches,
+  };
+  app.store.importCloudSnapshot({ state, publicState: structuredClone(state) });
+  app.store.setActive(true, 1);
+  const tieBreak = {
+    id: 'tb-c-1', code: 'CTB1', phase: 'groups', groupName: 'Girone C', teamIds: ['c1', 'c2', 'c3'],
+    scoresByTeam: { c1: 0, c2: 0, c3: 0 }, scoreA: 0, scoreB: 0, played: false, status: 'scheduled', isTieBreak: true, targetScore: 1,
+  };
+  const lastResult = { ...groupMatch('c18', 'C18', 'c3', 'c4'), scoreA: 8, scoreB: 10, refereeReportSavedAt: '2026-11-22T10:00:00.000Z' };
+  try {
+    const address = await app.listen();
+    const base = `http://127.0.0.1:${address.port}`;
+    const send = (operationId, patch) => fetch(`${base}/api/v1/referee/workspace/default/match-result`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId, tournamentId: 't-tb', matchId: 'c18', refereePassword: 'ref-secret', matches: patch }),
+    });
+
+    const rejected = await send('tiebreak-wrong-code', [lastResult, { ...tieBreak, code: 'CTB2' }]);
+    assert.equal(rejected.status, 400);
+    const rejectedBody = await rejected.json();
+    assert.equal(rejectedBody.code, 'FLBP_INVALID_TIE_BREAK');
+    assert.match(rejectedBody.error, /Creazione partita non autorizzata/);
+    assert.equal(app.store.getCurrent().state.tournamentMatches.find((match) => match.id === 'c18').status, 'scheduled');
+
+    const saved = await send('tiebreak-valid', [lastResult, tieBreak]);
+    assert.equal(saved.status, 200);
+    const current = app.store.getCurrent();
+    assert.ok(current.state.tournamentMatches.some((match) => match.id === 'tb-c-1'));
+    assert.ok(current.publicState.tournamentMatches.some((match) => match.id === 'tb-c-1'));
+    assert.equal(current.state.tournamentMatches.find((match) => match.id === 'c18').status, 'finished');
+  } finally {
+    await app.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 const refereeBody = (overrides = {}) => ({
   operationId: `referee-limit-${crypto.randomUUID()}`,
   tournamentId: 't1',

@@ -8,7 +8,7 @@ import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
-import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
+import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
@@ -69,6 +69,16 @@ const isRefereeRateLimited = (value: unknown): boolean => {
         || candidate.code === 'FLBP_RATE_LIMITED'
         || /(?:^|\W)rate_limited(?:\W|$)/.test(String(candidate.message ?? value));
 };
+
+// The server refused the report itself (for example a tie-break it cannot
+// accept): sending it again cannot help, so the referee warns the Admin.
+const refereeRejectedReportMessage = (reason: string) => [
+    'Il server ha rifiutato il referto.',
+    '',
+    `Motivo: ${reason}`,
+    '',
+    'Avvisa l\'Admin, che può inserire il risultato dall\'area Admin.',
+].join('\n');
 
 // Since migration 20261119000100 flbp_referee_pull_live_state returns only the
 // referee view of the live tournament (teams, groups, config, roster, matches):
@@ -1267,6 +1277,9 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         }
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         alert(t('referees_db_updated_elsewhere') || 'Il torneo è stato aggiornato da un altro dispositivo. Riapri la schermata arbitri e riprova.');
+                    } else if (getMatchResultRejectionReason(e)) {
+                        markDbSyncError(e?.message || String(e), 'snapshot');
+                        alert(refereeRejectedReportMessage(getMatchResultRejectionReason(e) || ''));
                     } else {
                         markDbSyncError(e?.message || String(e), 'snapshot');
                         alert(isRefereeRateLimited(e)

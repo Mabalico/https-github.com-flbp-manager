@@ -65,7 +65,7 @@ if(databaseUrl){
       create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt()->>'sub','')::uuid $$;
     `);
     const migrationDir=path.join(legacy?path.resolve(root,'../FLBP LOCALE'):root,'supabase/migrations');
-    const files=(await fs.readdir(migrationDir)).filter(name=>name.endsWith('.sql') && (!legacy || name<'20260701000000' || name.startsWith('20260924000100') || name.startsWith('20260924000300') || name.startsWith('20261117100200') || name.startsWith('20261119000100'))).sort();
+    const files=(await fs.readdir(migrationDir)).filter(name=>name.endsWith('.sql') && (!legacy || name<'20260701000000' || name.startsWith('20260924000100') || name.startsWith('20260924000300') || name.startsWith('20261117100200') || name.startsWith('20261119000100') || name.startsWith('20261122000100'))).sort();
     for(const name of files){
       try{
         const sql=await fs.readFile(path.join(migrationDir,name),'utf8');
@@ -108,6 +108,14 @@ if(databaseUrl){
       const pullView=await fs.readFile(path.join(migrationDir,pullViewName),'utf8');
       await db.exec(pullView);await db.exec(pullView);
       console.log('PASS: referee pull view migration reapplied twice after the September hardening replay');
+    }
+    // It also reinstalls the September referee writer: re-apply the rule that
+    // lets a report save create the tie-break it makes necessary.
+    const tieBreakName=files.find(name=>name.startsWith('20261122000100'));
+    if(tieBreakName){
+      const tieBreak=await fs.readFile(path.join(migrationDir,tieBreakName),'utf8');
+      await db.exec(tieBreak);await db.exec(tieBreak);
+      console.log('PASS: report tie-break migration reapplied twice after the September hardening replay');
     }
       const results=await db.exec(await fs.readFile(suiteFile,'utf8'));
       for(const row of results.flatMap(result=>result.rows||[])){

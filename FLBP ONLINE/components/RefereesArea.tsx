@@ -8,7 +8,7 @@ import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
-import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, isMatchResultRpcMissingError, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, pushRefereeMatchResults, verifyRefereePassword } from '../services/supabaseRest';
+import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, isMatchResultRpcMissingError, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, pushRefereeMatchResults, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
 import { isLocalOnlyMode } from '../services/repository/featureFlags';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
@@ -70,6 +70,16 @@ const isRefereeRateLimited = (value: unknown): boolean => {
         || candidate.code === 'FLBP_RATE_LIMITED'
         || /(?:^|\W)rate_limited(?:\W|$)/.test(String(candidate.message ?? value));
 };
+
+// The server refused the report itself (for example a tie-break it cannot
+// accept): sending it again cannot help, so the referee warns the Admin.
+const refereeRejectedReportMessage = (reason: string) => [
+    'Il server ha rifiutato il referto.',
+    '',
+    `Motivo: ${reason}`,
+    '',
+    'Il referto resta salvato su questo dispositivo: avvisa l\'Admin, che può inserire il risultato dall\'area Admin.',
+].join('\n');
 
 // Since migration 20261119000100 flbp_referee_pull_live_state returns only the
 // referee view of the live tournament (teams, groups, config, roster, matches):
@@ -1337,6 +1347,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                     clearDbSyncCurrentIssue();
                     markDbSyncOk('snapshot');
                 } catch (e: any) {
+                    const rejectionReason = getMatchResultRejectionReason(e);
                     if (isMatchResultRpcMissingError(e)) {
                         useSnapshotFallback = true;
                     } else if (e?.code === 'FLBP_DB_CONFLICT') {
@@ -1344,6 +1355,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         applyRefereeState(nextState);
                         alert('Conflitto DB: il referto è conservato nella coda locale e non verrà perso. Verifica la versione remota prima di riprovare.');
+                        return;
+                    } else if (rejectionReason) {
+                        markRefereeReportAttemptFailed(queuedReport.operationId, e);
+                        markDbSyncError(e?.message || String(e), 'snapshot');
+                        alert(refereeRejectedReportMessage(rejectionReason));
                         return;
                     } else {
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
@@ -1400,6 +1416,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
                             applyRefereeState(nextState);
                             alert('Conflitto DB: il referto resta conservato nella coda locale.');
+                        } else if (getMatchResultRejectionReason(e)) {
+                            markDbSyncError(e?.message || String(e), 'snapshot');
+                            markRefereeReportAttemptFailed(queuedReport.operationId, e);
+                            alert(refereeRejectedReportMessage(getMatchResultRejectionReason(e) || ''));
                         } else {
                             markDbSyncError(e?.message || String(e), 'snapshot');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
