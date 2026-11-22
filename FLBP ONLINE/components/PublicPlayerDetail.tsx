@@ -380,7 +380,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <MetricCard label={t('games')} value={performance.totalGames} />
         <MetricCard label={t('scores_label')} value={profile.totalCanestri} />
         <MetricCard label={t('soffi_label')} value={profile.totalSoffi} />
@@ -393,7 +393,7 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
         />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
         <div className={`${sectionCardClass} space-y-4`}>
           <div className="flex items-center gap-3">
             <BadgeCheck className="h-5 w-5 text-sky-500" />

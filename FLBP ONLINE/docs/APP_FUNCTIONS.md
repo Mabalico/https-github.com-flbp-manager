@@ -391,6 +391,8 @@ Supporto UI:
 
 ---
 
+- Su schermi stretti i comandi e le schede Admin si dispongono su più righe. I menu rimangono accessibili anche con un torneo live.
+
 ## 5) TV Mode (read-only)
 
 - Entry: `components/TvView.tsx` (lazy in `App.tsx`)

@@ -2365,7 +2365,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     <>
     {nativePushPromptModal}
     {registerAliasRequestModal}
-    <div className="p-4 md:p-6 space-y-5 [overflow-anchor:none]">
+    <div className="w-full min-w-0 max-w-full p-2 sm:p-4 md:p-6 space-y-5 [overflow-anchor:none]">
       <div className={cardClass}>
         <div className="border-b border-slate-100 px-5 py-5 md:px-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -2418,7 +2418,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
             ) : null}
 
             {!effectiveSession ? (
-              <div className="mx-auto max-w-xl [overflow-anchor:none]">
+              <div className="mx-auto w-full min-w-0 max-w-xl [overflow-anchor:none]">
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60 md:p-6">
                   <div className="text-center">
                     <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_login_title')}</div>
@@ -2603,7 +2603,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 </div>
               </div>
             ) : liveAuthFlow === 'recovery' ? (
-              <div className="mx-auto max-w-xl [overflow-anchor:none]">
+              <div className="mx-auto w-full min-w-0 max-w-xl [overflow-anchor:none]">
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60 md:p-6 space-y-5">
                   <div className="text-center">
                     <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_recovery_title')}</div>
@@ -2690,7 +2690,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 </div>
               </div>
             ) : showAccountAliasInterstitial ? (
-              <div className="mx-auto max-w-4xl">
+              <div className="mx-auto w-full min-w-0 max-w-4xl">
                 <div className="rounded-[28px] border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-amber-100/70 p-5 shadow-sm shadow-amber-100/70 md:p-6">
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">

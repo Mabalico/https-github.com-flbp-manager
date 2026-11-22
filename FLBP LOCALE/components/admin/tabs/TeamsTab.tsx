@@ -968,7 +968,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         <thead className="bg-white sticky top-0 border-b border-slate-100">
                             <tr className="text-left text-slate-500">
                                 <th className="p-3"><SortHeader label={t('teams_registration_short')} column="registration" /></th>
-                                <th className="p-3"><SortHeader label={t('teams').slice(0, -1) || t('teams')} column="team_name" /></th>
+                                <th className="p-3"><SortHeader label={t('team_view')} column="team_name" /></th>
                                 <th className="p-3"><SortHeader label={t('teams_player1_short')} column="player1" /></th>
                                 <th className="p-3">{t('birth_date')}</th>
                                 <th className="p-3"><SortHeader label={t('teams_player2_short')} column="player2" /></th>
@@ -1060,7 +1060,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                             <tr className="text-left text-slate-500">
                                 <th className="p-3"><PlayerSortHeader label={t('teams_registration_short')} column="registration" /></th>
                                 <th className="p-3"><PlayerSortHeader label={t('players').slice(0, -1) || t('players')} column="player" /></th>
-                                <th className="p-3"><PlayerSortHeader label={t('teams').slice(0, -1) || t('teams')} column="team_name" /></th>
+                                <th className="p-3"><PlayerSortHeader label={t('team_view')} column="team_name" /></th>
                                 <th className="p-3"><PlayerSortHeader label={t('birth_date')} column="year" /></th>
                                 <th className="p-3"><PlayerSortHeader label={t('referees')} column="referee" /></th>
                                 <th className="p-3 text-right">{t('actions')}</th>

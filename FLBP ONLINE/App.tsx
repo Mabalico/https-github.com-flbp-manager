@@ -2023,12 +2023,12 @@ const App: React.FC = () => {
     };
 
     const publicNavItemClass = (active: boolean) => {
-        return `inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black transition border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 ${active
+        return `inline-flex items-center gap-2 px-2 py-2 sm:px-3 rounded-xl text-sm font-black transition border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 ${active
             ? 'bg-white/10 text-white border-white/20'
             : 'text-white/80 border-transparent hover:bg-white/5 hover:text-white'}`;
     };
     const mobileBottomNavItemClass = (_active: boolean) =>
-        'flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] font-black uppercase tracking-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
+        'flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 py-2 text-center text-[10px] leading-tight font-black uppercase tracking-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
     const mobileBottomNavIconClass = (active: boolean) =>
         `flex h-7 w-7 items-center justify-center rounded-xl transition ${
             active ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500'
@@ -2085,14 +2085,14 @@ const App: React.FC = () => {
                     <header className={isPublicView
                         ? "sticky top-0 z-20 bg-slate-950/90 backdrop-blur-md text-white border-b border-white/10 shadow-sm"
                         : "sticky top-0 z-20 bg-slate-50/70 backdrop-blur-md border-b border-slate-200/60 shadow-sm"}>
-                        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
+                        <div className="max-w-7xl mx-auto px-2 sm:px-4 md:px-6 py-3 md:py-4 flex flex-wrap items-center justify-between gap-2 lg:gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
                                 <button
                                     aria-label={t('open_menu')}
                                     onClick={() => setMenuOpen(true)}
                                     className={isPublicView
-                                        ? "bg-white/10 p-3 rounded-xl border border-white/10 hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
-                                        : "bg-white p-3 rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
+                                        ? "bg-white/10 p-2.5 sm:p-3 rounded-xl border border-white/10 hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
+                                        : "bg-white p-2.5 sm:p-3 rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
                                 >
                                     <Menu className={isPublicView ? "w-6 h-6 text-white" : "w-6 h-6 text-slate-700"} />
                                 </button>
@@ -2102,17 +2102,17 @@ const App: React.FC = () => {
                                         onClick={() => { void navigateToView('home'); }}
                                         onMouseEnter={() => primeViewChunk('home')}
                                         onFocus={() => primeViewChunk('home')}
-                                        className="flex items-center lg:items-start gap-2.5 min-w-0 hover:opacity-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 rounded-xl px-2 py-1"
+                                        className="flex items-center lg:items-start gap-1.5 sm:gap-2.5 shrink-0 hover:opacity-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 rounded-xl px-2 py-1"
                                         aria-label={t('go_home')}
                                     >
                                         <img
                                             src="/flbp_logo.svg"
                                             alt="FLBP"
-                                            className="w-14 h-14 sm:w-16 sm:h-16 drop-shadow-[0_10px_24px_rgba(2,6,23,0.24)]"
+                                            className="w-10 h-10 shrink-0 sm:w-14 sm:h-14 xl:w-16 xl:h-16 drop-shadow-[0_10px_24px_rgba(2,6,23,0.24)]"
                                         />
                                         <div className="min-w-0 flex flex-col leading-none">
-                                            <div className="font-black text-xl md:text-2xl uppercase tracking-tight text-beer-500 truncate">FLBP</div>
-                                            <PublicBrandStack responsiveClassName="hidden lg:block" className="mt-1" />
+                                            <div className="font-black text-xl md:text-2xl uppercase tracking-tight text-beer-500">FLBP</div>
+                                            <PublicBrandStack responsiveClassName="hidden xl:block" className="mt-1" />
                                         </div>
                                     </button>
                                 ) : (
@@ -2134,7 +2134,7 @@ const App: React.FC = () => {
                             </div>
 
                             {isPublicView ? (
-                                <nav className="hidden md:flex items-center gap-1" aria-label={t('public_nav')}>
+                                <nav className="order-last hidden w-full min-w-0 flex-wrap items-center justify-center gap-1 md:flex xl:order-none xl:w-auto xl:flex-1" aria-label={t('public_nav')}>
                                     <button
                                         aria-current={view === 'home' ? 'page' : undefined}
                                         onClick={() => { void navigateToView('home'); }}
@@ -2189,7 +2189,7 @@ const App: React.FC = () => {
                                 </nav>
                             ) : null}
 
-                            <div className="flex items-center gap-2">
+                            <div className="ms-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2 xl:ms-0">
                                 {playerPresence ? (
                                     <div className={isPublicView
                                         ? "flex items-stretch rounded-xl border border-white/10 bg-white/10 text-white shadow-sm overflow-hidden"
@@ -2200,20 +2200,20 @@ const App: React.FC = () => {
                                             onMouseEnter={() => primeViewChunk('player_area')}
                                             onFocus={() => primeViewChunk('player_area')}
                                             className={isPublicView
-                                                ? "inline-flex items-center gap-2 px-3 py-2 text-sm font-black hover:bg-white/15 transition focus:outline-none focus:bg-white/15 border-r border-white/10"
-                                                : "inline-flex items-center gap-2 px-3 py-2 text-sm font-black hover:bg-slate-50 transition focus:outline-none focus:bg-slate-50 border-r border-slate-200"}
+                                                ? "inline-flex items-center gap-2 px-2 py-2 sm:px-3 text-sm font-black hover:bg-white/15 transition focus:outline-none focus:bg-white/15 border-r border-white/10"
+                                                : "inline-flex items-center gap-2 px-2 py-2 sm:px-3 text-sm font-black hover:bg-slate-50 transition focus:outline-none focus:bg-slate-50 border-r border-slate-200"}
                                             title={t('player_area')}
                                         >
                                             <UserRound className="w-4 h-4" aria-hidden />
-                                            <span className="max-w-[28vw] truncate">{playerPresence.firstName || playerPresence.displayName || 'Account'}</span>
+                                            <span className="hidden max-w-[28vw] truncate sm:inline">{playerPresence.firstName || playerPresence.displayName || 'Account'}</span>
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleGlobalSignOut}
                                             title={t('logout') || 'Esci'}
                                             className={isPublicView
-                                                ? "inline-flex items-center gap-2 px-3 py-2 text-sm font-black text-red-100 hover:bg-red-500/20 hover:text-white transition focus:outline-none focus:bg-red-500/20"
-                                                : "inline-flex items-center gap-2 px-3 py-2 text-sm font-black text-red-600 hover:bg-red-50 hover:text-red-700 transition focus:outline-none focus:bg-red-50"}
+                                                ? "inline-flex items-center gap-2 px-2 py-2 sm:px-3 text-sm font-black text-red-100 hover:bg-red-500/20 hover:text-white transition focus:outline-none focus:bg-red-500/20"
+                                                : "inline-flex items-center gap-2 px-2 py-2 sm:px-3 text-sm font-black text-red-600 hover:bg-red-50 hover:text-red-700 transition focus:outline-none focus:bg-red-50"}
                                         >
                                             <span className="hidden sm:inline">{t('logout') || 'Esci'}</span>
                                             <LogOut className="w-4 h-4 ml-1 sm:ml-0" aria-hidden />
@@ -2226,8 +2226,8 @@ const App: React.FC = () => {
                                         onMouseEnter={() => primeViewChunk('player_area')}
                                         onFocus={() => primeViewChunk('player_area')}
                                         className={isPublicView
-                                            ? "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-white/10 bg-white/10 text-white hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
-                                            : "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
+                                            ? "inline-flex items-center gap-2 px-2 py-2 sm:px-3 rounded-xl text-sm font-black border border-white/10 bg-white/10 text-white hover:bg-white/15 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60"
+                                            : "inline-flex items-center gap-2 px-2 py-2 sm:px-3 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"}
                                         title={t('player_area')}
                                     >
                                         <UserRound className="w-4 h-4" aria-hidden />
@@ -2242,7 +2242,7 @@ const App: React.FC = () => {
                                         onMouseEnter={() => primeViewChunk('home')}
                                         onFocus={() => primeViewChunk('home')}
                                         title={t('back_to_public')}
-                                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"
+                                        className="inline-flex items-center gap-2 px-2 py-2 sm:px-3 rounded-xl text-sm font-black border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"
                                     >
                                         <HomeIcon className="w-4 h-4" aria-hidden />
                                         <span className="hidden sm:inline">{t('public_label')}</span>
@@ -2254,7 +2254,7 @@ const App: React.FC = () => {
                                         type="button"
                                         onClick={openDataViews}
                                         title={t('open_views')}
-                                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-black border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"
+                                        className="inline-flex items-center gap-2 px-2 py-2 sm:px-3 rounded-xl text-sm font-black border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/50"
                                     >
                                         <BarChart3 className="w-4 h-4" aria-hidden />
                                         <span className="hidden sm:inline">{t('views')}</span>
@@ -2332,7 +2332,7 @@ const App: React.FC = () => {
                         </div>
                     </header>
 
-                    <div className="max-w-7xl mx-auto p-4 md:p-6">
+                    <div className="mx-auto w-full min-w-0 max-w-7xl p-3 sm:p-4 md:p-6">
                         {/* Catch-all for views without their own boundary; key={view} clears the error when navigating. */}
                         <UiErrorBoundary
                             key={view}
@@ -2365,7 +2365,7 @@ const App: React.FC = () => {
                                 className={mobileBottomNavItemClass(view === 'home')}
                             >
                                 <span className={mobileBottomNavIconClass(view === 'home')}><HomeIcon className="h-5 w-5" /></span>
-                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'home')}`}>{t('dashboard')}</span>
+                                <span className={`max-w-full break-words text-balance ${mobileBottomNavLabelClass(view === 'home')}`}>{t('dashboard')}</span>
                             </button>
                             <button
                                 type="button"
@@ -2376,7 +2376,7 @@ const App: React.FC = () => {
                                 className={mobileBottomNavItemClass(view === 'tournament' || view === 'tournament_detail')}
                             >
                                 <span className={mobileBottomNavIconClass(view === 'tournament' || view === 'tournament_detail')}><Swords className="h-5 w-5" /></span>
-                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'tournament' || view === 'tournament_detail')}`}>{t('tournaments')}</span>
+                                <span className={`max-w-full break-words text-balance ${mobileBottomNavLabelClass(view === 'tournament' || view === 'tournament_detail')}`}>{t('tournaments')}</span>
                             </button>
                             <button
                                 type="button"
@@ -2387,7 +2387,7 @@ const App: React.FC = () => {
                                 className={mobileBottomNavItemClass(view === 'leaderboard')}
                             >
                                 <span className={mobileBottomNavIconClass(view === 'leaderboard')}><BarChart3 className="h-5 w-5" /></span>
-                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'leaderboard')}`}>{t('historical')}</span>
+                                <span className={`max-w-full break-words text-balance ${mobileBottomNavLabelClass(view === 'leaderboard')}`}>{t('historical')}</span>
                             </button>
                             <button
                                 type="button"
@@ -2398,7 +2398,7 @@ const App: React.FC = () => {
                                 className={mobileBottomNavItemClass(view === 'hof')}
                             >
                                 <span className={mobileBottomNavIconClass(view === 'hof')}><Trophy className="h-5 w-5" /></span>
-                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'hof')}`}>{t('hof')}</span>
+                                <span className={`max-w-full break-words text-balance ${mobileBottomNavLabelClass(view === 'hof')}`}>{t('hof')}</span>
                             </button>
                             <button
                                 type="button"
@@ -2409,7 +2409,7 @@ const App: React.FC = () => {
                                 className={mobileBottomNavItemClass(view === 'player_area')}
                             >
                                 <span className={mobileBottomNavIconClass(view === 'player_area')}><UserRound className="h-5 w-5" /></span>
-                                <span className={`truncate ${mobileBottomNavLabelClass(view === 'player_area')}`}>{t('player_area')}</span>
+                                <span className={`max-w-full break-words text-balance ${mobileBottomNavLabelClass(view === 'player_area')}`}>{t('player_area')}</span>
                             </button>
                         </div>
                     </nav>
