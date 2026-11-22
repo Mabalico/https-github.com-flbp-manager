@@ -26,21 +26,22 @@ import { formatBirthDateDisplay, normalizeBirthDateInput } from '../services/pla
 import type { PlayerSupabaseProfileRow, PlayerSupabaseSession, PlayerSupabaseSignUpResult } from '../services/supabaseRest';
 import {
   acknowledgePlayerAppCall,
-  clearPlayerSupabaseSession,
-  clearSupabaseSession,
   consumePlayerSupabaseSessionFromUrl,
   ensureFreshPlayerSupabaseSession,
   getPlayerOAuthAuthorizeUrl,
   getPlayerSupabaseSession,
+  getSupabaseSession,
   getSupabaseConfig,
   playerRequestPasswordReset,
   playerSignInWithPassword,
-  playerSignOutSupabase,
   playerSignUpWithPassword,
   pullPlayerOwnAccountMergeRequests,
   pullPublicWorkspaceState,
   setSupabaseSession,
-  signOutSupabase,
+  isSameSupabaseAuthSession,
+  isSupabaseAdminSessionExpired,
+  signOutCurrentSupabaseSessions,
+  SUPABASE_AUTH_STATE_CHANGE_EVENT,
   playerUpdatePassword,
   pullPlayerAppCalls,
   pullPlayerAppProfile,
@@ -627,10 +628,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     } catch {
       // ignore
     }
-    if (!session?.accessToken || session.flowType === 'recovery') {
-      clearSupabaseSession();
-      return;
-    }
+    if (!session?.accessToken || session.flowType === 'recovery' || isSupabaseAdminSessionExpired()) return;
+    if (getPlayerSupabaseSession()?.accessToken !== session.accessToken) return;
+    const adminSession = getSupabaseSession();
+    if (adminSession && !isSameSupabaseAuthSession(adminSession, session)) return;
     setSupabaseSession({
       accessToken: session.accessToken,
       refreshToken: session.refreshToken || null,
@@ -640,12 +641,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
     });
   }, []);
 
-  const loginEntryNote = liveBackendEnabled
-    ? t('player_area_login_entry_note_live')
-    : t('player_area_preview_note');
-  const socialPendingNote = liveBackendEnabled
-    ? t('player_area_social_pending_live')
-    : t('player_area_social_pending');
+  React.useEffect(() => {
+    if (!liveSession?.accessToken) return;
+    const onAuthChange = () => {
+      if (getPlayerSupabaseSession()) return;
+      liveRuntimeRequestRef.current += 1;
+      setLiveSession(null);
+      setLiveRuntimeArmed(false);
+      setLiveAuthFlow('session');
+      setLiveProfileRow(null);
+      setLiveMergeRequests([]);
+      setLiveCalls([]);
+      setLiveRuntimeStatus('disabled');
+      setLiveRuntimeError(null);
+    };
+    window.addEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, onAuthChange);
+    window.addEventListener('storage', onAuthChange);
+    return () => {
+      window.removeEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, onAuthChange);
+      window.removeEventListener('storage', onAuthChange);
+    };
+  }, [liveSession?.accessToken]);
 
   const registrationAliasSuggestions = React.useMemo(
     () =>
@@ -2190,18 +2206,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
   const signOut = async () => {
     if (effectiveSession?.mode === 'live') {
-      const disablePushTask = disableNativePushRegistration(readNativePushRegistration() || nativePushRegistration).catch(() => {
+      await disableNativePushRegistration(readNativePushRegistration() || nativePushRegistration).catch(() => {
         // Best effort: the local logout must still complete even if the network is unavailable.
       });
-      const playerSignOutTask = playerSignOutSupabase().catch(() => {
-        // best effort only
-      });
-      const adminSignOutTask = signOutSupabase().catch(() => {
-        // best effort only
-      });
-      clearPlayerSupabaseSession();
-      clearSupabaseSession();
-      clearPlayerPresenceSnapshot();
+      const signOutTask = signOutCurrentSupabaseSessions();
+      signOutPlayerPreviewSession();
       liveRuntimeRequestRef.current += 1;
       setLiveRuntimeArmed(false);
       syncUnifiedAuthFromPlayerSession(null);
@@ -2215,19 +2224,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
       nativePushSyncKeyRef.current = '';
       nativePushPermissionRequestedRef.current = false;
       window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
-      await Promise.allSettled([disablePushTask, playerSignOutTask, adminSignOutTask]);
-      window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+      await signOutTask;
       return;
     }
-    clearPlayerPresenceSnapshot();
     signOutPlayerPreviewSession();
     try {
       sessionStorage.removeItem(ADMIN_LEGACY_AUTH_LS_KEY);
     } catch {
       // ignore
     }
-    clearSupabaseSession();
-    window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+    await signOutCurrentSupabaseSessions();
     setRefreshNonce((value) => value + 1);
   };
 
@@ -2416,9 +2422,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                 <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60 md:p-6">
                   <div className="text-center">
                     <div className="text-2xl font-black tracking-tight text-slate-950">{t('player_area_login_title')}</div>
-                    <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                      {loginEntryNote}
-                    </div>
                   </div>
 
                   <div className="mt-6 space-y-3">

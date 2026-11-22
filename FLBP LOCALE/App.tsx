@@ -1,6 +1,6 @@
 import { createDatabaseRestoreSession, DATABASE_RESTORE_EVENT, type DatabaseRestoreRequest, type DatabaseRestoreStatus } from './services/databaseRestoreCoordinator';
 import { publicEditionHistory } from './services/editionData';
-import { isDraftNavigationPending, requestDraftNavigation } from './services/draftNavigationGuard';
+import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from './services/draftNavigationGuard';
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { Home } from './components/Home';
 import { PublicBrandStack } from './components/PublicBrandStack';
@@ -8,8 +8,8 @@ import { coerceAppState, type AppState } from './services/storageService';
 import { getAppStateRepository } from './services/repository/getRepository';
 import { getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, setRemoteBaseUpdatedAt } from './services/supabaseSession';
 import { setDevRequestPerfContext } from './services/devRequestPerf';
-import { acknowledgePlayerAppCall, clearPlayerSupabaseSession, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullPlayerAppCalls, pullWorkspaceState, playerSignOutSupabase, signOutSupabase, clearSupabaseSession, SUPABASE_AUTH_STATE_CHANGE_EVENT } from './services/supabaseRest';
-import { PLAYER_APP_CHANGE_EVENT, mapSupabaseCallRowToPlayerCallRequest, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerCallRequest, type PlayerPresenceSnapshot, clearPlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
+import { acknowledgePlayerAppCall, clearPlayerSupabaseSession, ensureFreshPlayerSupabaseSession, getPlayerSupabaseSession, hasPlayerSupabaseAuthPayloadInUrl, pullPlayerAppCalls, pullWorkspaceState, signOutCurrentSupabaseSessions, SUPABASE_AUTH_STATE_CHANGE_EVENT } from './services/supabaseRest';
+import { PLAYER_APP_CHANGE_EVENT, mapSupabaseCallRowToPlayerCallRequest, readPlayerPresenceSnapshot, readPlayerPreviewSession, type PlayerCallRequest, type PlayerPresenceSnapshot, signOutPlayerPreviewSession } from './services/playerAppService';
 import { TV_PROJECTIONS, TvProjection, TournamentData } from './types';
 import { DEFAULT_LANGUAGE, getTranslationValue, loadTranslationDictionary, translations, Language, LANGUAGES, type TranslationDictionary } from './services/i18nService';
 import { isAdminWriteOnlyDbIssue, readDbSyncDiagnostics } from './services/dbDiagnostics';
@@ -467,9 +467,8 @@ const App: React.FC = () => {
     const [androidWebViewRuntime, setAndroidWebViewRuntime] = useState(() => detectAndroidWebViewRuntime());
     const readPlayerPresenceState = useCallback((): PlayerPresenceSnapshot | null => {
         const cached = readPlayerPresenceSnapshot();
-        if (cached?.accountId) return cached;
-
         const liveSession = getPlayerSupabaseSession();
+        if (cached?.mode === 'live' && liveSession && cached.accountId === (liveSession.userId || liveSession.email)) return cached;
         if (liveSession?.userId || liveSession?.email) {
             const email = String(liveSession.email || '').trim();
             const fallbackName = email.split('@')[0]?.trim() || 'Profilo';
@@ -484,6 +483,7 @@ const App: React.FC = () => {
         }
 
         const previewSession = readPlayerPreviewSession();
+        if (cached?.mode === 'preview' && cached.accountId === previewSession?.accountId) return cached;
         if (previewSession?.accountId) {
             const email = String(previewSession.username || '').trim();
             const fallbackName = email.split('@')[0]?.trim() || 'Profilo';
@@ -1884,26 +1884,15 @@ const App: React.FC = () => {
 
     const handleGlobalSignOut = async () => {
         if (!playerPresence) return;
-        if (!window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) return;
+        if (!hasUnsavedDraft() && !window.confirm(t('logout_confirm') || 'Sei sicuro di voler uscire?')) return;
 
-        if (playerPresence.mode === 'live') {
-            const playerSignOutTask = playerSignOutSupabase().catch(() => {});
-            const adminSignOutTask = signOutSupabase().catch(() => {});
-            clearPlayerSupabaseSession();
-            clearSupabaseSession();
-            clearPlayerPresenceSnapshot();
+        await requestDraftNavigation(() => {
+            try { sessionStorage.removeItem('flbp_admin_legacy_authed'); } catch {}
+            const signOut = signOutCurrentSupabaseSessions();
+            signOutPlayerPreviewSession();
             setPlayerPresence(null);
-            window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
-            await Promise.allSettled([playerSignOutTask, adminSignOutTask]);
-            window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
-            return;
-        }
-        clearPlayerPresenceSnapshot();
-        setPlayerPresence(null);
-        signOutPlayerPreviewSession();
-        try { sessionStorage.removeItem('flbp_admin_legacy_auth'); } catch {}
-        clearSupabaseSession();
-        window.dispatchEvent(new CustomEvent(PLAYER_APP_CHANGE_EVENT));
+            return signOut;
+        });
     };
 
 
