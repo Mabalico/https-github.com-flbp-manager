@@ -13,9 +13,9 @@ import { isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, playerSignOutSupabase, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushNormalizedFromState, pushPublicWorkspaceState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isSameSupabaseAuthSession, isSupabaseAdminSessionExpired, isSupabaseSessionPastExpiry, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushNormalizedFromState, pushPublicWorkspaceState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutCurrentSupabaseSessions, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
-import { FANTA_APP_CHANGE_EVENT } from '../services/playerAppService';
+import { FANTA_APP_CHANGE_EVENT, signOutPlayerPreviewSession } from '../services/playerAppService';
 
 import { uuid } from '../services/id';
 import { downloadBlob } from '../services/adminDownloadUtils';
@@ -360,6 +360,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const adminTvMenuRef = useRef<HTMLDetailsElement | null>(null);
     const adminToolsMenuRef = useRef<HTMLDetailsElement | null>(null);
     const [authed, setAuthed] = useState<boolean>(false);
+    const [adminSessionExpired, setAdminSessionExpired] = useState(() => isSupabaseAdminSessionExpired());
+    const [reauthenticating, setReauthenticating] = useState(false);
     const [adminAuthMode, setAdminAuthMode] = useState<'none' | 'supabase' | 'legacy' | 'player'>(() => {
         return safeSessionGet(ADMIN_LEGACY_AUTH_LS_KEY) === '1' ? 'legacy' : 'none';
     });
@@ -399,6 +401,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [adminLogoutPending, setAdminLogoutPending] = useState(false);
     const [adminSessionChecking, setAdminSessionChecking] = useState<boolean>(() => !!initialSupabaseSession?.accessToken);
     const [adminSyncState, setAdminSyncState] = useState<AdminSyncState>(() => readAdminSyncState());
+    const adminNeedsLogin = adminSessionExpired || reauthenticating;
     const playerBootstrapDeniedKeyRef = useRef<string | null>(null);
     const reloadIntoAdmin = React.useCallback(() => {
         try {
@@ -480,6 +483,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const applyAdminAuthState = React.useCallback((email: string, preferLegacy: boolean) => {
         setAuthed(true);
+        setAdminSessionExpired(false);
+        setReauthenticating(false);
         setAdminAuthError('');
         setSupabaseEmail(email);
         setAdminAuthEmailInput(email);
@@ -539,7 +544,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const tryBootstrapPlayerSupabaseSession = React.useCallback(async (): Promise<boolean> => {
         if (!supabaseConfig) return false;
         const playerSession = await ensureFreshPlayerSupabaseSession();
-        if (!playerSession?.accessToken || playerSession.flowType === 'recovery') {
+        if (!playerSession?.accessToken || playerSession.flowType === 'recovery'
+            || getPlayerSupabaseSession()?.accessToken !== playerSession.accessToken) {
             playerBootstrapDeniedKeyRef.current = null;
             return false;
         }
@@ -556,6 +562,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 userId: playerSession.userId || null,
             });
             const access = await ensureSupabaseAdminAccess();
+            if (!isSameSupabaseAuthSession(getSupabaseSession(), playerSession)) return false;
             if (!access.ok) {
                 playerBootstrapDeniedKeyRef.current = bootstrapKey || null;
                 clearSupabaseSession();
@@ -581,6 +588,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         let alive = true;
 
         const syncSupabaseSessionMeta = async () => {
+            if (reauthenticating) return;
             const currentAdminAuthMode =
                 adminAuthMode === 'legacy' && safeSessionGet(ADMIN_LEGACY_AUTH_LS_KEY) !== '1'
                     ? 'none'
@@ -591,6 +599,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             }
 
             let session = getSupabaseSession();
+            if (!session && isSupabaseAdminSessionExpired()) {
+                setAdminSessionExpired(true);
+                setAdminSessionChecking(false);
+                return;
+            }
 
             if (currentAdminAuthMode !== 'legacy' && !session?.accessToken) {
                 const playerSession = getPlayerSupabaseSession();
@@ -634,8 +647,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
             try {
                 const access = await ensureSupabaseAdminAccess();
-                if (!alive) return;
+                const checkedSession = getSupabaseSession();
+                if (!alive || !checkedSession || !isSameSupabaseAuthSession(checkedSession, session)) return;
                 if (access.ok) {
+                    session = checkedSession;
                     const resolvedEmail = access.email || nextEmail || getConfiguredAdminEmail();
                     mirrorAdminSessionToPlayer({
                         accessToken: session.accessToken,
@@ -648,7 +663,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                     return;
                 }
 
+                if (isSupabaseSessionPastExpiry(checkedSession)) {
+                    setAdminSessionExpired(true);
+                    return;
+                }
+
                 if (isFatalAdminAccessFailure(access.reason)) {
+                    if (adminSessionExpired) return;
                     if (currentAdminAuthMode === 'player' || adminSessionMatchesPlayer(session)) {
                         clearSupabaseSession();
                     } else {
@@ -699,7 +720,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.clearInterval(id);
         };
-    }, [adminAuthMode, adminSessionMatchesPlayer, applyAdminAuthState, isFatalAdminAccessFailure, mirrorAdminSessionToPlayer, tryBootstrapPlayerSupabaseSession]);
+    }, [adminAuthMode, adminSessionExpired, adminSessionMatchesPlayer, applyAdminAuthState, isFatalAdminAccessFailure, mirrorAdminSessionToPlayer, reauthenticating, tryBootstrapPlayerSupabaseSession]);
     // Macro-sezioni Admin (richiesto: 2 finestre principali)
     const [adminSection, setAdminSection] = useState<AdminSection>(() => {
         const raw = safeSessionGet('flbp_admin_section');
@@ -3840,18 +3861,19 @@ while (guard < 5000) {
     };
 
     const performAdminLogout = async (reload: boolean = true) => {
-        await Promise.allSettled([
-            signOutSupabase(),
-            playerSignOutSupabase(),
-        ]);
         safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+        const signOut = signOutCurrentSupabaseSessions();
+        signOutPlayerPreviewSession();
+        await signOut;
         setAuthed(false);
         setAdminAuthMode('none');
         setSupabaseEmail(null);
         setAdminAuthError('');
         setAdminAuthPasswordInput('');
         setAdminSessionChecking(false);
-        if (reload) window.location.reload();
+        setAdminSessionExpired(false);
+        setReauthenticating(false);
+        if (reload) reloadIntoAdmin();
     };
 
     const requestAdminLogout = async () => {
@@ -3867,7 +3889,7 @@ while (guard < 5000) {
 
     if (adminLogoutPending) return <div role="status" aria-busy="true" className="p-8 text-center font-bold">{t('admin_logout')}…</div>;
 
-    if (!authed) {
+    const renderAdminLogin = () => {
         const doAdminLogin = async () => {
             setLoginBusy(true);
             setAdminAuthError('');
@@ -3878,7 +3900,7 @@ while (guard < 5000) {
                 }
 
                 const existingSession = getSupabaseSession();
-                if (existingSession?.accessToken) {
+                if (existingSession?.accessToken && !reauthenticating) {
                     const access = await ensureSupabaseAdminAccess();
                     if (access.ok) {
                         const resolvedEmail = access.email || existingSession.email || getConfiguredAdminEmail();
@@ -3930,9 +3952,10 @@ while (guard < 5000) {
                     throw err;
                 }
             } catch (err: any) {
-                setAuthed(false);
-                setAdminAuthMode('none');
-                safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+                if (!authed) {
+                    setAdminAuthMode('none');
+                    safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
+                }
                 setSupabaseEmail(null);
                 setAdminAuthError(String(err?.message || err || t('admin_access_not_authorized')));
             } finally {
@@ -3992,6 +4015,9 @@ while (guard < 5000) {
                                     </div>
                                 ) : null}
 
+                                {adminSessionExpired && !authed && !adminAuthError && (
+                                    <p role="status" className="font-bold text-amber-900">{t('admin_session_expired')}</p>
+                                )}
                                 {adminAuthError ? (
                                     <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
                                         <div className="font-black">{t('admin_login_failed')}</div>
@@ -4021,6 +4047,7 @@ while (guard < 5000) {
                                         <div>
                                             <input
                                                 id="admin-access-password"
+                                                autoFocus={reauthenticating}
                                                 type="password"
                                                 value={adminAuthPasswordInput}
                                                 onChange={(e) => setAdminAuthPasswordInput(e.target.value)}
@@ -4059,8 +4086,9 @@ while (guard < 5000) {
                 </div>
             </div>
         );
-    }
+    };
 
+    if (!authed) return renderAdminLogin();
 
     // --- TAB COMPONENTS (estratti per manutenibilitÃ , logica invariata) ---
     // Tutti i tab Admin ora sono in file separati (./admin/tabs/*).
@@ -4206,6 +4234,7 @@ while (guard < 5000) {
     };
 
 	    return (
+        <>
         <AdminRenderRecoveryBoundary
             nav={{ adminSection, tab, dataSubTab, integrationsSubTab }}
             onRecover={recoverToSafeAdmin}
@@ -4215,7 +4244,7 @@ while (guard < 5000) {
                 restoreButton: t('editor_reload_current_state'),
             }}
         >
-	        <div className="animate-fade-in flex min-w-0 max-w-full flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
+	        <div inert={adminNeedsLogin} className="animate-fade-in flex min-w-0 max-w-full flex-col min-h-[calc(100vh-2rem)] gap-4 lg:gap-6 lg:p-4 mb-8">
             {adminSyncState.source === 'local' && adminSyncState.phase === 'error' && (
                 <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
                     <p className="font-bold">{adminSyncState.message}</p>
@@ -4826,5 +4855,19 @@ while (guard < 5000) {
 
         </div>
 	    </AdminRenderRecoveryBoundary>
+        {adminNeedsLogin && (
+            <div className="fixed inset-0 z-[500] overflow-y-auto bg-slate-100 p-4" role="dialog" aria-modal="true" aria-labelledby="admin-expired-title">
+                <div className="mx-auto mt-20 w-full max-w-lg rounded-2xl border border-amber-300 bg-white p-5 shadow-xl">
+                    <p id="admin-expired-title" className="font-black text-slate-900">{t('admin_session_expired')}</p>
+                    {!reauthenticating && (
+                        <button type="button" autoFocus onClick={() => setReauthenticating(true)} className="mt-4 rounded-xl bg-slate-900 px-4 py-2 font-bold text-white">
+                            {t('admin_login')}
+                        </button>
+                    )}
+                </div>
+                {reauthenticating && renderAdminLogin()}
+            </div>
+        )}
+        </>
     );
 };

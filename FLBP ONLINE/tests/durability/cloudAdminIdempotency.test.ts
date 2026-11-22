@@ -1,6 +1,6 @@
-import { getSupabaseConfig, pushWorkspaceState, recoverWorkspaceFromLocalState, setRemoteBaseUpdatedAt, setSupabaseSession } from '../../services/supabaseRest';
-import { readAdminLeaseInfo, setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
-import { initAdminWriteLease, reclaimCloudAcceptingMissingOperations, releaseAdminWriteLease } from '../../services/adminWriteLease';
+import { ensureFreshPlayerSupabaseSession, ensureFreshSupabaseSession, getPlayerSupabaseSession, getSupabaseSession, isSupabaseAdminSessionExpired, playerSignOutSupabase, setPlayerSupabaseSession, signOutCurrentSupabaseSessions, signOutSupabase, getSupabaseConfig, pushWorkspaceState, recoverWorkspaceFromLocalState, setRemoteBaseUpdatedAt, setSupabaseSession } from '../../services/supabaseRest';
+import { isAdminWriteBlockedByLease, readAdminLeaseInfo, setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { initAdminWriteLease, reclaimCloudAcceptingMissingOperations, releaseAdminWriteLease, takeoverAdminWriteLease } from '../../services/adminWriteLease';
 import { flushAutoStructuredSync, replacePendingAutoStructuredSync, scheduleAutoStructuredSync } from '../../services/autoDbSync';
 
 class MemoryStorage {
@@ -13,7 +13,9 @@ class MemoryStorage {
 
 const local = new MemoryStorage();
 const session = new MemoryStorage();
-const calls: Array<{ url: string; body: any }> = [];
+const calls: Array<{ url: string; body: any; authorization: string | null; method?: string }> = [];
+let refreshReply: Response | Promise<Response> | null = null;
+let rejectLeaseToken: string | null = null;
 let requireLegacyFallback = false;
 let workspaceStateRow: any = null;
 // Enabled only by the structured-autosync section: normalized/public rows accept writes.
@@ -43,7 +45,14 @@ Object.assign(globalThis, {
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const body = init?.body ? JSON.parse(String(init.body)) : null;
-  calls.push({ url, body });
+  const authorization = new Headers(init?.headers).get('Authorization');
+  calls.push({ url, body, authorization, method: init?.method });
+  if (url.endsWith('/auth/v1/token?grant_type=refresh_token')) {
+    const reply = refreshReply;
+    refreshReply = null;
+    return reply || Response.json({ error: 'Unexpected refresh' }, { status: 500 });
+  }
+  if (url.includes('/auth/v1/logout')) return new Response(null, { status: 204 });
   if (url.endsWith('/api/v1/discovery')) return Response.json({ error: 'not local' }, { status: 404 });
   if (url.endsWith('/rpc/flbp_resolve_data_plane')) {
     if (resolveFails) return Response.json({ message: 'coordinator unreachable' }, { status: 503 });
@@ -55,6 +64,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     return Response.json(reply);
   }
   if (url.endsWith('/rpc/flbp_admin_acquire_write_lease')) {
+    if (rejectLeaseToken && authorization === rejectLeaseToken) {
+      return Response.json({ code: 'PGRST303', message: 'JWT expired' }, { status: 401 });
+    }
     return Response.json({ acquired: true, holder_id: body?.p_holder_id, holder_label: body?.p_holder_label });
   }
   if (url.endsWith('/rpc/flbp_admin_release_write_lease')) return Response.json({ released: true });
@@ -331,6 +343,95 @@ assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'unavailab
   'a coordinator outage is never treated as an expired local lease');
 await releaseAdminWriteLease();
 resolveFails = false;
+
+const authSession = (accessToken: string, expiresIn = 3600) => ({
+  accessToken,
+  refreshToken: 'refresh-' + accessToken,
+  expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+  userId: 'admin-cloud-test',
+  email: 'admin@example.test',
+});
+
+setSupabaseSession(authSession('first-lease-token'));
+resolvedRoute = { mode: 'cloud', epoch: 9 };
+await initAdminWriteLease();
+assert(readAdminLeaseInfo().status === 'active', 'a valid session acquires the cloud lease');
+
+const leaseRequests = () => calls.filter(({ url }) => url.endsWith('/rpc/flbp_admin_acquire_write_lease'));
+const refreshRequests = () => calls.filter(({ url }) => url.endsWith('/auth/v1/token?grant_type=refresh_token'));
+const logoutRequests = () => calls.filter(({ url }) => url.includes('/auth/v1/logout'));
+const tokenResponse = (token: string) => Response.json({
+  access_token: token,
+  refresh_token: 'refresh-' + token,
+  expires_in: 3600,
+});
+
+const expiring = authSession('expiring-lease-token', 30);
+setSupabaseSession(expiring);
+setPlayerSupabaseSession({ ...expiring, flowType: 'session' });
+refreshReply = tokenResponse('rotated-lease-token');
+const refreshBeforeRotation = refreshRequests().length;
+await Promise.all([takeoverAdminWriteLease(), ensureFreshPlayerSupabaseSession()]);
+assert(refreshRequests().length === refreshBeforeRotation + 1, 'mirrored Admin and Player sessions share an in-flight refresh');
+assert(leaseRequests().at(-1)?.authorization === 'Bearer rotated-lease-token'
+  && getPlayerSupabaseSession()?.accessToken === 'rotated-lease-token'
+  && getSupabaseSession()?.accessToken === 'rotated-lease-token',
+  'cloud lease renewal and both session stores use the refreshed token');
+
+rejectLeaseToken = 'Bearer rotated-lease-token';
+refreshReply = tokenResponse('recovered-lease-token');
+const leaseBeforeRetry = leaseRequests().length;
+await takeoverAdminWriteLease();
+assert(leaseRequests().length === leaseBeforeRetry + 2 && leaseRequests().at(-1)?.authorization === 'Bearer recovered-lease-token'
+  && readAdminLeaseInfo().status === 'active', 'a JWT rejection forces one refresh and retries the lease with the new token');
+
+rejectLeaseToken = 'Bearer recovered-lease-token';
+refreshReply = Response.json({ code: 'session_not_found' }, { status: 400 });
+const leaseBeforeExpiry = leaseRequests().length;
+await takeoverAdminWriteLease();
+assert(readAdminLeaseInfo().status === 'session-expired' && !readAdminLeaseInfo().lastError
+  && isAdminWriteBlockedByLease(), 'rejected refresh leaves Admin read-only with no raw error');
+assert(leaseRequests().length === leaseBeforeExpiry + 1 && !getSupabaseSession() && !getPlayerSupabaseSession()
+  && isSupabaseAdminSessionExpired(), 'a rejected refresh clears the shared credentials and prevents another rejected lease call');
+await releaseAdminWriteLease();
+
+setSupabaseSession(authSession('verify-relogin'));
+await initAdminWriteLease();
+assert(readAdminLeaseInfo().status === 'active' && !isSupabaseAdminSessionExpired(), 'signing in again restores the lease');
+await releaseAdminWriteLease();
+
+const raceSession = authSession('logout-during-refresh', 30);
+setSupabaseSession(raceSession);
+setPlayerSupabaseSession({ ...raceSession, flowType: 'session' });
+let completeRefresh!: (response: Response) => void;
+refreshReply = new Promise<Response>((resolve) => { completeRefresh = resolve; });
+const refreshDuringLogout = ensureFreshSupabaseSession();
+const countBeforeSharedLogout = logoutRequests().length;
+const signOut = signOutCurrentSupabaseSessions();
+assert(!getSupabaseSession() && !getPlayerSupabaseSession(), 'logout removes both shared session copies before it yields');
+completeRefresh(tokenResponse('logged-out-token'));
+await Promise.all([signOut, refreshDuringLogout]);
+assert(!getSupabaseSession() && !getPlayerSupabaseSession() && !isSupabaseAdminSessionExpired()
+  && logoutRequests().length === countBeforeSharedLogout + 1,
+  'a late refresh cannot put a logged-out session back, and a shared session is revoked once');
+
+setSupabaseSession(authSession('distinct-admin-token'));
+setPlayerSupabaseSession({ ...authSession('distinct-player-token'), flowType: 'session' });
+await signOutCurrentSupabaseSessions();
+assert(logoutRequests().slice(-2).some(({ authorization }) => authorization === 'Bearer distinct-admin-token')
+  && logoutRequests().slice(-2).some(({ authorization }) => authorization === 'Bearer distinct-player-token'),
+  'unified sign-out revokes distinct Admin and Player sessions separately');
+
+setSupabaseSession(authSession('admin-only-token'));
+setPlayerSupabaseSession({ ...authSession('player-only-token'), flowType: 'session' });
+await signOutSupabase();
+assert(!getSupabaseSession() && getPlayerSupabaseSession()?.accessToken === 'player-only-token',
+  'Admin-only logout keeps a distinct Player session signed in');
+await playerSignOutSupabase();
+assert(!getPlayerSupabaseSession(), 'Player-only logout clears the Player session');
+assert(logoutRequests().every(({ url, method }) => new URL(url).search === '?scope=local' && method === 'POST'),
+  'every explicit logout is scoped to the current Supabase session');
+console.log('PASS local logout, refresh races and cloud Admin lease recovery');
 
 console.log('PASS cloud Admin idempotency, rollout fallback and safe local recovery');
 console.log('PASS forgotten local mode: the Admin reclaims cloud authority only after the grace period');

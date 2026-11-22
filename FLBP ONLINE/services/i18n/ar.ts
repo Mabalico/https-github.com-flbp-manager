@@ -184,6 +184,7 @@ export const dictionary: TranslationDictionary = {
   "admin_auth_desc": "تم تمكين وصول المسؤول عبر حساب Supabase أو عبر بيانات اعتماد مسؤول الطوارئ الكلاسيكية.",
   "admin_password_placeholder": "كلمة مرور المشرف",
   "admin_login": "تسجيل الدخول",
+  "admin_session_expired": "انتهت صلاحية الجلسة. سجّل الدخول من جديد.",
   "admin_live_management": "الإدارة الحية",
   "admin_data_management": "إدارة البيانات",
   "admin_live_desc": "البطولة جارية (عملية حية)",

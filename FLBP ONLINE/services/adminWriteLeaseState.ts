@@ -13,7 +13,8 @@
 // - passive:   un'altra sessione e' attiva: questa finestra e' in sola lettura.
 // - error:     ultimo heartbeat fallito: scritture bloccate in modo fail-closed.
 
-export type AdminLeaseStatus = 'off' | 'acquiring' | 'active' | 'passive' | 'error';
+// - session-expired: serve un nuovo accesso per riprendere la scrittura cloud.
+export type AdminLeaseStatus = 'off' | 'acquiring' | 'active' | 'passive' | 'error' | 'session-expired';
 
 // Why the coordinator still refuses cloud authority after a local tournament
 // PC stopped answering (see flbp_admin_reclaim_cloud_data_plane).
@@ -75,4 +76,4 @@ export const getAdminLeaseHolderForWrites = (): string | null =>
 // Gating client (UX): blocca solo quando SAPPIAMO di essere passivi. La
 // garanzia di integrita' e' comunque il rifiuto lato server.
 export const isAdminWriteBlockedByLease = (): boolean =>
-  info.status === 'acquiring' || info.status === 'passive' || info.status === 'error';
+  info.status !== 'off' && info.status !== 'active';
