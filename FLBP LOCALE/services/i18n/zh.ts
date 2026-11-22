@@ -184,6 +184,7 @@ export const dictionary: TranslationDictionary = {
   "admin_auth_desc": "通过已启用的 Supabase 帐户或通过经典的紧急管理员凭据进行管理员访问。",
   "admin_password_placeholder": "管理员密码",
   "admin_login": "登录",
+  "admin_session_expired": "会话已过期，请重新登录。",
   "admin_live_management": "直播管理",
   "admin_data_management": "数据管理",
   "admin_live_desc": "比赛进行中（现场操作）",

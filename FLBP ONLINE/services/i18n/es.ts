@@ -184,6 +184,7 @@ export const dictionary: TranslationDictionary = {
   "admin_auth_desc": "Acceso de administrador a través de la cuenta Supabase habilitada o mediante la credencial de administrador de emergencia clásica.",
   "admin_password_placeholder": "Contraseña de administrador",
   "admin_login": "Iniciar sesión",
+  "admin_session_expired": "La sesión ha caducado. Vuelve a iniciar sesión.",
   "admin_live_management": "Gestión en vivo",
   "admin_data_management": "Gestión de datos",
   "admin_live_desc": "Torneo en curso (operación en vivo)",

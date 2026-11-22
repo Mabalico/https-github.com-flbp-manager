@@ -184,6 +184,7 @@ export const dictionary: TranslationDictionary = {
   "admin_auth_desc": "Supabase アカウントが有効になっているか、従来の緊急管理者資格情報を介した管理者アクセス。",
   "admin_password_placeholder": "管理者パスワード",
   "admin_login": "ログイン",
+  "admin_session_expired": "セッションの有効期限が切れました。もう一度ログインしてください。",
   "admin_live_management": "ライブ管理",
   "admin_data_management": "データ管理",
   "admin_live_desc": "トーナメント進行中 (ライブ操作)",
