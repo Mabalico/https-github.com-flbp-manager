@@ -57,3 +57,7 @@ avvenga dopo applicazione e conferma e che non riapra la coda di un referto rius
 La variante `FLBP LOCALE` ha lo stesso controllo sul percorso snapshot che quella
 edizione usa. Gli script non producono bundle o file temporanei e possono essere
 eseguiti parallelamente alle altre suite.
+
+## Referto rifiutato dal server (22/11/2026)
+
+Se il server rifiuta il referto stesso (`invalid_report` da Supabase, `FLBP_INVALID_TIE_BREAK` dal server locale, per esempio uno spareggio non valido), l'Area Arbitri mostra "Il server ha rifiutato il referto" con il motivo e chiede di avvisare l'Admin, invece di "Connessione non disponibile". Il referto resta nella coda del dispositivo e la vista arbitri non lo mostra come salvato; vale anche per il ripiego snapshot. Gli stati temporanei `FLBP_*` (conflitto, server locale primario, recovery) mantengono i loro messaggi. Il riconoscimento è `getMatchResultRejectionReason` in `services/supabaseRest.ts`; lo provano `scripts/test-referee-report-save.mjs` (caso P-29) e `scripts/test-referee-client-contract.mjs`.

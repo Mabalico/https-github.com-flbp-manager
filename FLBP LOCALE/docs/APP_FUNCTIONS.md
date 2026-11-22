@@ -454,6 +454,16 @@ Questa sezione riassume i cambi principali introdotti per la gestione **gironi**
   - **Multi-squadra** (es. `A vs B vs C` in **un’unica partita**): `teamIds: string[]` + `scoresByTeam: Record<teamId, score>`.
 - Pareggi **non ammessi**: in referto serve un **leader unico** (se ci sono più leader pari, lo spareggio deve proseguire con la logica ricorsiva).
 - Dopo il salvataggio del referto (`status=finished`), per i match `isTieBreak=true` il campo `targetScore` viene aggiornato al **punteggio massimo finale** (es. 2–1 -> `targetScore=2`, 3–2 -> `targetScore=3`) così il badge UI **“a N”** riflette la reale “race-to-N” raggiunta.
+- In classifica lo spareggio **non dà punti né canestri**: ordina solo le squadre a pari merito (`compareInTieBreaks` in `services/groupStandings.ts`).
+- **Referto che crea lo spareggio** (22/11/2026). Quando l'ultimo risultato di un girone, o del Girone Finale, lascia squadre a pari merito, l'app crea lo spareggio nello stesso salvataggio. In questa copia l'Admin salva lo snapshot completo; l'Area Arbitri (`flbp_referee_push_live_state`) e il server locale (`applyMatchResultPatch`) applicano la regola di `flbp_report_validate_new_tiebreak` (migration `20261122000100`):
+  - una partita vuota da giocare: `isTieBreak`, fase gironi, punteggi a 0, nessun referto;
+  - in un girone esistente; nel Girone Finale solo se è attivo;
+  - tra almeno 2 squadre diverse e visibili di quel girone (`teamAId`/`teamBId`, oppure `teamIds` con `scoresByTeam` a 0);
+  - con tutte le altre partite del girone concluse, contando il referto salvato, e nessun altro spareggio del girone da giocare;
+  - con il codice successivo del suo prefisso, numerato come fa l'app sull'intero torneo, maiuscole comprese ("Girone Nord" → `dTB1`, "Girone 1" → `1TB1`);
+  - uno solo per girone a ogni salvataggio. La partita del referto deve già esistere.
+
+  Ogni altra partita nuova è rifiutata con "Creazione partita non autorizzata: <motivo>": gli arbitri vedono il motivo invece di un errore di connessione e il referto non viene salvato. Del nuovo spareggio vengono salvati solo i campi della partita. Test: `FLBP ONLINE/supabase/tests/report_tiebreak_creation.sql` (parte arbitri), `FLBP SERVER LOCALE/test/statePatch.test.mjs`.
 
 ### Spareggi Girone Finale (FTB*) — blocco titolo
 
