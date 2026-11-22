@@ -4,7 +4,7 @@
 // Funziona sia nel browser (AdminDashboard) sia headless (simulatore Node):
 // usa i timer globali e guarda le API browser solo se esistono.
 
-import { getSupabaseAccessToken, getSupabaseConfig } from './supabaseRest';
+import { ensureFreshSupabaseSession, expireSupabaseAuthSession, getSupabaseConfig, getSupabaseSession, isRejectedSupabaseAuthSession, isSameSupabaseAuthSession, isSupabaseSessionPastExpiry } from './supabaseRest';
 import { readAdminLeaseInfo, setAdminLeaseInfo, type AdminLeaseRecovery } from './adminWriteLeaseState';
 import {
   acquireLocalAdminWriteLease,
@@ -97,27 +97,51 @@ const isAbortLike = (error: unknown): boolean => {
   return (error as any)?.name === 'AbortError' || message.includes('signal is aborted') || message.includes('aborterror');
 };
 
+class AdminLeaseSessionExpiredError extends Error {}
+
 const leaseRpc = async (
   name: string,
   body: Record<string, unknown>,
-  opts?: { keepalive?: boolean }
+  opts?: { release?: boolean; keepalive?: boolean }
 ): Promise<any> => {
   const cfg = getSupabaseConfig();
   if (!cfg) throw new Error('Supabase non configurato');
-  const token = getSupabaseAccessToken();
-  if (!token) throw new Error('Sessione admin assente');
-  const res = await fetch(`${cfg.url.replace(/\/$/, '')}/rest/v1/rpc/${name}`, {
-    method: 'POST',
-    headers: {
-      apikey: cfg.anonKey,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    ...(opts?.keepalive ? { keepalive: true } : {}),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(text || `RPC ${name} HTTP ${res.status}`);
+  const current = opts?.release ? getSupabaseSession() : await ensureFreshSupabaseSession();
+  if (!current || getSupabaseSession()?.accessToken !== current.accessToken || isSupabaseSessionPastExpiry(current)) {
+    throw new AdminLeaseSessionExpiredError();
+  }
+
+  const send = async (token: string) => {
+    const response = await fetch(`${cfg.url.replace(/\/$/, '')}/rest/v1/rpc/${name}`, {
+      method: 'POST',
+      headers: {
+        apikey: cfg.anonKey,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      ...(opts?.keepalive ? { keepalive: true } : {}),
+    });
+    return { response, text: await response.text() };
+  };
+
+  let { response, text } = await send(current.accessToken);
+  if (!opts?.release && isRejectedSupabaseAuthSession(response.status, text)) {
+    const stored = getSupabaseSession();
+    const refreshed = !isSameSupabaseAuthSession(stored, current)
+      ? null
+      : stored?.accessToken !== current.accessToken ? stored : await ensureFreshSupabaseSession({ force: true });
+    if (!refreshed || refreshed.accessToken === current.accessToken
+      || getSupabaseSession()?.accessToken !== refreshed.accessToken || isSupabaseSessionPastExpiry(refreshed)) {
+      throw new AdminLeaseSessionExpiredError();
+    }
+    ({ response, text } = await send(refreshed.accessToken));
+    if (isRejectedSupabaseAuthSession(response.status, text)) {
+      expireSupabaseAuthSession(refreshed);
+      throw new AdminLeaseSessionExpiredError();
+    }
+  }
+  if (!response.ok) throw new Error(text || `RPC ${name} HTTP ${response.status}`);
   try {
     return JSON.parse(text);
   } catch {
@@ -230,12 +254,16 @@ const acquireForCurrentPlane = async (takeover: boolean): Promise<{ acquired: bo
 
 const tick = async (takeover = false): Promise<void> => {
   if (!inited || !holderId) return;
+  const tickingHolder = holderId;
+  const isCurrent = () => inited && holderId === tickingHolder;
   try {
     let { acquired, out } = await acquireForCurrentPlane(takeover);
+    if (!isCurrent()) return;
     // Il detentore e' una vita precedente di QUESTA scheda (reload: stesso
     // sessionStorage, nonce diverso): riprendi il testimone senza chiedere.
     if (!acquired && sessionUuid && String(out?.holder_id || '').startsWith(`${sessionUuid}:`)) {
       ({ acquired, out } = await acquireForCurrentPlane(true));
+      if (!isCurrent()) return;
     }
     if (acquired) {
       setAdminLeaseInfo({ status: 'active', holderId, otherLabel: null, otherSince: null, lastError: null });
@@ -249,6 +277,11 @@ const tick = async (takeover = false): Promise<void> => {
       });
     }
   } catch (e: any) {
+    if (!isCurrent()) return;
+    if (e instanceof AdminLeaseSessionExpiredError) {
+      setAdminLeaseInfo({ status: 'session-expired', lastError: null, recovery: null, otherLabel: null, otherSince: null });
+      return;
+    }
     const message = String(e?.message || e || '');
     if (isAbortLike(e)) {
       // Reload/pagehide can abort the obsolete request after the new page has
@@ -266,7 +299,7 @@ const tick = async (takeover = false): Promise<void> => {
         setAdminLeaseInfo({ status: 'acquiring', holderId, lastError: null });
       }
       setTimeout(() => {
-        if (inited) void tick(false);
+        if (isCurrent()) void tick(false);
       }, 300);
       return;
     }
@@ -298,6 +331,9 @@ const installPagehideRelease = () => {
     w.addEventListener('pagehide', () => {
       void releaseAdminWriteLease({ keepalive: true });
     });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && inited) void tick(false);
+    });
     pagehideInstalled = true;
   } catch {
     // headless: nessun pagehide
@@ -315,22 +351,13 @@ export const initAdminWriteLease = async (opts?: {
   inited = true;
   setAdminLeaseInfo({ status: 'acquiring', holderId, lastError: null });
   installPagehideRelease();
+  const startingHolder = holderId;
   await tick(!!opts?.takeover);
-  if (!inited) return; // feature off (migration assente)
+  if (!inited || holderId !== startingHolder) return;
   stopTimer();
   timer = setInterval(() => {
     void tick(false);
   }, HEARTBEAT_MS);
-  try {
-    const w = (globalThis as any).window;
-    if (w?.addEventListener && typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && inited) void tick(false);
-      });
-    }
-  } catch {
-    // headless
-  }
 };
 
 export const takeoverAdminWriteLease = async (): Promise<void> => {
@@ -343,7 +370,13 @@ export const takeoverAdminWriteLease = async (): Promise<void> => {
 export const reclaimCloudAcceptingMissingOperations = async (): Promise<void> => {
   if (!inited) return;
   const route = await resolveDataPlane({ force: true });
-  if (route.mode === 'recovery') await tryReclaimCloud(route, true);
+  try {
+    if (route.mode === 'recovery') await tryReclaimCloud(route, true);
+  } catch (error) {
+    if (!(error instanceof AdminLeaseSessionExpiredError)) throw error;
+    setAdminLeaseInfo({ status: 'session-expired', lastError: null, recovery: null });
+    return;
+  }
   await tick(false);
 };
 
@@ -369,7 +402,7 @@ export const releaseAdminWriteLease = async (opts?: { keepalive?: boolean }): Pr
     await leaseRpc(
       'flbp_admin_release_write_lease',
       { p_workspace_id: cfg.workspaceId, p_holder_id: releasingHolder },
-      { keepalive: !!opts?.keepalive }
+      { release: true, keepalive: !!opts?.keepalive }
     );
   } catch {
     // best effort: scade comunque col TTL

@@ -356,7 +356,8 @@ export const getSupabaseSession = (): SupabaseSession | null => {
     }
 };
 
-export const setSupabaseSession = (s: SupabaseSession | null) => {
+export const setSupabaseSession = (s: SupabaseSession | null, notify = true) => {
+    if (s?.accessToken) setAdminSessionExpired(false);
     const current = getSupabaseSession();
     if (sameSupabaseSession(current, s)) return;
     try {
@@ -380,7 +381,7 @@ export const setSupabaseSession = (s: SupabaseSession | null) => {
     } catch {
         // ignore
     } finally {
-        emitSupabaseAuthStateChange();
+        if (notify) emitSupabaseAuthStateChange();
     }
 };
 
@@ -411,7 +412,7 @@ export const getPlayerSupabaseSession = (): PlayerSupabaseSession | null => {
     }
 };
 
-export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
+export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null, notify = true) => {
     const current = getPlayerSupabaseSession();
     if (sameStoredPlayerSupabaseSession(current, s)) return;
     try {
@@ -437,7 +438,7 @@ export const setPlayerSupabaseSession = (s: PlayerSupabaseSession | null) => {
     } catch {
         // ignore
     } finally {
-        emitSupabaseAuthStateChange();
+        if (notify) emitSupabaseAuthStateChange();
     }
 };
 
@@ -585,58 +586,125 @@ const fetchWithTimeout = async (input: RequestInfo | URL, init?: RequestInit, ti
 // Supabase Auth helpers (optional)
 // -----------------------------
 
-export const ensureFreshSupabaseSession = async (options?: { force?: boolean }): Promise<SupabaseSession | null> => {
+const ADMIN_SESSION_EXPIRED_LS_KEY = 'flbp_supabase_admin_session_expired_v1';
+
+export const isSupabaseAdminSessionExpired = (): boolean => {
+    try { return localStorage.getItem(ADMIN_SESSION_EXPIRED_LS_KEY) === '1'; } catch { return false; }
+};
+
+const setAdminSessionExpired = (expired: boolean): void => {
+    try {
+        if (expired) localStorage.setItem(ADMIN_SESSION_EXPIRED_LS_KEY, '1');
+        else localStorage.removeItem(ADMIN_SESSION_EXPIRED_LS_KEY);
+    } catch { /* storage unavailable */ }
+};
+
+export const isSameSupabaseAuthSession = (left: SupabaseSession | null, right: SupabaseSession): boolean => {
+    if (!left) return false;
+    if (left.accessToken === right.accessToken || (!!left.refreshToken && left.refreshToken === right.refreshToken)) return true;
+    const sessionId = decodeJwtPayload(right.accessToken)?.session_id;
+    return !!sessionId && decodeJwtPayload(left.accessToken)?.session_id === sessionId;
+};
+
+const getAuthExpiry = (session: SupabaseSession): number => {
+    const stored = Date.parse(session.expiresAt || '');
+    if (Number.isFinite(stored)) return stored;
+    const exp = decodeJwtPayload(session.accessToken)?.exp;
+    return typeof exp === 'number' ? exp * 1000 : NaN;
+};
+
+export const isSupabaseSessionPastExpiry = (session: SupabaseSession): boolean =>
+    getAuthExpiry(session) <= Date.now();
+
+export const isRejectedSupabaseAuthSession = (status: number, body: string): boolean =>
+    (status === 401 || status === 403) && /PGRST303|JWT expired|invalid JWT|session_not_found/i.test(body);
+
+export const expireSupabaseAuthSession = (session: SupabaseSession): void => {
+    const admin = getSupabaseSession();
+    const player = getPlayerSupabaseSession();
+    const expireAdmin = admin?.accessToken === session.accessToken;
+    const expirePlayer = player?.accessToken === session.accessToken;
+    if (!expireAdmin && !expirePlayer) return;
+    if (expireAdmin) {
+        setAdminSessionExpired(true);
+        setSupabaseSession(null, false);
+    }
+    if (expirePlayer) setPlayerSupabaseSession(null, false);
+    emitSupabaseAuthStateChange();
+};
+
+const refreshInFlight = new Map<string, Promise<SupabaseSession | null>>();
+
+const ensureFreshAuthSession = async <T extends SupabaseSession>(
+    readSession: () => T | null, kind: 'admin' | 'sync', force = false
+): Promise<T | null> => {
     const cfg = getSupabaseConfig();
-    if (!cfg) return null;
-    const cur = getSupabaseSession();
-    if (!cur?.accessToken) return null;
-    const force = !!options?.force;
-
-    // If no expiry is known, we avoid refreshing unless a caller is recovering from a rejected JWT.
-    const expTs = cur.expiresAt ? Date.parse(cur.expiresAt) : NaN;
-    if (!force && !Number.isFinite(expTs)) return cur;
-
-    // Refresh if token expired or expires within 60s.
-    if (!force && expTs > Date.now() + 60_000) return cur;
-
-    if (!cur.refreshToken) {
-        clearSupabaseSession();
+    const previous = readSession();
+    if (!cfg || !previous) return null;
+    const expiresAt = getAuthExpiry(previous);
+    if (!force && (!Number.isFinite(expiresAt) || expiresAt > Date.now() + 60_000)) return previous;
+    if (!previous.refreshToken) {
+        expireSupabaseAuthSession(previous);
         return null;
+    }
+
+    const { refreshToken } = previous;
+    let pending = refreshInFlight.get(refreshToken);
+    if (!pending) {
+        pending = (async () => {
+            const response = await fetchWithTimeout(authUrl(cfg, 'token?grant_type=refresh_token'), {
+                method: 'POST',
+                headers: { apikey: cfg.anonKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken }),
+            }, 20_000, { source: 'ensureFreshAuthSession', kind });
+            if (!response.ok) {
+                if ([400, 401, 403].includes(response.status)) return null;
+                throw new Error('Session refresh unavailable');
+            }
+            const result = await response.json();
+            const accessToken = String(result.access_token || '').trim();
+            if (!accessToken) return null;
+            const expiresIn = Number(result.expires_in || 0);
+            return {
+                accessToken,
+                refreshToken: String(result.refresh_token || refreshToken).trim(),
+                expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
+                email: result.user?.email || previous.email || null,
+                userId: result.user?.id || previous.userId || null,
+            };
+        })();
+        refreshInFlight.set(refreshToken, pending);
     }
 
     try {
-        const res = await fetchWithDevRequestPerf(authUrl(cfg, 'token?grant_type=refresh_token'), {
-            method: 'POST',
-            headers: {
-                'apikey': cfg.anonKey,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ refresh_token: cur.refreshToken })
-        }, { source: 'ensureFreshSupabaseSession', kind: 'admin' });
-        if (!res.ok) {
-            clearSupabaseSession();
+        const updated = await pending;
+        const current = readSession();
+        if (!current) return null;
+        if (current.accessToken === updated?.accessToken) return current;
+        if (!isSameSupabaseAuthSession(current, previous)) return null;
+        // A refresh in another tab can already have replaced these credentials.
+        if (current.accessToken !== previous.accessToken) return current;
+        if (!updated) {
+            expireSupabaseAuthSession(previous);
             return null;
         }
-        const j = await res.json();
-        const accessToken = String(j.access_token || '').trim();
-        if (!accessToken) {
-            clearSupabaseSession();
-            return null;
-        }
-        const refreshToken = String(j.refresh_token || cur.refreshToken || '').trim() || null;
-        const expiresIn = Number(j.expires_in || 0);
-        const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : (cur.expiresAt || null);
-        const email = (j.user?.email ? String(j.user.email) : (cur.email || null));
-        const userId = (j.user?.id ? String(j.user.id) : (cur.userId || null));
-        const next: SupabaseSession = { accessToken, refreshToken, expiresAt, email, userId };
-        setSupabaseSession(next);
-        return next;
+        const admin = getSupabaseSession();
+        const player = getPlayerSupabaseSession();
+        if (admin?.accessToken === previous.accessToken) setSupabaseSession({ ...admin, ...updated }, false);
+        if (player?.accessToken === previous.accessToken) setPlayerSupabaseSession({ ...player, ...updated }, false);
+        emitSupabaseAuthStateChange();
+        return { ...current, ...updated };
     } catch {
-        clearSupabaseSession();
-        return null;
+        // Preserve credential storage during a network outage for local-primary continuity.
+        const current = readSession();
+        return isSameSupabaseAuthSession(current, previous) ? current : null;
+    } finally {
+        if (refreshInFlight.get(refreshToken) === pending) refreshInFlight.delete(refreshToken);
     }
 };
+
+export const ensureFreshSupabaseSession = (options?: { force?: boolean }): Promise<SupabaseSession | null> =>
+    ensureFreshAuthSession(getSupabaseSession, 'admin', options?.force);
 
 const ensureFreshAuthForSupabaseOps = async () => {
     try {
@@ -657,8 +725,9 @@ const recoverRejectedAdminWriteSession = async (): Promise<SupabaseSession | nul
 };
 
 const tryBootstrapAdminSessionFromPlayer = async (): Promise<SupabaseSession | null> => {
+    if (isSupabaseAdminSessionExpired()) return null;
     const playerSession = await ensureFreshPlayerSupabaseSession();
-    if (!playerSession?.accessToken || playerSession.flowType === 'recovery') return null;
+    if (!playerSession || getPlayerSupabaseSession()?.accessToken !== playerSession.accessToken || !playerSession.accessToken || playerSession.flowType === 'recovery') return null;
     const mirroredSession: SupabaseSession = {
         accessToken: playerSession.accessToken,
         refreshToken: playerSession.refreshToken || null,
@@ -668,11 +737,13 @@ const tryBootstrapAdminSessionFromPlayer = async (): Promise<SupabaseSession | n
     };
     setSupabaseSession(mirroredSession);
     const access = await ensureSupabaseAdminAccess();
+    const current = getSupabaseSession();
+    if (!isSameSupabaseAuthSession(current, mirroredSession)) return null;
     if (!access.ok) {
         clearSupabaseSession();
         return null;
     }
-    return getSupabaseSession() || mirroredSession;
+    return current;
 };
 
 // Removed tryBootstrapLegacyAdminSupabaseSession
@@ -698,7 +769,7 @@ const bootstrapSupabaseWriteSession = async (): Promise<SupabaseSession | null> 
 
 const requireSupabaseWriteSession = async (): Promise<SupabaseSession> => {
     const session = await bootstrapSupabaseWriteSession();
-    if (!session?.accessToken) {
+    if (!session?.accessToken || isSupabaseSessionPastExpiry(session)) {
         throw new Error('Sessione admin assente o scaduta. Esegui il login Supabase in Admin → Dati / Persistenza prima di scrivere sul database.');
     }
     return session;
@@ -746,87 +817,53 @@ export const signInWithPassword = async (email: string, password: string): Promi
     return session;
 };
 
-export const signOutSupabase = async (): Promise<void> => {
+const revokeLocalSupabaseSession = async (session: SupabaseSession): Promise<void> => {
     const cfg = getSupabaseConfig();
-    const cur = getSupabaseSession();
+    if (!cfg) return;
     try {
-        if (cfg && cur?.accessToken) {
-            await fetchWithDevRequestPerf(authUrl(cfg, 'logout'), {
-                method: 'POST',
-                headers: {
-                    'apikey': cfg.anonKey,
-                    'Authorization': `Bearer ${cur.accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            }, { source: 'signOutSupabase', kind: 'admin' });
-        }
-    } catch {
-        // ignore
-    } finally {
-        clearSupabaseSession();
-    }
-};
-
-export const ensureFreshPlayerSupabaseSession = async (): Promise<PlayerSupabaseSession | null> => {
-    const cfg = getSupabaseConfig();
-    if (!cfg) return null;
-    const cur = getPlayerSupabaseSession();
-    if (!cur?.accessToken) return null;
-
-    const expTs = cur.expiresAt ? Date.parse(cur.expiresAt) : NaN;
-    if (!Number.isFinite(expTs)) return cur;
-    if (expTs > Date.now() + 60_000) return cur;
-    if (!cur.refreshToken) {
-        clearPlayerSupabaseSession();
-        return null;
-    }
-
-    try {
-        const res = await fetchWithDevRequestPerf(authUrl(cfg, 'token?grant_type=refresh_token'), {
+        await fetchWithTimeout(authUrl(cfg, 'logout?scope=local'), {
             method: 'POST',
-            headers: {
-                'apikey': cfg.anonKey,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ refresh_token: cur.refreshToken })
-        }, { source: 'ensureFreshPlayerSupabaseSession', kind: 'sync' });
-        if (!res.ok) {
-            clearPlayerSupabaseSession();
-            return null;
-        }
-        const j = await res.json();
-        const accessToken = String(j.access_token || '').trim();
-        if (!accessToken) {
-            clearPlayerSupabaseSession();
-            return null;
-        }
-        const refreshToken = String(j.refresh_token || cur.refreshToken || '').trim() || null;
-        const expiresIn = Number(j.expires_in || 0);
-        const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : (cur.expiresAt || null);
-        const email = (j.user?.email ? String(j.user.email) : (cur.email || null));
-        const userId = (j.user?.id ? String(j.user.id) : (cur.userId || null));
-        const next: PlayerSupabaseSession = {
-            accessToken,
-            refreshToken,
-            expiresAt,
-            email,
-            userId,
-            provider: cur.provider,
-            flowType: cur.flowType === 'recovery' ? 'recovery' : 'session',
-        };
-        setPlayerSupabaseSession(next);
-        return next;
+            headers: { apikey: cfg.anonKey, Authorization: 'Bearer ' + session.accessToken },
+        }, 5_000, { source: 'revokeLocalSupabaseSession', kind: 'sync' });
     } catch {
-        clearPlayerSupabaseSession();
-        return null;
+        // Local sign-out also works offline.
     }
 };
+
+export const signOutSupabase = async (): Promise<void> => {
+    const admin = getSupabaseSession();
+    const player = getPlayerSupabaseSession();
+    setAdminSessionExpired(false);
+    setSupabaseSession(null, false);
+    const sharedPlayer = admin && player && isSameSupabaseAuthSession(player, admin) ? player : null;
+    if (sharedPlayer) setPlayerSupabaseSession(null, false);
+    emitSupabaseAuthStateChange();
+    if (admin) await revokeLocalSupabaseSession(sharedPlayer && getAuthExpiry(sharedPlayer) > getAuthExpiry(admin) ? sharedPlayer : admin);
+};
+
+export const signOutCurrentSupabaseSessions = async (): Promise<void> => {
+    const admin = getSupabaseSession();
+    const player = getPlayerSupabaseSession();
+    setAdminSessionExpired(false);
+    setSupabaseSession(null, false);
+    setPlayerSupabaseSession(null, false);
+    emitSupabaseAuthStateChange();
+    if (admin && player && isSameSupabaseAuthSession(player, admin)) {
+        await revokeLocalSupabaseSession(getAuthExpiry(player) > getAuthExpiry(admin) ? player : admin);
+        return;
+    }
+    await Promise.all([
+        admin && revokeLocalSupabaseSession(admin),
+        player && revokeLocalSupabaseSession(player),
+    ]);
+};
+
+export const ensureFreshPlayerSupabaseSession = (): Promise<PlayerSupabaseSession | null> =>
+    ensureFreshAuthSession(getPlayerSupabaseSession, 'sync');
 
 const requirePlayerSupabaseSession = async (): Promise<PlayerSupabaseSession> => {
     const session = await ensureFreshPlayerSupabaseSession();
-    if (!session?.accessToken) {
+    if (!session?.accessToken || isSupabaseSessionPastExpiry(session)) {
         throw new Error('Sessione player assente o scaduta. Accedi di nuovo dall’Area Giocatore.');
     }
     return session;
@@ -1042,25 +1079,16 @@ export const playerUpdatePassword = async (nextPassword: string): Promise<Player
 };
 
 export const playerSignOutSupabase = async (): Promise<void> => {
-    const cfg = getSupabaseConfig();
-    const cur = getPlayerSupabaseSession();
-    try {
-        if (cfg && cur?.accessToken) {
-            await fetchWithDevRequestPerf(authUrl(cfg, 'logout'), {
-                method: 'POST',
-                headers: {
-                    'apikey': cfg.anonKey,
-                    'Authorization': `Bearer ${cur.accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            }, { source: 'playerSignOutSupabase', kind: 'sync' });
-        }
-    } catch {
-        // ignore
-    } finally {
-        clearPlayerSupabaseSession();
+    const player = getPlayerSupabaseSession();
+    const admin = getSupabaseSession();
+    setPlayerSupabaseSession(null, false);
+    const sharedAdmin = player && admin && isSameSupabaseAuthSession(admin, player) ? admin : null;
+    if (sharedAdmin) {
+        setAdminSessionExpired(false);
+        setSupabaseSession(null, false);
     }
+    emitSupabaseAuthStateChange();
+    if (player) await revokeLocalSupabaseSession(sharedAdmin && getAuthExpiry(sharedAdmin) > getAuthExpiry(player) ? sharedAdmin : player);
 };
 
 export const getPlayerOAuthAuthorizeUrl = (
@@ -2068,12 +2096,14 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
         return { ok: false, reason: 'Sessione admin assente o scaduta.' };
     }
 
+    if (isSupabaseSessionPastExpiry(session)) return { ok: false, reason: 'Connessione non disponibile per rinnovare la sessione Admin.' };
+
     const userId = resolveSessionUserId(session);
     if (!userId) {
         return { ok: false, reason: 'Impossibile determinare l’utente autenticato.' };
     }
 
-    const requestKey = `${cfg.url}|${cfg.workspaceId}|${userId}|${String(session.accessToken || '').slice(0, 32)}`;
+    const requestKey = `${cfg.url}|${cfg.workspaceId}|${userId}|${session.accessToken}`;
     if (ensureSupabaseAdminAccessInFlight && ensureSupabaseAdminAccessInFlightKey === requestKey) {
         return ensureSupabaseAdminAccessInFlight;
     }
@@ -2101,6 +2131,7 @@ export const ensureSupabaseAdminAccess = async (): Promise<SupabaseAdminAccessRe
         }
 
         const rows = (await res.json()) as Array<{ user_id?: string; email?: string | null }>;
+        if (getSupabaseSession()?.accessToken !== session.accessToken) return { ok: false };
         const hit = rows?.[0];
         if (!hit?.user_id) {
             return {

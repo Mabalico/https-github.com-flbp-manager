@@ -184,6 +184,7 @@ export const dictionary: TranslationDictionary = {
   "admin_auth_desc": "Supabase hesabı etkinleştirilerek veya klasik acil durum yönetici kimlik bilgileri aracılığıyla yönetici erişimi.",
   "admin_password_placeholder": "Yönetici şifresi",
   "admin_login": "Giriş yap",
+  "admin_session_expired": "Oturum süreniz doldu. Tekrar giriş yapın.",
   "admin_live_management": "Canlı yönetim",
   "admin_data_management": "Veri Yönetimi",
   "admin_live_desc": "Turnuva devam ediyor (canlı operasyon)",

@@ -280,6 +280,8 @@ Entry: `components/AdminDashboard.tsx`.
 
 Accesso:
 - ingresso Admin tramite sessione Supabase Auth reale
+- **Esci** chiude le sessioni Admin e Giocatore di questo browser. Le sessioni aperte su altri dispositivi restano valide.
+- In caso di sessione Admin scaduta, **Accedi** riapre il login nello stesso pannello e conserva la bozza aperta.
 - il login controlla anche che l’account autenticato sia presente in `public.admin_users`
 - login/sessione e autorizzazione restano separati: snapshot/export/autosave remoto usano la sessione del device ma l’ultima parola resta a `public.admin_users` / `flbp_is_admin()`
 
