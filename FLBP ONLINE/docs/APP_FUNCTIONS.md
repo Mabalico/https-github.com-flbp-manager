@@ -576,6 +576,12 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 - `components/AdminDashboard.tsx`: negli alert import multi-sheet gli “altri fogli controllati” escludono il foglio già letto, per evitare liste fuorvianti.
 
 
+### Navigazione del sito e lingue
+
+La vista si conserva nell’URL con `?view=`. Le schede torneo includono anche `flbp_tournament`, così si possono riaprire dopo un aggiornamento o da un collegamento condiviso. Indietro e Avanti rispettano la protezione delle bozze. Gli URL TV mantengono `flbp_tv` e la modalità in sola lettura.
+
+In arabo il menu si apre a destra e le frecce di navigazione si orientano con il testo. I nomi registrati dei turni del tabellone vengono tradotti al momento della visualizzazione.
+
 ### Integrazioni — aggiornamento 7 settembre 2026
 
 La navigazione usa Edizioni, Marcatori e Giocatori. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).
