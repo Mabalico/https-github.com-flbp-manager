@@ -12,7 +12,7 @@ const state: AppState = { teams: [], matches: [], tournament: null, tournamentHi
 const t = (key: string) => dictionary[key] || key;
 const props = { state, setState: () => {}, t, integrationsSubTab: 'tournaments', setIntegrationsSubTab: () => {}, renameTournamentEdition: async () => {} } as unknown as DataTabProps;
 const cases: Array<[string, React.ReactElement, string]> = [
-    ['new edition', <EditionEditor state={state} setState={() => {}} t={t} onBack={() => {}} onSaved={() => {}} onDirtyChange={() => {}} />, 'Nuova edizione'],
+    ['new edition', <EditionEditor state={state} setState={() => {}} t={t} onBack={() => {}} onSaved={() => {}} onDirtyChange={() => {}} />, t('edition_new')],
     ['MVP-only edit', <EditionEditor state={state} setState={() => {}} t={t} editionId="manual_test" onBack={() => {}} onSaved={() => {}} onDirtyChange={() => {}} />, 'Coppa Test'],
     ['edition list', <IntegrationsSubTab {...props} />, 'Coppa Test'],
     ['imported tournament standings', <TournamentLeaderboard teams={[]} matches={[]} integrations={state.integrationsScorers} tournamentDate="2019-07-12" variant="page" />, 'Rossi Mario'],

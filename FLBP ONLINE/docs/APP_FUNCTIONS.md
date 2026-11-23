@@ -383,7 +383,10 @@ Supporto UI:
     - non sostituisce il billing ufficiale Supabase: è una telemetria applicativa coerente col traffico generato dal frontend
   - sub-tab data legacy: `archive | integrations` (stato in `AdminDashboard.tsx`)
   - sub-tab integrations: `tournaments | hof | scorers | aliases | fanta | players`
-  - `components/admin/tabs/data/IntegrationsTournaments.tsx` elenca live e storico, ordina correttamente anche le date italiane `gg/mm/aaaa` e offre ricerca e rinomina inline con feedback accessibile.
+  - In **Tornei passati** si cercano le edizioni per nome e anno. L’elenco mostra il vincitore e i conteggi dei titoli e dei marcatori. Le edizioni con lo stesso nome e la stessa data sono segnalate come possibili doppioni. La scheda raccoglie dati, titoli, marcatori e le conferme di modifica ed eliminazione.
+  - **Giocatori** mostra titoli, statistiche e nomi collegati. Gli identificativi sono nei dettagli tecnici. Da questa vista si gestiscono anche i collegamenti globali.
+  - **Statistiche extra** gestisce le righe senza torneo, con ricerca, import ed export, inserimento a mano e gruppi di 50 righe. Le statistiche legate a un’edizione si gestiscono nella sua scheda.
+  - **Manutenzione Fanta** si apre dagli strumenti di persistenza.
   - `services/tournamentRename.ts` applica la rinomina per ID senza modificare squadre, match o struttura e propaga il nome ai riferimenti Hall of Fame e alle etichette dei marcatori collegati.
 - Modals:
   - Alias: `components/admin/modals/AliasModal.tsx`
@@ -578,4 +581,4 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 
 ### Integrazioni — aggiornamento 7 settembre 2026
 
-La navigazione usa Edizioni, Marcatori e Giocatori. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).
+La navigazione usa Tornei passati, Giocatori e Statistiche extra. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).
