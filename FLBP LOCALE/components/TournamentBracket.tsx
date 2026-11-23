@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from '../App';
+import { localizeBracketRound } from '../services/i18nService';
 import { Match, Team, TournamentData, TournamentMatch } from '../types';
 import { Edit2, Save, X, Trophy, Lock } from 'lucide-react';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
@@ -418,6 +419,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         ? 'rgba(148, 163, 184, 0.76)'
         : spectatorLayout ? 'rgba(146, 64, 14, 0.94)' : 'rgba(180, 83, 9, 0.48)';
     const connectorLineWidth = editorStructuredLayout ? '2.3' : (spectatorLayout ? '4.8' : '2.6');
+    const roundLabel = (index: number) => {
+        const name = rounds[index]?.[0]?.roundName;
+        return name ? localizeBracketRound(name, t) : t('round_n').replace('{n}', String(index + 1));
+    };
     const containerOverflowClass = (fitToWidth || fitToBox)
         ? ((compactPublicFit && !fitToBox) ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden')
         : (spectatorLayout ? 'overflow-x-auto overflow-y-hidden overscroll-x-contain' : 'overflow-x-auto');
@@ -426,7 +431,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         : spectatorLayout ? 'px-5 py-6 sm:px-6 sm:py-7' : padClass;
 
     return (
-        <div ref={containerRef} className={`${containerPadClass} ${containerSizeClass} ${containerOverflowClass}`}>
+        <div ref={containerRef} dir="ltr" className={`${containerPadClass} ${containerSizeClass} ${containerOverflowClass}`}>
             <div style={scaledBox ? { width: `${scaledBox.w}px`, height: `${scaledBox.h}px` } : undefined}>
                 <div
                     ref={contentRef}
@@ -472,7 +477,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                     {spectatorLayout ? (
                         <div className="mb-4 flex justify-center">
                             <span
-                                className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${
+                                className={`inline-flex items-center rounded-full border px-3 py-1 text-center text-[11px] font-black uppercase tracking-wide ${
                                     rIdx === rounds.length - 1
                                         ? (editorStructuredLayout
                                             ? 'border-amber-200 bg-amber-50 text-amber-800 shadow-[0_10px_26px_-20px_rgba(180,83,9,0.35)]'
@@ -482,7 +487,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                             : 'border-white/12 bg-white/6 text-white/70')
                                 }`}
                             >
-                                {rIdx === rounds.length - 1 ? t('bracket_final_label') : `${t('round')} ${rIdx + 1}`}
+                                {rIdx === rounds.length - 1 ? t('bracket_final_label') : roundLabel(rIdx)}
                             </span>
                         </div>
                     ) : (
@@ -792,7 +797,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                     ) : (
                                         <span className="flex min-w-0 items-center gap-2">
                                             {lockedA ? <Lock className="h-3.5 w-3.5 shrink-0 text-slate-500" /> : null}
-                                            <span className={teamNameClass}>
+                                            <span dir="auto" className={teamNameClass}>
                                                 {formatTeamLabel(teamAId, t1, allowByeSlotsThisRound)}
                                             </span>
                                         </span>
@@ -887,7 +892,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                     ) : (
                                         <span className="flex min-w-0 items-center gap-2">
                                             {lockedB ? <Lock className="h-3.5 w-3.5 shrink-0 text-slate-500" /> : null}
-                                            <span className={teamNameClass}>
+                                            <span dir="auto" className={teamNameClass}>
                                                 {formatTeamLabel(teamBId, t2, allowByeSlotsThisRound)}
                                             </span>
                                         </span>

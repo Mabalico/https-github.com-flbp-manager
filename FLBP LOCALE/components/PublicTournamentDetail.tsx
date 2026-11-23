@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Team, TournamentData, Match, HallOfFameEntry } from '../types';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
+import { localizeBracketRound, localizeGroupName } from '../services/i18nService';
 import { TournamentBracket } from './TournamentBracket';
 import { TournamentLeaderboard } from './TournamentLeaderboard';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
@@ -73,8 +74,8 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   }, [teams]);
 
   const getTeamName = (id?: string) => {
-    if (!id) return 'TBD';
-    return teamNameById.get(id) || 'TBD';
+    if (!id) return t('tbd_label');
+    return teamNameById.get(id) || t('tbd_label');
   };
 
   const openTeamPlayerProfile = (name?: string | null, birthDate?: string | null) => {
@@ -235,7 +236,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
             <div className="text-sm font-black leading-tight text-white whitespace-normal break-words" title={label}>{label}</div>
             {(m.phase || m.groupName || m.roundName) && (
               <div className="text-[11px] font-bold leading-tight text-white/60 whitespace-normal break-words">
-                {m.groupName ? `${t('group_word')} ${m.groupName}` : (m.roundName || (m.phase === 'bracket' ? t('bracket_word') : ''))}
+                {m.groupName ? localizeGroupName(m.groupName, t) : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.phase === 'bracket' ? t('bracket_word') : ''))}
               </div>
             )}
           </div>
@@ -317,7 +318,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
                 { key: 'live', label: t('live_label') },
                 { key: 'next', label: t('next_label') },
                 { key: 'played', label: t('played_label') },
-                { key: 'tbd', label: 'TBD' },
+                { key: 'tbd', label: t('tbd_label') },
               ] as const).map((opt) => {
                 const active = turnsTab === opt.key;
                 const base = 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wide border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
@@ -690,7 +691,7 @@ const visibleTeamsCount = React.useMemo(() => {
                 aria-label={t('back')}
                 className={btnGhostDark}
               >
-                &larr; {t('back')}
+                <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" aria-hidden /> {t('back')}
               </button>
 
               <div className="min-w-0">
@@ -733,7 +734,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
                   {isStructurelessManualArchive ? null : (
                     <span className="inline-flex items-center gap-2 bg-white/10 border border-white/10 px-3 py-1.5 rounded-full text-xs font-bold text-white/90">
-                      <Users className="w-4 h-4 text-beer-500" /> {visibleTeamsCount} squadre
+                      <Users className="w-4 h-4 text-beer-500" /> {visibleTeamsCount} {t(visibleTeamsCount === 1 ? 'team_label' : 'teams').toLocaleLowerCase()}
                     </span>
                   )}
 
@@ -800,7 +801,7 @@ const visibleTeamsCount = React.useMemo(() => {
             <div className="text-xs font-bold text-amber-800">
               {t('waiting_label')} {pendingGroupTieBreaks
                 .slice(0, 6)
-                .map((m) => `${m.code || ''}${m.groupName ? ` (${m.groupName})` : ''}`)
+                .map((m) => `${m.code || ''}${m.groupName ? ` (${localizeGroupName(m.groupName, t)})` : ''}`)
                 .join(', ')}
               {pendingGroupTieBreaks.length > 6 ? ' …' : ''}
             </div>
@@ -832,7 +833,7 @@ const visibleTeamsCount = React.useMemo(() => {
                   onClick={onBack}
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" /> {t('go_back')}
+                  <ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" /> {t('go_back')}
                 </button>
 
                 {view === 'groups' && hasGroups && typeof advancingPerGroup === 'number' && (
@@ -869,7 +870,7 @@ const visibleTeamsCount = React.useMemo(() => {
                       onClick={onBack}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
                     >
-                      <ArrowLeft className="h-4 w-4" /> {t('back_to_archive')}
+                      <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> {t('back_to_archive')}
                     </button>
                   </div>
                 </div>
@@ -895,7 +896,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
                         <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 font-black uppercase text-slate-700 flex justify-between">
 
-                          <span>{g.name}</span>
+                          <span>{localizeGroupName(g.name, t)}</span>
 
                           {typeof advancingPerGroup === 'number' && (
 

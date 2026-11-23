@@ -556,6 +556,23 @@ const App: React.FC = () => {
     const routedTvMode = typeof window === 'undefined' ? null : readTvProjectionFromUrl(window.location.href);
     const isDedicatedTvProjection = routedTvMode !== null;
 
+    const readRoute = () => {
+        const params = new URLSearchParams(window.location.search);
+        const view = safeView(params.get('view'));
+        return { view, tournamentId: view === 'tournament_detail' ? params.get('flbp_tournament') || '' : '' };
+    };
+
+    const routeUrl = (nextView: string, tournamentId = '') => {
+        const url = new URL(window.location.href);
+        if (nextView === 'home') url.searchParams.delete('view');
+        else url.searchParams.set('view', nextView);
+        if (nextView === 'tournament_detail' && tournamentId) url.searchParams.set('flbp_tournament', tournamentId);
+        else url.searchParams.delete('flbp_tournament');
+        // A new history entry must never retain a session callback fragment.
+        url.hash = '';
+        return url.href;
+    };
+
     const [view, setView] = useState(() => {
         if (hasPlayerSupabaseAuthPayloadInUrl()) return 'player_area';
         try {
@@ -564,6 +581,7 @@ const App: React.FC = () => {
         } catch {
             // ignore
         }
+        if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('view')) return readRoute().view;
         if (isNativeWindowsShell()) {
             try { return safeView(localStorage.getItem('flbp_active_view_v1')); } catch { /* ignore */ }
         }
@@ -587,6 +605,9 @@ const App: React.FC = () => {
     });
     const [translationDictionaries, setTranslationDictionaries] = useState<Partial<Record<Language, TranslationDictionary>>>(() => translations);
     const [selectedTournament, setSelectedTournament] = useState<{ data: TournamentData, isLive: boolean } | null>(null);
+    const [routeTournamentId, setRouteTournamentId] = useState(() => typeof window !== 'undefined' && view === 'tournament_detail' ? readRoute().tournamentId : '');
+    const historyIndexRef = useRef(typeof window === 'undefined' ? 0 : Number(window.history.state?.flbpViewIndex) || 0);
+    const pendingPopIndexRef = useRef<number | null>(null);
     const [helpGuideReady, setHelpGuideReady] = useState(false);
     const [playerPresence, setPlayerPresence] = useState<PlayerPresenceSnapshot | null>(() => readPlayerPresenceState());
 
@@ -637,12 +658,13 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const navigateToView = useCallback(async (nextViewRaw: string, options?: { closeMenu?: boolean }) => {
+    const navigateToView = useCallback(async (nextViewRaw: string, options?: { closeMenu?: boolean; tournament?: { data: TournamentData; isLive: boolean } }) => {
         const nextView = safeView(nextViewRaw);
         if (options?.closeMenu) {
             setMenuOpen(false);
         }
-        if (nextView === view || isDraftNavigationPending()) return;
+        const tournamentId = options?.tournament?.data.id || '';
+        if ((nextView === view && (!tournamentId || tournamentId === routeTournamentId)) || isDraftNavigationPending()) return;
 
         const requestId = ++routeNavigationRequestRef.current;
         try {
@@ -654,9 +676,54 @@ const App: React.FC = () => {
         await requestDraftNavigation(() => {
             if (routeNavigationRequestRef.current != requestId) return;
             if (nextView === 'fantabeerpong') fantaOriginViewRef.current = view;
+            if (!isDedicatedTvProjection) {
+                try {
+                    const index = historyIndexRef.current + 1;
+                    window.history.pushState({ flbpViewIndex: index }, '', routeUrl(nextView, tournamentId));
+                    historyIndexRef.current = index;
+                } catch {
+                    // Views remain available if the browser blocks history writes.
+                }
+            }
+            setRouteTournamentId(tournamentId);
+            setSelectedTournament(options?.tournament || null);
             setView(nextView);
         });
-    }, [preloadViewChunk, view]);
+    }, [isDedicatedTvProjection, preloadViewChunk, routeTournamentId, view]);
+
+    useEffect(() => {
+        if (isDedicatedTvProjection) return;
+        const onPopState = async (event: PopStateEvent) => {
+            const index = Number(event.state?.flbpViewIndex) || 0;
+            const pendingIndex = pendingPopIndexRef.current;
+            if (pendingIndex !== null || isDraftNavigationPending()) {
+                const restoreIndex = pendingIndex ?? historyIndexRef.current;
+                if (restoreIndex !== index) window.history.go(restoreIndex - index);
+                return;
+            }
+            const target = readRoute();
+            if (index === historyIndexRef.current && target.view === view && target.tournamentId === routeTournamentId) return;
+            ++routeNavigationRequestRef.current;
+            pendingPopIndexRef.current = index;
+            try {
+                const accepted = await requestDraftNavigation(() => {
+                    if (target.view === 'fantabeerpong') fantaOriginViewRef.current = view;
+                    historyIndexRef.current = index;
+                    setMenuOpen(false);
+                    setRouteTournamentId(target.tournamentId);
+                    setSelectedTournament(null);
+                    setView(target.view);
+                });
+                if (!accepted && index !== historyIndexRef.current) {
+                    window.history.go(historyIndexRef.current - index);
+                }
+            } finally {
+                pendingPopIndexRef.current = null;
+            }
+        };
+        window.addEventListener('popstate', onPopState);
+        return () => window.removeEventListener('popstate', onPopState);
+    }, [isDedicatedTvProjection, routeTournamentId, view]);
 
     const primeViewChunk = useCallback((nextViewRaw: string) => {
         void preloadViewChunk(nextViewRaw).catch(() => {
@@ -1236,7 +1303,7 @@ const App: React.FC = () => {
         ['--flbp-drawer-w' as any]:
           'min(20rem, calc(100vw - var(--flbp-safe-left, env(safe-area-inset-left, 0px)) - var(--flbp-safe-right, env(safe-area-inset-right, 0px)) - 8px))',
         width: 'var(--flbp-drawer-w)',
-        left: menuOpen ? '0px' : 'calc(-1 * var(--flbp-drawer-w))',
+        insetInlineStart: menuOpen ? '0px' : 'calc(-1 * var(--flbp-drawer-w))',
         paddingTop: 'max(12px, var(--flbp-safe-top, env(safe-area-inset-top, 0px)))',
         paddingBottom: 'max(12px, var(--flbp-safe-bottom, env(safe-area-inset-bottom, 0px)))',
       };
@@ -1537,7 +1604,12 @@ const App: React.FC = () => {
     }, [view]);
 
     useEffect(() => {
-        try { sessionStorage.removeItem(POST_RELOAD_VIEW_KEY); } catch {}
+        try {
+            if (sessionStorage.getItem(POST_RELOAD_VIEW_KEY) && !isDedicatedTvProjection && !hasPlayerSupabaseAuthPayloadInUrl()) {
+                window.history.replaceState(window.history.state, '', routeUrl(view, routeTournamentId));
+            }
+            sessionStorage.removeItem(POST_RELOAD_VIEW_KEY);
+        } catch {}
     }, []);
 
     useEffect(() => {
@@ -1662,12 +1734,8 @@ const App: React.FC = () => {
         });
     };
 
-    const handleViewTournament = (t: TournamentData, isLive: boolean) => {
-        setSelectedTournament({ data: t, isLive });
-        try {
-            localStorage.setItem(SELECTED_TOURNAMENT_KEY, JSON.stringify({ id: t.id, isLive }));
-        } catch {}
-        void navigateToView('tournament_detail');
+    const handleViewTournament = (tournament: TournamentData, isLive: boolean) => {
+        void navigateToView('tournament_detail', { tournament: { data: tournament, isLive } });
     };
 
     const adminStateGeneration = persistenceGenerationRef.current;
@@ -1781,32 +1849,19 @@ const App: React.FC = () => {
     }, [SITE_VISIT_DAY_KEY, SITE_VISIT_PENDING_KEY, SITE_VISIT_SESSION_KEY, tvMode, view]);
 
     useEffect(() => {
-        if (view !== 'tournament_detail') return;
-        if (selectedTournament) return;
-        try {
-            const raw = localStorage.getItem(SELECTED_TOURNAMENT_KEY);
-            if (!raw) {
-                try { localStorage.removeItem(SELECTED_TOURNAMENT_KEY); } catch {}
-                setView('tournament');
-                return;
-            }
-            const parsed = JSON.parse(raw);
-            const isLive = !!parsed.isLive;
-            const id = String(parsed.id || '').trim();
-            const base = stateForPublicViews;
-
-            const fromSnapshot = isLive ? base.tournament : (base.tournamentHistory || []).find(t => t.id === id);
-            const data = fromSnapshot;
-            if (data) setSelectedTournament({ data, isLive });
-            else {
-                try { localStorage.removeItem(SELECTED_TOURNAMENT_KEY); } catch {}
-                setView('tournament');
-            }
-        } catch {
-            try { localStorage.removeItem(SELECTED_TOURNAMENT_KEY); } catch {}
-            setView('tournament');
+        if (view !== 'tournament_detail' || selectedTournament) return;
+        let id = routeTournamentId;
+        if (!id) {
+            // Recover tournament selections from older sessions and bookmarks.
+            try {
+                const previous = localStorage.getItem(SELECTED_TOURNAMENT_KEY);
+                if (previous) id = String(JSON.parse(previous).id || '').trim();
+            } catch {}
         }
-    }, [view, selectedTournament, stateForPublicViews]);
+        const live = stateForPublicViews.tournament;
+        const data = live?.id === id ? live : publicEditionHistory(stateForPublicViews).find(tournament => tournament.id === id);
+        if (data) setSelectedTournament({ data, isLive: live?.id === data.id });
+    }, [view, routeTournamentId, selectedTournament, stateForPublicViews]);
 
     if (tvMode) {
         return (
@@ -1855,6 +1910,35 @@ const App: React.FC = () => {
                         <HallOfFameLazy stateOverride={stateForPublicViews} />
                     </React.Suspense>
                 );
+            case 'tournament_detail':
+                if (selectedTournament) {
+                    const id = selectedTournament.data.id;
+                    const snapshotTournament = selectedTournament.isLive
+                        ? stateForPublicViews.tournament
+                        : publicEditionHistory(stateForPublicViews).find(t => t.id === id);
+
+                    const data = snapshotTournament || selectedTournament.data;
+                    const snapshotMatches = snapshotTournament?.matches || (snapshotTournament?.rounds ? snapshotTournament.rounds.flat() : []);
+                    const matches = (selectedTournament.isLive ? stateForPublicViews.tournamentMatches : (snapshotMatches || selectedTournament.data.matches || [])) || [];
+
+                    return (
+                        <React.Suspense fallback={<RouteViewFallback />}>
+                            <PublicTournamentDetailLazy
+                                key={data.id}
+                                initialData={data}
+                                initialMatches={matches}
+                                teams={selectedTournament.isLive ? (snapshotTournament?.teams?.length ? snapshotTournament.teams : stateForPublicViews.teams) : (snapshotTournament?.teams || selectedTournament.data.teams || [])}
+                                isLive={selectedTournament.isLive}
+                                onBack={() => { void navigateToView('tournament'); }}
+                                logo={stateForPublicViews.logo}
+                                hallOfFame={stateForPublicViews.hallOfFame}
+                                playerAliases={stateForPublicViews.playerAliases}
+                                publicState={stateForPublicViews}
+                            />
+                        </React.Suspense>
+                    );
+                }
+                // The public archive remains usable while a shared tournament link hydrates.
             case 'tournament':
                 {
                     const liveTournament = stateForPublicViews.tournament || null;
@@ -1867,41 +1951,6 @@ const App: React.FC = () => {
                                 liveMatches={stateForPublicViews.tournamentMatches || []}
                                 liveTeams={(stateForPublicViews.tournament?.teams && stateForPublicViews.tournament.teams.length) ? stateForPublicViews.tournament.teams : (stateForPublicViews.teams || [])}
                                 onViewTournament={handleViewTournament}
-                            />
-                        </React.Suspense>
-                    );
-                }
-            case 'tournament_detail':
-                if (!selectedTournament) return <RouteViewFallback />;
-                {
-                    const id = selectedTournament.data.id;
-                    const snapshotTournament = selectedTournament.isLive
-                        ? stateForPublicViews.tournament
-                        : publicEditionHistory(stateForPublicViews).find(t => t.id === id);
-
-                    const data = snapshotTournament || selectedTournament.data;
-
-                    const snapshotMatches = snapshotTournament?.matches || (snapshotTournament?.rounds ? snapshotTournament.rounds.flat() : []);
-                    const matches = (selectedTournament.isLive ? stateForPublicViews.tournamentMatches : (snapshotMatches || selectedTournament.data.matches || [])) || [];
-
-                    const teams = (selectedTournament.isLive
-                        ? ((snapshotTournament?.teams && snapshotTournament.teams.length)
-                            ? snapshotTournament.teams
-                            : stateForPublicViews.teams)
-                        : (snapshotTournament?.teams || selectedTournament.data.teams || [])) || [];
-
-                    return (
-                        <React.Suspense fallback={<RouteViewFallback /> }>
-                            <PublicTournamentDetailLazy
-                                initialData={data}
-                                initialMatches={matches}
-                                teams={teams}
-                                isLive={selectedTournament.isLive}
-                                onBack={() => { void navigateToView('tournament'); }}
-                                logo={stateForPublicViews.logo}
-                                hallOfFame={stateForPublicViews.hallOfFame}
-                                playerAliases={stateForPublicViews.playerAliases}
-                                publicState={stateForPublicViews}
                             />
                         </React.Suspense>
                     );
@@ -2183,8 +2232,8 @@ const App: React.FC = () => {
                                         className={publicNavItemClass(view === 'fantabeerpong')}
                                     >
                                         <Shield className="w-4 h-4" />
-                                        <span>FantaBeerpong</span>
-                                        <span className="rounded-full border border-amber-300/60 bg-amber-100/90 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-800">Beta</span>
+                                        <span>{t('fanta_brand')}</span>
+                                        <span className="rounded-full border border-amber-300/60 bg-amber-100/90 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-800">{t('fanta_beta')}</span>
                                     </button>
                                 </nav>
                             ) : null}
@@ -2205,7 +2254,7 @@ const App: React.FC = () => {
                                             title={t('player_area')}
                                         >
                                             <UserRound className="w-4 h-4" aria-hidden />
-                                            <span className="hidden max-w-[28vw] truncate sm:inline">{playerPresence.firstName || playerPresence.displayName || 'Account'}</span>
+                                            <span className="hidden max-w-[28vw] truncate sm:inline">{playerPresence.firstName || playerPresence.displayName || t('account_section')}</span>
                                         </button>
                                         <button
                                             type="button"
@@ -2416,7 +2465,7 @@ const App: React.FC = () => {
                 ) : null}
 
                 {/* Sidebar Menu - Rendered at the end to ensure it stays on top of sticky elements */}
-                <div style={drawerStyle} className={`fixed inset-y-0 left-0 bg-white shadow-2xl z-40 flex flex-col ${androidWebViewRuntime ? 'transition-[left] duration-200' : `w-64 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}`}>
+                <div style={drawerStyle} className={`fixed inset-y-0 start-0 bg-white shadow-2xl z-40 flex flex-col ${androidWebViewRuntime ? 'transition-[inset-inline-start] duration-200' : `w-64 transform transition-transform duration-300 ${menuOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'}`}`}>
                     <div className="p-6 flex justify-between items-start border-b border-slate-100 flex-shrink-0">
                         <div className="min-w-0">
                             <PublicBrandStack tone="onLight" className="mb-2" />
@@ -2488,8 +2537,8 @@ const App: React.FC = () => {
                             className={menuItemClass(view === 'fantabeerpong')}
                         >
                             <Shield className="w-4 h-4 text-slate-500" />
-                            <span>FantaBeerpong</span>
-                            <span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-700">Beta</span>
+                            <span>{t('fanta_brand')}</span>
+                            <span className="ms-auto rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-700">{t('fanta_beta')}</span>
                         </button>
 
                         <hr className="border-slate-100 my-2" />

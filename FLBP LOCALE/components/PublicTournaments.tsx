@@ -1,6 +1,7 @@
 import React from 'react';
 import { Match, Team, TournamentData } from '../types';
 import { useTranslation } from '../App';
+import { localizeBracketRound, localizeGroupName } from '../services/i18nService';
 import { formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds, isByeTeamId } from '../services/matchUtils';
 import { Activity, History, ArrowRight, MonitorPlay, Search, X, Users, CalendarDays, LayoutList } from 'lucide-react';
 import { PublicBrandStack } from './PublicBrandStack';
@@ -265,7 +266,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
             <div className="text-sm font-black leading-tight text-white whitespace-normal break-words" title={label}>{label}</div>
             {(m.phase || m.groupName || m.roundName) && (
               <div className="text-[11px] font-bold leading-tight text-white/60 whitespace-normal break-words">
-                {m.groupName ? `${t('group_word')} ${m.groupName}` : (m.roundName || (m.phase === 'bracket' ? t('bracket_word') : ''))}
+                {m.groupName ? localizeGroupName(m.groupName, t) : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.phase === 'bracket' ? t('bracket_word') : ''))}
               </div>
             )}
           </div>
@@ -318,7 +319,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                   { key: 'live', label: t('live_label') },
                   { key: 'next', label: t('next_label') },
                   { key: 'played', label: t('played_label') },
-                  { key: 'tbd', label: 'TBD' },
+                  { key: 'tbd', label: t('tbd_label') },
                 ] as const).map((opt) => {
                   const active = turnsTab === opt.key;
                   const base = 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wide border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
@@ -572,7 +573,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                               onClick={() => onViewTournament(liveTournament, true)}
                               className={btnPrimaryDark}
                             >
-                                {t('follow_live')} <ArrowRight className="w-5 h-5" />
+                                {t('follow_live')} <ArrowRight className="w-5 h-5 rtl:-scale-x-100" />
                             </button>
                             <button
                               type="button"
@@ -703,7 +704,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                         
                         <div className="pt-4 border-t border-slate-50 flex justify-end">
                              <span className="text-xs font-black uppercase text-slate-400 group-hover:text-beer-500 flex items-center gap-1 transition-colors">
-                                 {isStructurelessManualArchive(tournament) ? t('open_sheet') : t('see_results')} <ArrowRight className="w-3 h-3" />
+                                 {isStructurelessManualArchive(tournament) ? t('open_sheet') : t('see_results')} <ArrowRight className="w-3 h-3 rtl:-scale-x-100" />
                              </span>
                         </div>
                     </button>

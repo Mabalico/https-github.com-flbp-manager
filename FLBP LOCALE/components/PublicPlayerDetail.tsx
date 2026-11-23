@@ -405,9 +405,9 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
               {participations.map((row) => {
                 const subtitle = formatMetaLine(row.year, row.team);
                 const stats = formatMetaLine(
-                  row.games ? `${row.games} ${t('games').toLowerCase()}` : null,
-                  row.points ? `${row.points} ${t('points').toLowerCase()}` : null,
-                  row.soffi ? `${row.soffi} ${t('soffi').toLowerCase()}` : null
+                  row.games ? `${row.games} ${t(row.games === 1 ? 'game_singular' : 'games').toLocaleLowerCase()}` : null,
+                  row.points ? `${row.points} ${t(row.points === 1 ? 'basket_singular' : 'points_baskets').toLocaleLowerCase()}` : null,
+                  row.soffi ? `${row.soffi} ${t(row.soffi === 1 ? 'blow_singular' : 'soffi').toLocaleLowerCase()}` : null
                 );
                 const body = (
                   <>

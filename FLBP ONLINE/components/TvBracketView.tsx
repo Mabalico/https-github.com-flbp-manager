@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from '../App';
+import { localizeGroupName } from '../services/i18nService';
 import { Team, TournamentData, Match } from '../types';
 import { PublicTvShell } from './PublicTvShell';
 import { TvClassicBracket } from './TvClassicBracket';
@@ -90,9 +91,9 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   }, [teams]);
 
   const getName = React.useCallback((id?: string) => {
-    if (!id) return 'TBD';
-    return teamNameById.get(id) || 'TBD';
-  }, [teamNameById]);
+    if (!id) return t('tbd_label');
+    return teamNameById.get(id) || t('tbd_label');
+  }, [teamNameById, t]);
 
   const visibleBracketTeamsCount = React.useMemo(() => visibleTeams(teams).length, [teams, visibleTeams]);
   const preferredBracketRounds = React.useMemo(() => getPreferredBracketRounds(data, matches), [data, matches]);
@@ -152,7 +153,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
     return (
       <div key={g.id} className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col min-h-0">
         <div className="bg-slate-900 text-white p-2 font-black uppercase text-center tracking-widest text-xs">
-          {g.name}
+          {localizeGroupName(g.name, t)}
         </div>
 
         <div className="flex-1 min-h-0 p-3 grid grid-cols-1 gap-3">
@@ -272,7 +273,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-slate-200">
-                          {t('groups')} {displayedGroups.length}
+                          {t('tv_groups_count').replace('{count}', String(displayedGroups.length))}
                         </div>
                         {pageCount > 1 && (
                           <div className="rounded-full border border-blue-400/25 bg-blue-500/12 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-blue-100">
@@ -294,7 +295,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                           .map((m) => {
                             const ids = getMatchParticipantIds(m).filter((id) => id !== 'BYE');
                             const prefix = m.isTieBreak ? `${t('tiebreak_label')} • ` : '';
-                            return `${prefix}${ids.map((id) => getName(id)).join(' vs ')}${m.groupName ? ` (${m.groupName})` : ''}`;
+                            return `${prefix}${ids.map((id) => getName(id)).join(' vs ')}${m.groupName ? ` (${localizeGroupName(m.groupName, t)})` : ''}`;
                           })
                           .join(' • ')}
                         {pendingGroupTieBreaks.length > 4 ? ' • …' : ''}

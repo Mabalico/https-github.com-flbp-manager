@@ -5,6 +5,7 @@ import type { Match, Team, TournamentData } from '../types';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 import { useTranslation } from '../App';
+import { localizeBracketRound } from '../services/i18nService';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 type LayoutProfile = {
@@ -272,7 +273,7 @@ const buildLayoutData = ({
   const finalMatch = effectiveRounds[totalRounds - 1]?.[0];
   if (finalMatch) {
     placements[finalMatch.uid] = { x: finalX, y: finalCenterY - profile.matchHeight / 2, centerY: finalCenterY, side: 'center' };
-    labels.push({ key: `${labelPrefix}-final`, x: finalX + profile.matchWidth / 2, y: profile.labelY, text: finalLabel, side: 'center', roundIndex: finalMatch.roundIndex });
+    labels.push({ key: `${labelPrefix}-final`, x: finalX + profile.matchWidth / 2, y: Math.min(profile.labelY, finalCenterY - profile.matchHeight / 2 - 32), text: finalLabel, side: 'center', roundIndex: finalMatch.roundIndex });
   }
 
   const scale = quantizeScaleForTv(Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight));
@@ -352,6 +353,7 @@ const isPlaceholderTeamName = (name: string) => {
 
 const TeamLine: React.FC<{
   name: string;
+  placeholderLabel: string;
   score: string | number;
   placementSide: Placement['side'];
   profile: LayoutProfile;
@@ -360,11 +362,11 @@ const TeamLine: React.FC<{
   championLabel?: string;
   pendingAriaLabel: string;
   scoreAriaLabel: string;
-}> = ({ name, score, placementSide, profile, compact, winner = false, championLabel, pendingAriaLabel, scoreAriaLabel }) => {
+}> = ({ name, placeholderLabel, score, placementSide, profile, compact, winner = false, championLabel, pendingAriaLabel, scoreAriaLabel }) => {
   const textFontSize = getTeamTextFontSize(name, profile.fontSize, compact);
   const scoreClass = scoreTextClass(profile, compact);
   const isPlaceholder = isPlaceholderTeamName(name);
-  const displayName = isPlaceholder ? name : String(name || '').trim().toUpperCase();
+  const displayName = isPlaceholder ? placeholderLabel : String(name || '').trim().toUpperCase();
   const isPendingScore = score === '-';
   const scoreNode = score === '' ? null : (
     <span
@@ -385,7 +387,8 @@ const TeamLine: React.FC<{
         wordBreak: isPlaceholder ? 'keep-all' : 'break-word',
         overflowWrap: 'anywhere',
       }}
-      title={name}
+      title={displayName}
+      dir="auto"
     >
       {displayName}
     </span>
@@ -536,26 +539,6 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     return winnerB ? 'W' : winnerA ? 'L' : '';
   }, [resultsOnlyBracket]);
 
-  const localizeRoundLabel = React.useCallback((text: string, compactMode = false) => {
-    const normalized = String(text || '').trim().toUpperCase();
-    if (!normalized) return compactMode ? 'R' : t('round_word');
-
-    if (normalized === 'FINALE' || normalized === 'FINAL') return t('finale');
-    const semifinalSide = normalized.match(/^SEMIFINALE ([AB])$/);
-    if (semifinalSide) return t('semi') + ' ' + semifinalSide[1];
-    if (normalized === 'SEMIFINALE' || normalized === 'SEMIFINALI' || normalized === 'SEMIFINAL' || normalized === 'SEMIFINALS') return t('semi');
-    if (normalized === 'QUARTI DI FINALE' || normalized === 'QUARTERFINAL' || normalized === 'QUARTERFINALS') return t('quarti');
-    if (normalized === 'OTTAVI DI FINALE' || normalized === 'ROUND OF 16') return t('ottavi');
-    if (normalized === 'SEDICESIMI DI FINALE' || normalized === 'ROUND OF 32') return '16simi';
-    if (normalized === 'TRENTADUESIMI DI FINALE' || normalized === 'ROUND OF 64') return '32simi';
-    if (normalized === 'SESSANTAQUATTRESIMI DI FINALE' || normalized === 'ROUND OF 128') return '64simi';
-    if (normalized === 'CENTOVENTOTTESIMI DI FINALE' || normalized === 'ROUND OF 256') return '128simi';
-
-    const roundMatch = normalized.match(/^(?:TURNO|ROUND)\s+(\d+)$/);
-    if (roundMatch) return compactMode ? `R${roundMatch[1]}` : `${t('round_word')} ${roundMatch[1]}`;
-
-    return normalized;
-  }, [t]);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
 
@@ -918,16 +901,17 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               </svg>
 
               {renderedLabels.map((label) => {
-                const displayText = localizeRoundLabel(label.text, compact);
+                const displayText = localizeBracketRound(label.text, t);
                 const labelStyle = getLabelStyle(displayText, displayLayout.profile.labelSize, compact, label.side, displayLayout.profile);
                 const labelClassName = getLabelClassName(label.side, compact, displayLayout.profile);
 
                 return (
                   <div
                     key={label.key}
-                    className={`absolute -translate-x-1/2 rounded-full border py-1 text-center font-black tracking-[0.18em] ${labelClassName}`}
+                    className={`absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-full border py-1 text-center font-black tracking-wide ${labelClassName}`}
                     style={{ left: `${label.x}px`, top: `${label.y}px`, ...labelStyle }}
-                    title={label.text}
+                    dir="auto"
+                    title={displayText}
                   >
                     {displayText}
                   </div>
@@ -973,6 +957,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.top}
+                        placeholderLabel={t('tbd_label')}
                         score={getTeamOutcomeLabel(match.raw, 'A')}
                         placementSide={placement.side}
                         profile={displayLayout.profile}
@@ -987,6 +972,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.bottom}
+                        placeholderLabel={t('tbd_label')}
                         score={getTeamOutcomeLabel(match.raw, 'B')}
                         placementSide={placement.side}
                         profile={displayLayout.profile}
@@ -1079,7 +1065,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
         <div className="absolute bottom-4 right-4 z-10 flex flex-wrap justify-end gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-200">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-cyan-300" /> {t('bracket_word')}</div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-amber-300" /> {t('finale')}</div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-slate-400" /> TBD</div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-slate-400" /> {t('tbd_label')}</div>
         </div>
       )}
 
@@ -1094,16 +1080,17 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
             </svg>
 
             {renderedLabels.map((label) => {
-              const displayText = localizeRoundLabel(label.text, compact);
+              const displayText = localizeBracketRound(label.text, t);
               const labelStyle = getLabelStyle(displayText, displayLayout.profile.labelSize, compact, label.side, displayLayout.profile);
               const labelClassName = getLabelClassName(label.side, compact, displayLayout.profile);
 
               return (
                 <div
                   key={label.key}
-                  className={`absolute -translate-x-1/2 rounded-full border py-1 text-center font-black tracking-[0.18em] ${labelClassName}`}
+                  className={`absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-full border py-1 text-center font-black tracking-wide ${labelClassName}`}
                   style={{ left: `${label.x}px`, top: `${label.y}px`, ...labelStyle }}
-                  title={label.text}
+                  dir="auto"
+                    title={displayText}
                 >
                   {displayText}
                 </div>
@@ -1149,6 +1136,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.top}
+                        placeholderLabel={t('tbd_label')}
                       score={getTeamOutcomeLabel(match.raw, 'A')}
                       placementSide={placement.side}
                       profile={displayLayout.profile}
@@ -1163,6 +1151,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.bottom}
+                        placeholderLabel={t('tbd_label')}
                       score={getTeamOutcomeLabel(match.raw, 'B')}
                       placementSide={placement.side}
                       profile={displayLayout.profile}
