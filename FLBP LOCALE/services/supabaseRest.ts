@@ -1,4 +1,5 @@
 import { countedIntegrations, listEditions } from './editionData';
+import { stableStateSerialize } from './stableStateSerialize';
 import { coerceAppState, type AppState } from './storageService';
 import { hasCountedPlayerStats } from './matchUtils';
 import { deriveYoBFromBirthDate, isU25, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
@@ -3815,7 +3816,7 @@ const makeConflictError = (message: string, meta?: { remoteUpdatedAt?: string | 
     return e;
 };
 
-export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+const writeWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     await requireSupabaseWriteSession();
@@ -3853,6 +3854,18 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
         const conflict = normalizeRpcConflictError(body, conflictUpdatedAt || null);
         if (conflict) {
             let remoteUpdatedAt = conflictUpdatedAt || null;
+            try {
+                const remote = await pullWorkspaceState({ source: 'pushWorkspaceState.verifyConflict', kind: 'admin' });
+                if (remote?.updated_at) {
+                    remoteUpdatedAt = remote.updated_at;
+                    if (stableStateSerialize(remote.state) === stableStateSerialize(state)) {
+                        setRemoteBaseUpdatedAt(remote.updated_at);
+                        return remote;
+                    }
+                }
+            } catch {
+                // Preserve the original conflict when verification is unavailable.
+            }
             if (!remoteUpdatedAt) {
                 try {
                     remoteUpdatedAt = await pullWorkspaceStateUpdatedAt({ source: 'pushWorkspaceState.conflictUpdatedAt', kind: 'admin' });
@@ -3881,6 +3894,37 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
     };
     setRemoteBaseUpdatedAt(out.updated_at || payload.updated_at);
     return out;
+};
+
+type SnapshotWriteKey = { scope: string; fingerprint: string };
+let confirmedSnapshotWrite: (SnapshotWriteKey & { row: SupabaseWorkspaceStateRow }) | undefined;
+let activeSnapshotWrite: (SnapshotWriteKey & { base: string | null; result: Promise<SupabaseWorkspaceStateRow> }) | undefined;
+
+export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return writeWorkspaceState(state, opts, perf);
+    const scope = [cfg.url, cfg.workspaceId, getSupabaseSession()?.userId || ''].join('|');
+    const fingerprint = stableStateSerialize(state);
+    const base = opts?.baseUpdatedAt === undefined ? getRemoteBaseUpdatedAt() : opts.baseUpdatedAt;
+    const canReuse = !opts?.force && opts?.baseUpdatedAt === undefined;
+    if (canReuse && hasSupabaseWriteSession()) {
+        const matches = (entry?: SnapshotWriteKey) => entry?.scope === scope && entry.fingerprint === fingerprint;
+        const active = activeSnapshotWrite;
+        if (active && matches(active) && active.base === base) return active.result;
+        const confirmed = confirmedSnapshotWrite;
+        if (!active && confirmed && matches(confirmed) && confirmed.row.updated_at === base) return confirmed.row;
+    }
+
+    const result = writeWorkspaceState(state, opts, perf);
+    const active = { scope, fingerprint, base, result };
+    activeSnapshotWrite = active;
+    try {
+        const row = await result;
+        if (activeSnapshotWrite === active) confirmedSnapshotWrite = { scope, fingerprint, row };
+        return row;
+    } finally {
+        if (activeSnapshotWrite === active) activeSnapshotWrite = undefined;
+    }
 };
 
 // -----------------------------
@@ -4105,6 +4149,7 @@ export interface NormalizedExportSummary {
     integrationsScorers: number;
     aliases: number;
     publicCareerPlayers: number;
+    workspaceUpdatedAt?: string | null;
 }
 
 export interface SimPoolSeedSummary {
@@ -4456,12 +4501,12 @@ const emptyNormalizedExportSummary = (): NormalizedExportSummary => ({
     publicCareerPlayers: 0,
 });
 
-export const pushLiveTournamentIncremental = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
+export const pushLiveTournamentIncremental = async (state: AppState, opts?: { force?: boolean; strictPublicMirror?: boolean }): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg || !state.tournament) return emptyNormalizedExportSummary();
 
     // Keep the canonical snapshot atomic/light; normalized tables below are the live mirror.
-    await pushWorkspaceState(state, opts);
+    const workspaceRow = await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
     const tournamentId = String(state.tournament.id || '').trim();
@@ -4489,8 +4534,8 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
         await restUpsertRows(cfg, 'public_tournament_matches', rows.publicMatchRows, 'workspace_id,tournament_id,id');
         await restUpsertRows(cfg, 'public_tournament_match_stats', rows.publicStatRows, 'workspace_id,tournament_id,match_id,team_id,player_name', 800);
         await deleteStalePublicTournamentRows(cfg, tournamentId, rows);
-    } catch {
-        // ignore: public mirror tables might not exist yet or may be temporarily unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) throw error;
     }
 
     return {
@@ -4501,16 +4546,17 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
         groupTeams: rows.groupTeamRows.length,
         matches: rows.matchRows.length,
         matchStats: rows.statRows.length,
+        workspaceUpdatedAt: workspaceRow.updated_at || null,
     };
 };
 
 // NOTE: This is an explicit admin action. It overwrites normalized tables for the workspace.
-export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }): Promise<NormalizedExportSummary> => {
+export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null; strictPublicMirror?: boolean }): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
 
     // Safety: keep snapshot updated too.
-    await pushWorkspaceState(state, opts);
+    const workspaceRow = await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
     // 1) Clear normalized workspace data.
@@ -4679,8 +4725,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
 
         // Public Hall of Fame (sanitized)
         await restUpsertRows(cfg, 'public_hall_of_fame_entries', publicHofRows, 'workspace_id,id');
-    } catch {
-        // ignore: tables missing or unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) throw error;
     }
 
     // 4) Public career leaderboard (safe aggregated stats, no full YoB)
@@ -4689,8 +4735,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         const publicRows = await buildPublicCareerLeaderboardRows(cfg, state);
         publicCareerPlayers = publicRows.length;
         await restUpsertRows(cfg, 'public_career_leaderboard', publicRows, 'workspace_id,id', 800);
-    } catch {
-        // ignore: table missing or unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) throw error;
         publicCareerPlayers = 0;
     }
 
@@ -4704,7 +4750,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         hallOfFame: hofRows.length,
         integrationsScorers: scorersRows.length,
         aliases: aliasesRows.length,
-        publicCareerPlayers
+        publicCareerPlayers,
+        workspaceUpdatedAt: workspaceRow.updated_at || null,
     };
 };
 

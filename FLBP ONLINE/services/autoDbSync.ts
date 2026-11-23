@@ -1,5 +1,6 @@
 import type { AppState } from './storageService';
-import { getSupabaseAccessToken, getSupabaseConfig, pushLiveTournamentIncremental, pushNormalizedFromState } from './supabaseRest';
+import { getRemoteBaseUpdatedAt, getSupabaseConfig, pushLiveTournamentIncremental, pushNormalizedFromState } from './supabaseRest';
+import { stableStateSerialize } from './stableStateSerialize';
 import { isAdminWriteBlockedByLease } from './adminWriteLeaseState';
 import { markDbSyncConflict, markDbSyncError, markDbSyncOk } from './dbDiagnostics';
 import { getAppStateRepository } from './repository/getRepository';
@@ -23,6 +24,7 @@ import { isAutoStructuredSyncEnabled } from './repository/featureFlags';
 let externalRestorePaused = false;
 const activeSyncRequests = new Set<Promise<void>>();
 let pending: AppState | null = null;
+let pendingRevision = 0;
 let timer: number | null = null;
 let inFlight = false;
 let queuedFlushAfterInFlight = false;
@@ -30,6 +32,7 @@ let queuedForceAfterInFlight = false;
 
 let lastRunAt = 0;
 let lastFingerprint = '';
+let lastProjectedAt: string | null = null;
 
 const MIN_INTERVAL_MS = 20_000; // throttle
 const DEBOUNCE_MS = 1500;
@@ -123,61 +126,6 @@ const installDataPlaneHook = () => {
   }
 };
 
-const safeFingerprint = (s: AppState): string => {
-  // Stable-ish fingerprint of the portions that affect normalized/public exports.
-  // It must change on real content edits, not just on count changes.
-  try {
-    const summarizeMatch = (m: any) => [
-      m?.id || '',
-      m?.status || '',
-      m?.scoreA ?? '',
-      m?.scoreB ?? '',
-      m?.teamAId || '',
-      m?.teamBId || '',
-      m?.updatedAt || '',
-      Array.isArray(m?.teamIds) ? m.teamIds.join(',') : '',
-      m?.scoresByTeam ? JSON.stringify(m.scoresByTeam) : '',
-      Array.isArray(m?.stats)
-        ? m.stats
-            .map((st: any) => `${st?.teamId || ''}:${st?.playerName || ''}:${st?.canestri ?? 0}:${st?.soffi ?? 0}`)
-            .join(';')
-        : '',
-    ].join('|');
-
-    const summarizeTournament = (t: any) => {
-      if (!t) return '';
-      const matches = Array.isArray(t.matches)
-        ? t.matches
-        : (Array.isArray(t.rounds) ? t.rounds.flat() : []);
-      return [
-        t.id || '',
-        t.name || '',
-        t.type || '',
-        t.startDate || '',
-        JSON.stringify(t.config || {}),
-        (t.teams || []).map((tm: any) => `${tm?.id || ''}:${tm?.name || ''}:${tm?.player1 || ''}:${tm?.player2 || ''}`).join(','),
-        matches.map(summarizeMatch).join('~'),
-      ].join('#');
-    };
-
-    const parts = [
-      `draftTeams:${(s.teams || []).map((tm: any) => `${tm?.id || ''}:${tm?.name || ''}:${tm?.player1 || ''}:${tm?.player2 || ''}`).join(',')}`,
-      `live:${summarizeTournament({
-        ...s.tournament,
-        matches: s.tournamentMatches || s.tournament?.matches || [],
-      })}`,
-      `history:${(s.tournamentHistory || []).map(summarizeTournament).join('||')}`,
-      `hof:${JSON.stringify(s.hallOfFame || [])}`,
-      `aliases:${JSON.stringify(s.playerAliases || {})}`,
-      `scorers:${JSON.stringify(s.integrationsScorers || [])}`,
-      `logo:${s.logo || ''}`,
-    ];
-    return parts.join('|');
-  } catch {
-    return String(Date.now());
-  }
-};
-
 const armFlushTimer = (delayMs: number) => {
   if (timer != null) window.clearTimeout(timer);
   timer = window.setTimeout(() => {
@@ -192,6 +140,7 @@ export const scheduleAutoStructuredSync = (state: AppState) => {
   if (!cfg) return;
 
   pending = state;
+  pendingRevision += 1;
   installDataPlaneHook();
   if (!isAutoStructuredSyncEnabled() && !normalizedSyncRequired()) return;
   installRetryHooks();
@@ -202,11 +151,13 @@ export const scheduleAutoStructuredSync = (state: AppState) => {
  * A state that reached React from outside the autosave (remote pull, or a
  * commit already confirmed by an RPC) supersedes the queued one. The queue
  * must never republish the older snapshot on top of it: `state` replaces it,
- * `null` drops it. Nothing is queued if nothing was pending.
+ * `null` drops it, including a snapshot waiting for route resolution.
  */
 export const replacePendingAutoStructuredSync = (state: AppState | null) => {
-  if (!pending) return;
+  if (!pending && !inFlight) return;
   pending = state;
+  pendingRevision += 1;
+  if (inFlight && state) queuedFlushAfterInFlight = true;
 };
 
 const flushAutoStructuredSyncNow = async (
@@ -219,7 +170,10 @@ const flushAutoStructuredSyncNow = async (
     // da scheda stantia).
     return;
   }
-  if (stateOverride) pending = stateOverride;
+  if (stateOverride) {
+    pending = stateOverride;
+    pendingRevision += 1;
+  }
   if (inFlight) {
     // Live/referto/simulation commits can arrive while a previous structured
     // export is still running. Keep the latest state queued and drain it right
@@ -240,48 +194,41 @@ const flushAutoStructuredSyncNow = async (
   if (!cfg) return;
   if (isRetryCoolingDown(opts?.allowDuringBackoff)) return;
 
-  const route = await resolveDataPlane();
-  if (route.mode !== 'cloud') {
-    // SQLite is authoritative. Keep only the latest state queued; the control
-    // page emits DATA_PLANE_CHANGE_EVENT after safe deactivation and this
-    // normalized mirror is then rebuilt once, instead of every 20 seconds.
-    pending = s;
-    return;
-  }
-
-  const now = Date.now();
-  const fp = safeFingerprint(s);
+  const revision = pendingRevision;
   const forceThisRun = !!opts?.force || queuedForceAfterInFlight;
   queuedFlushAfterInFlight = false;
   queuedForceAfterInFlight = false;
-
-  // Throttle. `force` here only means "do not wait for the throttle"
-  // (retry, online, visible tab, explicit commits): the queued state stays in
-  // `pending` and the timer is re-armed for the remaining time, otherwise the
-  // last edit would wait for an unrelated lifecycle event.
-  if (!forceThisRun && (now - lastRunAt) < MIN_INTERVAL_MS) {
-    if (fp !== lastFingerprint) armFlushTimer(MIN_INTERVAL_MS - (now - lastRunAt));
-    return;
-  }
-
   inFlight = true;
-  pending = null;
 
   try {
+    // Reserve the queue before awaiting discovery. Another flush may only
+    // update the pending state while this one is resolving the data plane.
+    const route = await resolveDataPlane();
+    if (revision !== pendingRevision || route.mode !== 'cloud') return;
+    if (isAdminWriteBlockedByLease()) return;
     const strictRecoveryProjection = normalizedSyncRequired();
+    const fingerprint = stableStateSerialize(s);
+    const base = getRemoteBaseUpdatedAt();
+    if (!strictRecoveryProjection && base && base === lastProjectedAt && fingerprint === lastFingerprint) {
+      pending = null;
+      return;
+    }
+    const elapsed = Date.now() - lastRunAt;
+    if (!forceThisRun && elapsed < MIN_INTERVAL_MS) {
+      armFlushTimer(MIN_INTERVAL_MS - elapsed);
+      return;
+    }
+    pending = null;
+
     // Never forward `force` to the snapshot RPC: p_force would skip the
     // updated_at compare-and-swap and let a queued state overwrite newer
     // referee/admin commits. A conflict is handled below with a refresh.
     const summary = s.tournament
-      ? await pushLiveTournamentIncremental(
-          s,
-          strictRecoveryProjection
-            ? { force: false, strictPublicMirror: true }
-            : undefined
-        )
-      : await pushNormalizedFromState(s);
+      ? await pushLiveTournamentIncremental(s, { strictPublicMirror: true })
+      : await pushNormalizedFromState(s, { strictPublicMirror: true });
     lastRunAt = Date.now();
-    lastFingerprint = fp;
+    lastFingerprint = fingerprint;
+    lastProjectedAt = summary.workspaceUpdatedAt || null;
     clearRetryBackoff();
     clearNormalizedSyncRequired();
     markDbSyncOk('structured', summary);
@@ -302,9 +249,9 @@ const flushAutoStructuredSyncNow = async (
         // ignore
       }
     } else {
-      if (!queuedFlushAfterInFlight) pending = s;
+      if (revision === pendingRevision) pending = s;
       const delayMs = noteRetryFailure(!!opts?.allowDuringBackoff);
-      markDbSyncError(`${e?.message || String(e)} Riprovo tra ${Math.ceil(delayMs / 1000)}s.`);
+      markDbSyncError(`${e?.message || String(e)} Riprovo tra ${Math.ceil(delayMs / 1000)}s.`, 'structured');
     }
   } finally {
     const shouldDrainQueuedState = queuedFlushAfterInFlight;
@@ -338,6 +285,7 @@ export const finishAutoSyncDatabaseRestore = (committed: boolean): void => {
     queuedForceAfterInFlight = false;
     lastRunAt = 0;
     lastFingerprint = '';
+    lastProjectedAt = null;
     clearRetryBackoff();
     clearNormalizedSyncRequired();
   }

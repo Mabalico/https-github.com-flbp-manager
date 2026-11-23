@@ -2,6 +2,7 @@ import { ensureFreshPlayerSupabaseSession, ensureFreshSupabaseSession, getPlayer
 import { isAdminWriteBlockedByLease, readAdminLeaseInfo, setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 import { initAdminWriteLease, reclaimCloudAcceptingMissingOperations, releaseAdminWriteLease, takeoverAdminWriteLease } from '../../services/adminWriteLease';
 import { flushAutoStructuredSync, replacePendingAutoStructuredSync, scheduleAutoStructuredSync } from '../../services/autoDbSync';
+import { readDbSyncDiagnostics } from '../../services/dbDiagnostics';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -20,6 +21,8 @@ let requireLegacyFallback = false;
 let workspaceStateRow: any = null;
 // Enabled only by the structured-autosync section: normalized/public rows accept writes.
 let allowProjectionWrites = false;
+let rejectPublicProjection = false;
+let rejectWorkspaceConflict = false;
 // Data-plane reclaim section: coordinator route and scripted reclaim answers.
 let resolvedRoute: any = { mode: 'cloud', epoch: 4 };
 let resolveFails = false;
@@ -72,6 +75,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.endsWith('/rpc/flbp_admin_release_write_lease')) return Response.json({ released: true });
   if (url.includes('/rest/v1/workspace_state?')) return Response.json(workspaceStateRow ? [workspaceStateRow] : []);
   if (url.endsWith('/rpc/flbp_admin_push_workspace_state_v2')) {
+    if (rejectWorkspaceConflict) {
+      return Response.json({ code: 'P0001', message: 'FLBP_DB_CONFLICT: stale snapshot' }, { status: 400 });
+    }
     if (requireLegacyFallback) {
       return Response.json({ code: 'PGRST202', message: 'Could not find the function flbp_admin_push_workspace_state_v2' }, { status: 404 });
     }
@@ -86,6 +92,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (url.endsWith('/rpc/flbp_admin_push_workspace_state')) {
     return Response.json({ ok: true, updated_at: '2026-08-01T15:01:00.000Z' });
+  }
+  if (rejectPublicProjection && url.includes('/rest/v1/public_tournaments?') && init?.method === 'POST') {
+    return Response.json({ message: 'fixture public projection write failed' }, { status: 503 });
   }
   if (allowProjectionWrites && url.includes('/rest/v1/')) return Response.json([]);
   return Response.json({ error: `unexpected ${url}` }, { status: 500 });
@@ -289,6 +298,61 @@ const pushesBeforeIdleRemote = autosyncPushes().length;
 replacePendingAutoStructuredSync(autosyncState('idle-remote'));
 await flushAutoStructuredSync(undefined, { force: true });
 assert(autosyncPushes().length === pushesBeforeIdleRemote, 'a remote state alone never queues an export');
+
+// A repository commit and its automatic export share one canonical snapshot.
+const committed = autosyncState('committed');
+await pushWorkspaceState(committed, { operationId: 'repository-projection-test' });
+await flushAutoStructuredSync(committed, { force: true });
+assert(pushedNames().filter((name) => name === 'Autosync committed').length === 1,
+  'an automatic export must reuse the acknowledged workspace snapshot');
+const publicProjections = () => calls.filter(({ url, method }) => url.includes('/rest/v1/public_tournaments?') && method === 'POST');
+const projectionsBeforeRepeat = publicProjections().length;
+await flushAutoStructuredSync(committed, { force: true });
+assert(publicProjections().length === projectionsBeforeRepeat, 'identical lifecycle flushes must not repeat a completed projection');
+
+const overlapping = autosyncState('overlapping');
+const starting = flushAutoStructuredSync(overlapping, { force: true });
+const reentering = flushAutoStructuredSync(undefined, { force: true });
+await Promise.all([starting, reentering]);
+assert(pushedNames().filter((name) => name === 'Autosync overlapping').length === 1,
+  'overlapping flushes must reserve the queue before route discovery');
+
+const outdated = flushAutoStructuredSync(autosyncState('preflight'), { force: true });
+replacePendingAutoStructuredSync(null);
+await outdated;
+assert(!pushedNames().includes('Autosync preflight'), 'dropping a queue during route discovery must prevent its snapshot write');
+
+// A stale cursor only counts as success when the entire persisted state matches.
+const equivalent = autosyncState('conflict');
+workspaceStateRow = {
+  workspace_id: 'default',
+  state: { tournamentMatches: [], tournament: { name: equivalent.tournament.name, id: 't1' } },
+  version: 43,
+  updated_at: '2026-08-01T15:00:01.000Z',
+};
+rejectWorkspaceConflict = true;
+const equivalentRow = await pushWorkspaceState(equivalent, { operationId: 'equivalent-test' });
+assert(equivalentRow.version === 43 && equivalentRow.updated_at === workspaceStateRow.updated_at,
+  'an identical remote snapshot must supply its real cursor after P0001');
+let distinctConflict: unknown;
+try {
+  await pushWorkspaceState(autosyncState('divergent'), { operationId: 'divergent-test' });
+} catch (error) {
+  distinctConflict = error;
+}
+assert((distinctConflict as { code?: string })?.code === 'FLBP_DB_CONFLICT',
+  'the equivalent-content acknowledgement must not hide a different remote state');
+rejectWorkspaceConflict = false;
+workspaceStateRow = null;
+
+rejectPublicProjection = true;
+await flushAutoStructuredSync(autosyncState('projection-retry'), { force: true });
+assert(readDbSyncDiagnostics().lastErrorMessage?.includes('fixture public projection write failed'),
+  'a public mirror failure must appear in structured sync diagnostics');
+rejectPublicProjection = false;
+await flushAutoStructuredSync(undefined, { force: true, allowDuringBackoff: true });
+assert(pushedNames().filter((name) => name === 'Autosync projection-retry').length === 1,
+  'retrying a failed mirror must not write the canonical snapshot again');
 
 // Forgotten local mode: the tournament PC stopped answering without closing
 // local mode, so the coordinator reports recovery for its expired lease.
