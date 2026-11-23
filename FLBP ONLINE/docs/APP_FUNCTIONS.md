@@ -310,8 +310,6 @@ In `components/AdminDashboard.tsx`:
 - `adminSection: live | data`
 
 ### 4.2 Tabs Live
-
-Nell’Editor strutturale si modificano gli slot del primo turno disponibile, incluso un eventuale preliminare. Al termine dei gironi si sblocca il tabellone. La verifica della bozza blocca la pubblicazione quando una squadra iscritta è rimasta fuori o un nuovo ramo vuoto lascia una partita successiva senza avversario. In Gironi, **Rimuovi** consente di spostare una squadra nel pool e riassegnarla prima di applicare la bozza. Il riepilogo conta le azioni registrate, tenendo conto di Annulla e Ripristina. Le priorità «Gioca il più tardi possibile» vengono salvate con il torneo a eliminazione diretta e riutilizzate nella rigenerazione.
 - `components/admin/tabs/TeamsTab.tsx`
   - inserimento squadre, import, simulatore pool
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
@@ -330,6 +328,9 @@ Nell’Editor strutturale si modificano gli slot del primo turno disponibile, in
     - preliminari: ricavati da qualsiasi turno bracket incompleto con BYE (match real-vs-real), così l’aggiunta successiva di nuove squadre/preliminari aggiorna la story dedicata senza mescolare quei match negli slot normali
     - export PNG via Canvas API (senza dipendenze) + salvataggio config in localStorage (`flbp_social_graphics_v1`)
 - `components/admin/tabs/TournamentEditorTab.tsx`
+  - L’editor abilita gli slot del primo turno disponibile, incluso un eventuale preliminare. Nei tornei a gironi il tabellone si sblocca dopo le qualificazioni. Le vincitrici già avanzate restano bloccate.
+  - La verifica blocca l’applicazione se manca una squadra iscritta o un nuovo ramo vuoto lascia senza avversario il match successivo. In Gironi, **Rimuovi** riporta la squadra nel pool per poterla riassegnare. Il riepilogo conta le azioni registrate e segue Annulla e Ripristina.
+  - La rigenerazione di un torneo a eliminazione diretta riusa le priorità «Gioca il più tardi possibile» salvate con il torneo.
   - Editor strutturale live con bozza, Preview obbligatoria e Apply protetto.
   - Layout desktop organizzato in tre aree coordinate:
     - **Roster a sinistra**: ricerca, filtri, selezione delle squadre e creazione rapida di una nuova squadra nel catalogo/pool, pronta per essere collocata nella struttura.
@@ -343,8 +344,7 @@ Nell’Editor strutturale si modificano gli slot del primo turno disponibile, in
     - i placeholder `TBD` non avanzano automaticamente e non vengono trattati come squadre reali;
     - se il Round 1 e' pieno e nessuna partita reale del bracket e' iniziata, l'editor puo' aggiungere un turno preliminare vuoto per accogliere nuove squadre;
     - la creazione rapida aggiunge la squadra al catalogo/pool, ma il suo inserimento nel tabellone resta un'operazione esplicita della bozza.
-  - Il roster del torneo viene sincronizzato con le squadre realmente referenziate da gironi e match; una squadra rimossa da uno slot non resta quindi come partecipante esclusa. La squadra rimane nel catalogo generale e può essere reinserita senza perdere storico o iscrizione.
-  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone sul roster corrente; serve anche a compattare un bracket dopo rimozioni, eliminando livelli BYE non più necessari.
+  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone.
 - `components/admin/tabs/ReportsTab.tsx`
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`
   - simulazione: `services/simulationService.ts` (`simulateMatchResult`)
