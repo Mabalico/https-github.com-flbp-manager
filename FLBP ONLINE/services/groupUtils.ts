@@ -1,3 +1,5 @@
+import type { Group, Match } from '../types';
+
 /**
  * Group-related helpers shared across admin/storage/engine.
  *
@@ -12,3 +14,13 @@ export const isFinalGroupName = (name?: string) => /\bfinale?\b/i.test(String(na
 
 /** Detects whether a group is a Final stage group (by stage flag or by name). */
 export const isFinalGroup = (g?: any) => !!g && ((g.stage === 'final') || isFinalGroupName(g.name));
+
+export const findTvFinalGroup = (groups: readonly Group[]): Group | undefined =>
+  groups.find(group => group.stage === 'final')
+  ?? groups.find(group => !group.stage && isFinalGroupName(group.name));
+
+export const getTvMatchGroupName = (match: Match, finalGroup?: Group): string => {
+  const name = String(match.groupName || '').trim();
+  if (name) return name;
+  return /^FTB/i.test(String(match.code || '').trim()) ? (finalGroup?.name?.trim() || '') : '';
+};

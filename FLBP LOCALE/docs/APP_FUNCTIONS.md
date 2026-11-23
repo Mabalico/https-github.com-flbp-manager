@@ -397,6 +397,7 @@ Supporto UI:
 
 Note TV gironi:
 - In `TvSimpleView` e `TvBracketView` la sezione Gironi mostra una **classifica stile campionato** (layout compatto 16:9) tramite `components/GroupStandingsTable.tsx`.
+- La TV assegna lo spareggio al girone indicato dalla partita. Per i salvataggi precedenti in cui manca il nome del girone, il codice `FTB` identifica uno spareggio del Girone Finale se la fase è presente. Uno spareggio `FTB` assegnato al girone F resta nel girone F.
 - In `components/TvSimpleView.tsx` i gruppi vengono separati in **gironi di stage** e (se presente) **Girone Finale**:
   - rilevazione Girone Finale: `group.stage === 'final'` (se presente nei dati) oppure fallback `group.name` contiene "final"
   - il Girone Finale viene mostrato in **pagina dedicata** (full-width) come ultima pagina in rotazione.

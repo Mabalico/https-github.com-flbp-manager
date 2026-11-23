@@ -7,6 +7,7 @@ import { TvClassicBracket } from './TvClassicBracket';
 import { TvProjection } from '../types';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
+import { findTvFinalGroup, getTvMatchGroupName } from '../services/groupUtils';
 import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
 import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 
@@ -24,21 +25,7 @@ interface TvBracketViewProps {
 export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, data, logo, onExit, mode }) => {
   const { t } = useTranslation();
 
-  // Detect an eventual "Girone Finale" in a backwards compatible way.
-  // - preferred: group.stage === 'final' (if present in persisted data)
-  // - fallback: group.name contains the word "final"/"finale" (case-insensitive)
-  const isFinalGroup = React.useCallback((g: any) => {
-    const stage = (g as any)?.stage;
-    if (stage === 'final') return true;
-    const name = String(g?.name || '');
-    // Use word boundaries to avoid false positives like "semifinale".
-    return /\bfinale?\b/i.test(name);
-  }, []);
-
-  const finalGroup = React.useMemo(() => {
-    const groups = (data?.groups || []) as any[];
-    return groups.find(isFinalGroup) || null;
-  }, [data?.groups, isFinalGroup]);
+  const finalGroup = React.useMemo(() => findTvFinalGroup(data?.groups || []), [data?.groups]);
 
   const displayedGroups = React.useMemo(() => {
     const groups = data?.groups || [];
@@ -62,18 +49,19 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   const pendingGroupTieBreaks = React.useMemo(() => {
     return (matches || [])
       .filter((m) => m.phase === 'groups' && m.isTieBreak && m.status !== 'finished' && !m.hidden && !m.isBye)
+      .filter((m) => !finalGroup || getTvMatchGroupName(m, finalGroup) !== finalGroup.name?.trim())
       .filter((m) => {
         const ids = getMatchParticipantIds(m);
         return !ids.includes('BYE');
       });
-  }, [matches]);
+  }, [matches, finalGroup]);
 
   const groupMatchesByName = React.useMemo(() => {
     const byGroup = new Map<string, Match[]>();
     for (const m of (matches || [])) {
       if (m.phase !== 'groups') continue;
       if (m.hidden || m.isBye) continue;
-      const k = (m.groupName || '');
+      const k = getTvMatchGroupName(m, finalGroup);
       const arr = byGroup.get(k);
       if (arr) arr.push(m);
       else byGroup.set(k, [m]);
@@ -82,7 +70,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
       arr.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
     }
     return byGroup;
-  }, [matches]);
+  }, [matches, finalGroup]);
 
   const teamNameById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -111,7 +99,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   // In split mode (Gironi + Tabellone), avoid scroll: paginate + auto-rotate like TV gironi.
   // If groups are "too large", show 1 per page; if small, allow 2 per page.
   const maxTeamsInGroup = Math.max(0, ...displayedGroups.map((g: any) => visibleTeams(g.teams || []).length));
-  const maxMatchesInGroup = Math.max(0, ...displayedGroups.map((g: any) => (groupMatchesByName.get(g.name) || []).length));
+  const maxMatchesInGroup = Math.max(0, ...displayedGroups.map(g => (groupMatchesByName.get(g.name?.trim() || '') || []).length));
   const groupsPerPage = !isSplit
     ? Math.max(1, displayedGroups.length)
     : (displayedGroups.length <= 1 ? 1 : (maxTeamsInGroup <= 4 && maxMatchesInGroup <= 6 ? 2 : 1));
@@ -140,7 +128,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   }, [isSplit, displayedGroups, page, groupsPerPage]);
 
   const renderGroupCard = React.useCallback((g: any) => {
-    const rawMatches = groupMatchesByName.get(g.name) || [];
+    const rawMatches = groupMatchesByName.get(g.name?.trim() || '') || [];
     const groupMatches = rawMatches.filter((m) => !getMatchParticipantIds(m).includes('BYE'));
 
     const standings = computeGroupStandings({ teams: visibleTeams(g.teams || []), matches: groupMatches });
