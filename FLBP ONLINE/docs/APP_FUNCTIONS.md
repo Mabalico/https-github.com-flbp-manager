@@ -310,6 +310,10 @@ In `components/AdminDashboard.tsx`:
 - `adminSection: live | data`
 
 ### 4.2 Tabs Live
+
+Con il Girone Finale Top 4 o Top 8 attivo, le partite di eliminazione ancora da disputare dal turno sostituito in poi restano nello storico della struttura. Il calendario operativo passa alla prima partita del Girone Finale. Monitor Gironi ne mostra classifica e risultati anche nei tornei a eliminazione diretta. Il riepilogo di archiviazione elenca i codici ancora da giocare nel Girone Finale, compresi gli spareggi. Il titolo viene assegnato quando il girone ha un vincitore.
+
+Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un inserimento tardivo. In Monitor Tabellone la ricerca `TBD` trova le partite in attesa di una o di entrambe le squadre. I comandi di avvio e refertazione diventano disponibili quando i partecipanti sono definiti.
 - `components/admin/tabs/TeamsTab.tsx`
   - inserimento squadre, import, simulatore pool
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
