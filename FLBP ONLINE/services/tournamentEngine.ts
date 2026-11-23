@@ -618,6 +618,9 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
             advancingPerGroup: config.advancingPerGroup || 2,
             resultsOnly: !!config.resultsOnly,
             finalRoundRobin: config.finalRoundRobin,
+            ...(config.mode === 'elimination' && config.lateTeamIds?.length
+                ? { lateTeamIds: activeTeams.filter(team => config.lateTeamIds?.includes(team.id)).map(team => team.id) }
+                : {}),
         }
     };
 

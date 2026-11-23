@@ -77,6 +77,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "Ich prüfe, ob dein Spielerkonto für das Live-Turnier als Schiedsrichter freigeschaltet ist.",
   "teams": "Mannschaften",
   "late_team_title": "So spät wie möglich spielen",
+  "late_team_elimination_only": "„So spät wie möglich spielen“ ist nur im reinen K.-o.-System verfügbar.",
   "late_team_description": "Wählen Sie Teams aus, die bevorzugt einen Direktplatz in Runde 2 erhalten oder, wenn diese Plätze vergeben sind, die letzten Startplätze in Runde 1.",
   "late_team_selected_count": "{selected} von {total} ausgewählt",
   "late_team_byes_available": "Direktplätze für Runde 2: {count}",

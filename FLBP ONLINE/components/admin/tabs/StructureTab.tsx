@@ -239,7 +239,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                 selectedIds={lateTeamIds}
                                 onChange={setLateTeamIds}
                             />
-                        ) : null}
+                        ) : (
+                            <p className="text-sm text-slate-600">{t('late_team_elimination_only')}</p>
+                        )}
 
                         <label className={`block cursor-pointer rounded-2xl border p-4 transition ${resultsOnly ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}>
                             <div className="flex items-start gap-3">

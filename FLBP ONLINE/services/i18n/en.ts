@@ -77,6 +77,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "Checking whether your player account is enabled as a referee for the live tournament.",
   "teams": "Teams",
   "late_team_title": "Play as late as possible",
+  "late_team_elimination_only": "“Play as late as possible” is available in single elimination only.",
   "late_team_description": "Select teams to prioritize for a direct pass to round 2 or, if places run out, for the latest slots in round 1.",
   "late_team_selected_count": "{selected} of {total} selected",
   "late_team_byes_available": "Direct passes to round 2: {count}",

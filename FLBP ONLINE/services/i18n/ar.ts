@@ -77,6 +77,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "أتحقق مما إذا كان حساب اللاعب مفعّلًا كحكم للبطولة المباشرة.",
   "teams": "فرق",
   "late_team_title": "اللعب متأخرًا قدر الإمكان",
+  "late_team_elimination_only": "يتوفر خيار «العب في وقت متأخر قدر الإمكان» في نظام خروج المغلوب فقط.",
   "late_team_description": "اختر الفرق التي لها أولوية التأهل المباشر إلى الدور الثاني، أو وضعها في آخر خانات الدور الأول إذا لم تكفِ المقاعد.",
   "late_team_selected_count": "تم اختيار {selected} من {total}",
   "late_team_byes_available": "مقاعد التأهل المباشر إلى الدور الثاني: {count}",

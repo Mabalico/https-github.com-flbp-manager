@@ -72,6 +72,7 @@ export const tournamentStructureDraftReducer = (
         past: state.past.slice(0, -1),
         future: [{ snapshot: cloneSnapshot(state.present), entry: prev.entry }, ...state.future],
         present: cloneSnapshot(prev.snapshot),
+        log: state.log.slice(0, -1),
         lastResult: null,
       };
     }
@@ -83,6 +84,7 @@ export const tournamentStructureDraftReducer = (
         past: [...state.past, { snapshot: cloneSnapshot(state.present), entry: next.entry }],
         future: state.future.slice(1),
         present: cloneSnapshot(next.snapshot),
+        log: [...state.log, next.entry],
         lastResult: null,
       };
     }

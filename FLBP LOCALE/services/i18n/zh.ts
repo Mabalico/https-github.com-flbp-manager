@@ -77,6 +77,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "正在检查你的玩家账号是否已获准担任当前实时赛事的裁判。",
   "teams": "团队",
   "late_team_title": "尽可能晚些比赛",
+  "late_team_elimination_only": "“尽可能晚出场”仅适用于单败淘汰赛。",
   "late_team_description": "选择优先直接晋级第 2 轮的队伍；若名额不足，其余队伍将安排在第 1 轮靠后的对阵位置。",
   "late_team_selected_count": "已选择 {selected}/{total} 支",
   "late_team_byes_available": "直接晋级第 2 轮的名额：{count}",
