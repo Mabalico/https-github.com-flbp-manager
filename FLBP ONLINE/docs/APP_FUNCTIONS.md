@@ -315,6 +315,7 @@ Con il Girone Finale Top 4 o Top 8 attivo, le partite di eliminazione ancora da 
 
 Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un inserimento tardivo. In Monitor Tabellone la ricerca `TBD` trova le partite in attesa di una o di entrambe le squadre. I comandi di avvio e refertazione diventano disponibili quando i partecipanti sono definiti.
 - `components/admin/tabs/TeamsTab.tsx`
+  - Invio salva la scheda manuale e il campo Nome squadra torna attivo. L’import mostra prima le colonne richieste e il modello da scaricare.
   - inserimento squadre, import, simulatore pool
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
   - pre-save UX: impatto stimato su iscritti live / torneo live / storico / righe statistiche / titoli / alias, con messaggi espliciti per **merge** o **separate**
@@ -322,6 +323,7 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
   - XLSX lazy: `services/lazyXlsx.ts`
   - Sim pool: `services/simPool.ts` + `services/simTeamNames200.ts`
 - `components/admin/tabs/StructureTab.tsx`
+  - La bozza mostra gironi, accoppiamenti e codici. La conferma di avvio raccoglie la password arbitri nella modale dell’app.
   - engine: `services/tournamentEngine.ts` (`generateTournamentStructure`, `syncBracketFromGroups`)
   - UX input numerici: quando un campo contiene solo `0`, il focus seleziona il valore per sovrascrittura immediata (niente delete/backspace preliminare)
   - Grafiche social (story 9:16): pannello `components/admin/SocialGraphicsPanel.tsx`
@@ -348,6 +350,7 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
   - Il roster del torneo viene sincronizzato con le squadre realmente referenziate da gironi e match; una squadra rimossa da uno slot non resta quindi come partecipante esclusa. La squadra rimane nel catalogo generale e può essere reinserita senza perdere storico o iscrizione.
   - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone sul roster corrente; serve anche a compattare un bracket dopo rimozioni, eliminando livelli BYE non più necessari.
 - `components/admin/tabs/ReportsTab.tsx`
+  - Nell’inserimento manuale il codice apre la partita e Invio percorre canestri e soffi. Shift+Invio torna indietro. Il punteggio segue la digitazione. Su un pareggio positivo, Invio dall’ultimo campo riporta al primo. Dopo il salvataggio il referto si chiude, compare una conferma e il campo codice torna attivo. L’Area Arbitri segue lo stesso flusso per la compilazione manuale.
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`
   - simulazione: `services/simulationService.ts` (`simulateMatchResult`)
   - UX input numerici: campi statistici manuali testuali con tastiera numerica, filtro delle sole cifre e `0` iniziale selezionabile/sovrascrivibile senza rischio di modifica tramite rotella

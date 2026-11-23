@@ -75,7 +75,7 @@ const fixture=(priorTournament=false)=>{
     setState:value=>events.push(['state',value]),setFantaSyncFeedback:value=>events.push(['feedback',value]),
     commitAdminStateDurably:async(state,source,options)=>{events.push(['commit',state,source,options]);const confirmed=await pending;events.push(['confirmed']);return confirmed;},
     runFantaPhaseAndRosterSync:(...args)=>events.push(['phase',...args]),
-    isResultsOnlyTournament:()=>false,t:key=>key,confirm:()=>true,window:{prompt:()=> 'fixture-only'},
+    isResultsOnlyTournament:()=>false,t:key=>key,confirm:()=>true,window:{},
     safeSessionRemove:()=>{},snapshotFantaBeforeArchive:async()=>events.push(['snapshot']),
     closeLiveCallsForTournament:()=>events.push(['close-calls']),archiveTournamentV2:state=>({...state,tournament:null}),
     pushFullStructuredExportBestEffort:async()=>events.push(['structured']),
@@ -106,7 +106,7 @@ await check('Failed Fanta commit shows failure and never runs phase synchronizat
   assert.ok(f.events.some(event=>event[1]?.tone==='error'));
 });
 await check('Live start publishes/promotes only after its canonical commit succeeds',async()=>{
-  const f=fixture();const task=f.context.exports.start();await tick();await f.context.exports.start();
+  const f=fixture();const task=f.context.exports.start('fixture-only');await tick();await f.context.exports.start('fixture-only');
   assert.equal(f.events.filter(event=>event[0]==='commit').length,1);
   assert.ok(!f.events.some(event=>['promote','structured','draft'].includes(event[0])));
   f.resolve(f.events.find(event=>event[0]==='commit')[1]);await task;
@@ -115,7 +115,7 @@ await check('Live start publishes/promotes only after its canonical commit succe
   assert.ok(f.events.some(event=>event[0]==='draft'&&event[1]===null));
 });
 await check('Live replacement confirms, snapshots prior Fanta, then publishes structured archive and promotes',async()=>{
-  const f=fixture(true);const task=f.context.exports.start();await tick();
+  const f=fixture(true);const task=f.context.exports.start('fixture-only');await tick();
   assert.ok(!f.events.some(event=>['snapshot','state','structured','promote'].includes(event[0])));
   const commit=f.events.find(event=>event[0]==='commit');
   assert.equal(commit[3].skipStructuredSync,true);
@@ -124,13 +124,13 @@ await check('Live replacement confirms, snapshots prior Fanta, then publishes st
   assert.deepEqual(stages,['commit','confirmed','snapshot','state','structured','promote']);
 });
 await check('Mismatched durable receipt never snapshots, publishes or promotes',async()=>{
-  const f=fixture(true);const task=f.context.exports.start();await tick();
+  const f=fixture(true);const task=f.context.exports.start('fixture-only');await tick();
   f.resolve({...f.events.find(event=>event[0]==='commit')[1],tournament:{id:'different'}});await task;
   assert.ok(!f.events.some(event=>['snapshot','state','structured','promote','draft','archive-refresh','close-calls'].includes(event[0])));
   assert.ok(f.events.some(event=>event[1]?.tone==='error'));
 });
 await check('Failed live-start commit retains the draft and never snapshots/promotes/finalizes archive/closes calls',async()=>{
-  const f=fixture(true);const task=f.context.exports.start();await tick();f.reject(new Error('conflict'));await task;
+  const f=fixture(true);const task=f.context.exports.start('fixture-only');await tick();f.reject(new Error('conflict'));await task;
   assert.ok(!f.events.some(event=>['snapshot','state','promote','structured','draft','archive-refresh','close-calls'].includes(event[0])));
   assert.ok(!f.events.some(event=>event[0]==='alert'&&event[1]==='alert_live_started'));
   assert.ok(f.events.some(event=>event[1]?.tone==='error'));
