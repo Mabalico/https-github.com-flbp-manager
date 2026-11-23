@@ -743,7 +743,23 @@ const generateFourGroupsTournament = () => {
     tournamentName: 'Four groups',
   });
   const groups = [...(generated.tournament.groups || [])].sort((a, b) => a.name.localeCompare(b.name));
-  return { tournament: generated.tournament, matches: generated.matches, groups };
+  // Saved, pre-flag opening layout. Legacy synchronization must preserve it.
+  const legacyPairs = [
+    ['TBD-A-1', 'TBD-B-2'], ['TBD-A-2', 'TBD-B-1'],
+    ['TBD-C-1', 'TBD-D-2'], ['TBD-C-2', 'TBD-D-1'],
+  ];
+  let openingIndex = 0;
+  const matches = generated.matches.map(match => {
+    if (match.phase !== 'bracket' || match.round !== 1) return match;
+    const [teamAId, teamBId] = legacyPairs[openingIndex++];
+    return { ...match, teamAId, teamBId };
+  });
+  const tournament = {
+    ...generated.tournament,
+    config: { ...generated.tournament.config, groupSeeding: undefined },
+    matches,
+  };
+  return { tournament, matches, groups };
 };
 
 // Finishes every regular match of the group so that the ranking follows `order` (first = group winner).
@@ -765,6 +781,44 @@ const playBracketMatch = (matches: Match[], matchId: string, scoreA: number, sco
 const getBracketRound = (matches: Match[], round: number) => matches
   .filter((match) => match.phase === 'bracket' && (match.round || 1) === round)
   .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+for (const groupCount of [4, 5]) {
+  defineCase(`new seeded bracket separates both qualifiers from each of ${groupCount} groups`, () => {
+    const teams = Array.from({ length: groupCount * 4 }, (_, index) => makeTeam(`new-${index}`));
+    const { tournament, matches } = generateTournamentStructure(teams, {
+      mode: 'groups_elimination', numGroups: groupCount, advancingPerGroup: 2,
+    });
+    assertEqual(tournament.config.groupSeeding, 'opposite_halves', 'the layout is saved with the tournament');
+    const opening = getBracketRound(matches, 1);
+    const halves = [opening.slice(0, opening.length / 2), opening.slice(opening.length / 2)]
+      .map(half => half.flatMap(match => [match.teamAId, match.teamBId]));
+    const resolved = new Map<string, string>([['BYE', 'BYE']]);
+    for (const group of tournament.groups || []) {
+      const letter = group.name.slice(-1);
+      const first = `TBD-${letter}-1`;
+      const second = `TBD-${letter}-2`;
+      const firstHalf = halves.findIndex(half => half.includes(first));
+      const secondHalf = halves.findIndex(half => half.includes(second));
+      assertEqual(firstHalf + secondHalf, 1, `group ${letter} must have one qualifier in each half`);
+      resolved.set(first, group.teams[0].id);
+      resolved.set(second, group.teams[1].id);
+    }
+    const byes = opening.filter(match => match.teamBId === 'BYE');
+    assertEqual(byes.length, opening.length * 2 - groupCount * 2, 'the bracket has the required number of byes');
+    for (const match of byes) {
+      assertEqual(match.hidden, true, 'placeholder byes stay hidden');
+      assertEqual(match.played, false, 'a placeholder never advances over a bye');
+    }
+    const completed = (tournament.groups || []).reduce((current, group) => finishGroupInOrder(current, group), matches);
+    const seeded = getBracketRound(syncBracketFromGroups(tournament, completed), 1);
+    for (const [index, match] of seeded.entries()) {
+      assertEqual(match.id, opening[index].id);
+      assertEqual(match.code, opening[index].code);
+      assertEqual(match.teamAId, resolved.get(opening[index].teamAId!), 'qualification resolves the planned side A');
+      assertEqual(match.teamBId, resolved.get(opening[index].teamBId!), 'qualification resolves the planned side B');
+    }
+  });
+}
 
 defineCase('a group report never wipes a bracket match already played while other groups are running', () => {
   const { tournament, groups } = generateFourGroupsTournament();

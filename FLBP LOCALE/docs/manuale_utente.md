@@ -129,6 +129,7 @@ Nel dettaglio torneo (vista Gironi), per ogni girone e' visibile una **classific
 - Per ogni girone è visibile una **classifica stile campionato** con: P, V, S, CF/CS/ΔC, SF/SS/ΔS.
   - I **punti (Pt)** vengono calcolati internamente (1 per vittoria) ma **non sono mostrati** in tabella.
 - Se vedi il banner **“Qualifica bloccata da spareggio”**, significa che esiste almeno una partita di spareggio gironi (codice tipo `ATB1`) ancora da giocare: la qualifica/tabellone si aggiorna automaticamente quando lo spareggio viene completato.
+- Nei nuovi tornei con gironi e fase a eliminazione, la prima e la seconda di ogni girone occupano metà opposte del tabellone, quando il tabellone ha due metà. I passaggi diretti al turno successivo spettano alle teste di serie migliori di ciascuna metà. I tornei già salvati continuano a usare il loro schema di qualificazione.
 
 
 **Legenda classifica gironi:**
