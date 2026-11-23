@@ -65,6 +65,7 @@ try {
     const { context, page } = await makePage(viewport);
     await menu(page, /FantaBeerpong/);
     await fanta(page).waitFor();
+    if (viewport.width === 390) await page.getByRole('navigation', { name: 'Navigazione pubblico', exact: true }).waitFor();
     // Selecting Fanta again must not replace its origin with itself.
     await menu(page, /FantaBeerpong/);
     await back(page);
