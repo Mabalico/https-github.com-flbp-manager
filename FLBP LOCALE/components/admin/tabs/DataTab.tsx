@@ -4,6 +4,7 @@ import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, Tr
 import type { Team, Match } from '../../../types';
 import type { AppState } from '../../../services/storageService';
 import { isRemotePersistenceLocked } from '../../../services/repository/featureFlags';
+import { IntegrationsFantaCleanup } from './data/IntegrationsFantaCleanup';
 import { AccountsSubTab, ArchiveSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
 
 export interface DataTabProps {
@@ -146,7 +147,7 @@ export interface DataTabProps {
 }
 
 export const DataTab: React.FC<DataTabProps> = (props) => {
-    const { dataSubTab, setDataSubTab, t } = props;
+    const { t } = props;
     const safeSessionGet = (key: string): string | null => {
         try { return window.sessionStorage.getItem(key); } catch { return null; }
     };
@@ -158,15 +159,11 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
         return raw === 'integrations' || raw === 'views' || raw === 'traffic' || raw === 'persistence' || raw === 'accounts' ? raw : null;
     });
     const embedded = !!props.embedded;
+    const [fantaOpen, setFantaOpen] = React.useState(false);
     const navigateSection = React.useCallback((section: typeof mainSection) => {
         void requestDraftNavigation(() => setMainSection(section));
     }, []);
 
-    const archiveCount = (props.state.tournamentHistory || []).length;
-    const hofCount = (props.state.hallOfFame || []).length;
-    const scorersCount = (props.state.integrationsScorers || []).length;
-    const aliasesCount = Object.keys(props.state.playerAliases || {}).length;
-    const activeSectionLabel = dataSubTab === 'archive' ? t('data_active_edit') : t('data_active_add');
     const remotePersistenceLocked = isRemotePersistenceLocked();
 
     const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
@@ -270,12 +267,6 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                     <div className="flex items-start justify-between gap-3 w-full">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-200 shrink-0">
                             <Link2 className="w-5 h-5" />
-                        </div>
-                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
-                            {pill(t('data_pill_history').replace('{count}', String(archiveCount)))}
-                            {pill(t('data_pill_hof').replace('{count}', String(hofCount)))}
-                            {pill(t('data_pill_scorers').replace('{count}', String(scorersCount)))}
-                            {pill(t('data_pill_aliases').replace('{count}', String(aliasesCount)))}
                         </div>
                     </div>
                     <div className="mt-3">
@@ -386,15 +377,7 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                                 {t('data_integrations_helper')}
                             </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap text-xs font-bold">
-                            {pill(t('data_pill_history').replace('{count}', String(archiveCount)))}
-                            {pill(t('data_pill_hof').replace('{count}', String(hofCount)))}
-                            {pill(t('data_pill_scorers').replace('{count}', String(scorersCount)))}
-                            {pill(t('data_pill_aliases').replace('{count}', String(aliasesCount)))}
-                            <span className="px-2 py-1 rounded-full text-[11px] font-black border border-blue-200 bg-blue-50 text-blue-800">
-                                {activeSectionLabel}
-                            </span>
-                        </div>
+
                     </div>
 
                     <IntegrationsSubTab {...props} />
@@ -434,6 +417,10 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
                         exportFullDatabaseBackup={props.exportFullDatabaseBackupJson}
                         restoreFullDatabaseBackup={props.restoreFullDatabaseBackupJson}
                     />
+                    <details open={fantaOpen} onToggle={event => setFantaOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-4">
+                        <summary className="cursor-pointer font-bold">{t('edition_fanta_maintenance')}</summary>
+                        {fantaOpen && <div className="mt-4"><IntegrationsFantaCleanup {...props} /></div>}
+                    </details>
                     <DbSyncPanel state={props.state} setState={props.setState} />
                 </div>
             ) : null}

@@ -1,70 +1,66 @@
 import React from 'react';
-import { CalendarDays, Check, LoaderCircle, Pencil, Search, Trophy, X } from 'lucide-react';
+import { Check, ChevronRight, LoaderCircle, Pencil, Plus, Search, X } from 'lucide-react';
 import type { DataTabProps } from '../DataTab';
 import { listEditions } from '../../../../services/editionData';
+import { formatBirthDateDisplay, normalizeBirthDateInput } from '../../../../services/playerIdentity';
 
 type TournamentRenameRow = {
     key: string;
     id: string;
     name: string;
-    startDate?: string;
     isLive: boolean;
-    titlesOnly: boolean;
+    date: string;
+    year: string;
+    winner: string;
     titleCount: number;
     scorerCount: number;
 };
 
-const parseTournamentDate = (value?: string): number => {
-    const raw = String(value || '').trim();
-    if (!raw) return Number.NaN;
-    const italianDate = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s|$)/);
-    if (italianDate) {
-        const [, day, month, year] = italianDate;
-        const timestamp = new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0).getTime();
-        const parsed = new Date(timestamp);
-        if (
-            parsed.getFullYear() === Number(year)
-            && parsed.getMonth() === Number(month) - 1
-            && parsed.getDate() === Number(day)
-        ) return timestamp;
-    }
-    return Date.parse(raw);
+const normalizeTournamentDate = (date: string) => {
+    const normalized = normalizeBirthDateInput(date.replace(/^(\d{1,2})[.-](\d{1,2})[.-](\d{4})$/, '$1/$2/$3'));
+    if (normalized || !date || /^\d{4}$/.test(date)) return normalized || date;
+    const timestamp = Date.parse(date);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : date;
 };
 
-const formatTournamentDate = (value?: string): string => {
-    const raw = String(value || '').trim();
-    if (!raw) return '';
-    const timestamp = parseTournamentDate(raw);
-    if (!Number.isFinite(timestamp)) return raw;
-    return new Intl.DateTimeFormat(undefined, {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-    }).format(new Date(timestamp));
-};
-
-export const IntegrationsTournaments: React.FC<Pick<DataTabProps, 'state' | 't' | 'renameTournamentEdition'> & { onOpen: (id: string) => void }> = ({
+export const IntegrationsTournaments: React.FC<Pick<DataTabProps, 'state' | 't' | 'renameTournamentEdition'> & { onOpen: (id: string) => void; onAdd: () => void }> = ({
     state,
     t,
     renameTournamentEdition,
     onOpen,
+    onAdd,
 }) => {
     const [query, setQuery] = React.useState('');
+    const [year, setYear] = React.useState('');
     const [editingKey, setEditingKey] = React.useState('');
     const [draftName, setDraftName] = React.useState('');
     const [savingKey, setSavingKey] = React.useState('');
     const [feedback, setFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
     const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-    const rows = React.useMemo<TournamentRenameRow[]>(() => listEditions(state).map(row => ({
-        key: row.id, id: row.id, name: row.name, startDate: row.date || row.year,
-        isLive: row.live, titlesOnly: !row.tournament, titleCount: row.awards.length, scorerCount: row.scorers.length,
-    })), [state]);
-
+    const rows = React.useMemo<TournamentRenameRow[]>(() => listEditions(state).map(row => {
+        const winner = row.awards.find(award => award.type === 'winner');
+        const date = normalizeTournamentDate(row.date);
+        return {
+            key: row.id, id: row.id, name: row.name,
+            date, year: /^\d{4}/.test(date) ? date.slice(0, 4) : row.year, isLive: row.live,
+            winner: winner ? [winner.teamName, winner.playerNames.filter(Boolean).join(' & ')].filter(Boolean).join(' · ') : '',
+            titleCount: row.awards.length, scorerCount: row.scorers.length,
+        };
+    }).sort((a, b) => Number(b.isLive) - Number(a.isLive)
+        || (b.date || b.year).localeCompare(a.date || a.year) || a.name.localeCompare(b.name)), [state]);
+    const years = [...new Set(rows.map(row => row.year).filter(value => /^\d{4}$/.test(value)))].sort().reverse();
+    const duplicateKey = (row: TournamentRenameRow) => row.name.trim().toLocaleLowerCase() + '|' + row.date;
+    const duplicateCounts = new Map<string, number>();
+    for (const row of rows) {
+        if (!row.isLive && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
+            const key = duplicateKey(row);
+            duplicateCounts.set(key, (duplicateCounts.get(key) || 0) + 1);
+        }
+    }
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const visibleRows = normalizedQuery
-        ? rows.filter((row) => `${row.name} ${row.id}`.toLocaleLowerCase().includes(normalizedQuery))
-        : rows;
+    const visibleRows = rows.filter(row => (!year || row.year === year)
+        && (row.name + ' ' + row.year).toLocaleLowerCase().includes(normalizedQuery));
 
     React.useEffect(() => {
         if (editingKey) inputRef.current?.focus();
@@ -123,35 +119,26 @@ export const IntegrationsTournaments: React.FC<Pick<DataTabProps, 'state' | 't' 
     const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
 
     return (
-        <section className="space-y-4" aria-labelledby="integrations-tournaments-title">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-start gap-3">
-                        <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
-                            <Trophy className="h-5 w-5" aria-hidden="true" />
-                        </span>
-                        <div className="min-w-0">
-                            <h3 id="integrations-tournaments-title" className="text-lg font-black text-slate-950">
-                                {t('edition_list')}
-                            </h3>
-                            <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-                                {t('data_integrations_helper')}
-                            </p>
-                        </div>
-                    </div>
-
-                    <label className="relative block w-full sm:w-72">
+        <section className="space-y-4" aria-label={t('edition_list')}>
+            <div className="flex flex-wrap items-center gap-2">
+                    <label className="relative block min-w-48 flex-1">
                         <span className="sr-only">{t('search')}</span>
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                         <input
                             type="search"
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
-                            placeholder={t('search')}
+                            placeholder={t('edition_search')}
                             className={`w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-bold text-slate-900 placeholder:text-slate-400 ${ring}`}
                         />
                     </label>
-                </div>
+                <select aria-label={t('year')} value={year} onChange={event => setYear(event.target.value)} className={`rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold ${ring}`}>
+                    <option value="">{t('all_years')}</option>
+                    {years.map(value => <option key={value} value={value}>{value}</option>)}
+                </select>
+                <button type="button" onClick={onAdd} className={`inline-flex items-center gap-2 rounded-xl bg-blue-700 px-3 py-2.5 text-sm font-black text-white ${ring}`}>
+                    <Plus size={16} aria-hidden="true" />{t('edition_new')}
+                </button>
             </div>
 
             <div aria-live="polite" aria-atomic="true">
@@ -171,33 +158,29 @@ export const IntegrationsTournaments: React.FC<Pick<DataTabProps, 'state' | 't' 
                         {visibleRows.map((row) => {
                             const isEditing = editingKey === row.key;
                             const isSaving = savingKey === row.key;
-                            const dateLabel = formatTournamentDate(row.startDate);
+                            const dateLabel = formatBirthDateDisplay(row.date) || row.date || row.year || '—';
+                            const possibleDuplicate = (duplicateCounts.get(duplicateKey(row)) || 0) > 1;
                             return (
                                 <li key={row.key} className={row.isLive ? 'bg-amber-50/60' : 'bg-white'}>
-                                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                                        <div className="flex min-w-0 items-start gap-3">
-                                            <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${row.isLive
-                                                ? 'bg-amber-500 text-slate-950'
-                                                : 'bg-slate-100 text-slate-600'
-                                            }`}>
-                                                <CalendarDays className="h-5 w-5" aria-hidden="true" />
+                                    {!row.isLive ? (
+                                        <button type="button" onClick={() => onOpen(row.id)}
+                                            className={`grid w-full grid-cols-[1fr_auto_20px] items-center gap-x-3 gap-y-1 px-4 py-3 text-left hover:bg-slate-50 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)_minmax(9rem,20%)_20px] ${ring}`}>
+                                            <span className="col-start-2 row-start-1 whitespace-nowrap text-xs font-semibold text-slate-500 sm:col-start-1">{dateLabel}</span>
+                                            <strong className="col-start-1 row-start-1 min-w-0 break-words text-sm text-slate-950 sm:col-start-2">{row.name || '—'}</strong>
+                                            <span className="col-span-2 row-start-2 text-sm text-slate-700 sm:col-span-1 sm:col-start-3 sm:row-start-1"><span className="sr-only">{t('winner')}: </span>{row.winner || '—'}</span>
+                                            <span className="col-span-2 row-start-3 flex flex-wrap gap-1 text-xs font-bold sm:col-span-1 sm:col-start-4 sm:row-start-1">
+                                                <span className="rounded-full bg-slate-100 px-2 py-1">{t('edition_section_awards')} {row.titleCount}</span>
+                                                <span className="rounded-full bg-slate-100 px-2 py-1">{t('scorers_label')} {row.scorerCount}</span>
+                                                {possibleDuplicate && <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-900">{t('edition_possible_duplicate')}</span>}
                                             </span>
-                                            <div className="min-w-0">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <span className="break-words text-sm font-black text-slate-950">{row.name || '—'}</span>
-                                                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${row.isLive
-                                                        ? 'border-amber-300 bg-amber-100 text-amber-900'
-                                                        : 'border-slate-200 bg-slate-50 text-slate-600'
-                                                    }`}>
-                                                        {row.isLive ? t('live_badge') : t('archive_tournaments')}
-                                                    </span>
-                                                </div>
-                                                {dateLabel ? <div className="mt-1 text-xs font-bold text-slate-500">{dateLabel}</div> : null}
-                                            </div>
+                                            <ChevronRight className="col-start-3 row-start-1 text-slate-500 sm:col-start-5" size={18} aria-hidden="true" />
+                                        </button>
+                                    ) : <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                                        <div className="min-w-0 text-sm">
+                                            <strong className="break-words">{row.name || '—'}</strong>
+                                            <span className="ml-2 rounded-full bg-amber-100 px-2 py-1 text-xs font-black text-amber-900">{t('live_badge')}</span>
+                                            <span className="ml-2 whitespace-nowrap text-xs text-slate-600">{dateLabel}</span>
                                         </div>
-
-                                        {!row.isLive && <button type="button" className={`rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold ${ring}`} onClick={() => onOpen(row.id)}>{t('edition_open')}</button>}
-                                        {row.titlesOnly && <span className="rounded-lg bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{t('edition_section_awards')} · {row.titleCount}</span>}
                                         {isEditing ? (
                                             <form
                                                 className="flex w-full flex-col gap-2 sm:max-w-xl sm:flex-row sm:items-center"
@@ -254,7 +237,7 @@ export const IntegrationsTournaments: React.FC<Pick<DataTabProps, 'state' | 't' 
                                                 {t('edit')}
                                             </button>
                                         )}
-                                    </div>
+                                    </div>}
                                 </li>
                             );
                         })}

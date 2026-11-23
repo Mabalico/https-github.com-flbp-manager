@@ -1,7 +1,7 @@
 import { useIntegrationFeedback } from './useIntegrationFeedback';
 import { readScorersFile } from '../../../../services/scorersImport';
 import React from 'react';
-import { Upload, Download, Pencil, Trash2 } from 'lucide-react';
+import { Upload, Download } from 'lucide-react';
 
 import type { DataTabProps } from '../DataTab';
 import type { AliasConflict } from '../../modals/AliasModal';
@@ -13,7 +13,6 @@ import { uuid } from '../../../../services/id';
 import { downloadBlob } from '../../../../services/adminDownloadUtils';
 import { decodeCsvText, detectCsvSeparator, parseCsvRows } from '../../../../services/adminCsvUtils';
 import { getXLSX } from '../../../../services/lazyXlsx';
-import { isTesterMode } from '../../../../config/appMode';
 import { BirthDateInput } from '../../BirthDateInput';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../../services/formInputUX';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../../../../services/playerIdentity';
@@ -31,11 +30,18 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
         setAliasModalConflicts,
         scorersFileRef,
         buildProfilesIndex,
-        removeAlias,
     } = props;
 
     const { notify, ask, feedbackUI } = useIntegrationFeedback(t);
     const [editId, setEditId] = React.useState('');
+    const [manualOpen, setManualOpen] = React.useState(false);
+    const [query, setQuery] = React.useState('');
+    const [visibleCount, setVisibleCount] = React.useState(50);
+    const manualNameRef = React.useRef<HTMLInputElement>(null);
+
+    React.useEffect(() => {
+        if (manualOpen) manualNameRef.current?.focus();
+    }, [manualOpen, editId]);
     const [manualName, setManualName] = React.useState('');
     const [manualBirthDate, setManualBirthDate] = React.useState('');
     const [manualTeamName, setManualTeamName] = React.useState('');
@@ -45,14 +51,11 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
 
     // Lightweight Admin UI tokens (local): consistent controls without new deps
     const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
-    const btnBase = `inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-black transition disabled:opacity-50 disabled:pointer-events-none ${ring}`;
+    const btnBase = `inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition disabled:opacity-50 disabled:pointer-events-none ${ring}`;
     const btnSecondary = `${btnBase} bg-white border border-slate-200 text-slate-900 hover:bg-slate-50`;
-    const btnDanger = `${btnBase} bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-400`;
-    const btnSmBase = `inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-black transition text-xs ${ring}`;
-    const btnSmDanger = `${btnSmBase} border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 focus-visible:ring-rose-400`;
-    const btnSmSecondary = `${btnSmBase} border border-slate-200 bg-white text-slate-900 hover:bg-slate-50`;
     const inputBase = `w-full border border-slate-200 bg-white rounded-xl px-3 py-2.5 font-bold text-slate-900 placeholder:text-slate-400 ${ring}`;
 
+    const btnPrimary = btnBase + ' bg-blue-700 text-white hover:bg-blue-800';
     const normalizeName = (n: string) => normalizeNameLower(n);
 
     const labelFromPlayerKey = (key: string) => {
@@ -102,10 +105,11 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
     const importScorersFromFile = async (file: File) => ({ entries: await readScorersFile(file), warnings: [] as string[] });
 
     const entries = (state.integrationsScorers || [])
-        .slice()
+        .filter(row => !row.sourceTournamentId)
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    const aliases = Object.entries((state.playerAliases || {}) as Record<string, string>) as Array<[string, string]>;
+    const search = normalizeName(query);
+    const filtered = entries.filter(row => normalizeName(row.name + ' ' + (row.teamName || '')).includes(search));
 
     const onPickFile = () => scorersFileRef.current?.click();
 
@@ -156,12 +160,13 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
     };
 
     const clearAll = async () => {
-        if (!await ask(t('clear_all_scorers_confirm'))) return;
-        setState({ ...state, integrationsScorers: [] });
+        if (!await ask(t('edition_clear_extra_stats').replace('{count}', String(entries.length)))) return;
+        setState({ ...state, integrationsScorers: (state.integrationsScorers || []).filter(row => row.sourceTournamentId) });
         setScorersImportWarnings([]);
     };
 
     const resetManual = () => {
+        setManualOpen(false);
         setEditId('');
         setManualName('');
         setManualBirthDate('');
@@ -196,7 +201,7 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
             points: Math.max(0, parseInt(manualPoints || '0', 10) || 0),
             soffi: Math.max(0, parseInt(manualSoffi || '0', 10) || 0),
             createdAt: Date.now(),
-            source: editId ? t('manual_edit_source') : t('manual_entry_source_label'),
+            source: previous?.source || t('manual_entry_source_label'),
             sourceType: 'manual_integration',
             sourceTournamentId: previous?.sourceTournamentId || null,
             sourceLabel: previous?.sourceLabel || (editId ? t('manual_edit_source') : t('manual_entry_source_label')),
@@ -218,6 +223,7 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
     };
 
     const startEdit = (entry: IntegrationScorerEntry) => {
+        setManualOpen(true);
         setEditId(entry.id);
         setManualName(entry.name || '');
         setManualBirthDate(formatBirthDateDisplay((entry as any).birthDate) || '');
@@ -262,70 +268,33 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
 
     return (
         <div className="space-y-4">
-                {feedbackUI}
-                <p className="rounded-xl border bg-slate-50 p-3 text-sm text-slate-600">{t('edition_standalone_hint')}</p>
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                        <div className="font-black text-slate-900">{t('scorers_integrations_title')}</div>
-                        <div className="text-xs text-slate-600 font-bold">
-                            {t('scorers_integrations_desc')}
-                        </div>
+            {feedbackUI}
+            <p className="text-sm text-slate-600">{t('edition_standalone_hint')}</p>
+            <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label={t('scorers_actions_toolbar')}>
+                <input type="search" aria-label={t('edition_search_extra_stats')} placeholder={t('edition_search_extra_stats')}
+                    value={query} onChange={event => { setQuery(event.target.value); setVisibleCount(50); }}
+                    className={inputBase + ' basis-full sm:min-w-48 sm:flex-1'} />
+                <button type="button" onClick={onPickFile} className={btnPrimary}><Upload size={16} />{t('import_file')}</button>
+                <button type="button" onClick={downloadTemplateXlsx} className={btnSecondary}><Download size={16} />{t('hof_bundle_download_template')}</button>
+                <button type="button" onClick={exportCsv} disabled={!entries.length} className={btnSecondary}>{t('export_csv')}</button>
+                <details className="relative">
+                    <summary className={btnSecondary + ' cursor-pointer list-none'}>{t('edition_more_actions')} ⋯</summary>
+                    <div className="absolute right-0 z-10 mt-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                        <button type="button" disabled={!entries.length} onClick={event => {
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                            void clearAll();
+                        }} className={btnSecondary + ' whitespace-nowrap text-rose-700'}>{t('clear_all')}</button>
                     </div>
-                    <div className="flex items-center gap-2" role="toolbar" aria-label={t('scorers_actions_toolbar')}>
-                        <button type="button"
-                            onClick={onPickFile}
-                            className={btnSecondary}
-                        >
-                            <Upload className="w-4 h-4" /> {t('import_file')}
-                        </button>
-                        {isTesterMode && (
-                            <button type="button"
-                                onClick={downloadTemplateXlsx}
-                                className={btnSecondary}
-                            >
-                                <Download className="w-4 h-4" /> Template
-                            </button>
-                        )}
-                        {isTesterMode && (
-                            <button type="button"
-                                onClick={exportCsv}
-                                disabled={entries.length === 0}
-                                className={btnSecondary}
-                            >
-                                <Download className="w-4 h-4" /> {t('export_csv')}
-                            </button>
-                        )}
-                        <button type="button"
-                            onClick={clearAll}
-                            className={btnDanger}
-                        >
-                            <Trash2 className="w-4 h-4" /> {t('clear_all')}
-                        </button>
-                    </div>
-                    <input
-                        ref={scorersFileRef}
-                        type="file"
-                        className="hidden"
-                        accept=".xlsx,.xls,.csv"
-                        onChange={onFileChange}
-                    />
-                </div>
+                </details>
+                <input ref={scorersFileRef} type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={onFileChange} />
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                        <div className="font-black text-slate-900">{t('manual_insert_edit')}</div>
-                        <div className="text-xs text-slate-600 font-bold">
-                            {t('manual_insert_edit_desc')}
-                        </div>
-                    </div>
-                </div>
+            {!manualOpen && <button type="button" onClick={() => setManualOpen(true)} className={btnSecondary}>{t('edition_manual_add')}</button>}
+            {manualOpen && <form className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" onSubmit={event => { event.preventDefault(); saveManualEntry(); }}>
                 <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                     <div className="md:col-span-2">
                         <div className="text-xs font-black text-slate-500 mb-1">{t('player_label')}</div>
-                        <input value={manualName} onChange={(e) => setManualName(e.target.value)} className={inputBase} placeholder={t('player_full_name_placeholder')} />
+                        <input ref={manualNameRef} value={manualName} onChange={(e) => setManualName(e.target.value)} className={inputBase} placeholder={t('player_full_name_placeholder')} />
                     </div>
                     <div>
                         <div className="text-xs font-black text-slate-500 mb-1">{t('birthdate_label')}</div>
@@ -349,52 +318,10 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button type="button" onClick={saveManualEntry} className={btnSecondary}>
-                        {editId ? t('update_record') : t('add_record')}
-                    </button>
-                    <button type="button" onClick={resetManual} className={btnSecondary}>
-                        {t('reset')}
-                    </button>
+                    <button type="submit" className={btnPrimary}>{t('save_changes')}</button>
+                    <button type="button" onClick={resetManual} className={btnSecondary}>{t('cancel')}</button>
                 </div>
-            </div>
-
-            {aliases.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-slate-50 px-4 py-2 font-black text-slate-700 flex items-center justify-between">
-                        <span>{t('integrations_players_aliases')}</span>
-                        <span className="font-mono text-xs text-slate-500">{aliases.length}</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                        {aliases.slice(0, 50).map(([from, to]) => (
-                            <div key={from} className="px-4 py-3 flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="text-xs font-bold text-slate-500">{t('from_label')}</div>
-                                    <div className="font-black text-slate-900 whitespace-normal break-words leading-tight">{labelFromPlayerKey(from)}</div>
-                                    <div className="text-xs font-bold text-slate-500 mt-2">{t('to_label')}</div>
-                                    <div className="font-black text-slate-900 whitespace-normal break-words leading-tight">{labelFromPlayerKey(to)}</div>
-                                </div>
-                                <div className="shrink-0">
-                                    <button
-                                        type="button"
-                                        onClick={() => removeAlias(from)}
-                                        className={btnSmDanger}
-                                    >
-                                        {t('remove')}
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                        {aliases.length > 50 && (
-                            <div className="px-4 py-3 text-xs font-bold text-slate-500">
-                                {t('show_first_50_aliases')}
-                            </div>
-                        )}
-                    </div>
-                    <div className="px-4 py-3 text-[11px] font-bold text-slate-500 bg-slate-50">
-                        {t('aliases_logic_note')}
-                    </div>
-                </div>
-            )}
+            </form>}
 
             {scorersImportWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -415,62 +342,50 @@ export const IntegrationsScorers: React.FC<DataTabProps> = (props) => {
                 </div>
             )}
 
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-900 text-white px-4 py-2 font-black uppercase tracking-wide text-sm flex items-center justify-between">
-                    <span>{t('imported_records')}</span>
-                    <span className="text-xs font-mono font-bold text-white/70">{entries.length}</span>
-                </div>
-                <div className="overflow-auto">
+            <div className="rounded-xl border border-slate-200 bg-white">
+                <div className="max-h-[65vh] overflow-auto">
                     <table className="min-w-full text-sm">
-                        <thead className="bg-slate-50 text-slate-700">
+                        <thead className="sticky top-0 z-[1] bg-slate-50 text-slate-700 shadow-sm">
                             <tr>
-                                <th className="text-left px-3 py-2 font-black">{t('name_label')}</th>
-                                <th className="text-left px-3 py-2 font-black">{t('birth_label_short')}</th>
-                                <th className="text-right px-3 py-2 font-black">{t('games')}</th>
-                                <th className="text-right px-3 py-2 font-black">{t('points_baskets')}</th>
-                                <th className="text-right px-3 py-2 font-black">{t('soffi')}</th>
-                                <th className="text-left px-3 py-2 font-black">{t('team_or_source')}</th>
-                                <th className="text-right px-3 py-2 font-black">{t('actions')}</th>
+                                {(['player_label', 'birth_label_short', 'team_label', 'games', 'points_baskets', 'soffi', 'edition_stats_source'] as const).map(key =>
+                                    <th key={key} scope="col" className="whitespace-nowrap px-3 py-2 text-left font-black">{t(key)}</th>
+                                )}
+                                <th scope="col" className="px-3 py-2"><span className="sr-only">{t('actions')}</span>⋯</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {entries.map(e => (
-                                <tr key={e.id} className="hover:bg-slate-50">
-                                    <td className="px-3 py-2 font-bold">{e.name}</td>
-                                    <td className="px-3 py-2 font-mono text-xs text-slate-600">{formatBirthDateDisplay((e as any).birthDate) || t('nd_short')}</td>
-                                    <td className="px-3 py-2 text-right font-mono">{e.games}</td>
-                                    <td className="px-3 py-2 text-right font-mono">{e.points}</td>
-                                    <td className="px-3 py-2 text-right font-mono">{e.soffi}</td>
-                                    <td className="px-3 py-2 text-xs text-slate-600 font-bold">{[e.teamName, e.source || ''].filter(Boolean).join(' · ')}</td>
-                                    <td className="px-3 py-2 text-right">
-                                        <button
-                                            type="button"
-                                            onClick={() => startEdit(e)}
-                                            className={btnSmSecondary}
-                                        >
-                                            <Pencil className="w-3.5 h-3.5" /> {t('edit')}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => deleteEntry(e.id)}
-                                            className={btnSmDanger}
-                                        >
-                                            {t('delete')}
-                                        </button>
+                            {filtered.slice(0, visibleCount).map(entry => (
+                                <tr key={entry.id} className="hover:bg-slate-50">
+                                    <td className="whitespace-nowrap px-3 py-2 font-bold">{entry.name}</td>
+                                    <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{formatBirthDateDisplay(entry.birthDate) || entry.yob || t('nd_short')}</td>
+                                    <td className="whitespace-nowrap px-3 py-2">{entry.teamName || '—'}</td>
+                                    <td className="px-3 py-2 tabular-nums">{entry.games}</td>
+                                    <td className="px-3 py-2 tabular-nums">{entry.points}</td>
+                                    <td className="px-3 py-2 tabular-nums">{entry.soffi}</td>
+                                    <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{(entry.sourceLabel || entry.source || '').replace(/\.(csv|xlsx|xls)$/i, '').replace(/_/g, ' ').trim() || '—'}</td>
+                                    <td className="px-3 py-2">
+                                        <details className="relative" name="extra-stats-row-actions">
+                                            <summary aria-label={t('actions') + ' ' + entry.name} className="cursor-pointer list-none rounded-lg px-2 py-1 font-bold hover:bg-slate-200">⋯</summary>
+                                            <div className="grid gap-1">
+                                                <button type="button" onClick={event => {
+                                                    event.currentTarget.closest('details')?.removeAttribute('open');
+                                                    startEdit(entry);
+                                                }} className="rounded-lg px-2 py-1 text-left font-bold hover:bg-slate-100">{t('edit')}</button>
+                                                <button type="button" onClick={event => {
+                                                    event.currentTarget.closest('details')?.removeAttribute('open');
+                                                    deleteEntry(entry.id);
+                                                }} className="rounded-lg px-2 py-1 text-left font-bold text-rose-700 hover:bg-rose-50">{t('delete')}</button>
+                                            </div>
+                                        </details>
                                     </td>
                                 </tr>
                             ))}
-                            {entries.length === 0 && (
-                                <tr>
-                                    <td colSpan={7} className="p-6 text-center text-slate-400 font-bold">
-                                        {t('no_imported_records')}
-                                    </td>
-                                </tr>
-                            )}
+                            {!filtered.length && <tr><td colSpan={8} className="p-6 text-center font-bold text-slate-500">{t('no_imported_records')}</td></tr>}
                         </tbody>
                     </table>
                 </div>
             </div>
+            {filtered.length > visibleCount && <button type="button" className={btnSecondary} onClick={() => setVisibleCount(count => count + 50)}>{t('edition_show_more_stats')}</button>}
         </div>
     );
 };

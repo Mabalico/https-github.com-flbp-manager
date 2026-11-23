@@ -173,22 +173,31 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
         changed(); setSection('awards');
     };
 
+    const titleCount = (count: number) => count + ' ' + t(count === 1 ? 'edition_title_singular' : 'edition_titles');
+    const scorerCount = (count: number) => count + ' ' + t(count === 1 ? 'edition_scorer_singular' : 'scorers_label').toLocaleLowerCase();
+
     return <section className="space-y-4" aria-busy={saving}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-2">
             <button type="button" disabled={saving} className={button} onClick={onBack}><ArrowLeft size={16} />{t('edition_list')}</button>
-            <h3 className="text-lg font-black text-slate-900">{initial ? initial.name : t('edition_new')}</h3>
-            {!!initial && !initial.live && <button type="button" disabled={saving} className={`${button} text-rose-700`} onClick={() => setDeleting(true)}><Trash2 size={16} />{t('delete')}</button>}
+            <h3 className="break-words text-xl font-black text-slate-900">{name || t('edition_new')}</h3>
+            {(date || initial?.year) && <p className="text-sm text-slate-600">{formatBirthDateDisplay(date) || initial?.year}</p>}
         </div>
         {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-900">{error}</div>}
         <fieldset disabled={saving} className="min-w-0 space-y-4">
         <nav className="flex flex-wrap gap-2" aria-label={t('edition_sections')}>
             {(['setup', 'awards', 'scorers'] as const).map(key => <button type="button" key={key} onClick={() => setSection(key)} aria-current={section === key ? 'step' : undefined} className={`${button} ${section === key ? '!border-slate-900 !bg-slate-900 !text-white' : ''}`}>{t(`edition_section_${key}`)}{key === 'awards' ? ` (${titles.length})` : key === 'scorers' ? ` (${scorers.length})` : ''}</button>)}
         </nav>
-        {section === 'setup' && <div className="grid gap-4 rounded-2xl border bg-white p-4 sm:grid-cols-2">
+        {section === 'setup' && <>
+        <div className="grid gap-4 rounded-2xl border bg-white p-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm font-bold">{t('edition_name')}<input className={input} value={name} onChange={e => { setName(e.target.value); changed(); }} /></label>
             <label className="space-y-2 text-sm font-bold">{t('edition_date')}<input type="date" className={input} value={date} onChange={e => { setDate(e.target.value); changed(); }} /></label>
             <p className="text-sm text-slate-600 sm:col-span-2">{t('edition_required_hint')}</p>
+        </div>
+        {!!initial && !initial.live && <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-4">
+            <h4 className="font-bold text-rose-900">{t('players_danger_zone_title')}</h4>
+            <button type="button" className={button + ' !border-rose-500 text-rose-700'} onClick={() => setDeleting(true)}><Trash2 size={16} />{t('edition_delete')}</button>
         </div>}
+        </>}
         {section === 'awards' && <div className="space-y-4">
             {hasResults && <p className="rounded-xl bg-slate-100 p-3 text-sm text-slate-700">{t('edition_results_locked')}</p>}
             {categories.map(type => <div key={type} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
@@ -217,12 +226,14 @@ export const EditionEditor: React.FC<Pick<DataTabProps, 'state' | 'setState' | '
                 }} />
             </td>{(['games', 'points', 'soffi'] as const).map(metric => <td className="p-2" key={metric}>{row[metric]}</td>)}</tr>)}</tbody></table></div>}
         </div>}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3"><p className="text-sm text-slate-600">{titles.length} {t('edition_titles')} · {scorers.length} {t('scorers_label')}</p><button type="button" disabled={loading} className={`${button} !bg-blue-700 !text-white`} onClick={review}>{t('edition_review')}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 sticky bottom-0 z-10 rounded-xl border bg-slate-50 p-3 shadow-sm"><p className="text-sm text-slate-600">{titleCount(titles.length)} · {scorerCount(scorers.length)}</p><button type="button" disabled={loading} className={`${button} !bg-blue-700 !text-white`} onClick={review}>{t('edition_review')}</button></div>
         </fieldset>
         <AdminDataConfirmModal open={!!preview} tone="info" title={t('edition_review')} description={`${name} · ${date || initial?.year || ''}`} confirmLabel={t(saving ? 'referees_save_busy' : 'save_changes')} confirmDisabled={saving} cancelLabel={t('back')} onClose={() => { if (!savingRef.current) setPreview(null); }} onConfirm={() => void save()}>
             <ul className="space-y-2">{preview?.map(entry => <li key={entry.id} className="rounded-lg bg-slate-50 p-2 text-sm"><strong>{t(labelKey(entry.type))}</strong> · {entry.teamName} · {entry.playerNames.join(', ')}{entry.value != null ? ` · ${entry.value}` : ''}</li>)}</ul>
             {importChanged && <p className="mt-3 text-sm font-bold">{t('edition_import_replaces').replace('{count}', String(scorers.length))}</p>}
         </AdminDataConfirmModal>
-        <AdminDataConfirmModal open={deleting} title={t('edition_delete')} description={t('edition_delete_hint').replace('{name}', name)} confirmLabel={t(saving ? 'referees_save_busy' : 'delete')} confirmDisabled={saving} cancelLabel={t('cancel')} onClose={() => { if (!savingRef.current) setDeleting(false); }} onConfirm={() => void remove()} summaryItems={[{ label: t('edition_titles'), value: initial?.awards.length || 0 }, { label: t('scorers_label'), value: initial?.scorers.length || 0 }]} />
+        <AdminDataConfirmModal open={deleting} title={t('edition_delete')} description={t('edition_delete_counts').replace('{name}', initial?.name || name).replace('{titles}', titleCount(initial?.awards.length || 0)).replace('{scorers}', scorerCount(initial?.scorers.length || 0))} confirmLabel={t(saving ? 'referees_save_busy' : 'delete')} confirmDisabled={saving} cancelLabel={t('cancel')} onClose={() => { if (!savingRef.current) setDeleting(false); }} onConfirm={() => void remove()}>
+            {initial?.tournament && <p className="text-sm text-slate-600">{t('edition_delete_hint').replace('{name}', initial.name)}</p>}
+        </AdminDataConfirmModal>
     </section>;
 };
