@@ -2,7 +2,7 @@ import type { HallOfFameEntry } from '../types';
 import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
 import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from '../services/draftNavigationGuard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncTournamentAwardsToHallOfFame, syncArchivedHistoryToHallOfFame } from '../services/storageService';
+import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, mergeIntoLiveTournamentTeams, syncTournamentAwardsToHallOfFame, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
@@ -1668,51 +1668,6 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         return [...(state.teams || [])];
     }, [state.teams]);
 
-    // When a live tournament is active, keep its roster (tournament.teams) in sync with the global catalog (state.teams).
-    // This allows late-added teams (after the live started) to be selectable in bracket/groups tools and to resolve names.
-    const mergeIntoLiveTournamentTeams = (tournament: TournamentData | undefined, globalTeams: Team[]): TournamentData | undefined => {
-        if (!tournament) return tournament;
-        const liveTeams = Array.isArray(tournament.teams) ? tournament.teams : [];
-        const globals = Array.isArray(globalTeams) ? globalTeams : [];
-
-        const globalById = new Map<string, Team>();
-        for (const gt of globals) globalById.set(gt.id, gt);
-
-        const liveById = new Map<string, Team>();
-        for (const lt of liveTeams) liveById.set(lt.id, lt);
-
-        let changed = false;
-        const nextLiveTeams: Team[] = liveTeams.map((lt) => {
-            const gt = globalById.get(lt.id);
-            if (!gt) return lt;
-            const merged = { ...lt, ...gt };
-            // mark changed only on key fields we show in UI
-            if (
-                lt.name !== merged.name ||
-                lt.player1 !== merged.player1 ||
-                lt.player2 !== merged.player2 ||
-                lt.player1YoB !== merged.player1YoB ||
-                lt.player2YoB !== merged.player2YoB ||
-                (lt as any).player1IsReferee !== (merged as any).player1IsReferee ||
-                (lt as any).player2IsReferee !== (merged as any).player2IsReferee ||
-                (lt as any).isReferee !== (merged as any).isReferee
-            ) {
-                changed = true;
-            }
-            return merged;
-        });
-
-        for (const gt of globals) {
-            if (!liveById.has(gt.id)) {
-                nextLiveTeams.push(gt);
-                changed = true;
-            }
-        }
-
-        if (!changed) return tournament;
-        return { ...tournament, teams: nextLiveTeams };
-    };
-
     const allPlayers = useMemo(() => {
         const out: { id: string; name: string; label: string }[] = [];
         (state.teams || []).forEach(team => {
@@ -2058,7 +2013,7 @@ const confirmAliasModal = () => {
         const idx = teams.findIndex(t => t.id === pendingTeamSave.id);
         if (idx >= 0) teams[idx] = { ...teams[idx], ...pendingTeamSave };
         else teams.push(pendingTeamSave);
-        nextState = { ...nextState, teams };
+        nextState = { ...nextState, teams, tournament: mergeIntoLiveTournamentTeams(nextState.tournament, teams) };
         syncFantaPretournamentTeamsBestEffort(teams, 'confirm-team-save', { previousTeams: pendingTeamSavePreviousTeam ? [pendingTeamSavePreviousTeam] : undefined });
         resetForm();
     }
