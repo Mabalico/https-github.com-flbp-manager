@@ -111,6 +111,9 @@ jobs:
       - name: Verify Fanta archive after durable tournament transition
         run: node scripts/test-fanta-archive-order.mjs --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      - name: Verify Fanta team-specific awards and multi-team results
+        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f supabase/tests/fanta_real_team_match_points.sql
+
       - name: Verify HTTP rejections preserve audit and older client queues
         env:
           PGRST_DB_URI: postgresql://postgres:postgres@127.0.0.1:54322/postgres
