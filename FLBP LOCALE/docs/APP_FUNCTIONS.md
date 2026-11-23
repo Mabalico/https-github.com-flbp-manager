@@ -301,6 +301,8 @@ In `components/AdminDashboard.tsx`:
 - `adminSection: live | data`
 
 ### 4.2 Tabs Live
+
+Nell’Editor strutturale si modificano gli slot del primo turno disponibile, incluso un eventuale preliminare. Al termine dei gironi si sblocca il tabellone. La verifica della bozza blocca la pubblicazione quando una squadra iscritta è rimasta fuori o un nuovo ramo vuoto lascia una partita successiva senza avversario. In Gironi, **Rimuovi** consente di spostare una squadra nel pool e riassegnarla prima di applicare la bozza. Il riepilogo conta le azioni registrate, tenendo conto di Annulla e Ripristina. Le priorità «Gioca il più tardi possibile» vengono salvate con il torneo a eliminazione diretta e riutilizzate nella rigenerazione.
 - `components/admin/tabs/TeamsTab.tsx`
   - inserimento squadre, import, simulatore pool
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
