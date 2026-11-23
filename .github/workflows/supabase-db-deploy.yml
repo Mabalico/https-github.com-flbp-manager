@@ -76,10 +76,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v3
+        uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         with:
           # Versione fissata. La CLI v3 (2026-11-02) punta allo stack locale
           # quando non si passa --remote e cambia la conferma delle modifiche

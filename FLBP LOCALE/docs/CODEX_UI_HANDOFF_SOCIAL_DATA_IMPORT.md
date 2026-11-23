@@ -7,7 +7,7 @@ Playbook operativo corto per riprendere in Codex i flussi Admin toccati negli st
 File reali da leggere prima di toccare questi flussi:
 - `AGENTS.md`
 - `components/admin/SocialGraphicsPanel.tsx`
-- `components/admin/tabs/data/IntegrationsHof.tsx`
+- `components/admin/tabs/data/EditionEditor.tsx`
 - `components/AdminDashboard.tsx`
 - `services/teamImportProfile.ts`
 - `services/storageService.ts`
@@ -36,7 +36,7 @@ Vincoli da NON rompere:
 - TV non c'entra con questo pannello
 - niente dipendenze nuove
 
-### 2) Integrazioni / Albo d'Oro (`components/admin/tabs/data/IntegrationsHof.tsx`)
+### 2) Integrazioni / Albo d'Oro (`components/admin/tabs/data/EditionEditor.tsx`)
 Già presenti e verificate nel codice reale:
 - inserimento manuale record singolo HOF
 - inserimento manuale **torneo completo**
