@@ -2418,14 +2418,14 @@ const confirmAliasModal = () => {
         try {
             const remoteRow = await pullWorkspaceState({ source: 'AdminDashboard.codes.reloadSnapshot', kind: 'admin' });
             if (!remoteRow?.state) {
-                alert('Non ho trovato uno snapshot admin valido nel DB.');
+                alert(t('report_dialog_snapshot_missing'));
                 return;
             }
             const remoteState = coerceAppState(remoteRow.state);
             setRemoteBaseUpdatedAt(remoteRow.updated_at || null);
             setState(remoteState);
         } catch (error: any) {
-            alert(`Non riesco a ricaricare lo stato dal DB.\n\n${String(error?.message || error || '')}`);
+            alert(t('report_dialog_snapshot_reload_failed').replace('{error}', () => String(error?.message || error || '')));
         } finally {
             setCodesReloading(false);
         }
@@ -2510,15 +2510,15 @@ const confirmAliasModal = () => {
         candidate: WorkbookImportCandidate | { parsed: { headersNormalized: string[]; detectedLayout: TeamImportLayout | null }; sheetName?: string } | null,
         alternatives: WorkbookImportCandidate[] = [],
     ) => {
-        const foundLayout = describeTeamImportLayout(candidate?.parsed?.detectedLayout ?? null);
-        const expectedLayout = describeTeamImportLayout(importProfile?.layout ?? null);
+        const foundLayout = describeTeamImportLayout(candidate?.parsed?.detectedLayout, t);
+        const expectedLayout = describeTeamImportLayout(importProfile?.layout, t);
         const sheetLabel = candidate?.sheetName ? `
 ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const headerPreview = (candidate?.parsed?.headersNormalized || []).slice(0, 8).join(', ');
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
-- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} · squadre ${alt.parsed.teams.length}`).join('\n- ')}`
+- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout, t)} · ${t('teams')}: ${alt.parsed.teams.length}`).join('\n- ')}`
             : '';
         return `${t('alert_import_error')}
 
@@ -2807,7 +2807,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     const genPool = (n: number) => {
         const teams = generateSimPoolTeams(n, state, uuid);
         if (!teams.length) {
-            alert('Nel JSON non ci sono ancora abbastanza squadre o giocatori reali per generare il pool simulazioni.');
+            alert(t('report_dialog_simulation_pool_insufficient'));
             return;
         }
         const merged = [...(state.teams || []), ...teams];
@@ -3061,7 +3061,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!state.tournament) return;
         const match = (state.tournamentMatches || []).find((m) => m.id === matchId);
         if (!match) return;
-        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha già propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
+        const ok = confirm(t('report_dialog_clear_confirm'));
         if (!ok) return;
         const nextMatches = (state.tournamentMatches || []).map((m) =>
             m.id === matchId ? clearRefereeReportFromMatch(m) : m
@@ -3210,7 +3210,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     };
 
     const describeReportForConflict = (snapshot: AppState, match?: Match | null) => {
-        if (!match) return 'Referto non presente nello snapshot remoto.';
+        if (!match) return t('report_dialog_missing');
         const ids = getMatchParticipantIds(match).filter(Boolean);
         const teams = ids.length
             ? ids.map(id => getTeamNameFromStateSnapshot(snapshot, id)).join(' vs ')
@@ -3224,14 +3224,14 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             return acc;
         }, { canestri: 0, soffi: 0 });
         const savedBy = match.refereeReportAuthorName
-            ? `\nSalvato da: ${match.refereeReportAuthorName}${match.refereeReportSavedAt ? ` (${new Date(match.refereeReportSavedAt).toLocaleString()})` : ''}`
+            ? `\n${t('report_dialog_saved_by').replace('{name}', () => match.refereeReportAuthorName || '')}${match.refereeReportSavedAt ? ` (${new Date(match.refereeReportSavedAt).toLocaleString()})` : ''}`
             : '';
         return [
-            `Match: ${match.code || match.id}`,
-            `Squadre: ${teams}`,
-            `Stato: ${match.status || 'scheduled'}${match.played ? ' / giocata' : ''}`,
-            `Punteggio: ${score}`,
-            `Statistiche: ${statsTotals.canestri} canestri, ${statsTotals.soffi} soffi`,
+            `${t('match')}: ${match.code || match.id}`,
+            `${t('teams')}: ${teams}`,
+            `${t('status')}: ${t(`match_status_${match.status || 'scheduled'}`)}`,
+            `${t('score_label')}: ${score}`,
+            `${t('statistics')}: ${statsTotals.canestri} ${t('points_baskets')}, ${statsTotals.soffi} ${t('soffi')}`,
         ].join('\n') + savedBy;
     };
 
@@ -3668,23 +3668,17 @@ while (guard < 5000) {
                         buildReportConflictSignature(remoteMatch) !== buildReportConflictSignature(localBaseMatch);
 
                     if (selectedMatchChanged) {
-                        const overwrite = confirm([
-                            'Il DB contiene un referto piu recente per questa partita.',
-                            '',
-                            'Referto nel DB:',
-                            describeReportForConflict(remoteState, remoteMatch),
-                            '',
-                            'Referto nella tua finestra:',
-                            describeReportForConflict(state, localBaseMatch),
-                            '',
-                            'OK = applica comunque il tuo referto sopra i dati aggiornati.',
-                            'Annulla = ricarica i dati del DB senza salvare.',
-                        ].join('\n'));
+                        const overwrite = confirm(t('report_dialog_preflight_conflict').replace(
+                            /\{(remote|local)\}/g,
+                            (_, source) => source === 'remote'
+                                ? describeReportForConflict(remoteState, remoteMatch)
+                                : describeReportForConflict(state, localBaseMatch),
+                        ));
 
                         if (!overwrite) {
                             setRemoteBaseUpdatedAt(remoteUpdatedAt);
                             setState(remoteState);
-                            alert('Ho ricaricato i dati aggiornati dal DB. Controlla il referto prima di salvare di nuovo.');
+                            alert(t('report_dialog_preflight_reloaded'));
                             return;
                         }
                     }
@@ -3696,7 +3690,7 @@ while (guard < 5000) {
                 }
             } catch (error: any) {
                 console.warn('Admin report preflight failed', error);
-                alert(`Non riesco a verificare lo stato aggiornato del DB prima del salvataggio.\n\n${String(error?.message || error || '')}\n\nRiprova tra qualche secondo: il referto non e stato salvato.`);
+                alert(t('report_dialog_preflight_failed').replace('{error}', () => String(error?.message || error || '')));
                 return;
             }
         }
@@ -3807,10 +3801,9 @@ while (guard < 5000) {
         if (lockedSuccessor && !confirm([
             t('editor_winner_cannot_advance'),
             '',
-            `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso e resterà con la squadra precedente.`,
+            t('report_dialog_locked_successor').replace('{code}', () => lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''),
             '',
-            'OK = salva comunque il referto e correggi poi il tabellone dall\'editor struttura.',
-            'Annulla = non salvare.',
+            t('report_dialog_admin_locked_confirm'),
         ].join('\n'))) {
             return;
         }
@@ -3850,13 +3843,7 @@ while (guard < 5000) {
             }
         } catch (error: any) {
             console.warn('Admin report snapshot save failed', error);
-            alert([
-                'Il referto non è stato salvato su Supabase.',
-                '',
-                'Non chiudere questa finestra: controlla la connessione, poi riprova il salvataggio.',
-                '',
-                String(error?.message || error || ''),
-            ].join('\n'));
+            alert(t('report_dialog_admin_save_failed').replace('{error}', () => String(error?.message || error || '')));
             return;
         }
         setState(nextState);

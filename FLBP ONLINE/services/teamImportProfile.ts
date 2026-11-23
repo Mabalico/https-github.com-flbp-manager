@@ -109,8 +109,8 @@ export const isTeamImportCoherentWithProfile = (
 };
 
 
-export const describeTeamImportLayout = (layout: TeamImportLayout | null | undefined): string => {
-  if (layout === 'team_rows') return 'una riga per squadra';
-  if (layout === 'player_rows') return 'una riga per giocatore';
-  return 'layout non riconosciuto';
+export const describeTeamImportLayout = (layout: TeamImportLayout | null | undefined, t: (key: string) => string): string => {
+  if (layout === 'team_rows') return t('admin_import_layout_team_rows');
+  if (layout === 'player_rows') return t('admin_import_layout_player_rows');
+  return t('admin_import_layout_unknown');
 };

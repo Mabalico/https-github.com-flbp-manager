@@ -72,6 +72,7 @@ const matchUtils = loadPureModule('services/matchUtils.ts');
 const reportAudit = loadPureModule('services/refereeReportAudit.ts');
 const selectors = loadPureModule('services/tournamentStructureSelectors.ts');
 const reportEntry = loadPureModule('services/reportEntry.ts');
+const dialogTranslations = loadPureModule('services/i18n/it.ts').dictionary;
 const fault = code => typeof code === 'string' ? Object.assign(new Error(code), { code }) : code;
 // What supabaseRest throws for an HTTP 429 referee rejection: the raw body.
 const rateLimitedBody = () => new Error('{"ok":false,"reason":"rate_limited"}');
@@ -120,7 +121,9 @@ const createCase = (options = {}) => {
       appState = typeof value === 'function' ? value(appState) : value;
       calls.states.push(appState); events.push('state');
     },
-    t: key => key === 'report_saved_summary' ? 'Saved {code} · {score}' : key,
+    t: key => key === 'report_saved_summary'
+      ? 'Saved {code} · {score}'
+      : key.startsWith('report_dialog_') ? dialogTranslations[key] : key,
     reportSaveFeedback: { show: message => { calls.notices.push(message); events.push('saved'); } },
     alert: message => { calls.alerts.push(message); events.push(`alert:${message}`); },
     confirm: () => true,

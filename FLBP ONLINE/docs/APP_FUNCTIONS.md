@@ -101,6 +101,9 @@ Per tornei live e' comunque possibile disabilitare rapidamente la registrazione 
 
 Hardening TV (R8.1):
 - Se `localStorage flbp_tv_mode` e' attivo (TV Mode), l'app **non registra** il service worker.
+- La navigazione prova la rete per tre secondi e poi usa la copia in cache, se presente. Le proiezioni TV riconosciute dall'URL escludono il service worker anche quando lo storage del browser è bloccato.
+- I font web vengono precaricati senza bloccare il primo disegno. I form dell'Area Giocatore espongono etichette associate e indicazioni di compilazione automatica per accesso, registrazione e recupero password.
+- I dialoghi di Admin e Arbitri seguono la lingua selezionata. Il motivo restituito dal server viene mostrato con il suo testo originale.
 - Quando si entra in TV Mode, l'app tenta in best-effort di **unregister SW** e **svuotare le cache** per ridurre il rischio di "build vecchie".
 - In Area Admin (header) sono presenti i pulsanti **CACHE ON/OFF** e **svuota cache** (cestino) per forzare un reload pulito.
 
