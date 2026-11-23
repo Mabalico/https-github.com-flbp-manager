@@ -3,8 +3,7 @@ import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings'
 import { applyFinalGroupSchedule, getFinalGroupStartRound, isFinalGroup } from './groupUtils';
 import { avoidBracketCodeClashes, normalizeMatchCode } from './matchUtils';
 import { buildBracketRoundsFromMatches, isLockedBracketMatchForStructureEdit, reconcileBracketAdvancements } from './tournamentStructureSelectors';
-
-const uuid = () => Math.random().toString(36).substr(2, 9);
+import { uuid } from './id';
 
 const isByeId = (id?: string) => String(id || '').toUpperCase() === 'BYE';
 const isTbdId = (id?: string) => {
@@ -690,6 +689,24 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
     };
 
     return { tournament, matches: allMatches };
+};
+
+export const didQualificationChangeAfterBracketStarted = (
+    tournament: TournamentData,
+    previousMatches: Match[],
+    nextMatches: Match[],
+    groupName?: string,
+): boolean => {
+    if (tournament.type !== 'groups_elimination' || !groupName) return false;
+    const group = tournament.groups?.find(candidate => candidate.name === groupName && !isFinalGroup(candidate));
+    if (!group || !previousMatches.some(match => match.phase === 'bracket' && isLockedBracketMatchForStructureEdit(match))) return false;
+    const advancing = tournament.config?.advancingPerGroup || 2;
+    const qualifierIds = (matches: Match[]) => isGroupComplete(group, matches)
+        ? computeGroupRanking(group, matches).ranked.slice(0, advancing).map(team => team.id)
+        : [];
+    const previous = qualifierIds(previousMatches);
+    const next = qualifierIds(nextMatches);
+    return previous.length !== next.length || previous.some((id, index) => id !== next[index]);
 };
 
 export const syncBracketFromGroups = (tournament: TournamentData, matches: Match[]): Match[] => {

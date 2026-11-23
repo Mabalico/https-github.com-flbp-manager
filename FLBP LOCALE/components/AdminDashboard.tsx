@@ -7,7 +7,7 @@ import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
 import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star } from 'lucide-react';
-import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
+import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded, didQualificationChangeAfterBracketStarted } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
 import { canPlayMatch, isByeMatch, isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
@@ -3885,6 +3885,14 @@ while (guard < 5000) {
         window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
             detail: { state: nextState, source: 'admin-save-report', skipStructuredSync: true }
         }));
+        const qualificationChanged = workingState.tournament && updated.phase === 'groups'
+            && didQualificationChangeAfterBracketStarted(
+                workingState.tournament,
+                workingState.tournamentMatches?.length ? workingState.tournamentMatches : workingState.tournament.matches || [],
+                finalMatches,
+                updated.groupName,
+            );
+        if (qualificationChanged) alert(t('admin_qualification_changed_after_bracket_start'));
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
         alert(t('alert_report_saved'));
     };

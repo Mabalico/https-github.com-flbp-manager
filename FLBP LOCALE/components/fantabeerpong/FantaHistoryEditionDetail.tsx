@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, ArrowRight, Loader2, Sparkles, Star, Target, Trophy, Wind, Zap } from 'lucide-react';
-import { fetchFantaArchivedEditionDetail } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaArchivedEditionDetail, splitFantaRealPlayerKey } from '../../services/fantabeerpong/fantaSupabaseService';
 import type { FantaArchivedEditionDetail } from '../../services/fantabeerpong/types';
 import { readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { useTranslation } from '../../App';
@@ -68,8 +68,10 @@ export const FantaHistoryEditionDetail: React.FC<Props> = ({ editionId, onBack }
   const selectedTeamPlayers = selectedTeamId ? data.teamPlayers.filter((row) => row.teamId === selectedTeamId) : [];
   const archivedPlayers = data.allPlayers?.length ? data.allPlayers : data.topPlayers;
   const displayedPlayers = playerListMode === 'top' ? archivedPlayers.slice(0, 10) : archivedPlayers;
-  const selectedRosterPlayer = selectedPlayerId ? data.teamPlayers.find((row) => row.playerId === selectedPlayerId) : null;
-  const selectedPlayer = selectedPlayerId ? archivedPlayers.find((row) => row.playerId === selectedPlayerId) || (selectedRosterPlayer ? {
+  const selectedRosterPlayer = selectedPlayerId ? selectedTeamPlayers.find(row => row.playerId === selectedPlayerId) : null;
+  const selectedPlayer = selectedPlayerId ? archivedPlayers.find(row => row.playerId === selectedPlayerId
+    || (selectedRosterPlayer && row.playerId === splitFantaRealPlayerKey(selectedPlayerId).playerId
+      && row.realTeamName === selectedRosterPlayer.realTeamName)) || (selectedRosterPlayer ? {
     playerId: selectedRosterPlayer.playerId,
     rank: 0,
     playerName: selectedRosterPlayer.playerName,

@@ -2712,5 +2712,6 @@ export const dictionary: TranslationDictionary = {
   "editor_tap_to_place_hint": "Tocca uno slot valido, oppure annulla.",
   "editor_add_to_bracket_bar": "Aggiungi al tabellone",
   "editor_add_to_bracket_hint": "Trascina questa barra su uno slot, oppure fai doppio clic sul lato del match dove vuoi inserirla.",
+  "admin_qualification_changed_after_bracket_start": "La correzione cambia le qualificate o la loro posizione. Il tabellone è già iniziato. Controlla gli abbinamenti e correggili nell’editor struttura.",
   "editor_fullscreen_select_team_first": "Seleziona prima una squadra dal pool, poi trascinala o fai doppio clic su uno slot del tabellone.",
 };

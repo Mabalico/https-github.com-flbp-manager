@@ -2711,5 +2711,6 @@ export const dictionary: TranslationDictionary = {
   "editor_tap_to_place_hint": "Tap a valid slot, or cancel.",
   "editor_add_to_bracket_bar": "Add to bracket",
   "editor_add_to_bracket_hint": "Drag this bar onto a slot, or double-click the match side where you want to place it.",
+  "admin_qualification_changed_after_bracket_start": "La corrección cambia los equipos clasificados o su posición. El cuadro ya ha comenzado. Revisa los cruces y ajústalos en el editor de estructura.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
 };

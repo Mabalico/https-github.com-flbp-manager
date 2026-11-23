@@ -7,7 +7,7 @@ import {
   undoTournamentStructureDraft,
 } from '../../services/tournamentStructureDraft';
 import { diffTournamentStructure } from '../../services/tournamentStructureDiff';
-import { activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
+import { activateFinalRoundRobinStage, didQualificationChangeAfterBracketStarted, ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
 import { computeGroupStandings } from '../../services/groupStandings';
 import { compareTournamentMatches, formatGroupName } from '../../services/groupUtils';
 import { canPlayMatch, hasUndeterminedParticipants, isByeMatch } from '../../services/matchUtils';
@@ -819,6 +819,21 @@ for (const groupCount of [4, 5]) {
     }
   });
 }
+
+defineCase('a corrected group seed is flagged when the bracket already started', () => {
+  const { tournament, groups, matches } = generateFourGroupsTournament();
+  const group = groups[0];
+  const initial = finishGroupInOrder(matches, group);
+  const reversed = group.teams.map(team => team.id).reverse();
+  const corrected = finishGroupInOrder(initial, group, reversed);
+  assertEqual(didQualificationChangeAfterBracketStarted(tournament, initial, corrected, group.name), false);
+  const makeStarted = (rows: Match[]) => rows.map(match => match.id === getBracketRound(initial, 1)[0].id
+    ? { ...match, teamAId: 'locked-a', teamBId: 'locked-b', status: 'playing' as const }
+    : match);
+  const started = makeStarted(initial);
+  assertEqual(didQualificationChangeAfterBracketStarted(tournament, started, makeStarted(corrected), group.name), true);
+  assertEqual(didQualificationChangeAfterBracketStarted(tournament, started, started, group.name), false);
+});
 
 defineCase('a group report never wipes a bracket match already played while other groups are running', () => {
   const { tournament, groups } = generateFourGroupsTournament();

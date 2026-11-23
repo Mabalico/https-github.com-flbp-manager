@@ -15,13 +15,27 @@ export interface EditionSummary {
     scorers: IntegrationScorerEntry[];
 }
 
+const italianCalendar = new Intl.DateTimeFormat('it-IT', {
+    timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
+const editionCalendarDate = (raw?: string): string => {
+    const date = String(raw || '').trim();
+    const calendarDate = normalizeBirthDateInput(date);
+    if (calendarDate) return calendarDate;
+    const storedDate = normalizeBirthDateInput(date.slice(0, 10)) || date;
+    if (!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(date)) return storedDate;
+    const time = Date.parse(date);
+    if (!Number.isFinite(time)) return storedDate;
+    return normalizeBirthDateInput(italianCalendar.format(time)) || storedDate;
+};
+
 /** A view over existing records, never a migration to empty tournament structures. */
 export const listEditions = (state: AppState): EditionSummary[] => {
     const rows = new Map<string, EditionSummary>();
     const add = (id: string, name: string, date = '', year = '') => {
-        date = String(date || '');
         name = String(name || '');
-        date = normalizeBirthDateInput(date.slice(0, 10)) || date;
+        date = editionCalendarDate(date);
         if (!rows.has(id)) rows.set(id, { id, name, date, year: date.slice(0, 4) || year, live: false, awards: [], scorers: [] });
         return rows.get(id)!;
     };
@@ -33,7 +47,10 @@ export const listEditions = (state: AppState): EditionSummary[] => {
     (state.hallOfFame || []).forEach(entry => {
         if (!entry.tournamentId) return;
         const row = add(entry.tournamentId, entry.tournamentName, entry.sourceTournamentDate, entry.year);
-        if (!row.date && entry.sourceTournamentDate) row.date = normalizeBirthDateInput(String(entry.sourceTournamentDate).slice(0, 10)) || entry.sourceTournamentDate;
+        if (!row.date && entry.sourceTournamentDate) {
+            row.date = editionCalendarDate(entry.sourceTournamentDate);
+            row.year = row.date.slice(0, 4) || row.year;
+        }
         row.awards.push(entry);
     });
     (state.integrationsScorers || []).forEach(entry => {
