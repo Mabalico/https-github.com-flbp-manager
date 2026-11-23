@@ -3852,6 +3852,7 @@ export const pushAdminMatchResults = async (opts: {
     tournamentId: string;
     matchId: string;
     matches: Match[];
+    deferSnapshotCursor?: boolean;
 }): Promise<MatchResultPushResult> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
@@ -3894,7 +3895,7 @@ export const pushAdminMatchResults = async (opts: {
         throwMatchResultRpcError(errBody, rpcName);
     }
     const out = await res.json() as MatchResultPushResult;
-    setRemoteBaseUpdatedAt(out.updated_at || null);
+    if (!opts.deferSnapshotCursor) setRemoteBaseUpdatedAt(out.updated_at || null);
     return out;
 };
 

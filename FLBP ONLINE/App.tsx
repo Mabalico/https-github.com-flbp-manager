@@ -507,6 +507,8 @@ const App: React.FC = () => {
     }, []);
 
     const [state, setState] = useState<AppState>(() => repo.load());
+    const saveTimeoutRef = useRef<number | null>(null);
+    const latestStateRef = useRef<AppState>(state);
     const databaseRestorePausedRef = useRef(false);
     const persistenceGenerationRef = useRef(0);
     const databaseRestoreSessionRef = useRef<ReturnType<typeof createDatabaseRestoreSession> | null>(null);
@@ -1013,6 +1015,36 @@ const App: React.FC = () => {
         };
     }, [repo, tvMode]);
 
+    const persistDebouncedState = useCallback(() => {
+        const toPersist = latestStateRef.current;
+        const saveGeneration = persistenceGenerationRef.current;
+        try { repo.save(toPersist); }
+        catch { return; } // LocalRepository records the failure for the Admin banner.
+
+        void Promise.resolve(repo.flush?.()).then(async confirmed => {
+            const projection = repo.source === 'remote' ? confirmed : toPersist;
+            if (!projection || hasRemoteDraftCache()) return;
+            const { scheduleAutoStructuredSync } = await loadAutoDbSyncModule();
+            if (databaseRestorePausedRef.current || saveGeneration !== persistenceGenerationRef.current) return;
+            if (hasRemoteDraftCache()) return;
+            scheduleAutoStructuredSync(projection);
+        }).catch(() => {
+            // The repository and projection each report their own sync failures.
+        });
+    }, [repo]);
+
+    useEffect(() => {
+        const update = () => repo.setAdminRealtimeActive?.(view === 'admin' && !tvMode);
+        window.addEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, update);
+        window.addEventListener('storage', update);
+        update();
+        return () => {
+            window.removeEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, update);
+            window.removeEventListener('storage', update);
+            repo.setAdminRealtimeActive?.(false);
+        };
+    }, [repo, view, tvMode]);
+
     // If RemoteRepository is enabled and can pull a newer snapshot,
     // apply it to the live state too, not only to a cache for the next reload.
     // This keeps multiple devices aligned on the same online state.
@@ -1040,12 +1072,19 @@ const App: React.FC = () => {
             } catch {
                 // ignore
             }
+            latestStateRef.current = next;
             setState(next);
+        }, () => {
+            if (databaseRestorePausedRef.current || saveTimeoutRef.current == null || view !== 'admin' || tvMode) return false;
+            window.clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+            persistDebouncedState();
+            return true;
         });
         return () => {
             try { unsub && unsub(); } catch {}
         };
-    }, [repo]);
+    }, [repo, persistDebouncedState, view, tvMode]);
 
     useEffect(() => {
         if (!publicDbReadEnabled()) {
@@ -1310,10 +1349,6 @@ const App: React.FC = () => {
     }, [androidWebViewRuntime, menuOpen]);
 
 
-    // Debounced persistence: reduces localStorage writes on rapid state updates (mobile-friendly)
-    const saveTimeoutRef = useRef<number | null>(null);
-    const latestStateRef = useRef<AppState>(state);
-
     useEffect(() => {
         latestStateRef.current = state;
     }, [state]);
@@ -1421,18 +1456,7 @@ const App: React.FC = () => {
         saveTimeoutRef.current = window.setTimeout(() => {
             saveTimeoutRef.current = null;
             if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) return;
-            try { repo.save(latestStateRef.current); }
-            catch { return; } // LocalRepository exposes the failure through AdminSyncState.
-            void repo.flush?.().catch(() => {});
-
-            // Optional: keep DB normalised/public mirrors updated.
-            // Default OFF; best-effort; never blocks UI.
-            void loadAutoDbSyncModule().then(({ scheduleAutoStructuredSync }) => {
-                if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) return;
-                scheduleAutoStructuredSync(latestStateRef.current);
-            }).catch(() => {
-                // ignore best-effort background sync loader errors
-            });
+            persistDebouncedState();
         }, 50);
 
         return () => {
@@ -1441,7 +1465,7 @@ const App: React.FC = () => {
                 saveTimeoutRef.current = null;
             }
         };
-    }, [state]);
+    }, [state, persistDebouncedState]);
 
     useEffect(() => {
         const checkpointLocally = () => {
@@ -1467,6 +1491,7 @@ const App: React.FC = () => {
                 skipStructuredSync?: boolean;
                 snapshotOnly?: boolean;
                 skipRepositoryPersist?: boolean;
+                readBackCommit?: boolean;
                 requireDurableRepositoryCommit?: boolean;
                 reviewedDraft?: ReviewedDraftReconciliation;
                 committedUpdatedAt?: string | null;
@@ -1550,6 +1575,7 @@ const App: React.FC = () => {
                     updatedAt: detail.committedUpdatedAt || undefined,
                     version: detail.committedVersion ?? null,
                     operationId: detail.committedOperationId ?? null,
+                    readBack: detail.readBackCommit === true,
                     discardPendingDraft: detail.discardPendingDraft === true,
                 });
             }

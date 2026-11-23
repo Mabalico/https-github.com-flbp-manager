@@ -43,9 +43,13 @@ export class RemoteRepository implements AppStateRepository {
   private activeFlushOperationId: string | null = null;
   private flushInFlight: Promise<void> | null = null;
   private pullInFlight: Promise<boolean> | null = null;
+  private readonly preserveLocalEdits = new Set<() => boolean>();
+  private unsubscribeRealtime: (() => void) | null = null;
+  private readonly realtimeEnabled: boolean;
   private listeners = new Set<(state: AppState, meta?: RepositoryUpdateMeta) => void>();
   private lastRemoteUpdatedAt: string | null = null;
   private lastRemoteVersion: number | null = null;
+  private matchCommitReadback: { updatedAt: string | null; version: number | null } | null = null;
   private lastStateFingerprint = '';
   private conflictedDraftFingerprint: string | null = null;
   private conflictMergeAttempts = 0;
@@ -224,6 +228,8 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   constructor(_localFallback: AppStateRepository, options?: { backgroundSync?: boolean; realtime?: boolean }) {
+    this.realtimeEnabled = options?.backgroundSync !== false && options?.realtime !== false;
+
     clearLocalAppStateCaches();
     touchRemoteDraftOwner(this.draftOwnerId);
     startRemoteDraftOwnerHeartbeat();
@@ -260,20 +266,22 @@ export class RemoteRepository implements AppStateRepository {
       // ignore
     }
 
-    if (options?.realtime !== false) {
-      try {
-        subscribeWorkspaceStateRealtime(({ updatedAt }) => {
-          if (!this.shouldBackgroundRefresh()) return;
-          if (updatedAt && updatedAt === this.lastRemoteUpdatedAt) return;
-          void this.refresh();
-        });
-      } catch {
-        // realtime is best-effort: polling continues to cover the gap
-      }
-    }
-
     if (!restoredCachedDraft) this.startIndexedDbDraftRecovery();
   }
+
+  setAdminRealtimeActive = (active: boolean): void => {
+    if (!this.realtimeEnabled || !active || !hasSupabaseWriteSession()) {
+      this.unsubscribeRealtime?.();
+      this.unsubscribeRealtime = null;
+      return;
+    }
+
+    this.unsubscribeRealtime ??= subscribeWorkspaceStateRealtime(({ updatedAt }) => {
+      if (!this.shouldBackgroundRefresh()) return;
+      if (updatedAt && updatedAt === this.lastRemoteUpdatedAt) return;
+      void this.refresh();
+    });
+  };
 
   private fingerprint(state: AppState): string {
     try {
@@ -281,6 +289,13 @@ export class RemoteRepository implements AppStateRepository {
     } catch {
       return `${Date.now()}`;
     }
+  }
+
+  private hasAcknowledgedMatchCommit(updatedAt?: string | null, version?: number | null): boolean {
+    const receipt = this.matchCommitReadback;
+    if (!receipt) return true;
+    if (version != null && receipt.version != null) return version >= receipt.version;
+    return !receipt.updatedAt || (!!updatedAt && Date.parse(updatedAt) >= Date.parse(receipt.updatedAt));
   }
 
   private rememberRemoteState(state: AppState, updatedAt?: string | null, opts?: { broadcast?: boolean; version?: number | null }) {
@@ -297,6 +312,8 @@ export class RemoteRepository implements AppStateRepository {
       // this repository instance.
       return;
     }
+    if (!this.hasAcknowledgedMatchCommit(updatedAt, incomingVersion)) return;
+    this.matchCommitReadback = null;
     const safeState = coerceAppState(state);
     this.lastStateFingerprint = this.fingerprint(safeState);
     this.lastRemoteUpdatedAt = updatedAt || null;
@@ -499,10 +516,12 @@ export class RemoteRepository implements AppStateRepository {
     }
   }
 
-  subscribe(listener: (state: AppState, meta?: RepositoryUpdateMeta) => void): () => void {
+  subscribe(listener: (state: AppState, meta?: RepositoryUpdateMeta) => void, preserveLocalEdit?: () => boolean): () => void {
     this.listeners.add(listener);
+    if (preserveLocalEdit) this.preserveLocalEdits.add(preserveLocalEdit);
     return () => {
       this.listeners.delete(listener);
+      if (preserveLocalEdit) this.preserveLocalEdits.delete(preserveLocalEdit);
     };
   }
 
@@ -521,7 +540,6 @@ export class RemoteRepository implements AppStateRepository {
   }
 
   acknowledgeExternalCommit = (state: AppState, meta?: RepositoryUpdateMeta): void => {
-    const safeState = coerceAppState(state);
     const currentDraft = readRemoteDraftPointer() || readRemoteDraftCache();
     const explicitlyDiscardsPendingDraft = meta?.discardPendingDraft === true;
     const completedOperationId = meta?.operationId
@@ -548,6 +566,21 @@ export class RemoteRepository implements AppStateRepository {
     }
     acknowledgeRemoteDraftCache(meta?.updatedAt || null, completedOperationId);
 
+    if (meta?.readBack) {
+      const version = normalizeWorkspaceVersion(meta.version);
+      if (this.hasAcknowledgedMatchCommit(meta.updatedAt, version)) {
+        this.matchCommitReadback = { updatedAt: meta.updatedAt || null, version };
+      }
+      this.publishRemoteSnapshotUpdate(meta.updatedAt);
+      // Take a fresh read even if a poll that started before the patch is in flight.
+      void (async () => {
+        await this.pullInFlight;
+        if (this.matchCommitReadback) await this.pullAndApply({ forceEmit: true });
+      })();
+      if (this.pendingState || hasRemoteDraftCache()) markAdminSyncPending(this.source);
+      return;
+    }
+
     // A match-patch acknowledgement must never discard a full-state draft
     // owned by another operation in this window. Keep it durable so a 409 can
     // be reconciled explicitly instead of silently losing the unrelated edit.
@@ -561,7 +594,7 @@ export class RemoteRepository implements AppStateRepository {
       return;
     }
 
-    this.rememberRemoteState(safeState, meta?.updatedAt || null, {
+    this.rememberRemoteState(state, meta?.updatedAt || null, {
       broadcast: true,
       version: meta?.version ?? null,
     });
@@ -589,6 +622,7 @@ export class RemoteRepository implements AppStateRepository {
     if (!(await discardRestorableRemoteDrafts(this.pendingOperationId))) {
       throw new Error('Impossibile chiudere le bozze precedenti. Riprova il recupero dello snapshot.');
     }
+    this.matchCommitReadback = null;
     this.acknowledgeExternalCommit(state, { ...meta, discardPendingDraft: true });
   };
 
@@ -773,7 +807,9 @@ export class RemoteRepository implements AppStateRepository {
       generation = this.pendingGeneration;
       await this.flushNow();
     } while (this.pendingState && this.pendingGeneration !== generation);
-    if (!this.pendingState && !hasRemoteDraftCache() && this.lastRemoteState) return this.lastRemoteState;
+    if (this.pendingState || hasRemoteDraftCache()) return;
+    if (this.matchCommitReadback) await this.pullAndApply({ forceEmit: true });
+    if (!this.matchCommitReadback && this.lastRemoteState) return this.lastRemoteState;
   };
 
   private async pullAndApply(opts?: { forceEmit?: boolean }): Promise<boolean> {
@@ -790,20 +826,29 @@ export class RemoteRepository implements AppStateRepository {
         if (this.pendingState || hasRemoteDraftCache() || generation !== this.pendingGeneration) return false;
         const incomingVersion = normalizeWorkspaceVersion(row.version);
         if (incomingVersion != null && this.lastRemoteVersion != null && incomingVersion < this.lastRemoteVersion) return false;
+        if (!this.hasAcknowledgedMatchCommit(row.updated_at, incomingVersion)) return false;
+        const readingBackMatchCommit = this.matchCommitReadback != null;
+        // Give React's pending debounce a chance to persist against its
+        // original base before advancing the cursor to this incoming row.
+        if ([...this.preserveLocalEdits].some(preserve => preserve())) return false;
 
         const nextState = coerceAppState(row.state);
         const nextFingerprint = this.fingerprint(nextState);
         const sameVersion = !!row.updated_at && row.updated_at === this.lastRemoteUpdatedAt;
         const sameState = nextFingerprint === this.lastStateFingerprint;
 
-        if (!opts?.forceEmit && (sameVersion || sameState)) {
+        if (!readingBackMatchCommit && !opts?.forceEmit && (sameVersion || sameState)) {
           this.rememberRemoteState(nextState, row.updated_at || null, { version: row.version ?? null });
           return false;
         }
 
         this.rememberRemoteState(nextState, row.updated_at || null, { version: row.version ?? null });
         clearDbSyncCurrentIssue();
-        this.emit(nextState, { updatedAt: row.updated_at || undefined });
+        if (readingBackMatchCommit) {
+          markDbSyncOk('match-result');
+          markAdminSyncSynced(row.updated_at || null, this.source);
+        }
+        this.emit(nextState, { updatedAt: row.updated_at || undefined, version: incomingVersion });
         return true;
       } catch {
         return false;

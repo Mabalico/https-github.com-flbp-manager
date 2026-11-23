@@ -4072,6 +4072,7 @@ while (guard < 5000) {
                     tournamentId: workingState.tournament?.id || state.tournament.id,
                     matchId: reportMatchId,
                     matches: reportMatchesToPersist,
+                    deferSnapshotCursor: true,
                 });
                 window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
                     detail: {
@@ -4079,6 +4080,7 @@ while (guard < 5000) {
                         source: 'admin-save-report',
                         skipStructuredSync: true,
                         skipRepositoryPersist: true,
+                        readBackCommit: true,
                         committedUpdatedAt: committed.updated_at || null,
                         committedVersion: committed.version ?? null,
                         committedOperationId: committed.operation_id ?? null,

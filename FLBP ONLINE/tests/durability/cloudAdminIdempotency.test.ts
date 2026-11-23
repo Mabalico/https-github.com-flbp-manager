@@ -3,6 +3,7 @@ import { isAdminWriteBlockedByLease, readAdminLeaseInfo, setAdminLeaseInfo } fro
 import { initAdminWriteLease, reclaimCloudAcceptingMissingOperations, releaseAdminWriteLease, takeoverAdminWriteLease } from '../../services/adminWriteLease';
 import { flushAutoStructuredSync, replacePendingAutoStructuredSync, scheduleAutoStructuredSync } from '../../services/autoDbSync';
 import { readDbSyncDiagnostics } from '../../services/dbDiagnostics';
+import { RemoteRepository } from '../../services/repository/RemoteRepository';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -116,6 +117,33 @@ setSupabaseSession({
   userId: 'admin-cloud-test',
   email: 'admin@example.test',
 });
+
+const nativeWebSocket = globalThis.WebSocket;
+let socketOpens = 0;
+let socketCloses = 0;
+class FixtureWebSocket {
+  readyState = 0;
+  constructor() { socketOpens += 1; }
+  close() {
+    this.readyState = 3;
+    socketCloses += 1;
+  }
+}
+globalThis.WebSocket = FixtureWebSocket as unknown as typeof WebSocket;
+const realtimeRepository = new RemoteRepository({} as any);
+assert(socketOpens === 0, 'a persisted Admin session must not open Realtime on a public, referee or TV route');
+realtimeRepository.setAdminRealtimeActive(true);
+assert(socketOpens === 1, 'entering Admin with a session must open one Realtime socket');
+realtimeRepository.setAdminRealtimeActive(true);
+assert(socketOpens === 1, 're-rendering Admin must retain the current subscription');
+realtimeRepository.setAdminRealtimeActive(false);
+assert(socketCloses === 1, 'leaving Admin must disconnect Realtime');
+const adminSession = getSupabaseSession();
+setSupabaseSession(null);
+realtimeRepository.setAdminRealtimeActive(true);
+assert(socketOpens === 1, 'the Admin login page must not open Realtime before authentication');
+setSupabaseSession(adminSession);
+globalThis.WebSocket = nativeWebSocket;
 
 const state = { tournament: { id: 't1', name: 'Cloud idempotente' } } as any;
 const pushed = await pushWorkspaceState(state, {
