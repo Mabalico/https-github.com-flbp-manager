@@ -1407,6 +1407,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
         let url: string | null = null;
 
         const run = () => {
+            if (!alive) return;
             try {
                 const r = renderStoryToPngDataUrl(selected.story, selected.key);
                 if (!r) {
@@ -1415,7 +1416,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                 }
                 const blob = dataUrlToBlob(r.dataUrl);
                 url = URL.createObjectURL(blob);
-                if (alive) setPreviewUrl(url);
+                setPreviewUrl(url);
             } catch {
                 if (alive) setPreviewUrl(null);
             }

@@ -17,6 +17,7 @@
 const SW_VERSION = 'step85';
 const ASSET_CACHE = `flbp-assets-${SW_VERSION}`;
 const DOC_CACHE = `flbp-docs-${SW_VERSION}`;
+const NAVIGATION_NETWORK_TIMEOUT_MS = 3000;
 
 // Vite BASE_URL deployments may live under a sub-path.
 // Compute a base pathname from the SW scope to match assets correctly.
@@ -103,8 +104,10 @@ async function staleWhileRevalidate(request, cacheName) {
 
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NAVIGATION_NETWORK_TIMEOUT_MS);
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { signal: controller.signal });
     if (response && response.ok) {
       cache.put(request, response.clone());
 
@@ -130,6 +133,8 @@ async function networkFirst(request, cacheName) {
     }
 
     throw new Error('Network and cache both failed');
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
