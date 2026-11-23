@@ -199,26 +199,27 @@ const flushAutoStructuredSyncNow = async (
   queuedFlushAfterInFlight = false;
   queuedForceAfterInFlight = false;
   inFlight = true;
+  pending = null;
 
   try {
     // Reserve the queue before awaiting discovery. Another flush may only
     // update the pending state while this one is resolving the data plane.
     const route = await resolveDataPlane();
-    if (revision !== pendingRevision || route.mode !== 'cloud') return;
-    if (isAdminWriteBlockedByLease()) return;
+    if (revision !== pendingRevision) return;
+    if (route.mode !== 'cloud' || isAdminWriteBlockedByLease()) {
+      pending = s;
+      return;
+    }
     const strictRecoveryProjection = normalizedSyncRequired();
     const fingerprint = stableStateSerialize(s);
     const base = getRemoteBaseUpdatedAt();
-    if (!strictRecoveryProjection && base && base === lastProjectedAt && fingerprint === lastFingerprint) {
-      pending = null;
-      return;
-    }
+    if (!strictRecoveryProjection && base && base === lastProjectedAt && fingerprint === lastFingerprint) return;
     const elapsed = Date.now() - lastRunAt;
     if (!forceThisRun && elapsed < MIN_INTERVAL_MS) {
+      pending = s;
       armFlushTimer(MIN_INTERVAL_MS - elapsed);
       return;
     }
-    pending = null;
 
     // Never forward `force` to the snapshot RPC: p_force would skip the
     // updated_at compare-and-swap and let a queued state overwrite newer
