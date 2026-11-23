@@ -6,6 +6,7 @@ import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, 
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
+import { useReportSaveFeedback } from './admin/ReportEntryFeedback';
 import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star, Lock } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
@@ -1235,9 +1236,8 @@ const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } |
 
     // Referti (manual + immagine allineata)
     const [reportMatchId, setReportMatchId] = useState<string>('');
-    const [reportStatus, setReportStatus] = useState<'scheduled'|'playing'|'finished'>('finished');
-    const [reportScoreA, setReportScoreA] = useState<string>('0');
-    const [reportScoreB, setReportScoreB] = useState<string>('0');
+    const [reportOcrScoreLabel, setReportOcrScoreLabel] = useState('');
+    const reportSaveFeedback = useReportSaveFeedback(t('close'));
     const [reportWinnerTeamId, setReportWinnerTeamId] = useState<string>('');
     const [reportStatsForm, setReportStatsForm] = useState<Record<string, { canestri: string; soffi: string }>>({});
     const [reportImageUrl, setReportImageUrl] = useState<string>('');
@@ -3016,29 +3016,13 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         }
     };
 
-    const handleStartLive = async () => {
+    const handleStartLive = async (rawRefereesPassword: string) => {
         if (!draft || liveStartPendingRef.current) return;
-        
-        if (state.tournament) {
-            if (!confirm(t('admin_archive_active_before_start_confirm'))) {
-                return;
-            }
-        }
 
         const draftResultsOnly = isResultsOnlyTournament(draft.t);
-        let refereesPassword = '';
-        let refereesAuthVersion = '';
-        if (!draftResultsOnly) {
-            // Each standard live must have its own referees password.
-            // If the admin cancels or leaves it empty, do not start the live.
-            const rawPw = window.prompt(t('enable_referees_password_prompt'), '') ?? '';
-            refereesPassword = rawPw.trim();
-            if (!refereesPassword) {
-                alert(t('referees_password_required'));
-                return;
-            }
-            refereesAuthVersion = new Date().toISOString();
-        }
+        const refereesPassword = rawRefereesPassword.trim();
+        if (!draftResultsOnly && !refereesPassword) return;
+        const refereesAuthVersion = draftResultsOnly ? '' : new Date().toISOString();
         try { safeSessionRemove('flbp_ref_authed'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_for'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_ver'); } catch { /* ignore */ }
@@ -3676,16 +3660,6 @@ while (guard < 5000) {
 
     const initReportFormFromMatch = (m: Match) => {
         setReportMatchId(m.id);
-        setReportStatus(m.status || 'finished');
-        // For multi-team matches, reportScoreA/B are only legacy placeholders for UI.
-        if (m.teamIds && m.teamIds.length >= 2) {
-            const vals = Object.values(m.scoresByTeam || {}).sort((a, b) => b - a);
-            setReportScoreA(String(vals[0] ?? 0));
-            setReportScoreB(String(vals[1] ?? 0));
-        } else {
-            setReportScoreA(String(m.scoreA ?? 0));
-            setReportScoreB(String(m.scoreB ?? 0));
-        }
 
         const participantIdsForWinner = (m.teamIds && m.teamIds.length)
             ? (m.teamIds || [])
@@ -3737,6 +3711,11 @@ while (guard < 5000) {
     };
 
     const handlePickReportMatch = (id: string) => {
+        setReportOcrScoreLabel('');
+        if (!id) {
+            setReportMatchId('');
+            return;
+        }
         const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
         const m = sourceMatches.find(mm => mm.id === id);
         if (!m) return;
@@ -3760,6 +3739,7 @@ while (guard < 5000) {
     };
 
     const handleReportFile = async (file: File) => {
+        setReportOcrScoreLabel('');
         setReportImageBusy(true);
         try {
             const {
@@ -3796,9 +3776,7 @@ while (guard < 5000) {
                 // Score pattern: 10-8, 10 : 8, 10â€“8
                 const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-–:]\s*(\d{1,2})\b/);
                 if (scoreMatch) {
-                    setReportScoreA(scoreMatch[1]);
-                    setReportScoreB(scoreMatch[2]);
-                    setReportStatus('finished');
+                    setReportOcrScoreLabel(`${scoreMatch[1]}–${scoreMatch[2]}`);
                 }
             } finally {
                 setReportOcrBusy(false);
@@ -4062,15 +4040,13 @@ while (guard < 5000) {
             return;
         }
         setState(nextState);
-        const committedMatch = finalMatches.find((match) => match.id === reportMatchId);
-        if (committedMatch) {
-            // Keep the open report card consistent with the durable state.
-            // Previously the player inputs showed the saved values while the
-            // header stayed at the pre-save 0-0 until the match was reopened.
-            initReportFormFromMatch(committedMatch);
-        }
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
-        alert(t('alert_report_saved'));
+        setReportMatchId('');
+        setReportOcrScoreLabel('');
+        setReportImageUrl('');
+        setReportOcrText('');
+        reportSaveFeedback.show(t('report_saved_summary')
+            .replace('{code}', updated.code || '—').replace('{score}', formatMatchScoreLabel(updated).replaceAll('-', '–')));
     };
 
     const handleSaveReport = async () => {
@@ -4955,12 +4931,8 @@ while (guard < 5000) {
                     handlePickReportMatch={handlePickReportMatch}
                     getTeamFromCatalog={getTeamFromCatalog}
                     getTeamName={getTeamName}
-                    reportStatus={reportStatus}
-                    setReportStatus={setReportStatus}
-                    reportScoreA={reportScoreA}
-                    setReportScoreA={setReportScoreA}
-                    reportScoreB={reportScoreB}
-                    setReportScoreB={setReportScoreB}
+                    reportSaveNotice={reportSaveFeedback.notice}
+                    reportOcrScoreLabel={reportOcrScoreLabel}
                     resultsOnly={liveResultsOnly}
                     reportWinnerTeamId={reportWinnerTeamId}
                     setReportWinnerTeamId={setReportWinnerTeamId}

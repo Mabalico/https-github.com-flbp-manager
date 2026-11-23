@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
+import { focusReportField, handleReportFieldEnter, reportTieState } from '../services/reportEntry';
+import { ReportScoreCards, useReportSaveFeedback } from './admin/ReportEntryFeedback';
 import { cloneMatchesForResultSync, collectChangedMatchResults, formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds } from '../services/matchUtils';
 import { loadImageProcessingService, type RefertoStructuredOcrResult } from '../services/lazyImageProcessing';
 import { syncBracketFromGroups, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
@@ -223,6 +225,14 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
     const [reportStatsForm, setReportStatsForm] = useState<StatsForm>({});
     const [saveBusy, setSaveBusy] = useState(false);
+    const reportCodeRef = useRef<HTMLInputElement>(null);
+    const manualFieldsRef = useRef<HTMLDivElement>(null);
+    const reportSaveFeedback = useReportSaveFeedback(t('close'));
+
+    useEffect(() => {
+        if (page === 'match') reportCodeRef.current?.focus();
+        if (page === 'report' && entryMode === 'manual') focusReportField(manualFieldsRef.current);
+    }, [page, entryMode, foundMatchId]);
 
     // OCR support (stored after confirmation, shown alongside manual input)
     const [supportImageUrl, setSupportImageUrl] = useState<string>('');
@@ -1126,15 +1136,15 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         return out;
     }, [foundMatch, participantsForForm, reportStatsForm]);
 
-    const tieNotAllowed = useMemo(() => {
-        const vals = Object.values(derivedScoresByTeam) as number[];
-        if (!vals.length) return false;
-        const max = Math.max(...vals);
-        const leaders = Object.keys(derivedScoresByTeam).filter(id => (derivedScoresByTeam[id] || 0) === max);
-        // if max is 0 and all zero, don't block UI yet (but save will still block)
-        if (max === 0) return false;
-        return leaders.length !== 1;
-    }, [derivedScoresByTeam]);
+    const manualScores = participantsForForm.map(team => ({
+        id: team.id,
+        name: teamNameById.get(team.id) || team.name || team.id,
+        score: derivedScoresByTeam[team.id] ?? 0,
+    }));
+    const { tied: tieNotAllowed } = reportTieState(manualScores.map(team => team.score));
+    const fieldIndexByPlayer = new Map(participantsForForm.flatMap(team =>
+        [team.player1, team.player2].filter(Boolean).map(player => team.id + '||' + player)
+    ).map((key, index) => [key, index * 2]));
 
     // ===== Save report =====
     const closeLiveCallsForMatch = async (match: Match, tournamentId: string, refereePassword?: string) => {
@@ -1160,6 +1170,12 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         } catch (error) {
             console.warn('FLBP referee report call cleanup failed', error);
         }
+    };
+
+    const finishManualReport = (updated: Match) => {
+        reportSaveFeedback.show(t('report_saved_summary')
+            .replace('{code}', updated.code || '—').replace('{score}', formatMatchScoreLabel(updated).replaceAll('-', '–')));
+        backToMatchStep();
     };
 
     const saveReport = async () => {
@@ -1405,7 +1421,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                         clearDbSyncCurrentIssue();
                                         markDbSyncOk('snapshot');
                                         applyRefereeState(mergeResult.state);
-                                        alert(t('alert_report_saved'));
+                                        finishManualReport(updated);
                                         void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
                                         return;
                                     }
@@ -1435,7 +1451,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             }
 
             applyRefereeState(nextState);
-            alert(t('alert_report_saved'));
+            finishManualReport(updated);
             void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
         } finally {
             setSaveBusy(false);
@@ -2006,6 +2022,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 </div>
             ) : (
                 <div className="mt-6 grid gap-4 xl:grid-cols-12">
+                    {reportSaveFeedback.notice && <div className="xl:col-span-12">{reportSaveFeedback.notice}</div>}
                     {page === 'match' && (
                         <div className="grid gap-4 xl:col-span-12 xl:max-w-5xl">
                             <div className="rounded-3xl border border-slate-200 bg-white p-5">
@@ -2021,9 +2038,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 </div>
 
                                 <div className="mt-4">
-                                    <label className="text-xs font-black text-slate-700">{t('referees_report_code_label')}</label>
+                                    <label htmlFor="referee-report-code" className="text-xs font-black text-slate-700">{t('referees_report_code_label')}</label>
                                     <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                                         <input
+                                            id="referee-report-code"
+                                            ref={reportCodeRef}
                                             value={reportCode}
                                             onChange={(e) => persistReportCode(e.target.value)}
                                             onKeyDown={(e) => {
@@ -2392,26 +2411,16 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                     </div>
                                 )}
 
-{/* Scoreboard */}
-                                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                    <div className="text-xs font-black text-slate-700">{t('referees_derived_score')}</div>
-                                    <div className="mt-2 space-y-1">
-                                        {participantsForForm.map(tt => (
-                                            <div key={tt.id} className="flex items-center justify-between">
-                                                <div className="text-sm font-black text-slate-800">{teamNameById.get(tt.id) || tt.name || tt.id}</div>
-                                                <div className="text-sm font-black text-slate-900">{derivedScoresByTeam[tt.id] ?? 0}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {tieNotAllowed && (
-                                        <div className="mt-3 text-xs font-black text-amber-900">
-                                            {t('alert_tie_not_allowed') || 'Pareggio non ammesso: inserisci uno spareggio nei canestri.'}
-                                        </div>
-                                    )}
-                                </div>
+                                <ReportScoreCards scores={manualScores} tieMessage={t('alert_tie_not_allowed')} />
 
                                 {/* Manual form */}
-                                <div className="mt-4 space-y-3">
+                                <div ref={manualFieldsRef}
+                                    onKeyDown={event => handleReportFieldEnter(event, {
+                                        tied: tieNotAllowed,
+                                        canSave: !saveBusy && !tieNotAllowed,
+                                        save: () => { void saveReport(); },
+                                    })}
+                                    className="mt-4 space-y-3">
                                     {participantsForForm.map(tt => {
                                         const teamLabel = teamNameById.get(tt.id) || tt.name || tt.id;
                                         const players = [tt.player1, tt.player2].filter(Boolean) as string[];
@@ -2430,12 +2439,15 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                                     {players.map(p => {
                                                         const key = `${tt.id}||${p}`;
                                                         const f = reportStatsForm[key] || { canestri: '0', soffi: '0' };
+                                                        const fieldIndex = fieldIndexByPlayer.get(key) ?? 0;
                                                         return (
                                                             <div key={key} className="grid grid-cols-2 gap-2 items-center rounded-2xl bg-slate-50/70 p-2 sm:grid-cols-12 sm:bg-transparent sm:p-0">
                                                                 <div className="col-span-2 text-sm font-black text-slate-800 sm:col-span-6">{p}</div>
                                                                 <div className="col-span-1 sm:col-span-3">
-                                                                    <label className="text-[10px] font-black text-slate-500">PT</label>
+                                                                    <label className="text-[10px] font-black text-slate-500">{t('points')}</label>
                                                                     <input
+                                                                        aria-label={`${p} · ${t('points')}`}
+                                                                        data-report-field-index={fieldIndex}
                                                                         value={f.canestri}
                                                                         onChange={(e) => {
                                                                             const v = e.target.value;
@@ -2449,8 +2461,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                                                     />
                                                                 </div>
                                                                 <div className="col-span-1 sm:col-span-3">
-                                                                    <label className="text-[10px] font-black text-slate-500">SF</label>
+                                                                    <label className="text-[10px] font-black text-slate-500">{t('soffi')}</label>
                                                                     <input
+                                                                        aria-label={`${p} · ${t('soffi')}`}
+                                                                        data-report-field-index={fieldIndex + 1}
                                                                         value={f.soffi}
                                                                         onChange={(e) => {
                                                                             const v = e.target.value;
@@ -2505,7 +2519,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
                                 <button
                                     onClick={() => { void saveReport(); }}
-                                    disabled={saveBusy || !foundMatch}
+                                    disabled={saveBusy || !foundMatch || tieNotAllowed}
                                     className={`sticky bottom-3 z-10 mt-4 w-full rounded-2xl font-black py-3 transition sm:static ${saveBusy ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                                 >
                                     {saveBusy ? (t('referees_save_busy') || 'Salvataggio…') : (t('referees_save_report') || 'Salva referto')}
