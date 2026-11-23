@@ -44,6 +44,7 @@ export interface TeamsTabProps {
 
     saveTeam: () => void;
     resetForm: () => void;
+    resetGroupSuggestion?: () => void;
 
     poolN: string;
     setPoolN: (v: string) => void;
@@ -89,6 +90,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     setP2IsReferee,
     saveTeam,
     resetForm,
+    resetGroupSuggestion,
     poolN,
     setPoolN,
     genPool,
@@ -548,7 +550,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         )}><Download className="h-4 w-4" /> {t('teams_download_template')}</button>
                     </AdminDataConfirmModal>
 
-                    <button type="button" onClick={resetForm} className={btnSecondary}>
+                    <button type="button" onClick={() => { resetForm(); resetGroupSuggestion?.(); }} className={btnSecondary}>
                         <Plus className="w-4 h-4"/> {t('reset_form')}
                     </button>
 
@@ -1002,7 +1004,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         <thead className="bg-white sticky top-0 border-b border-slate-100">
                             <tr className="text-left text-slate-500">
                                 <th className="p-3"><SortHeader label={t('teams_registration_short')} column="registration" /></th>
-                                <th className="p-3 whitespace-nowrap"><SortHeader label={t('team_view')} column="team_name" /></th>
+                                <th className="min-w-[7rem] p-3 whitespace-nowrap"><SortHeader label={t('team_view')} column="team_name" /></th>
                                 <th className="p-3 whitespace-nowrap"><SortHeader label={t('player_1_label')} column="player1" /></th>
                                 <th className="p-3">{t('birth_date')}</th>
                                 <th className="p-3 whitespace-nowrap"><SortHeader label={t('player_2_label')} column="player2" /></th>

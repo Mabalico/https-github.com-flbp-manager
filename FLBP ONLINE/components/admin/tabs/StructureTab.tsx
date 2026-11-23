@@ -89,6 +89,12 @@ export const StructureTab: React.FC<StructureTabProps> = ({
     // NOTE: "Squadre arbitri" are still real teams for structure/brackets.
     // Exclude only BYE/hidden (backward-compatible with historical snapshots).
     const playableTeamsCount = (state.teams || []).filter(t => !t.hidden && !t.isBye).length;
+    const effectiveGroupCount = Math.max(1, Math.min(Math.floor(numGroups), playableTeamsCount));
+    const smallestGroup = Math.floor(playableTeamsCount / effectiveGroupCount);
+    const largestGroup = Math.ceil(playableTeamsCount / effectiveGroupCount);
+    const groupSizeHint = smallestGroup === largestGroup
+        ? t('structure_group_size_uniform').replace('{teams}', String(smallestGroup)).replace('{matches}', String(smallestGroup * (smallestGroup - 1) / 2))
+        : t('structure_group_size_mixed').replace('{smallest}', String(smallestGroup)).replace('{largest}', String(largestGroup));
     const finalToggleDisabled = playableTeamsCount < 4;
     const top8Disabled = playableTeamsCount < 8;
     const lateTeamCount = (state.teams || []).filter(team => (
@@ -219,8 +225,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                             {tournMode === 'groups_elimination' && (
                                 <>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">{t('structure_groups_count_label')}</label>
+                                        <label htmlFor="structure-group-count" className="block text-sm font-bold text-slate-700 mb-1">{t('structure_groups_count_label')}</label>
                                         <input 
+                                            id="structure-group-count"
                                             type="number" 
                                             value={numGroups} 
                                             onChange={e => setNumGroups(Number(e.target.value))} 
@@ -230,10 +237,21 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                             onMouseUp={handleZeroValueMouseUp}
                                             onBlur={handleZeroValueBlur}
                                         />
+                                        {playableTeamsCount > 0 && (
+                                            <div className="mt-1 space-y-1 text-xs">
+                                                <p className="text-slate-600">{groupSizeHint}</p>
+                                                {smallestGroup < 3 && (
+                                                    <p className="font-bold text-amber-800">
+                                                        {t('structure_group_size_warning').replace('{groups}', String(effectiveGroupCount)).replace('{teams}', String(smallestGroup))}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">{t('structure_advancing_per_group')}</label>
+                                        <label htmlFor="structure-group-advancing" className="block text-sm font-bold text-slate-700 mb-1">{t('structure_advancing_per_group')}</label>
                                         <input 
+                                            id="structure-group-advancing"
                                             type="number" 
                                             value={advancing} 
                                             onChange={e => setAdvancing(Number(e.target.value))} 
@@ -243,6 +261,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                             onMouseUp={handleZeroValueMouseUp}
                                             onBlur={handleZeroValueBlur}
                                         />
+                                        {smallestGroup > 0 && advancing >= smallestGroup && (
+                                            <p className="mt-1 text-xs font-bold text-amber-800">{t('structure_group_all_advance_warning')}</p>
+                                        )}
                                     </div>
                                 </>
                             )}

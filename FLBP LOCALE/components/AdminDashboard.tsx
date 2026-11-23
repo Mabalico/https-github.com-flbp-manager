@@ -41,6 +41,7 @@ import {
     findLockedSuccessorForWinnerChange,
     reconcileBracketAdvancements,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
+    suggestGroupCount,
 } from '../services/tournamentStructureSelectors';
 
 
@@ -820,7 +821,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // Structure Config
     const [tournMode, setTournMode] = useState<'elimination'|'groups_elimination'|'round_robin'>('groups_elimination');
-    const [numGroups, setNumGroups] = useState(4);
+    const [numGroups, setNumGroups] = useState(() => suggestGroupCount((state.teams || []).filter(team => !team.hidden && !team.isBye).length));
+    const [numGroupsTouched, setNumGroupsTouched] = useState(false);
     const [advancing, setAdvancing] = useState(2);
     const [tournName, setTournName] = useState(`${t('admin_tournament_prefix')} ${new Date().toLocaleDateString('it-IT')}`);
     const [tournDate, setTournDate] = useState<string>(() => getTodayInputDate());
@@ -862,6 +864,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
+
+    useEffect(() => {
+        if (numGroupsTouched) return;
+        const proposed = suggestGroupCount(playableTeamsCount);
+        if (proposed === numGroups) return;
+        setNumGroups(proposed);
+        setDraft(null);
+    }, [numGroups, numGroupsTouched, playableTeamsCount]);
 
     useEffect(() => {
         const eligibleIds = new Set((state.teams || [])
@@ -2879,7 +2889,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 : [];
             const { tournament, matches } = generateTournamentStructure(teams, {
                 mode: tournMode,
-                numGroups,
+                numGroups: Math.max(1, Math.floor(numGroups)),
                 advancingPerGroup: advancing,
                 tournamentName: tournName,
                 startDate: tournDate,
@@ -4697,6 +4707,7 @@ while (guard < 5000) {
                     setP2IsReferee={setP2IsReferee}
                     saveTeam={saveTeam}
                     resetForm={resetForm}
+                    resetGroupSuggestion={() => setNumGroupsTouched(false)}
                     poolN={poolN}
                     setPoolN={setPoolN}
                     genPool={genPool}
@@ -4737,7 +4748,11 @@ while (guard < 5000) {
                     resultsOnly={resultsOnly}
                     setResultsOnly={setResultsOnly}
                     numGroups={numGroups}
-                    setNumGroups={setNumGroups}
+                    setNumGroups={value => {
+                        setNumGroupsTouched(true);
+                        setNumGroups(value);
+                        setDraft(null);
+                    }}
                     advancing={advancing}
                     setAdvancing={setAdvancing}
                     handleGenerate={handleGenerate}

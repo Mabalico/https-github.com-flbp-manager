@@ -4,6 +4,11 @@ import { isFinalGroup } from './groupUtils';
 import { getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
 import type { CurrentPlacement, StructuralPhase, TournamentStructureSnapshot } from './tournamentStructureTypes';
 
+export const suggestGroupCount = (teamCount: number): number => {
+  const suggested = Math.max(1, Math.round(teamCount / 4));
+  return teamCount / suggested < 3 ? Math.max(1, Math.floor(teamCount / 3)) : suggested;
+};
+
 export const buildTournamentStructureSnapshot = (
   tournament: TournamentData,
   matches: Match[],

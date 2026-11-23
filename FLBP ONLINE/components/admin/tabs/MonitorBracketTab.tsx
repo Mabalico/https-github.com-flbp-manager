@@ -1320,7 +1320,7 @@ const handleSwapSlots = React.useCallback(() => {
                 <div className="text-xs font-mono font-black text-amber-900/80 mt-2 flex flex-wrap gap-2">
                     {openGroupTieBreaks.slice(0, 10).map(m => (
                         <span key={m.id} className="px-2 py-1 rounded-full border border-amber-200 bg-white">
-                            {(m.code || m.id)}{m.groupName ? ` (G ${m.groupName})` : ''}
+                            {(m.code || m.id)}{m.groupName ? ` · ${formatGroupName(m.groupName, t)}` : ''}
                         </span>
                     ))}
                     {openGroupTieBreaks.length > 10 && (

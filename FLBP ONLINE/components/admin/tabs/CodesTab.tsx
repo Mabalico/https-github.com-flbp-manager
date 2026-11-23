@@ -76,7 +76,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 
         return (
             <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center">
-                {teams.map((team, index) => {
+                {teams.map(team => {
                     const meta = getTeamCallMeta(team, match);
                     const status = meta.status;
                     const icon = status === 'acknowledged'
@@ -98,6 +98,11 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                             : status === 'ringing'
                                 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50';
+                    const caption = meta.disabled
+                        ? t('codes_no_account')
+                        : status === 'ringing'
+                            ? title
+                            : t('codes_call_named_team').replace('{team}', team.name || team.id);
 
                     return (
                         <button
@@ -114,9 +119,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                             }}
                             className={`inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${className}`}
                         >
-                            {icon}
-                            <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-black/5 px-1 text-[10px] font-black">
-                                {index + 1}
+                            <span className="shrink-0">{icon}</span>
+                            <span className="min-w-0 max-w-36 truncate">
+                                {caption}
                             </span>
                         </button>
                     );
@@ -317,8 +322,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                     </div>
                                 </div>
 
-                                <details className="rounded-xl border border-slate-200 bg-white p-3">
-                                    <summary className="cursor-pointer list-none text-[11px] font-black uppercase tracking-wide text-slate-500">
+                                <details className="group rounded-xl border border-slate-200 bg-white p-3">
+                                    <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
+                                        <span aria-hidden="true" className="transition-transform group-open:rotate-90">▸</span>
                                         {t('codes_operational_notes')}
                                     </summary>
                                     <div className="mt-2 text-[11px] font-bold text-slate-500">
@@ -404,7 +410,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                     title={hasPlaceholder ? t('codes_report_unavailable_tbd') : t('open_report')}
                                                     aria-label={hasPlaceholder ? t('codes_report_unavailable_tbd') : t('open_report')}
                                                 >
-                                                    <FileText className="w-4 h-4" /> <span className="hidden sm:inline">{t('reports')}</span>
+                                                    <FileText className="w-4 h-4" /> <span>{t('report_label')}</span>
                                                 </button>
 
                                                 {m.status !== 'finished' && (
