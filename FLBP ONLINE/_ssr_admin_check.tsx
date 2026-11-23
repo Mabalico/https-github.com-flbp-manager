@@ -94,7 +94,7 @@ const assertTab = (html: string, tab: Tab) => {
   if (tab === 'reports') assert(!/\{(?:shown|total|count)\}/.test(html), 'Reports must interpolate match counts and tie-break target.');
 };
 
-const render = async (tab: Tab | 'codes' | 'monitor_bracket' | 'monitor_groups', authenticated: boolean, state = fixtureState) => {
+const render = async (tab: Tab | 'codes' | 'monitor_bracket' | 'monitor_groups' | 'structure', authenticated: boolean, state = fixtureState) => {
   session.clear(); local.clear();
   globalThis.__FLBP_SSR_ADMIN_FIXTURE = { authenticated };
   session.setItem('flbp_admin_section', tab === 'data' ? 'data' : 'live');
@@ -164,6 +164,9 @@ if (!requestedTab) {
   const qualifiers = reconcileBracketAdvancements(generated.matches.map(m => m.round === 1
     ? { ...m, played: true, status: 'finished' as const, scoreA: 10, scoreB: 4 } : m));
   const before = coerceAppState({ teams, tournament: generated.tournament, tournamentMatches: qualifiers });
+  const structure = await render('structure', true, before);
+  assert(/id="structure-group-count"[^>]*value="2"/.test(structure), 'An eight-team roster should start with two groups.');
+  assert(structure.includes('Gironi da 4 squadre · 6 partite per girone'), 'The form explains the proposed group size.');
   const bracket = await render('monitor_bracket', true, before);
   const disabledTitle = 'disabled="" title="' + text('monitor_bracket_unavailable_until_tbd_resolved') + '"';
   assert(bracket.includes('B31') && bracket.split(disabledTitle).length === 3, 'Both actions on the empty final must be disabled.');

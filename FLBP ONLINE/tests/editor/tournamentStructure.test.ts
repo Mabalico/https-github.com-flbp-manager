@@ -26,6 +26,7 @@ import {
   findSuccessorMatch,
   getSlotValue,
   reconcileBracketAdvancements,
+  suggestGroupCount,
 } from '../../services/tournamentStructureSelectors';
 
 const makeTeam = (id: string, name = id): Team => ({
@@ -128,6 +129,12 @@ const withRandomPrefix = <T>(values: number[], run: () => T): T => {
 const getGeneratedRoundOne = (matches: Match[]) => matches
   .filter((match) => match.phase === 'bracket' && (match.round || 1) === 1)
   .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+defineCase('suggested groups aim for four teams and avoid groups of fewer than three', () => {
+  const expected = [[0, 1], [1, 1], [4, 1], [5, 1], [6, 2], [7, 2], [8, 2], [9, 2],
+    [10, 3], [12, 3], [16, 4], [19, 5], [20, 5], [32, 8]] as const;
+  for (const [teams, groups] of expected) assertEqual(suggestGroupCount(teams), groups, `group count for ${teams} teams`);
+});
 
 defineCase('eligibility marks assigned, locked and eliminated teams correctly', () => {
   const a = makeTeam('A', 'Alpha');

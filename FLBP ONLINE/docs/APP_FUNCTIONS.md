@@ -324,6 +324,7 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
   - Sim pool: `services/simPool.ts` + `services/simTeamNames200.ts`
 - `components/admin/tabs/StructureTab.tsx`
   - La bozza mostra gironi, accoppiamenti e codici. La conferma di avvio raccoglie la password arbitri nella modale dell’app.
+  - Il numero di gironi proposto segue le squadre attive e punta a quattro squadre per girone. La modifica manuale vale fino ad **Azzera form**. L’anteprima segnala gironi piccoli e qualificazioni che farebbero passare tutte le squadre.
   - engine: `services/tournamentEngine.ts` (`generateTournamentStructure`, `syncBracketFromGroups`)
   - UX input numerici: quando un campo contiene solo `0`, il focus seleziona il valore per sovrascrittura immediata (niente delete/backspace preliminare)
   - Grafiche social (story 9:16): pannello `components/admin/SocialGraphicsPanel.tsx`
@@ -363,6 +364,7 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
   - UX input numerici secondari (es. tavoli): `0` iniziale selezionato al focus per compilazione rapida
 - `components/admin/tabs/CodesTab.tsx`
 - `components/admin/tabs/MonitorGroupsTab.tsx`
+  - La classifica distingue la differenza canestri dalla differenza soffi e indica la zona qualificazione. Nelle partite giocate evidenzia punteggio e vincitrice.
   - monitor gironi live: filtro "tutti / singolo girone" + classifica stile campionato (P/V/S, canestri fatti/subiti/diff, soffi fatti/subiti/diff; Pt calcolati ma non mostrati)
   - calcolo classifica: `services/groupStandings.ts`
   - pre-check “integrità torneo”: segnala **squadre escluse** (nel roster ma non in match/gironi)
