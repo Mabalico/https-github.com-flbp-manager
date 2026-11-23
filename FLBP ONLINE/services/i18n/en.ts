@@ -795,6 +795,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "Live",
   "archive_status": "Archive",
   "scroll_bracket": "Scroll the board",
+  "bracket_search_placeholder": "Search by team or match code",
   "quick_search": "Quick search",
   "year_format_filters": "Year + format filters",
   "search_tournament_year": "Search tournament / year…",

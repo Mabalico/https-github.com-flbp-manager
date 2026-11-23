@@ -690,6 +690,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "ライブ",
   "archive_status": "アーカイブ",
   "scroll_bracket": "ボードをスクロールします",
+  "bracket_search_placeholder": "チーム名または試合コードで検索",
   "quick_search": "クイック検索",
   "year_format_filters": "年 + 形式フィルター",
   "search_tournament_year": "大会/年を検索…",

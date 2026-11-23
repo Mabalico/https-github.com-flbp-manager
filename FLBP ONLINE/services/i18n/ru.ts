@@ -690,6 +690,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "Живи",
   "archive_status": "Архив",
   "scroll_bracket": "Прокрутите доску",
+  "bracket_search_placeholder": "Поиск по команде или коду матча",
   "quick_search": "Быстрый поиск",
   "year_format_filters": "Год + фильтры формата",
   "search_tournament_year": "Поиск турнира/года…",

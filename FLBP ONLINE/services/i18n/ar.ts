@@ -690,6 +690,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "مباشر",
   "archive_status": "أرشيف",
   "scroll_bracket": "قم بتمرير اللوحة",
+  "bracket_search_placeholder": "البحث بالفريق أو رمز المباراة",
   "quick_search": "بحث سريع",
   "year_format_filters": "السنة + مرشحات التنسيق",
   "search_tournament_year": "بحث البطولة / السنة...",

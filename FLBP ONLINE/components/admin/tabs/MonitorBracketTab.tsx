@@ -1974,13 +1974,14 @@ const handleSwapSlots = React.useCallback(() => {
                         </div>
                     </div>
 
-                    <div className="overflow-auto" ref={bracketCanvasRef}>
+                    <div ref={bracketCanvasRef}>
                         <TournamentBracket
                             teams={state.teams || []}
                             data={state.tournament}
                             matches={state.tournamentMatches || []}
                             onUpdate={handleUpdateLiveMatch}
                             scale={bracketZoom}
+                            boundedScroll
                             showConnectors={true}
                             onMatchClick={(m) => openReportFromCodes(m.id)}
                             wrapTeamNames={true}

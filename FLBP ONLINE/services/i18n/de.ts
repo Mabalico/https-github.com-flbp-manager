@@ -690,6 +690,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "Lebe",
   "archive_status": "Archiv",
   "scroll_bracket": "Scrollen Sie durch die Tafel",
+  "bracket_search_placeholder": "Nach Team oder Spielcode suchen",
   "quick_search": "Schnellsuche",
   "year_format_filters": "Jahr + Formatfilter",
   "search_tournament_year": "Turnier / Jahr suchen…",

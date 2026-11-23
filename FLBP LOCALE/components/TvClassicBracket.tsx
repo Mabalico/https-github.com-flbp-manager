@@ -51,9 +51,18 @@ type LayoutData = {
   placements: Record<string, Placement>;
 };
 
-type DenseBracketPanel = 'sideA' | 'finals' | 'sideB';
+const MAX_DENSE_FIRST_ROUND_MATCHES = 8;
+const DENSE_ROUNDS_PER_PAGE = 4;
+export const getTvBracketPageCount = (bracketSize: number) => bracketSize >= 64
+  ? Math.ceil(bracketSize / (2 * MAX_DENSE_FIRST_ROUND_MATCHES)) + 1
+  : 1;
 
-const DENSE_BRACKET_PANELS: DenseBracketPanel[] = ['sideA', 'sideB', 'finals'];
+export const getTvBracketPageLabel = (index: number, pageCount: number, t: (key: string) => string) => {
+  if (index === pageCount - 1) return t('tv_final_rounds');
+  const pagesPerSide = (pageCount - 1) / 2;
+  const side = index < pagesPerSide ? 'A' : 'B';
+  return t('tv_bracket_side').replace('{side}', side) + ' · ' + (index % pagesPerSide + 1) + '/' + pagesPerSide;
+};
 const DENSE_BRACKET_PANEL_MS = 19000;
 
 const getDevicePixelRatioSafe = () => {
@@ -674,6 +683,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   }, [resolvedRounds]);
 
   const isDensePagedBracket = minimalChrome && classicLayoutSupported && bracketSize >= 64;
+  const densePageCount = getTvBracketPageCount(bracketSize);
   const [localDensePanelIndex, setLocalDensePanelIndex] = React.useState(0);
   const densePanelIndex = propDensePanelIndex !== undefined ? propDensePanelIndex : localDensePanelIndex;
 
@@ -684,48 +694,38 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     }
     if (propDensePanelIndex !== undefined) return; // parent is controlling it
     const timer = window.setInterval(() => {
-      setLocalDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
+      setLocalDensePanelIndex((prev) => (prev + 1) % densePageCount);
     }, DENSE_BRACKET_PANEL_MS);
     return () => window.clearInterval(timer);
-  }, [isDensePagedBracket, propDensePanelIndex]);
+  }, [densePageCount, isDensePagedBracket, propDensePanelIndex]);
 
-  const densePanel = DENSE_BRACKET_PANELS[densePanelIndex % DENSE_BRACKET_PANELS.length];
-  const finalsStartRound = Math.max(0, resolvedRounds.length - 4);
-
+  const densePage = densePanelIndex % densePageCount;
+  const isFinalsPage = densePage === densePageCount - 1;
   const densePanelRounds = React.useMemo<ResolvedStageMatch[][] | null>(() => {
     if (!isDensePagedBracket) return null;
-    if (densePanel === 'finals') {
-      return resolvedRounds.slice(finalsStartRound);
-    }
+    if (isFinalsPage) return resolvedRounds.slice(DENSE_ROUNDS_PER_PAGE - 1);
 
-    const branchSide = densePanel === 'sideA' ? 'left' : 'right';
-    return resolvedRounds
-      .slice(0, -1)
-      .map((round) => {
-        const mid = Math.floor(round.length / 2);
-        return branchSide === 'left' ? round.slice(0, mid) : round.slice(mid);
-      })
-      .filter((round) => round.length > 0);
-  }, [densePanel, finalsStartRound, isDensePagedBracket, resolvedRounds]);
+    const start = densePage * MAX_DENSE_FIRST_ROUND_MATCHES;
+    return resolvedRounds.slice(0, DENSE_ROUNDS_PER_PAGE).map((round, index) => {
+        const span = 2 ** index;
+        return round.slice(start / span, (start + MAX_DENSE_FIRST_ROUND_MATCHES) / span);
+    });
+  }, [densePage, isDensePagedBracket, isFinalsPage, resolvedRounds]);
 
   const densePanelLayout = React.useMemo<LayoutData | null>(() => {
     if (!isDensePagedBracket || !densePanelRounds?.length) return null;
     const firstRoundMatches = densePanelRounds[0]?.length || 1;
     const panelBracketSize = Math.max(2, firstRoundMatches * 2);
-    const finalLabel = densePanel === 'sideA'
-      ? 'SEMIFINALE A'
-      : densePanel === 'sideB'
-        ? 'SEMIFINALE B'
-        : 'FINALE';
+    const finalLabel = isFinalsPage ? 'FINALE' : roundLabelFromMatch(densePanelRounds.at(-1)?.[0]?.raw, 'Turno 4');
 
     return buildLayoutData({
       rounds: densePanelRounds,
       profile: getProfile(panelBracketSize, compact),
       viewportSize,
       finalLabel,
-      labelPrefix: `dense-${densePanel}`,
+      labelPrefix: `dense-${densePage}`,
     });
-  }, [compact, densePanel, densePanelRounds, isDensePagedBracket, viewportSize.height, viewportSize.width]);
+  }, [compact, densePage, densePanelRounds, isDensePagedBracket, isFinalsPage, viewportSize.height, viewportSize.width]);
 
   const displayLayout = densePanelLayout || layout;
 
@@ -768,9 +768,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     return getStageRenderStyle(displayLayout);
   }, [displayLayout]);
 
-  const densePanelTitle = densePanel === 'finals'
-    ? t('tv_final_rounds')
-    : t('tv_bracket_side').replace('{side}', densePanel === 'sideA' ? 'A' : 'B');
+  const densePanelTitle = getTvBracketPageLabel(densePage, densePageCount, t);
 
   if (!resolvedRounds.length) {
     return (
@@ -925,7 +923,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 const panelFinalMatchUid = isDensePagedBracket && densePanelRounds?.length
                   ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
                   : null;
-                const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
+                const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && !isFinalsPage && match.uid === panelFinalMatchUid);
                 const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
 
                 const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
@@ -995,10 +993,10 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               <div className="text-[12px] font-black uppercase tracking-[0.2em] text-cyan-100">{densePanelTitle}</div>
             </div>
             <div className="flex items-center gap-1.5">
-              {DENSE_BRACKET_PANELS.map((panel, index) => (
+              {Array.from({ length: densePageCount }, (_, index) => (
                 <span
-                  key={panel}
-                  className={`h-2 rounded-full transition-all ${index === densePanelIndex % DENSE_BRACKET_PANELS.length ? 'w-7 bg-cyan-300' : 'w-2 bg-white/28'}`}
+                  key={index}
+                  className={`h-2 rounded-full transition-all ${index === densePage ? 'w-7 bg-cyan-300' : 'w-2 bg-white/28'}`}
                 />
               ))}
             </div>
@@ -1104,7 +1102,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               const panelFinalMatchUid = isDensePagedBracket && densePanelRounds?.length
                 ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
                 : null;
-              const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
+              const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && !isFinalsPage && match.uid === panelFinalMatchUid);
               const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
 
               const isSemifinal = match.roundIndex === resolvedRounds.length - 2;

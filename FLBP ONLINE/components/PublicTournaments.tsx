@@ -373,7 +373,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                 : (pinAnyLive ? t('current_turn') : t('next_turn'));
 
               return (
-                <div className="sticky top-0 z-10 -mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
+                <div className="-mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

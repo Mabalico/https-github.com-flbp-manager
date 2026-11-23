@@ -690,6 +690,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "Canlı",
   "archive_status": "Arşiv",
   "scroll_bracket": "Tahtayı kaydır",
+  "bracket_search_placeholder": "Takıma veya maç koduna göre ara",
   "quick_search": "Hızlı arama",
   "year_format_filters": "Yıl + biçim filtreleri",
   "search_tournament_year": "Turnuva/yıl ara…",

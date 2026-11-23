@@ -77,9 +77,11 @@ interface TournamentBracketProps {
     onParticipantDragEnd?: () => void;
     /** Admin/Monitor: show left-to-right connectors between rounds. Default false. */
     showConnectors?: boolean;
+    boundedScroll?: boolean;
+    highlightedMatchId?: string;
 }
 
-export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, onParticipantDoubleClick, highlightedSlotKeys = [], selectedSlotKeys, validSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false }) => {
+export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, matches, data, readOnly = false, onUpdate, tvMode = false, fitToWidth = false, fitToBox = false, scale = 1, onMatchClick, onTeamClick, wrapTeamNames = false, showByeSlots = false, participantSelectionMode = false, onParticipantClick, onParticipantDoubleClick, highlightedSlotKeys = [], selectedSlotKeys, validSlotKeys = [], invalidSlotKeys = [], changedSlotKeys = [], lockedSlotKeys = [], interactiveByeSlots = false, draggingSlotKey, dropTargetSlotKey, inlineEditSlotKey, inlineEditValue, inlineEditOptions, onInlineEditChange, onParticipantDragStart, onParticipantDragEnter, onParticipantDrop, onParticipantDragEnd, showConnectors = false, boundedScroll = false, highlightedMatchId }) => {
     const { t } = useTranslation();
     const resultsOnly = isResultsOnlyTournament(data);
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -104,14 +106,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
     const matchCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const [fitScale, setFitScale] = useState(1);
     const [scaledBox, setScaledBox] = useState<{ w: number; h: number } | null>(null);
-    const [connectorSize, setConnectorSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+    const [connectorLayout, setConnectorLayout] = useState({ width: 0, height: 0, paths: [] as string[] });
 
     const userScale = (typeof scale === 'number' && isFinite(scale) && scale > 0) ? scale : 1;
     const renderCompleteStructure = showConnectors && readOnly && !tvMode;
     const spectatorLayout = renderCompleteStructure;
     const editorStructuredLayout = spectatorLayout && participantSelectionMode;
     const compactPublicFit = spectatorLayout && fitToWidth;
-    const minStructuredFitScale = compactPublicFit ? 0.72 : 0;
+    const minStructuredFitScale = compactPublicFit && !editorStructuredLayout ? 0.72 : 0;
     const finalScale = ((fitToWidth || fitToBox) ? fitScale : 1) * userScale;
 
     const padClass = tvMode ? 'p-3' : 'p-4';
@@ -123,7 +125,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         if (!container || !content) return;
 
         const measure = () => {
-            const cw = container.clientWidth;
+            const style = window.getComputedStyle(container);
+            const cw = container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
             const ch = container.clientHeight;
             const iw = (content as HTMLElement).scrollWidth;
             const ih = (content as HTMLElement).scrollHeight;
@@ -141,7 +144,9 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
             setFitScale(autoFit);
 
             const nextFinal = autoFit * userScale;
-            setScaledBox({ w: iw * nextFinal, h: ih * nextFinal });
+            const w = Math.ceil(iw * nextFinal);
+            const h = Math.ceil(ih * nextFinal);
+            setScaledBox(previous => previous?.w === w && previous.h === h ? previous : { w, h });
         };
 
         measure();
@@ -151,28 +156,6 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         return () => ro.disconnect();
     }, [fitToWidth, fitToBox, userScale, matches.length, data?.rounds?.length, minStructuredFitScale]);
 
-    useLayoutEffect(() => {
-        if (!showConnectors || tvMode) {
-            setConnectorSize({ width: 0, height: 0 });
-            return;
-        }
-
-        const content = contentRef.current;
-        if (!content) return;
-
-        const measure = () => {
-            setConnectorSize({
-                width: content.scrollWidth || content.clientWidth || 0,
-                height: content.scrollHeight || content.clientHeight || 0,
-            });
-        };
-
-        measure();
-        const ro = new ResizeObserver(measure);
-        ro.observe(content);
-        return () => ro.disconnect();
-    }, [showConnectors, tvMode, matches, showByeSlots]);
-
     const rounds = React.useMemo(() => {
         const baseRounds = getPreferredBracketRounds(data, matches);
         if (showByeSlots) return baseRounds;
@@ -181,7 +164,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         );
     }, [data, matches, showByeSlots]);
 
-    const getMatch = (id: string) => matches.find(m => m.id === id);
+    const matchById = React.useMemo(() => new Map(matches.map(match => [match.id, match])), [matches]);
+    const teamById = React.useMemo(() => new Map(teams.map(team => [team.id, team])), [teams]);
+    const getMatch = (id: string) => matchById.get(id);
+    const validSlots = React.useMemo(() => new Set(validSlotKeys), [validSlotKeys]);
+    const invalidSlots = React.useMemo(() => new Set(invalidSlotKeys), [invalidSlotKeys]);
+    const changedSlots = React.useMemo(() => new Set(changedSlotKeys), [changedSlotKeys]);
+    const lockedSlots = React.useMemo(() => new Set(lockedSlotKeys), [lockedSlotKeys]);
 
     const findMatchPosition = (matchId: string): { rIdx: number; mIdx: number } | null => {
         for (let rIdx = 0; rIdx < rounds.length; rIdx++) {
@@ -239,58 +228,69 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         return !renderCompleteStructure && isHiddenSkeletonMatch(m, roundIndex);
     };
 
-    const connectorPaths = (() => {
-        if (!showConnectors || tvMode || !contentRef.current || connectorSize.width <= 0 || connectorSize.height <= 0) return [] as string[];
+    useLayoutEffect(() => {
+        if (!showConnectors || tvMode || !contentRef.current) return;
+        const content = contentRef.current;
+        const measure = () => {
+            const paths: string[] = [];
 
-        const paths: string[] = [];
+            const getCardBox = (matchId: string) => {
+                const el = matchCardRefs.current[matchId];
+                if (!el) return null;
+                let left = 0;
+                let top = 0;
+                let node: HTMLElement | null = el;
+                const contentNode = contentRef.current;
 
-        const getCardBox = (matchId: string) => {
-            const el = matchCardRefs.current[matchId];
-            if (!el) return null;
-            let left = 0;
-            let top = 0;
-            let node: HTMLElement | null = el;
-            const contentNode = contentRef.current;
+                while (node && node !== contentNode) {
+                    left += node.offsetLeft;
+                    top += node.offsetTop;
+                    node = node.offsetParent as HTMLElement | null;
+                }
 
-            while (node && node !== contentNode) {
-                left += node.offsetLeft;
-                top += node.offsetTop;
-                node = node.offsetParent as HTMLElement | null;
+                const width = el.offsetWidth;
+                const height = el.offsetHeight;
+                return {
+                    left,
+                    right: left + width,
+                    top,
+                    centerY: top + height / 2,
+                };
+            };
+
+            for (let rIdx = 1; rIdx < rounds.length; rIdx += 1) {
+                const round = rounds[rIdx] || [];
+                const prevRound = rounds[rIdx - 1] || [];
+                round.forEach((m, mIdx) => {
+                    if (shouldHideStructuralMatch(m, rIdx)) return;
+                    const target = getCardBox(m.id);
+                    if (!target) return;
+
+                    const sourceMatches = [prevRound[mIdx * 2], prevRound[mIdx * 2 + 1]].filter(Boolean) as Match[];
+                    sourceMatches.forEach((src) => {
+                        if (shouldHideStructuralMatch(src, rIdx - 1)) return;
+                        const source = getCardBox(src.id);
+                        if (!source) return;
+                        if (source.right >= target.left) return;
+
+                        const midX = source.right + Math.max(spectatorLayout ? 24 : 18, (target.left - source.right) / 2);
+                        paths.push(`M ${source.right} ${source.centerY} H ${midX} V ${target.centerY} H ${target.left}`);
+                    });
+                });
             }
 
-            const width = el.offsetWidth;
-            const height = el.offsetHeight;
-            return {
-                left,
-                right: left + width,
-                top,
-                centerY: top + height / 2,
-            };
+            const width = content.scrollWidth;
+            const height = content.scrollHeight;
+            setConnectorLayout(previous => previous.width === width && previous.height === height
+                && previous.paths.length === paths.length && previous.paths.every((path, index) => path === paths[index])
+                ? previous
+                : { width, height, paths });
         };
-
-        for (let rIdx = 1; rIdx < rounds.length; rIdx += 1) {
-            const round = rounds[rIdx] || [];
-            const prevRound = rounds[rIdx - 1] || [];
-            round.forEach((m, mIdx) => {
-                if (shouldHideStructuralMatch(m, rIdx)) return;
-                const target = getCardBox(m.id);
-                if (!target) return;
-
-                const sourceMatches = [prevRound[mIdx * 2], prevRound[mIdx * 2 + 1]].filter(Boolean) as Match[];
-                sourceMatches.forEach((src) => {
-                    if (shouldHideStructuralMatch(src, rIdx - 1)) return;
-                    const source = getCardBox(src.id);
-                    if (!source) return;
-                    if (source.right >= target.left) return;
-
-                    const midX = source.right + Math.max(spectatorLayout ? 24 : 18, (target.left - source.right) / 2);
-                    paths.push(`M ${source.right} ${source.centerY} H ${midX} V ${target.centerY} H ${target.left}`);
-                });
-            });
-        }
-
-        return paths;
-    })();
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(content);
+        return () => observer.disconnect();
+    }, [renderCompleteStructure, rounds, showByeSlots, showConnectors, spectatorLayout, tvMode]);
 
     const handleMatchClick = (m: TournamentMatch) => {
         const fullMatch = getMatch(m.id) || m;
@@ -423,7 +423,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         const name = rounds[index]?.[0]?.roundName;
         return name ? localizeBracketRound(name, t) : t('round_n').replace('{n}', String(index + 1));
     };
-    const containerOverflowClass = (fitToWidth || fitToBox)
+    const containerOverflowClass = boundedScroll ? 'max-h-[min(70dvh,48rem)] overflow-auto overscroll-contain' : (fitToWidth || fitToBox)
         ? ((compactPublicFit && !fitToBox) ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden')
         : (spectatorLayout ? 'overflow-x-auto overflow-y-hidden overscroll-x-contain' : 'overflow-x-auto');
     const containerPadClass = editorStructuredLayout
@@ -431,22 +431,22 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         : spectatorLayout ? 'px-5 py-6 sm:px-6 sm:py-7' : padClass;
 
     return (
-        <div ref={containerRef} dir="ltr" className={`${containerPadClass} ${containerSizeClass} ${containerOverflowClass}`}>
-            <div style={scaledBox ? { width: `${scaledBox.w}px`, height: `${scaledBox.h}px` } : undefined}>
+        <div ref={containerRef} dir="ltr" data-bracket-scroll={boundedScroll || undefined} className={`${containerPadClass} ${containerSizeClass} ${containerOverflowClass}`}>
+            <div style={scaledBox ? { width: `${scaledBox.w}px`, height: `${scaledBox.h}px`, overflow: 'clip' } : undefined}>
                 <div
                     ref={contentRef}
                     className={`relative flex ${tvRoundsGapClass} ${tvMode ? 'scale-100' : ''} ${spectatorLayout ? 'mx-auto' : ''}`}
                     style={((fitToWidth || fitToBox) || userScale !== 1) ? { transform: `scale(${finalScale})`, transformOrigin: 'top left', width: 'max-content' } : { width: 'max-content' }}
                 >
-            {showConnectors && !tvMode && connectorPaths.length > 0 && (
+            {showConnectors && !tvMode && connectorLayout.paths.length > 0 && (
                 <svg
                     className="pointer-events-none absolute inset-0 overflow-visible"
-                    width={connectorSize.width}
-                    height={connectorSize.height}
-                    viewBox={`0 0 ${connectorSize.width} ${connectorSize.height}`}
+                    width={connectorLayout.width}
+                    height={connectorLayout.height}
+                    viewBox={`0 0 ${connectorLayout.width} ${connectorLayout.height}`}
                     aria-hidden="true"
                 >
-                    {connectorPaths.map((d, idx) => (
+                    {connectorLayout.paths.map((d, idx) => (
                         <g key={`${idx}-${d}`}>
                             <path
                                 d={d}
@@ -475,7 +475,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                     style={monitorStructuredLayout ? { minHeight: `${structuredColumnHeight}px`, height: `${structuredColumnHeight}px` } : undefined}
                 >
                     {spectatorLayout ? (
-                        <div className="mb-4 flex justify-center">
+                        <div className={`mb-4 flex justify-center ${boundedScroll ? `sticky top-0 z-20 py-1 ${editorStructuredLayout ? 'bg-white/95' : 'bg-slate-950/95'}` : ''}`}>
                             <span
                                 className={`inline-flex items-center rounded-full border px-3 py-1 text-center text-[11px] font-black uppercase tracking-wide ${
                                     rIdx === rounds.length - 1
@@ -491,7 +491,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                             </span>
                         </div>
                     ) : (
-                        <div className="text-center font-black uppercase text-slate-400 mb-2 text-xs">
+                        <div className={`mb-2 text-center text-xs font-black uppercase text-slate-500 ${boundedScroll ? 'sticky top-0 z-20 bg-white/95 py-1' : ''}`}>
                             {rIdx === rounds.length - 1 ? t('bracket_final_upper') : `${t('round')} ${rIdx + 1}`}
                         </div>
                     )}
@@ -514,14 +514,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const effectiveSelectedSlotKeys = selectedSlotKeys ?? highlightedSlotKeys;
                          const selIndexA = effectiveSelectedSlotKeys.indexOf(slotKeyA);
                          const selIndexB = effectiveSelectedSlotKeys.indexOf(slotKeyB);
-                         const validA = validSlotKeys.includes(slotKeyA);
-                         const validB = validSlotKeys.includes(slotKeyB);
-                         const invalidA = (invalidSlotKeys || []).includes(slotKeyA);
-                         const invalidB = (invalidSlotKeys || []).includes(slotKeyB);
-                         const changedA = (changedSlotKeys || []).includes(slotKeyA);
-                         const changedB = (changedSlotKeys || []).includes(slotKeyB);
-                         const lockedA = (lockedSlotKeys || []).includes(slotKeyA);
-                         const lockedB = (lockedSlotKeys || []).includes(slotKeyB);
+                         const validA = validSlots.has(slotKeyA);
+                         const validB = validSlots.has(slotKeyB);
+                         const invalidA = invalidSlots.has(slotKeyA);
+                         const invalidB = invalidSlots.has(slotKeyB);
+                         const changedA = changedSlots.has(slotKeyA);
+                         const changedB = changedSlots.has(slotKeyB);
+                         const lockedA = lockedSlots.has(slotKeyA);
+                         const lockedB = lockedSlots.has(slotKeyB);
                          const draggingA = draggingSlotKey === slotKeyA;
                          const draggingB = draggingSlotKey === slotKeyB;
                          const dropA = dropTargetSlotKey === slotKeyA;
@@ -551,7 +551,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
 
                          let teamAId = match.teamAId;
                          let teamBId = match.teamBId;
-                         
+
                          if (rIdx > 0) {
                              const prev = rounds[rIdx - 1] || [];
                              const srcA = prev[mIdx * 2] ? (getMatch(prev[mIdx * 2].id) || prev[mIdx * 2]) : undefined;
@@ -560,11 +560,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                              if (!teamBId && srcB) teamBId = getWinnerTeamId(srcB);
                          }
 
-                         const t1 = teams.find(t => t.id === teamAId);
-                         const t2 = teams.find(t => t.id === teamBId);
+                         const t1 = teamAId ? teamById.get(teamAId) : undefined;
+                         const t2 = teamBId ? teamById.get(teamBId) : undefined;
                          const canOpenTeamA = !!readOnly && !!onTeamClick && !!t1 && !!teamAId && !isByeTeamId(teamAId) && !isTbdTeamId(teamAId) && !preserveEmptySlot;
                          const canOpenTeamB = !!readOnly && !!onTeamClick && !!t2 && !!teamBId && !isByeTeamId(teamBId) && !isTbdTeamId(teamBId) && !preserveEmptySlot;
-                         
+
                          const isWinnerA = match.status === 'finished' && match.scoreA > match.scoreB;
                          const isWinnerB = match.status === 'finished' && match.scoreB > match.scoreA;
 
@@ -678,12 +678,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                         handleMatchClick(match);
                                     }
                                 }}
+                                data-bracket-match-id={preserveEmptySlot ? undefined : match.id}
                                 role={!readOnly && !isByeSlotMatchDisplay ? 'button' : undefined}
                                 tabIndex={!readOnly && !isByeSlotMatchDisplay ? 0 : undefined}
                                 className={`
                                     relative ${outerCardBaseClass} ${tvMatchMinHClass} flex flex-col justify-center transition-all
                                     ${(!readOnly && !isByeSlotMatchDisplay && !preserveEmptySlot) ? `${editorStructuredLayout ? 'cursor-pointer hover:border-blue-400 hover:shadow-[0_20px_40px_-32px_rgba(37,99,235,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer hover:border-beer-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2'}` : ''}
                                     ${outerCardToneClass}
+                                    ${highlightedMatchId === match.id ? 'ring-2 ring-amber-400' : ''}
                                     ${byeCardClass}
                                     ${preserveEmptySlot ? 'opacity-0 pointer-events-none select-none' : ''}
                                     ${tvMode ? 'rounded-2xl' : ''}

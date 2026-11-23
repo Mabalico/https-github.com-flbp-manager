@@ -690,6 +690,7 @@ export const dictionary: TranslationDictionary = {
   "live_status": "直播",
   "archive_status": "存档",
   "scroll_bracket": "滚动面板",
+  "bracket_search_placeholder": "按队伍或比赛编号搜索",
   "quick_search": "快速搜索",
   "year_format_filters": "年份+格式过滤器",
   "search_tournament_year": "搜索比赛/年...",
