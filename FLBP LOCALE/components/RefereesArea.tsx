@@ -6,7 +6,8 @@ import { loadImageProcessingService, type RefertoStructuredOcrResult } from '../
 import { syncBracketFromGroups, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
-import { isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
+import { compareTournamentMatches } from '../services/groupUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
 import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
@@ -401,8 +402,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         return [...ms]
             .filter(m => !(m as any)?.hidden)
             .filter(m => !(m as any)?.isBye)
-            .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
-    }, [state.tournamentMatches]);
+            .sort(compareTournamentMatches(state.tournament));
+    }, [state.tournament, state.tournamentMatches]);
 
     const isRefertable = (m: Match) => {
         if (!m) return false;
@@ -425,13 +426,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
     const pendingMatches = useMemo(() => {
         const ms = tournamentMatchesSorted.filter(isRefertable);
-        // Playing first, then scheduled, then orderIndex
-        return ms.sort((a, b) => {
-            const sa = a.status === 'playing' ? 0 : 1;
-            const sb = b.status === 'playing' ? 0 : 1;
-            if (sa !== sb) return sa - sb;
-            return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
-        });
+        // Keep the schedule order within each status.
+        return ms.sort((a, b) => Number(b.status === 'playing') - Number(a.status === 'playing'));
     }, [tournamentMatchesSorted]);
 
     const foundMatch: Match | undefined = useMemo(() => {
@@ -1135,6 +1131,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 return;
             }
             const base = matches[idx];
+            if (!canPlayMatch(base)) {
+                alert(t('alert_select_match'));
+                return;
+            }
 
             const isMulti = !!(base.teamIds && base.teamIds.length >= 2);
             const participantIds = isMulti

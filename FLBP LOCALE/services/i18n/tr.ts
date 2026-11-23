@@ -938,6 +938,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "Final turları",
   "title_blocked_final_tiebreak": "Final play-off'u nedeniyle şampiyonluk engellendi",
   "final_group_label": "Son tur",
+  "archive_final_group_pending": "Final grubunda oynanacak maçlar",
   "qualified_label": "Nitelikli",
   "tiebreaks_label": "Playofflar",
   "no_group_data_available": "Grup verisi yok",

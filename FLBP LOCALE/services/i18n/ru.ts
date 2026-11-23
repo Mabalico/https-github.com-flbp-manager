@@ -938,6 +938,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "Финальные раунды",
   "title_blocked_final_tiebreak": "Титул заблокирован финальным плей-офф",
   "final_group_label": "Финальный раунд",
+  "archive_final_group_pending": "Оставшиеся матчи финальной группы",
   "qualified_label": "Квалифицированный",
   "tiebreaks_label": "Плей-офф",
   "no_group_data_available": "Нет данных о группе",

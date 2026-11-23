@@ -3,6 +3,7 @@ import { LayoutDashboard, Search, X, Play, Square, FileText, ChevronDown, Chevro
 import type { AppState } from '../../../services/storageService';
 import type { Match, TournamentData } from '../../../types';
 import { computeGroupStandings } from '../../../services/groupStandings';
+import { compareTournamentMatches, formatGroupName } from '../../../services/groupUtils';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../../../services/matchUtils';
 import { buildTournamentStructureSnapshot } from '../../../services/tournamentStructureSelectors';
 import { applyStructuralOperation } from '../../../services/tournamentStructureOperations';
@@ -115,7 +116,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
             .filter(m => m.phase === 'groups' && !m.hidden && !m.isBye)
             .filter(m => !getMatchParticipantIds(m).some(id => (id || '').trim().toUpperCase() === 'BYE'))
             .filter(m => m.teamAId !== 'BYE' && m.teamBId !== 'BYE')
-            .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            .sort(compareTournamentMatches(state.tournament));
 
         const byGroup = new Map<string, Match[]>();
         groupMatchesAll.forEach(m => {
@@ -125,7 +126,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
             else byGroup.set(k, [m]);
         });
         return byGroup;
-    }, [state.tournamentMatches]);
+    }, [state.tournament, state.tournamentMatches]);
 
     const integrity = React.useMemo(() => {
         if (!structureSnapshot) return null;
@@ -859,7 +860,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                             >
                                 <option value={ALL_GROUPS}>{t('monitor_groups_all_groups')}</option>
                                 {allGroups.map(g => (
-                                    <option key={g.id} value={g.name}>{t('monitor_groups_group_label').replace('{name}', g.name)}</option>
+                                    <option key={g.id} value={g.name}>{formatGroupName(g.name, t)}</option>
                                 ))}
                             </select>
                         )}
@@ -1014,7 +1015,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                 <div className="text-xs font-mono font-black mt-3 flex flex-wrap gap-2">
                     {integrity.concludedGroups.map(name => (
                         <span key={name} className="px-2 py-1 rounded-full border border-slate-200 bg-white text-slate-800">
-                            {t('monitor_groups_group_label').replace('{name}', name)} {t('monitor_groups_concluded_short')}
+                            {formatGroupName(name, t)} {t('monitor_groups_concluded_short')}
                         </span>
                     ))}
                 </div>
@@ -1331,7 +1332,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                                         className={`px-3 py-2 rounded-full text-xs font-black border ${(selected || groupDropTarget === `move:${name}`) ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                                                                         title={selected ? t('monitor_groups_selected') : t('monitor_groups_select_destination')}
                                                                     >
-                                                                        {t('monitor_groups_group_label').replace('{name}', name)}
+                                                                        {formatGroupName(name, t)}
                                                                     </button>
                                                                 );
                                                             })
@@ -1421,7 +1422,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                 >
                                                     <option value="">{t('monitor_groups_select_placeholder')}</option>
                                                     {availableTargetGroups.map(name => (
-                                                        <option key={name} value={name}>{t('monitor_groups_group_label').replace('{name}', name)}</option>
+                                                        <option key={name} value={name}>{formatGroupName(name, t)}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -1474,7 +1475,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                 >
                                                     <option value="">{t('monitor_groups_select_placeholder')}</option>
                                                     {availableTargetGroups.map(name => (
-                                                        <option key={name} value={name}>{t('monitor_groups_group_label').replace('{name}', name)}</option>
+                                                        <option key={name} value={name}>{formatGroupName(name, t)}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -1652,7 +1653,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                         <div key={g.id} id={toGroupDomId(g.name)} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
                                             <div className="bg-slate-900 text-white px-4 py-2 font-black uppercase tracking-wide text-sm flex items-center justify-between">
                                                 <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="whitespace-normal break-words leading-tight">{t('monitor_groups_group_label').replace('{name}', g.name)}</span>
+                                                    <span className="whitespace-normal break-words leading-tight">{formatGroupName(g.name, t)}</span>
                                                     {openTieBreaks.length > 0 && (
                                                         <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-200 text-slate-900 border border-amber-300 shrink-0">
                                                             SPAREGGIO

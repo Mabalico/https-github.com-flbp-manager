@@ -1165,6 +1165,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "Fase finale",
   "title_blocked_final_tiebreak": "Titolo bloccato da spareggio finale",
   "final_group_label": "Girone Finale",
+  "archive_final_group_pending": "Partite del Girone Finale ancora da giocare",
   "qualified_label": "Qualificate",
   "tiebreaks_label": "Spareggi",
   "no_group_data_available": "Nessun dato gironi disponibile",

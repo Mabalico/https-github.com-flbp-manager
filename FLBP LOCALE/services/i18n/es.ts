@@ -938,6 +938,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "Rondas finales",
   "title_blocked_final_tiebreak": "Título bloqueado por el play-off final",
   "final_group_label": "ronda final",
+  "archive_final_group_pending": "Partidos pendientes de la liguilla final",
   "qualified_label": "Calificado",
   "tiebreaks_label": "Eliminatorias",
   "no_group_data_available": "No hay datos de grupo disponibles",

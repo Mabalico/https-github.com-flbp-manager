@@ -20,6 +20,7 @@ interface MvpModalProps {
     setAssignU25Awards?: (value: boolean) => void;
     archive?: {
         awards: HallOfFameEntry[];
+        pendingFinalMatches?: string[];
         committed: boolean;
         busy: boolean;
         done: boolean;
@@ -71,6 +72,11 @@ export const MvpModal: React.FC<MvpModalProps> = ({
                     {archive && (
                         <section aria-label={tt('archive_awards_summary', 'Awards summary')} className="rounded-xl border border-slate-200 p-3">
                             <h3 className="mb-2 font-black">{tt('archive_awards_summary', 'Awards summary')}</h3>
+                            {!!archive.pendingFinalMatches?.length && (
+                                <p role="status" className="mb-3 rounded-lg bg-amber-50 p-2 text-sm font-bold text-amber-900">
+                                    {tt('archive_final_group_pending', 'Final group matches still to play')} · {archive.pendingFinalMatches.join(', ')}
+                                </p>
+                            )}
                             {archive.awards.length ? (
                                 <dl className="space-y-1 text-sm">
                                     {archive.awards.map(award => (

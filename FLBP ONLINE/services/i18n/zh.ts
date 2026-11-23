@@ -938,6 +938,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "决赛阶段",
   "title_blocked_final_tiebreak": "最终附加赛阻止冠军头衔",
   "final_group_label": "决赛",
+  "archive_final_group_pending": "决赛小组尚未进行的比赛",
   "qualified_label": "合格",
   "tiebreaks_label": "季后赛",
   "no_group_data_available": "无可用组数据",

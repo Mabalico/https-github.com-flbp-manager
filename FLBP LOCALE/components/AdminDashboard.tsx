@@ -10,7 +10,8 @@ import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, 
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
-import { isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, isByeMatch, isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { compareTournamentMatches, isFinalGroup } from '../services/groupUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
@@ -332,10 +333,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournament?.id]);
     const liveOpsSummary = useMemo(() => {
         const matches = Array.isArray(state.tournamentMatches) ? state.tournamentMatches : [];
-        const visible = matches.filter((m: any) => !(m as any)?.hidden && !(m as any)?.isBye);
-        const playing = visible.find(m => m.status === 'playing');
-        const scheduled = visible.find(m => m.status === 'scheduled');
-        const current = playing || scheduled || visible[0] || null;
+        const visible = matches.filter(m => !m.hidden && !isByeMatch(m)).sort(compareTournamentMatches(state.tournament));
+        const playable = visible.filter(canPlayMatch);
+        const playing = playable.find(m => m.status === 'playing');
+        const scheduled = playable.find(m => m.status === 'scheduled');
+        const current = playing || scheduled || playable[0] || null;
         return {
             total: visible.length,
             playingCount: visible.filter(m => m.status === 'playing').length,
@@ -343,7 +345,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             finishedCount: visible.filter(m => m.status === 'finished').length,
             current,
         };
-    }, [state.tournamentMatches]);
+    }, [state.tournament, state.tournamentMatches]);
 
     const safeSessionGet = (key: string): string | null => {
         try { return window.sessionStorage.getItem(key); } catch { return null; }
@@ -777,6 +779,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const showGroupsMonitor = useMemo(() => {
         const tournamentType = state.tournament?.type;
+        if (state.tournament?.config?.finalRoundRobin?.activated) return true;
         if (tournamentType !== 'groups_elimination' && tournamentType !== 'round_robin') return false;
         const hasGroups = (state.tournament?.groups?.length || 0) > 0;
         const hasGroupMatches = (state.tournamentMatches || []).some(m => m.phase === 'groups' && !m.hidden && !m.isBye);
@@ -2388,12 +2391,8 @@ const confirmAliasModal = () => {
         (state.tournament?.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
         const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
         const ms = [...sourceMatches]
-                                    .filter(m => !(m as any).hidden)
-                                    .filter(m => {
-                                        const ids = getMatchParticipantIds(m);
-                                        return !ids.includes('BYE');
-                                    })
-                                    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            .filter(m => !m.hidden && !isByeMatch(m))
+            .sort(compareTournamentMatches(state.tournament));
         const visible = codesStatusFilter === 'all' ? ms : ms.filter(m => m.status === codesStatusFilter);
         const html = `<table><thead><tr><th>Codice</th><th>Fase</th><th>Match</th><th>Score</th><th>Stato</th></tr></thead><tbody>
           ${visible.map(m => {
@@ -2438,7 +2437,7 @@ const confirmAliasModal = () => {
             ? state.tournamentMatches
             : (draft?.m || []);
         const ms = [...sourceMatches]
-            .filter(m => m.phase === 'bracket')
+            .filter(m => m.phase === 'bracket' && !m.hidden && !isByeMatch(m))
             .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
         if (!ms.length) {
             alert(t('alert_no_bracket_print'));
@@ -3030,7 +3029,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!confirm(`${t('final_group_activate_confirm_prefix')} Top${top}?\n\n${t('final_group_activate_confirm_body')}`)) return;
 
         const { tournament, matches } = activateFinalRoundRobinStage(state.tournament, ms);
-        setState({ ...state, tournament, tournamentMatches: matches });
+        commitLiveMatches(matches, tournament);
         alert(t('final_group_activated'));
     };
 
@@ -3041,7 +3040,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (idx === -1) return;
         
         const m = matches[idx];
-        if (m.status === 'finished') return; // Cannot toggle finished matches
+        if (m.status === 'finished' || !canPlayMatch(m)) return;
 
         const next = m.status === 'playing' ? 'scheduled' : 'playing';
         matches[idx] = { ...m, status: next };
@@ -3092,6 +3091,12 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             { ...state.tournament, includeU25Awards: archiveIncludeU25Awards },
             state.tournamentMatches,
         ).filter(award => award.tournamentId === state.tournament?.id)
+        : [];
+    const archiveFinalGroup = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament?.config?.finalRoundRobin?.activated
+        ? state.tournament.groups?.find(isFinalGroup) : undefined;
+    const pendingFinalMatches = archiveFinalGroup
+        ? state.tournamentMatches.filter(m => m.phase === 'groups' && m.groupName === archiveFinalGroup.name
+            && !m.hidden && !isByeMatch(m) && m.status !== 'finished').map(m => m.code || m.id)
         : [];
 
     const commitArchiveState = async (next: AppState): Promise<AppState> => {
@@ -3419,7 +3424,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 matches = autoResolveBracketByes(matches);
             } else {
                 const bracketPending = matches
-                    .filter(m => m.phase === 'bracket' && m.status !== 'finished')
+                    .filter(m => m.phase === 'bracket' && m.status !== 'finished' && canPlayMatch(m))
                     .sort((a, b) => (a.round ?? 1) - (b.round ?? 1) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
 
                 const eligible = bracketPending.filter(m => !!m.teamAId && !!m.teamBId);
@@ -3483,7 +3488,7 @@ while (guard < 5000) {
     matches = autoResolveBracketByes(matches);
 
     const eligible = matches
-        .filter(m => m.phase === 'bracket' && m.status !== 'finished')
+        .filter(m => m.phase === 'bracket' && m.status !== 'finished' && canPlayMatch(m))
         .filter(m => !!m.teamAId && !!m.teamBId);
 
     if (!eligible.length) break;
@@ -3521,12 +3526,7 @@ while (guard < 5000) {
         }
     };
 
-    const isReportableMatch = (m: Match) => {
-        const ids = getMatchParticipantIds(m).filter(Boolean);
-        if (ids.length < 2) return false;
-        if (ids.some(isPlaceholderTeamId)) return false;
-        return true;
-    };
+    const isReportableMatch = canPlayMatch;
 
     const initReportFormFromMatch = (m: Match) => {
         setReportMatchId(m.id);
@@ -4893,6 +4893,7 @@ while (guard < 5000) {
         setAssignU25Awards={mvpModalForArchive ? setArchiveIncludeU25Awards : undefined}
         archive={mvpModalForArchive ? {
             awards: archiveReceipt?.awards || archiveAwardPreview,
+            pendingFinalMatches,
             committed: !!archiveReceipt,
             busy: archiveBusy,
             done: archiveDone,

@@ -2,7 +2,8 @@ import React from 'react';
 import { ClipboardList, Upload, CheckCircle2, Search, X, Play } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import type { Match, Team } from '../../../types';
-import { getMatchParticipantIds } from '../../../services/matchUtils';
+import { canPlayMatch, getMatchParticipantIds } from '../../../services/matchUtils';
+import { compareTournamentMatches } from '../../../services/groupUtils';
 import { useTranslation } from '../../../App';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
 
@@ -110,17 +111,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             <>
                 {(() => {
                     const teamMap = new Map((state.teams || []).map(t => [t.id, t.name]));
-                    const msAll = [...(state.tournamentMatches || [])]
-                        .sort((a, b) => (a.orderIndex ?? Number.MAX_SAFE_INTEGER) - (b.orderIndex ?? Number.MAX_SAFE_INTEGER));
-
-                    // Guardrail: BYE invisibili e TBD esclusi dai flussi referto.
-                    const msPlayable = msAll
-                        .filter(m => !(m as any).hidden)
-                        .filter(m => !m.isBye)
-                        .filter(m => {
-                            const ids = getMatchParticipantIds(m);
-                            return ids.length >= 2 && !ids.some(isPlaceholderTeamId);
-                        });
+                    const msPlayable = (state.tournamentMatches || []).filter(canPlayMatch)
+                        .sort(compareTournamentMatches(state.tournament));
 
                     const current = msPlayable.find(m => m.status === 'playing') || msPlayable.find(m => m.status === 'scheduled');
                     const tournamentComplete = msPlayable.length > 0 && msPlayable.every(m => m.status === 'finished');
@@ -234,7 +226,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         </div>
                                     </div>
                                     <div className="text-[11px] font-bold text-slate-500">
-                                        {t('reports_matches_shown').replace('{shown}', String(matchesForSelect.length)).replace('{total}', String(msAll.length))}
+                                        {t('reports_matches_shown').replace('{shown}', String(matchesForSelect.length)).replace('{total}', String(msPlayable.length))}
                                     </div>
                                 </div>
 

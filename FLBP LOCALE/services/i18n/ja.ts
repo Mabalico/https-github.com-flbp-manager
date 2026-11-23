@@ -938,6 +938,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "最終ラウンド",
   "title_blocked_final_tiebreak": "最終プレーオフでタイトル阻止",
   "final_group_label": "最終ラウンド",
+  "archive_final_group_pending": "決勝リーグの未消化試合",
   "qualified_label": "資格のある",
   "tiebreaks_label": "プレーオフ",
   "no_group_data_available": "利用可能なグループデータがありません",

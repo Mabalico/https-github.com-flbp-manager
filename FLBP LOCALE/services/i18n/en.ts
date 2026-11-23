@@ -1165,6 +1165,7 @@ export const dictionary: TranslationDictionary = {
   "tv_final_rounds": "Final rounds",
   "title_blocked_final_tiebreak": "Title blocked by final play-off",
   "final_group_label": "Final round",
+  "archive_final_group_pending": "Final group matches still to play",
   "qualified_label": "Qualified",
   "tiebreaks_label": "Playoffs",
   "no_group_data_available": "No group data available",

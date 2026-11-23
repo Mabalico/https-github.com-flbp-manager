@@ -789,10 +789,10 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     ? t('tv_final_rounds')
     : t('tv_bracket_side').replace('{side}', densePanel === 'sideA' ? 'A' : 'B');
 
-  if (!resolvedRounds.length) {
+  if (!resolvedRounds.length || (!visibleMatches.length && data?.config?.finalRoundRobin?.activated)) {
     return (
       <div className="h-full w-full flex items-center justify-center text-slate-400 font-black uppercase tracking-[0.24em] text-sm">
-        {t('no_bracket_available')}
+        {t(data?.config?.finalRoundRobin?.activated ? 'final_group_activated' : 'no_bracket_available')}
       </div>
     );
   }
