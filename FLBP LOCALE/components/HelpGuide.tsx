@@ -72,7 +72,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
 
   if (!isOpen) {
     return (
-      <button 
+      <button type="button" aria-label={t('help_quick_label')}
         onClick={() => setIsOpen(true)}
         className="mt-4 ms-auto w-fit bg-slate-900 text-white p-3 rounded-full shadow-lg flex items-center gap-2 group border-2 border-beer-500"
       >
@@ -95,7 +95,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
             </div>
             <h3 className="font-black uppercase tracking-tight">{info.title}</h3>
           </div>
-          <button onClick={() => setIsOpen(false)} className="hover:rotate-90 transition-transform">
+          <button type="button" aria-label={t('close')} onClick={() => setIsOpen(false)} className="rounded-lg p-2 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -112,7 +112,7 @@ export const HelpGuide: React.FC<HelpGuideProps> = ({ view }) => {
         <div className="p-4 bg-slate-50 border-t flex justify-center">
           <button 
             onClick={() => setIsOpen(false)}
-            className="text-xs font-black uppercase text-slate-400 hover:text-slate-900 transition-colors"
+            className="rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black uppercase text-white transition-colors hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
           >
             {t('help_understood')}
           </button>

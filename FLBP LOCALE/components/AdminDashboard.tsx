@@ -19,6 +19,7 @@ import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { FANTA_APP_CHANGE_EVENT, signOutPlayerPreviewSession } from '../services/playerAppService';
 
 import { uuid } from '../services/id';
+import { AdminDataConfirmModal } from './admin/tabs/data/AdminDataConfirmModal';
 import { downloadBlob } from '../services/adminDownloadUtils';
 import { decodeCsvText, detectCsvSeparator, parseCsvRows } from '../services/adminCsvUtils';
 import { generateSimPoolTeams } from '../services/simPool';
@@ -851,6 +852,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [mvpSelectedIds, setMvpSelectedIds] = useState<string[]>([]);
     const [archiveIncludeU25Awards, setArchiveIncludeU25Awards] = useState<boolean>(true);
     const [archiveBusy, setArchiveBusy] = useState(false);
+    const [cancelLiveStage, setCancelLiveStage] = useState<'backup' | 'confirm' | null>(null);
+    const [cancelLiveBusy, setCancelLiveBusy] = useState(false);
+    const [cancelLiveError, setCancelLiveError] = useState('');
+    const [cancelLiveFeedback, setCancelLiveFeedback] = useState('');
+    const cancelLiveBackupRef = useRef<AppState | null>(null);
+    const cancelLiveBusyRef = useRef(false);
     const [archiveDone, setArchiveDone] = useState(false);
     const [archiveError, setArchiveError] = useState('');
     const [archiveReceipt, setArchiveReceipt] = useState<{ tournamentId: string; awards: HallOfFameEntry[]; email: { text: string; href: string } | null } | null>(null);
@@ -1829,6 +1836,65 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             return;
         }
         openMvpModal(true);
+    };
+
+    const closeCancelLive = () => {
+        if (cancelLiveBusyRef.current) return;
+        cancelLiveBackupRef.current = null;
+        setCancelLiveStage(null);
+        setCancelLiveError('');
+    };
+
+    const downloadCancelLiveBackup = () => {
+        if (!state.tournament) return;
+        try {
+            const json = JSON.stringify(buildUnifiedBackupJsonExport(state), null, 2);
+            downloadBlob(new Blob([json], { type: 'application/json' }), 'flbp_backup_live_' + new Date().toISOString().slice(0, 10) + '.json');
+            cancelLiveBackupRef.current = state;
+            setCancelLiveError('');
+            setCancelLiveStage('confirm');
+        } catch {
+            setCancelLiveError(t('alert_export_backup_fail'));
+        }
+    };
+
+    const confirmCancelLive = async () => {
+        if (cancelLiveBusyRef.current || !cancelLiveBackupRef.current || !state.tournament) return;
+        const backup = cancelLiveBackupRef.current;
+        if (backup.tournament !== state.tournament || backup.tournamentMatches !== state.tournamentMatches) {
+            cancelLiveBackupRef.current = null;
+            setCancelLiveStage('backup');
+            setCancelLiveError(t('admin_cancel_live_changed'));
+            return;
+        }
+        const { id, name } = state.tournament;
+        const next: AppState = { ...state, tournament: null, tournamentMatches: [] };
+        cancelLiveBusyRef.current = true;
+        setCancelLiveBusy(true);
+        setCancelLiveError('');
+        try {
+            await new Promise<AppState>((resolve, reject) => {
+                const timer = window.setTimeout(() => reject(new Error(t('admin_cancel_live_failed'))), 70_000);
+                window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
+                    detail: {
+                        state: next, snapshotOnly: true,
+                        resolveDurableCommit: (committed: AppState) => { window.clearTimeout(timer); resolve(committed); },
+                        rejectDurableCommit: (error: Error) => { window.clearTimeout(timer); reject(error); },
+                    },
+                }));
+            });
+            closeLiveCallsForTournament(id);
+            recoverToSafeAdmin();
+            setCancelLiveFeedback(t('admin_delete_live_tournament_done').replace('{name}', name));
+            cancelLiveBackupRef.current = null;
+            setCancelLiveStage(null);
+        } catch (error) {
+            console.warn('FLBP live cancellation did not complete', error);
+            setCancelLiveError(t('admin_cancel_live_failed'));
+        } finally {
+            cancelLiveBusyRef.current = false;
+            setCancelLiveBusy(false);
+        }
     };
 
     const handleDeleteLiveTournament = () => {
@@ -4500,6 +4566,30 @@ while (guard < 5000) {
                     </details>
                 </div>
             </header>
+
+            {adminSection === 'live' && !isTesterMode && state.tournament && (
+                <div className="flex justify-end">
+                    <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-bold text-rose-800 hover:bg-rose-50"
+                        onClick={() => { setCancelLiveFeedback(''); setCancelLiveStage('backup'); }}>
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />{t('admin_cancel_live_title')}
+                    </button>
+                </div>
+            )}
+            {cancelLiveFeedback && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{cancelLiveFeedback}</p>}
+            <AdminDataConfirmModal
+                open={cancelLiveStage !== null}
+                tone={cancelLiveStage === 'backup' ? 'warning' : 'danger'}
+                title={t(cancelLiveStage === 'backup' ? 'admin_cancel_live_title' : 'admin_cancel_live_confirm_title')}
+                description={t(cancelLiveStage === 'backup' ? 'admin_cancel_live_backup' : 'admin_cancel_live_confirm_hint')
+                    .replace('{name}', state.tournament?.name || '')}
+                confirmLabel={t(cancelLiveBusy ? 'referees_save_busy' : cancelLiveStage === 'backup' ? 'backup_download_json' : 'admin_cancel_live_confirm_title')}
+                cancelLabel={t('cancel')}
+                confirmDisabled={cancelLiveBusy || !state.tournament}
+                onClose={closeCancelLive}
+                onConfirm={cancelLiveStage === 'backup' ? downloadCancelLiveBackup : () => void confirmCancelLive()}
+            >
+                {cancelLiveError && <p role="alert" className="text-sm font-bold text-rose-800">{cancelLiveError}</p>}
+            </AdminDataConfirmModal>
 
             {adminSection === 'live' && isTesterMode && (
                 <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">

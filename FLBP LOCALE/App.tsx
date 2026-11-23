@@ -1401,9 +1401,50 @@ const App: React.FC = () => {
         const onLiveStateCommitted = (event: Event) => {
             if (databaseRestorePausedRef.current) return;
             const persistenceGeneration = persistenceGenerationRef.current;
-            const detail = (event as CustomEvent<{ state?: AppState; skipStructuredSync?: boolean }>).detail;
+            const detail = (event as CustomEvent<{
+                state?: AppState;
+                skipStructuredSync?: boolean;
+                snapshotOnly?: boolean;
+                resolveDurableCommit?: (state: AppState) => void;
+                rejectDurableCommit?: (error: Error) => void;
+            }>).detail;
             const nextState = detail?.state;
             if (!nextState) return;
+            if (detail.snapshotOnly) {
+                if (saveTimeoutRef.current) {
+                    window.clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                skipNextPersistRef.current = true;
+                void (async () => {
+                    try {
+                        repo.save(nextState);
+                        await repo.flush?.();
+                        let confirmedState = nextState;
+                        if (repo.source === 'remote') {
+                            if (hasRemoteDraftCache()) throw new Error(t('admin_cancel_live_failed'));
+                            const row = await pullWorkspaceState();
+                            if (!row?.state) throw new Error(t('admin_cancel_live_failed'));
+                            confirmedState = coerceAppState(row.state);
+                        }
+                        if (databaseRestorePausedRef.current || persistenceGeneration !== persistenceGenerationRef.current) {
+                            throw new Error(t('admin_cancel_live_changed'));
+                        }
+                        if (confirmedState.tournament) throw new Error(t('admin_cancel_live_changed'));
+                        loadedAutoDbSyncModule?.replacePendingAutoStructuredSync(null);
+                        latestStateRef.current = confirmedState;
+                        skipNextPersistRef.current = true;
+                        setSelectedTournament(null);
+                        setPublicDbState(current => current ? { ...current, tournament: null, tournamentMatches: [] } : null);
+                        setState(confirmedState);
+                        detail.resolveDurableCommit?.(confirmedState);
+                    } catch (error) {
+                        skipNextPersistRef.current = false;
+                        detail.rejectDurableCommit?.(error instanceof Error ? error : new Error(String(error)));
+                    }
+                })();
+                return;
+            }
             if (repo.source === 'local') {
                 try { repo.save(nextState); }
                 catch { return; }
@@ -1746,7 +1787,7 @@ const App: React.FC = () => {
     const renderView = () => {
         switch(view) {
             case 'home':
-                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!stateForPublicViews.tournament} />;
+                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!stateForPublicViews.tournament} tournamentName={stateForPublicViews.tournament?.name} />;
             case 'leaderboard':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
@@ -1880,7 +1921,7 @@ const App: React.FC = () => {
                     </React.Suspense>
                 );
             default:
-                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!state.tournament} />;
+                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!state.tournament} tournamentName={state.tournament?.name} />;
         }
     };
 
@@ -1949,7 +1990,7 @@ const App: React.FC = () => {
 
 
 
-    const showMobileBottomNav = ['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area'].includes(view);
+    const showMobileBottomNav = ['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'fantabeerpong'].includes(view);
 
     return (
         <LanguageContext.Provider value={language}>

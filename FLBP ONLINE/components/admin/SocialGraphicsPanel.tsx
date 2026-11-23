@@ -29,10 +29,7 @@ function getDefaultSocialGraphicsConfig() {
     return {
         prelimStartTime: '16:00',
         prelimCallTime: '15:30',
-        slots: [
-            { id: safeId(), callTime: '15:30', matchesCount: 8 },
-            { id: safeId(), callTime: '16:00', matchesCount: 8 },
-        ] as SlotConfig[],
+        slots: [] as SlotConfig[],
         selectedStoryKey: 'prelims' as const,
         autoFirstCallTime: '15:30',
         autoIntervalMinutes: 30,
@@ -72,6 +69,10 @@ function loadSocialGraphicsConfig() {
                   .filter(s => s.callTime.trim() || s.matchesCount > 0)
             : d.slots;
 
+        const legacyDefaults = slots.length === 2 && slots.every((slot, index) =>
+            slot.matchesCount === 8 && slot.callTime === (index === 0 ? '15:30' : '16:00')
+            && !slot.assignedMatchIds?.length && !slot.annotateRepeatedTeams);
+
         const selectedStoryKey = typeof parsed.selectedStoryKey === 'string' ? parsed.selectedStoryKey : d.selectedStoryKey;
         const autoFirstCallTime = typeof parsed.autoFirstCallTime === 'string' ? parsed.autoFirstCallTime : d.autoFirstCallTime;
         const autoIntervalMinutes = typeof parsed.autoIntervalMinutes === 'number' && Number.isFinite(parsed.autoIntervalMinutes)
@@ -84,7 +85,7 @@ function loadSocialGraphicsConfig() {
         return {
             prelimStartTime,
             prelimCallTime,
-            slots: slots.length ? slots : d.slots,
+            slots: legacyDefaults ? d.slots : slots,
             selectedStoryKey,
             autoFirstCallTime,
             autoIntervalMinutes,
@@ -1141,14 +1142,30 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
         return map;
     }, [socialTeamSource]);
 
-    const matches = (draft?.m || state.tournamentMatches || []).filter(m => !m.hidden);
+    const matches = React.useMemo(
+        () => (draft?.m || state.tournamentMatches || []).filter(match => !match.hidden),
+        [draft?.m, state.tournamentMatches]
+    );
     const prelims = React.useMemo(() => getBracketPrelims(matches, teamsById), [matches, teamsById]);
     const callableMatches = React.useMemo(() => getCallableSocialMatches(matches, teamsById), [matches, teamsById]);
 
     const initialCfg = React.useMemo(() => loadSocialGraphicsConfig(), []);
     const [prelimStartTime, setPrelimStartTime] = React.useState(initialCfg.prelimStartTime);
     const [prelimCallTime, setPrelimCallTime] = React.useState(initialCfg.prelimCallTime);
-    const [slots, setSlots] = React.useState<SlotConfig[]>(initialCfg.slots);
+    const defaultSlots = React.useMemo<SlotConfig[]>(() => {
+        const matchesPerSlot = Math.floor(initialCfg.autoTeamsPerTurn / 2);
+        const count = Math.max(1, Math.ceil(callableMatches.length / matchesPerSlot));
+        return Array.from({ length: count }, (_, index) => ({
+            id: 'auto-slot-' + index,
+            callTime: timePlusMinutes(initialCfg.autoFirstCallTime, index * initialCfg.autoIntervalMinutes),
+            matchesCount: Math.max(0, Math.min(matchesPerSlot, callableMatches.length - index * matchesPerSlot)),
+        }));
+    }, [callableMatches.length, initialCfg]);
+    const [customSlots, setCustomSlots] = React.useState<SlotConfig[] | null>(initialCfg.slots.length ? initialCfg.slots : null);
+    const slots = customSlots ?? defaultSlots;
+    const setSlots = React.useCallback((update: React.SetStateAction<SlotConfig[]>) => {
+        setCustomSlots(current => typeof update === 'function' ? update(current ?? defaultSlots) : update);
+    }, [defaultSlots]);
     const [selectedStoryKey, setSelectedStoryKey] = React.useState<string>(initialCfg.selectedStoryKey);
     const [autoFirstCallTime, setAutoFirstCallTime] = React.useState(initialCfg.autoFirstCallTime);
     const [autoIntervalMinutes, setAutoIntervalMinutes] = React.useState<number>(initialCfg.autoIntervalMinutes);
@@ -1199,7 +1216,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                 JSON.stringify({
                     prelimStartTime,
                     prelimCallTime,
-                    slots,
+                    slots: customSlots ?? undefined,
                     selectedStoryKey,
                     autoFirstCallTime,
                     autoIntervalMinutes,
@@ -1209,7 +1226,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
         } catch {
             // ignore storage errors
         }
-    }, [prelimStartTime, prelimCallTime, slots, selectedStoryKey, autoFirstCallTime, autoIntervalMinutes, autoTeamsPerTurn]);
+    }, [prelimStartTime, prelimCallTime, customSlots, selectedStoryKey, autoFirstCallTime, autoIntervalMinutes, autoTeamsPerTurn]);
 
     const explicitAssignedSlotByMatchId = React.useMemo(() => {
         const map: Record<string, string> = {};
@@ -1313,11 +1330,11 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                 annotateRepeatedTeams: orderedAssigned.length ? slot.annotateRepeatedTeams : false,
             };
         }));
-    }, [callableMatches]);
+    }, [callableMatches, setSlots]);
 
     const resetExplicitSlotAssignments = React.useCallback((slotId: string) => {
         setSlots(prev => prev.map(slot => (slot.id === slotId ? { ...slot, assignedMatchIds: undefined, annotateRepeatedTeams: false } : slot)));
-    }, []);
+    }, [setSlots]);
 
     const stories: { key: string; label: string; story: Story }[] = React.useMemo(() => {
         const out: { key: string; label: string; story: Story }[] = [];
@@ -1360,8 +1377,8 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                         bg: 'slot',
                         title: t('social_calls_title'),
                         subtitle: `${t('social_hour_prefix')} ${a.slot.callTime}`,
-                        startTime: a.slot.callTime,
-                        callTime: timeMinusMinutes(a.slot.callTime, 60),
+                        startTime: timePlusMinutes(a.slot.callTime, 60),
+                        callTime: a.slot.callTime,
                         date: storyDate,
                         lines: chunk,
                     },
@@ -1482,7 +1499,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                         }
                         setPrelimStartTime(d.prelimStartTime);
                         setPrelimCallTime(d.prelimCallTime);
-                        setSlots(d.slots);
+                        setCustomSlots(null);
                         setExpandedSlotId(null);
                         setSelectedStoryKey(d.selectedStoryKey);
                         setActionMsg(null);

@@ -1465,6 +1465,7 @@ const App: React.FC = () => {
             const detail = (event as CustomEvent<{
                 state?: AppState;
                 skipStructuredSync?: boolean;
+                snapshotOnly?: boolean;
                 skipRepositoryPersist?: boolean;
                 requireDurableRepositoryCommit?: boolean;
                 reviewedDraft?: ReviewedDraftReconciliation;
@@ -1509,6 +1510,17 @@ const App: React.FC = () => {
                             throw new Error('Salvataggio superato da un ripristino database.');
                         }
                         const confirmedState = flushedState || nextState;
+                        if (detail.snapshotOnly) {
+                            if (confirmedState.tournament) throw new Error(t('admin_cancel_live_changed'));
+                            loadedAutoDbSyncModule?.replacePendingAutoStructuredSync(null);
+                            latestStateRef.current = confirmedState;
+                            skipNextPersistRef.current = true;
+                            setSelectedTournament(null);
+                            setPublicDbState(current => current ? { ...current, tournament: null, tournamentMatches: [] } : null);
+                            setState(confirmedState);
+                            detail.resolveDurableCommit?.(confirmedState);
+                            return;
+                        }
                         detail.resolveDurableCommit?.(confirmedState);
                         if (!detail.skipStructuredSync) {
                             await loadAutoDbSyncModule().then(({ flushAutoStructuredSync }) => {
@@ -1521,6 +1533,7 @@ const App: React.FC = () => {
                             loadedAutoDbSyncModule?.replacePendingAutoStructuredSync(confirmedState);
                         }
                     } catch (error) {
+                        if (detail.snapshotOnly) skipNextPersistRef.current = false;
                         detail.rejectDurableCommit?.(
                             error instanceof Error ? error : new Error(String(error))
                         );
@@ -1897,7 +1910,7 @@ const App: React.FC = () => {
     const renderView = () => {
         switch(view) {
             case 'home':
-                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!stateForPublicViews.tournament} />;
+                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!stateForPublicViews.tournament} tournamentName={stateForPublicViews.tournament?.name} />;
             case 'leaderboard':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
@@ -2031,7 +2044,7 @@ const App: React.FC = () => {
                     </React.Suspense>
                 );
             default:
-                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!state.tournament} />;
+                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!state.tournament} tournamentName={state.tournament?.name} />;
         }
     };
 
@@ -2100,7 +2113,7 @@ const App: React.FC = () => {
 
 
 
-    const showMobileBottomNav = ['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area'].includes(view);
+    const showMobileBottomNav = ['home', 'leaderboard', 'hof', 'tournament', 'tournament_detail', 'player_area', 'fantabeerpong'].includes(view);
 
     return (
         <LanguageContext.Provider value={language}>
