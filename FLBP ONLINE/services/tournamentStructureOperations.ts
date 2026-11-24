@@ -790,6 +790,7 @@ const applyRebuildEliminationBracket = (
     tournamentName: snapshot.tournament.name,
     advancingPerGroup: snapshot.tournament.config?.advancingPerGroup || 2,
     finalRoundRobin: snapshot.tournament.config?.finalRoundRobin,
+    lateTeamIds: snapshot.tournament.config?.lateTeamIds,
   });
   const next = cloneSnapshot(snapshot);
   next.matches = generated.matches;

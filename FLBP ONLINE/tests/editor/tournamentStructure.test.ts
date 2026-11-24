@@ -14,7 +14,9 @@ import { canPlayMatch, hasUndeterminedParticipants, isByeMatch } from '../../ser
 import { buildTournamentAwards, coerceAppState } from '../../services/storageService';
 import {
   canInsertTeamIntoBracketSlot,
+  canMoveBracketSlot,
   canReplaceBracketSlot,
+  canSwapBracketSlots,
   getTeamEligibility,
   validateDraftBeforeApply,
 } from '../../services/tournamentStructureEligibility';
@@ -219,7 +221,7 @@ defineCase('move to placeholder preserves original placeholder type in source sl
   assertEqual(getSlotValue(result.nextSnapshot!, 'r1m2|A'), 'TBD');
 });
 
-defineCase('clearing an unplayed bracket slot prunes only the live tournament roster', () => {
+defineCase('clearing an unplayed bracket slot requires reassigning the registered team before apply', () => {
   const a = makeTeam('A', 'Alpha');
   const b = makeTeam('B', 'Bravo');
   const tournament = makeTournament(
@@ -239,7 +241,12 @@ defineCase('clearing an unplayed bracket slot prunes only the live tournament ro
   assertEqual(result.ok, true);
   assertEqual(result.nextSnapshot!.tournament.teams.map((team) => team.id).join(','), 'A');
   assertOk(result.nextSnapshot!.catalogTeams.some((team) => team.id === 'B'));
-  assertEqual(validateDraftBeforeApply(snapshot, result.nextSnapshot!).canApply, true);
+  const validation = validateDraftBeforeApply(snapshot, result.nextSnapshot!);
+  assertEqual(validation.canApply, false);
+  assertOk(validation.blockingErrors.some(issue => issue.code === 'team_excluded_from_structure' && issue.teamId === 'B'));
+  const repaired = applyStructuralOperation(result.nextSnapshot!, { type: 'INSERT_TEAM_IN_BRACKET_SLOT', teamId: 'B', slotKey: 'r1m1|B' });
+  assertOk(repaired.ok);
+  assertEqual(validateDraftBeforeApply(snapshot, repaired.nextSnapshot!).canApply, true);
 });
 
 defineCase('clearing an auto-finished bye seed removes its propagated successor', () => {
@@ -709,12 +716,15 @@ defineCase('draft reducer supports apply, undo, redo and reset', () => {
 
   assertEqual(getSlotValue(draftState.present, 'r1m1|B'), 'C');
   assertEqual(draftState.past.length, 1);
+  assertEqual(draftState.log.length, 1);
 
   draftState = undoTournamentStructureDraft(draftState);
   assertEqual(getSlotValue(draftState.present, 'r1m1|B'), 'TBD');
+  assertEqual(draftState.log.length, 0);
 
   draftState = redoTournamentStructureDraft(draftState);
   assertEqual(getSlotValue(draftState.present, 'r1m1|B'), 'C');
+  assertEqual(draftState.log.length, 1);
 
   draftState = resetTournamentStructureDraft(draftState);
   assertEqual(getSlotValue(draftState.present, 'r1m1|B'), 'TBD');
@@ -764,12 +774,12 @@ defineCase('winner reaching an auto-resolved bye successor reopens and keeps pro
   assertEqual(matches.find((m) => m.id === 'r3m1')?.teamAId, 'A', 'winner keeps propagating through the bye');
 });
 
-defineCase('insert into a future-round slot waits for the real opponent instead of fabricating a BYE', () => {
+defineCase('future-round slots reject manual insertion, movement, and swapping an advanced winner', () => {
   const teams = [makeTeam('A'), makeTeam('B'), makeTeam('C'), makeTeam('D'), makeTeam('X')];
   const tournament = makeTournament('elim', 'elimination', teams, [], [
     makeBracketMatch('r1m1', 1, 'A', 'B'),
     makeBracketMatch('r1m2', 1, 'C', 'D', { played: true, status: 'finished', scoreA: 10, scoreB: 8 }),
-    makeBracketMatch('r2m1', 2, undefined, undefined),
+    makeBracketMatch('r2m1', 2, 'TBD', 'C'),
   ]);
   const snapshot = makeSnapshot(tournament, tournament.matches || []);
 
@@ -778,11 +788,72 @@ defineCase('insert into a future-round slot waits for the real opponent instead 
     teamId: 'X',
     slotKey: 'r2m1|A',
   });
-  assertEqual(result.ok, true, 'insert into a free future slot is applied');
-  const final = (result.nextSnapshot!.matches || []).find((m) => m.id === 'r2m1');
-  assertEqual(final?.teamAId, 'X', 'inserted team survives the realign');
-  assertEqual(final?.teamBId, 'C', 'feeder-fed side keeps the advancing winner instead of a BYE');
-  assertEqual(final?.status, 'scheduled', 'the pairing stays playable');
+  assertEqual(result.ok, false);
+  assertEqual(canMoveBracketSlot(snapshot, 'r1m1|A', 'r2m1|A').allowed, false);
+  assertEqual(canReplaceBracketSlot(snapshot, 'r2m1|B', 'X').allowed, false);
+  assertEqual(canSwapBracketSlots(snapshot, 'r1m1|A', 'r2m1|B').allowed, false);
+  const modified = makeSnapshot(tournament, (tournament.matches || []).map(m => m.id === 'r2m1' ? { ...m, teamAId: 'X', teamBId: 'B' } : m));
+  const failures = validateDraftBeforeApply(snapshot, modified).blockingErrors.map(issue => issue.code);
+  assertOk(failures.includes('future_bracket_slot_seeded'));
+  assertOk(failures.includes('advanced_winner_locked'));
+});
+
+defineCase('moving the last team out of a bracket branch blocks apply even when everyone is still seeded', () => {
+  const teams = ['A', 'B'].map(id => makeTeam(id));
+  const matches = [
+    makeBracketMatch('r1m1', 1, 'A', 'BYE'),
+    makeBracketMatch('r1m2', 1, 'B', 'BYE'),
+    makeBracketMatch('r2m1', 2, undefined, undefined),
+  ];
+  const tournament = makeTournament('branch', 'elimination', teams, [], matches);
+  const original = makeSnapshot(tournament, matches);
+  const moved = applyStructuralOperation(original, { type: 'MOVE_BRACKET_SLOT', fromSlotKey: 'r1m1|A', toSlotKey: 'r1m2|B' });
+  assertOk(moved.ok);
+  const validation = validateDraftBeforeApply(original, moved.nextSnapshot!);
+  assertEqual(validation.canApply, false);
+  assertOk(validation.blockingErrors.some(issue => issue.code === 'empty_bracket_branch' && issue.matchId === 'r1m1'));
+  assertOk(!validation.blockingErrors.some(issue => issue.code === 'team_excluded_from_structure'));
+});
+
+defineCase('a pool team cannot take a bracket slot before the group qualifiers are settled', () => {
+  const teams = ['A', 'B', 'C'].map(id => makeTeam(id));
+  const group = makeGroup('g1', 'Girone A', teams.slice(0, 2));
+  const fixtures = [
+    makeGroupMatch('g1m1', group.name, 'A', 'B'),
+    makeBracketMatch('r1m1', 1, 'TBD-A-1', 'TBD-A-2'),
+  ];
+  const tournament = makeTournament('groups-open', 'groups_elimination', teams.slice(0, 2), [group], fixtures);
+  const snapshot = makeSnapshot(tournament, fixtures, teams);
+  assertEqual(getTeamEligibility(snapshot, 'A', 'bracket').reasonCode, 'qualification_pending');
+  assertEqual(canInsertTeamIntoBracketSlot(snapshot, 'C', 'r1m1|A').allowed, false);
+  const closed = makeSnapshot(tournament, fixtures.map(m => m.phase === 'groups' ? { ...m, status: 'finished', played: true } : m), teams);
+  assertEqual(getTeamEligibility(closed, 'C', 'bracket').status, 'eligible');
+});
+
+defineCase('rebuilding an elimination tournament reuses the saved late-team priorities', () => {
+  const teams = ['A', 'B', 'C', 'D', 'E', 'F'].map(id => makeTeam(id));
+  const generated = generateTournamentStructure(teams, { mode: 'elimination', lateTeamIds: ['E', 'F'] });
+  const original = makeSnapshot(generated.tournament, generated.matches, teams);
+  assertEqual(original.tournament.config.lateTeamIds?.join(','), 'E,F');
+  const rebuilt = applyStructuralOperation(original, { type: 'REBUILD_ELIMINATION_BRACKET' });
+  assertOk(rebuilt.ok);
+  const byes = getGeneratedRoundOne(rebuilt.nextSnapshot!.matches).filter(m => m.isBye);
+  assertEqual(byes.flatMap(m => [m.teamAId, m.teamBId]).filter(id => id !== 'BYE').sort().join(','), 'E,F');
+});
+
+defineCase('a removed group team goes back to the pool and must be reassigned before apply', () => {
+  const teams = ['A', 'B', 'C'].map(id => makeTeam(id));
+  const group = makeGroup('g1', 'Girone A', teams);
+  const fixtures = [makeGroupMatch('g1m1', group.name, 'A', 'B'), makeGroupMatch('g1m2', group.name, 'A', 'C')];
+  const tournament = makeTournament('group-remove', 'round_robin', teams, [group], fixtures);
+  const snapshot = makeSnapshot(tournament, fixtures, teams);
+  const removed = applyStructuralOperation(snapshot, { type: 'REMOVE_GROUP_TEAM', teamId: 'C', groupId: group.id });
+  assertOk(removed.ok);
+  assertEqual(getTeamEligibility(removed.nextSnapshot!, 'C', 'groups').status, 'eligible');
+  assertOk(validateDraftBeforeApply(snapshot, removed.nextSnapshot!).blockingErrors.some(issue => issue.teamId === 'C'));
+  const inserted = applyStructuralOperation(removed.nextSnapshot!, { type: 'INSERT_TEAM_IN_GROUP', teamId: 'C', groupId: group.id });
+  assertOk(inserted.ok);
+  assertEqual(validateDraftBeforeApply(snapshot, inserted.nextSnapshot!).canApply, true);
 });
 
 // --- B2 audit 2026-11-16: groups -> bracket sync must never wipe played bracket results ---

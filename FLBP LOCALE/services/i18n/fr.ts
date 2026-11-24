@@ -99,6 +99,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "Vérification de l'autorisation de votre compte joueur comme arbitre pour le tournoi live.",
   "teams": "Équipes",
   "late_team_title": "Jouer le plus tard possible",
+  "late_team_elimination_only": "« Jouer le plus tard possible » est disponible uniquement en élimination directe.",
   "late_team_description": "Sélectionnez les équipes à privilégier pour un accès direct au 2e tour ou, si les places sont épuisées, pour occuper les derniers créneaux du 1er tour.",
   "late_team_selected_count": "{selected} sur {total} sélectionnées",
   "late_team_byes_available": "Accès directs au 2e tour : {count}",

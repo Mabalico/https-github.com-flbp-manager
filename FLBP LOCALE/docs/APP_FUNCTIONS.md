@@ -329,6 +329,9 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
     - preliminari: ricavati da qualsiasi turno bracket incompleto con BYE (match real-vs-real), così l’aggiunta successiva di nuove squadre/preliminari aggiorna la story dedicata senza mescolare quei match negli slot normali
     - export PNG via Canvas API (senza dipendenze) + salvataggio config in localStorage (`flbp_social_graphics_v1`)
 - `components/admin/tabs/TournamentEditorTab.tsx`
+  - L’editor abilita gli slot del primo turno disponibile, incluso un eventuale preliminare. Nei tornei a gironi il tabellone si sblocca dopo le qualificazioni. Le vincitrici già avanzate restano bloccate.
+  - La verifica blocca l’applicazione se manca una squadra iscritta o un nuovo ramo vuoto lascia senza avversario il match successivo. In Gironi, **Rimuovi** riporta la squadra nel pool per poterla riassegnare. Il riepilogo conta le azioni registrate e segue Annulla e Ripristina.
+  - La rigenerazione di un torneo a eliminazione diretta riusa le priorità «Gioca il più tardi possibile» salvate con il torneo.
   - Editor strutturale live con bozza separata dallo stato applicato.
   - Layout desktop organizzato in tre aree coordinate:
     - **Roster a sinistra**: ricerca, filtri, selezione delle squadre e creazione rapida di una nuova squadra nel catalogo/pool, pronta per essere collocata nella struttura.

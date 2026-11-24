@@ -99,6 +99,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "Oyuncu hesabının canlı turnuva için hakem olarak yetkili olup olmadığını kontrol ediyorum.",
   "teams": "Takımlar",
   "late_team_title": "Mümkün olduğunca geç oyna",
+  "late_team_elimination_only": "“Mümkün olduğunca geç oyna” yalnızca tek eleme sisteminde kullanılabilir.",
   "late_team_description": "2. tura doğrudan geçişte öncelik verilecek takımları seçin; kontenjan yetmezse kalanlar 1. turun en son eşleşme sıralarına yerleştirilir.",
   "late_team_selected_count": "{total} takımdan {selected} seçildi",
   "late_team_byes_available": "2. tura doğrudan geçiş kontenjanı: {count}",

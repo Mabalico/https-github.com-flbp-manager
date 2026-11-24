@@ -99,6 +99,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "Sprawdzam, czy Twoje konto gracza jest uprawnione jako sędzia w turnieju live.",
   "teams": "Zespoły",
   "late_team_title": "Zagrać jak najpóźniej",
+  "late_team_elimination_only": "Opcja „Graj jak najpóźniej” jest dostępna tylko w systemie pucharowym.",
   "late_team_description": "Wybierz drużyny z pierwszeństwem bezpośredniego awansu do 2. rundy. Jeśli zabraknie miejsc, trafią na ostatnie pozycje w 1. rundzie.",
   "late_team_selected_count": "{selected} z {total} wybrano",
   "late_team_byes_available": "Bezpośrednie awanse do 2. rundy: {count}",

@@ -99,6 +99,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "Проверяю, включён ли ваш игровой аккаунт как судья для live-турнира.",
   "teams": "Команды",
   "late_team_title": "Играть как можно позже",
+  "late_team_elimination_only": "Опция «Играть как можно позже» доступна только в формате на выбывание.",
   "late_team_description": "Выберите команды, которым нужно дать приоритет прямого выхода во 2-й раунд, а если мест не хватит — поставить их в последние слоты 1-го раунда.",
   "late_team_selected_count": "Выбрано: {selected} из {total}",
   "late_team_byes_available": "Прямых выходов во 2-й раунд: {count}",

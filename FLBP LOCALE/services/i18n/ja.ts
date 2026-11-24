@@ -99,6 +99,7 @@ export const dictionary: TranslationDictionary = {
   "referees_checking_player_bypass": "プレイヤーアカウントがライブ大会の審判として有効か確認しています。",
   "teams": "チーム",
   "late_team_title": "できるだけ遅く試合する",
+  "late_team_elimination_only": "「なるべく遅くプレイ」はシングルエリミネーションでのみ利用できます。",
   "late_team_description": "第2ラウンドへの直接進出を優先するチームを選択します。枠が足りない場合、残りは第1ラウンドの後ろの対戦枠に配置されます。",
   "late_team_selected_count": "{total}チーム中{selected}チームを選択",
   "late_team_byes_available": "第2ラウンドへの直接進出枠：{count}",

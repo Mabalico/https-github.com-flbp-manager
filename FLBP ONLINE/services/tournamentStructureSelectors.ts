@@ -49,6 +49,7 @@ export const cloneTournamentData = (tournament: TournamentData): TournamentData 
     matches: cloneMatches(tournament.matches || []),
     config: {
       ...tournament.config,
+      ...(tournament.config?.lateTeamIds ? { lateTeamIds: [...tournament.config.lateTeamIds] } : {}),
       finalRoundRobin: tournament.config?.finalRoundRobin
         ? { ...tournament.config.finalRoundRobin }
         : undefined,
@@ -688,10 +689,8 @@ export const syncTournamentRosterFromStructure = (
     }
   }
 
-  // The live roster must mirror the structure, while catalogTeams remains the
-  // complete registration catalog. Keeping an unassigned team in
-  // tournament.teams makes CLEAR_BRACKET_SLOT impossible to apply because the
-  // validator correctly reports that roster member as excluded.
+  // The draft roster mirrors the structure, while the catalog still offers
+  // teams that need to be reassigned before validation can allow publication.
   const keep = new Map<string, Team>();
   for (const team of next.tournament.teams || []) {
     const id = String(team.id || '').trim();

@@ -685,6 +685,9 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
             ...(config.mode === 'groups_elimination' ? { groupSeeding: 'opposite_halves' as const } : {}),
             resultsOnly: !!config.resultsOnly,
             finalRoundRobin: config.finalRoundRobin,
+            ...(config.mode === 'elimination' && config.lateTeamIds?.length
+                ? { lateTeamIds: activeTeams.filter(team => config.lateTeamIds?.includes(team.id)).map(team => team.id) }
+                : {}),
         }
     };
 

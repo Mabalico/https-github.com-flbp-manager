@@ -338,6 +338,9 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
     - preliminari: ricavati da qualsiasi turno bracket incompleto con BYE (match real-vs-real), così l’aggiunta successiva di nuove squadre/preliminari aggiorna la story dedicata senza mescolare quei match negli slot normali
     - export PNG via Canvas API (senza dipendenze) + salvataggio config in localStorage (`flbp_social_graphics_v1`)
 - `components/admin/tabs/TournamentEditorTab.tsx`
+  - L’editor abilita gli slot del primo turno disponibile, incluso un eventuale preliminare. Nei tornei a gironi il tabellone si sblocca dopo le qualificazioni. Le vincitrici già avanzate restano bloccate.
+  - La verifica blocca l’applicazione se manca una squadra iscritta o un nuovo ramo vuoto lascia senza avversario il match successivo. In Gironi, **Rimuovi** riporta la squadra nel pool per poterla riassegnare. Il riepilogo conta le azioni registrate e segue Annulla e Ripristina.
+  - La rigenerazione di un torneo a eliminazione diretta riusa le priorità «Gioca il più tardi possibile» salvate con il torneo.
   - Editor strutturale live con bozza, Preview obbligatoria e Apply protetto.
   - Layout desktop organizzato in tre aree coordinate:
     - **Roster a sinistra**: ricerca, filtri, selezione delle squadre e creazione rapida di una nuova squadra nel catalogo/pool, pronta per essere collocata nella struttura.
@@ -351,8 +354,7 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
     - i placeholder `TBD` non avanzano automaticamente e non vengono trattati come squadre reali;
     - se il Round 1 e' pieno e nessuna partita reale del bracket e' iniziata, l'editor puo' aggiungere un turno preliminare vuoto per accogliere nuove squadre;
     - la creazione rapida aggiunge la squadra al catalogo/pool, ma il suo inserimento nel tabellone resta un'operazione esplicita della bozza.
-  - Il roster del torneo viene sincronizzato con le squadre realmente referenziate da gironi e match; una squadra rimossa da uno slot non resta quindi come partecipante esclusa. La squadra rimane nel catalogo generale e può essere reinserita senza perdere storico o iscrizione.
-  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone sul roster corrente; serve anche a compattare un bracket dopo rimozioni, eliminando livelli BYE non più necessari.
+  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone.
 - `components/admin/tabs/ReportsTab.tsx`
   - Nell’inserimento manuale il codice apre la partita e Invio percorre canestri e soffi. Shift+Invio torna indietro. Il punteggio segue la digitazione. Su un pareggio positivo, Invio dall’ultimo campo riporta al primo. Dopo il salvataggio il referto si chiude, compare una conferma e il campo codice torna attivo. L’Area Arbitri segue lo stesso flusso per la compilazione manuale.
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`

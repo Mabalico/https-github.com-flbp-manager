@@ -49,6 +49,7 @@ export const cloneTournamentData = (tournament: TournamentData): TournamentData 
     matches: cloneMatches(tournament.matches || []),
     config: {
       ...tournament.config,
+      ...(tournament.config?.lateTeamIds ? { lateTeamIds: [...tournament.config.lateTeamIds] } : {}),
       finalRoundRobin: tournament.config?.finalRoundRobin
         ? { ...tournament.config.finalRoundRobin }
         : undefined,

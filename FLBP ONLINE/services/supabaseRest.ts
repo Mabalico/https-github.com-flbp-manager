@@ -3054,6 +3054,7 @@ const coerceTournamentConfig = (cfg: any): TournamentConfig => {
         // NOTE: "round_robin" can legitimately store 0 (no qualifiers).
         advancingPerGroup: Number.isFinite(v) && v >= 0 ? v : 2,
         ...(cfg?.groupSeeding === 'opposite_halves' ? { groupSeeding: 'opposite_halves' as const } : {}),
+        ...(Array.isArray(cfg?.lateTeamIds) ? { lateTeamIds: cfg.lateTeamIds.filter((id: unknown) => typeof id === 'string') } : {}),
         ...(resultsOnly ? { resultsOnly: true } : {}),
         ...(finalRoundRobin ? { finalRoundRobin } : {}),
         ...(refTables ? { refTables } : {})
