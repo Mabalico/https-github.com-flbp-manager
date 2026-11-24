@@ -14,9 +14,9 @@ begin
   insert into public.workspaces(id) values(v_workspace);
   v_state := '{
     "teams":[
-      {"id":"a","name":"First team","player1":"Alex Rossi","player2":"Amy"},
-      {"id":"b","name":"Second team","player1":"Ben","player2":"Bea"},
-      {"id":"c","name":"Third team","player1":"Alex Rossi","player2":"Cathy"}],
+      {"id":"a","name":"First team","player1":"Alex Rossi","player2":"Amy","createdAt":1767225600000},
+      {"id":"b","name":"Second team","player1":"Ben","player2":"Bea","createdAt":1767225600000},
+      {"id":"c","name":"Third team","player1":"Alex Rossi","player2":"Cathy","createdAt":1767225600000}],
     "tournament":{"id":"edition","name":"Fanta test","startDate":"2026-01-01T00:00:00Z","type":"groups_elimination","config":{}},
     "tournamentMatches":[
       {"id":"tb1","code":"ATB1","phase":"groups","groupName":"Girone A","status":"finished","played":true,
