@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from '../App';
 import { Match, Team, TournamentData, TournamentMatch } from '../types';
 import { Edit2, Save, X, Trophy, Lock } from 'lucide-react';
-import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
+import { canPlayMatch, isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../services/formInputUX';
 import {
     advanceWinner as advanceBracketWinner,
@@ -174,10 +174,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
 
     const rounds = React.useMemo(() => {
         const baseRounds = getPreferredBracketRounds(data, matches);
-        if (showByeSlots) return baseRounds;
-        return baseRounds.map((round) =>
-            round.filter((match) => !(isByeTeamId(match.teamAId) && isByeTeamId(match.teamBId)))
-        );
+        const replacedIds = new Set(matches.filter(m => m.replacedByFinalGroup).map(m => m.id));
+        return baseRounds.map(round => round.filter(m =>
+            !m.replacedByFinalGroup && !replacedIds.has(m.id) &&
+            (showByeSlots || !(isByeTeamId(m.teamAId) && isByeTeamId(m.teamBId)))
+        ));
     }, [data, matches, showByeSlots]);
 
     const getMatch = (id: string) => matches.find(m => m.id === id);
@@ -293,8 +294,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
 
     const handleMatchClick = (m: TournamentMatch) => {
         const fullMatch = getMatch(m.id) || m;
-        // Guardrail: BYE matches never open referto/score.
-        if (isByeTeamId(fullMatch.teamAId) || isByeTeamId(fullMatch.teamBId) || fullMatch.isBye) return;
+        if (!canPlayMatch(fullMatch)) return;
         if (readOnly && !fullMatch.played) return;
         if (readOnly) return;
 
@@ -362,6 +362,9 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
     };
 
     if (!rounds || rounds.length === 0) return <div className="p-4 text-center text-slate-500">{t('bracket_no_bracket_available')}</div>;
+    if (data?.config?.finalRoundRobin?.activated && rounds.every(round => !round.length)) {
+        return <div className="p-4 text-center">{t('final_group_activated')}</div>;
+    }
 
     const monitorStructuredLayout = showConnectors && !tvMode;
     const baseMatchHeight = tvMode ? 78 : (editorStructuredLayout ? 108 : (spectatorLayout ? 120 : 128));
@@ -463,7 +466,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                     ))}
                 </svg>
             )}
-            {rounds.map((round, rIdx) => (
+            {rounds.map((round, rIdx) => round.length > 0 && (
                 <div
                     key={rIdx}
                     className={`${monitorStructuredLayout ? 'relative' : `flex flex-col justify-around ${tvMatchesGapClass}`} ${tvMode ? `${tvMinWClass} relative` : nonTvColumnWidthClass}`}
@@ -502,6 +505,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const matchHasByeSlot = !!match.isBye || isByeTeamId(rawA) || isByeTeamId(rawB);
                          const isByeSlotMatchDisplay = allowByeSlotsThisRound && matchHasByeSlot;
                          const preserveEmptySlot = shouldHideStructuralMatch(match, rIdx);
+                         const canOpenMatch = !readOnly && !preserveEmptySlot && canPlayMatch(match);
 
                          const slotKeyA = `${match.id}|A`;
                          const slotKeyB = `${match.id}|B`;
@@ -665,19 +669,19 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                             <div 
                                 key={match.id} 
                                 ref={(el) => { matchCardRefs.current[match.id] = el; }}
-                                onClick={() => handleMatchClick(match)}
-                                onKeyDown={(e) => {
+                                onClick={canOpenMatch ? () => handleMatchClick(match) : undefined}
+                                onKeyDown={!canOpenMatch ? undefined : (e) => {
                                     if (readOnly) return;
                                     if (e.key === 'Enter' || e.key === ' ') {
                                         e.preventDefault();
                                         handleMatchClick(match);
                                     }
                                 }}
-                                role={!readOnly && !isByeSlotMatchDisplay ? 'button' : undefined}
-                                tabIndex={!readOnly && !isByeSlotMatchDisplay ? 0 : undefined}
+                                role={canOpenMatch ? 'button' : undefined}
+                                tabIndex={canOpenMatch ? 0 : undefined}
                                 className={`
                                     relative ${outerCardBaseClass} ${tvMatchMinHClass} flex flex-col justify-center transition-all
-                                    ${(!readOnly && !isByeSlotMatchDisplay && !preserveEmptySlot) ? `${editorStructuredLayout ? 'cursor-pointer hover:border-blue-400 hover:shadow-[0_20px_40px_-32px_rgba(37,99,235,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer hover:border-beer-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2'}` : ''}
+                                    ${canOpenMatch ? `${editorStructuredLayout ? 'cursor-pointer hover:border-blue-400 hover:shadow-[0_20px_40px_-32px_rgba(37,99,235,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-pointer hover:border-beer-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2'}` : ''}
                                     ${outerCardToneClass}
                                     ${byeCardClass}
                                     ${preserveEmptySlot ? 'opacity-0 pointer-events-none select-none' : ''}
@@ -895,7 +899,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                     {(() => { const lbl = getOutcomeLabel(match, 'B', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClass}>{lbl}</span> : null; })()}
                                 </div>
 
-                                {!readOnly && !isByeSlotMatchDisplay && !preserveEmptySlot && <Edit2 className="w-3 h-3 absolute top-1 right-1 text-slate-300" />}
+                                {canOpenMatch && <Edit2 className="w-3 h-3 absolute top-1 right-1 text-slate-300" />}
                             </div>
                         );
                     })}

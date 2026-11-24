@@ -14,7 +14,7 @@ const source = readFileSync(componentPath, 'utf8');
 // IO is injected; unrelated tournament transitions are held stable in this
 // fixture. No browser, real credentials, network or filesystem writes are used.
 const ast = ts.createSourceFile(componentPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['isRefereeRateLimited', 'refereeRejectedReportMessage', 'closeLiveCallsForMatch', 'saveReport', 'doLogin',
+const names = ['isRefereeRateLimited', 'refereeRejectedReportMessage', 'closeLiveCallsForMatch', 'backToMatchStep', 'finishManualReport', 'saveReport', 'doLogin',
   'PRIVATE_APP_STATE_KEYS', 'hasPrivateAppData', 'REFEREE_VIEW_MATCH_KEYS', 'mergeRefereeLiveState', 'applyRefereeState',
   'lookupMatchByCode', 'confirmOcrModal',
   ...(usesOutbox ? ['replayPendingReports'] : [])];
@@ -45,6 +45,11 @@ vm.runInNewContext(ts.transpileModule(restAst.statements
 assert.equal(typeof restExports.getMatchResultRejectionReason, 'function', 'Missing real getMatchResultRejectionReason');
 
 const pureModules = new Map();
+class ReportInput {
+  constructor(index) { this.dataset = { reportFieldIndex: String(index) }; }
+  focus() { this.focused = true; }
+  select() { this.selected = true; }
+}
 const loadPureModule = (relativePath) => {
   const path = resolve(root, relativePath);
   if (pureModules.has(path)) return pureModules.get(path);
@@ -54,6 +59,7 @@ const loadPureModule = (relativePath) => {
   }).outputText;
   vm.runInNewContext(javascript, {
     module, exports: module.exports,
+    HTMLInputElement: ReportInput,
     require: specifier => {
       assert(specifier.startsWith('.'), `Unexpected dependency in pure fixture: ${specifier}`);
       return loadPureModule(resolve(dirname(path), `${specifier}.ts`));
@@ -65,6 +71,7 @@ const loadPureModule = (relativePath) => {
 const matchUtils = loadPureModule('services/matchUtils.ts');
 const reportAudit = loadPureModule('services/refereeReportAudit.ts');
 const selectors = loadPureModule('services/tournamentStructureSelectors.ts');
+const reportEntry = loadPureModule('services/reportEntry.ts');
 const fault = code => typeof code === 'string' ? Object.assign(new Error(code), { code }) : code;
 // What supabaseRest throws for an HTTP 429 referee rejection: the raw body.
 const rateLimitedBody = () => new Error('{"ok":false,"reason":"rate_limited"}');
@@ -89,7 +96,7 @@ const createCase = (options = {}) => {
   // What the App holds: the component hands it updates through setState.
   let appState = options.appState || state;
   const events = [];
-  const calls = { cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [], mergeInputs: [], foundIds: [], codeChoices: [], codeErrors: [], forms: [], pages: [], ocrErrors: [] };
+  const calls = { notices: [], cleanup: [], rpc: [], snapshots: [], queued: [], acknowledged: [], failed: [], alerts: [], warnings: [], busy: [], states: [], pulls: [], loginErrors: [], authed: [], verifies: [], mergeInputs: [], foundIds: [], codeChoices: [], codeErrors: [], forms: [], pages: [], ocrErrors: [] };
   let snapshotAttempts = 0;
   const context = {
     ...matchUtils, ...reportAudit,
@@ -113,7 +120,8 @@ const createCase = (options = {}) => {
       appState = typeof value === 'function' ? value(appState) : value;
       calls.states.push(appState); events.push('state');
     },
-    t: key => key,
+    t: key => key === 'report_saved_summary' ? 'Saved {code} · {score}' : key,
+    reportSaveFeedback: { show: message => { calls.notices.push(message); events.push('saved'); } },
     alert: message => { calls.alerts.push(message); events.push(`alert:${message}`); },
     confirm: () => true,
     console: { warn: (...args) => calls.warnings.push(args) },
@@ -204,9 +212,41 @@ const check = async (name, body) => {
   await body(); passed++;
   console.log(`PASS ${name}`);
 };
+await check('manual report Enter traverses fields, refuses a tied leader and submits only at the end', () => {
+  const fields = Array.from({ length: 8 }, (_, index) => new ReportInput(index));
+  const container = {
+    querySelectorAll: () => fields,
+    querySelector: selector => fields.find(field => selector.includes('"' + field.dataset.reportFieldIndex + '"')),
+  };
+  let saves = 0;
+  const pressEnter = (index, options = {}) => {
+    for (const field of fields) { field.focused = false; field.selected = false; }
+    let prevented = false;
+    reportEntry.handleReportFieldEnter({
+      key: 'Enter', shiftKey: !!options.backwards, currentTarget: container, target: fields[index],
+      nativeEvent: { isComposing: false }, preventDefault: () => { prevented = true; },
+    }, { tied: !!options.tied, canSave: options.canSave !== false, save: () => { saves++; } });
+    assert(prevented);
+    return fields.findIndex(field => field.focused && field.selected);
+  };
+  assert.equal(reportEntry.nextReportFieldIndex(0, fields.length, true), undefined);
+  assert.equal(reportEntry.nextReportFieldIndex(7, fields.length, false), undefined);
+  assert.deepEqual(plain(reportEntry.reportTieState([0, 0])), { tied: false, leaderIndex: -1 });
+  assert.deepEqual(plain(reportEntry.reportTieState([10, 7])), { tied: false, leaderIndex: 0 });
+  assert.deepEqual(plain(reportEntry.reportTieState([1, 2, 2])), { tied: true, leaderIndex: -1 });
+  for (let index = 0; index < 7; index++) assert.equal(pressEnter(index), index + 1);
+  assert.equal(pressEnter(3, { backwards: true }), 2);
+  assert.equal(pressEnter(7, { tied: true, canSave: false }), 0);
+  pressEnter(7, { canSave: false });
+  assert.equal(saves, 0);
+  pressEnter(7);
+  assert.equal(saves, 1);
+});
 const assertSaved = (result) => {
   assert.equal(result.calls.states.length, 1, 'apply the report once');
-  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  assert.deepEqual(result.calls.alerts, []);
+  assert.deepEqual(result.calls.notices, [`Saved ${result.match.code} · 10–7`]);
+  assert.equal(result.calls.pages.at(-1), 'match');
   assert.deepEqual(result.calls.busy, [true, false]);
   assert.deepEqual(result.calls.failed, [], 'cleanup must never requeue a committed report');
   assert(!result.events.includes('conflict'), 'cleanup must never become a DB conflict');
@@ -217,7 +257,7 @@ const assertSaved = (result) => {
   assert.equal(saved.refereeReportAudit[0].refereeName, 'Arbitro test');
   if (result.calls.cleanup.length) {
     assert(result.events.indexOf('state') < result.events.indexOf('cleanup'));
-    assert(result.events.indexOf('alert:alert_report_saved') < result.events.indexOf('cleanup'));
+    assert(result.events.indexOf('saved') < result.events.indexOf('cleanup'));
   }
 };
 
@@ -275,7 +315,7 @@ await check('unresolved snapshot conflict does not run cleanup or acknowledge', 
   const result = createCase({ secret: 'ref-secret', rpcError: usesOutbox ? 'PGRST202' : undefined, snapshotError: 'FLBP_DB_CONFLICT', mergeBlocked: true });
   await result.saveReport();
   assert.equal(result.calls.cleanup.length, 0); assert.equal(result.calls.acknowledged.length, 0);
-  assert(!result.calls.alerts.includes('alert_report_saved')); assert(result.events.includes('conflict'));
+  assert(!result.calls.notices.length); assert(result.events.includes('conflict'));
   if (usesOutbox) assert.equal(result.calls.failed.length, 1);
 });
 if (usesOutbox) {
@@ -293,14 +333,14 @@ if (usesOutbox) {
     await result.saveReport();
     assert.equal(result.calls.snapshots.length + result.calls.cleanup.length + result.calls.acknowledged.length, 0);
     assert.equal(result.calls.failed.length, 1); assert.equal(result.calls.states.length, 1);
-    assert(!result.calls.alerts.includes('alert_report_saved')); assert(result.events.includes('conflict'));
+    assert(!result.calls.notices.length); assert(result.events.includes('conflict'));
   });
 }
 await check('remote failure retains existing failure handling without cleanup', async () => {
   const result = createCase({ secret: 'ref-secret', rpcError: 'NETWORK_ERROR', snapshotError: 'NETWORK_ERROR' });
   await result.saveReport();
   assert.equal(result.calls.cleanup.length, 0); assert.equal(result.calls.acknowledged.length, 0);
-  assert(!result.calls.alerts.includes('alert_report_saved')); assert(result.events.includes('save-error'));
+  assert(!result.calls.notices.length); assert(result.events.includes('save-error'));
   assert.deepEqual(result.calls.busy, [true, false]);
   if (usesOutbox) assert.equal(result.calls.failed.length, 1);
 });
@@ -473,7 +513,9 @@ await check('B6 #1: merging a referee view never drops private data from a compl
 await check('B6 #1: a report saved on a device with the complete Admin copy keeps every private field', async () => {
   const result = completeCase();
   await result.saveReport();
-  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  assert.deepEqual(result.calls.alerts, []);
+  assert.equal(result.calls.notices.length, 1);
+  assert.equal(result.calls.pages.at(-1), 'match');
   if (usesOutbox) {
     assert.equal(result.calls.pulls.length, 1, 'the live view is read before building the patch');
     const sent = JSON.stringify(result.calls.rpc[0].matches);
@@ -491,7 +533,9 @@ await check('B6 #1: a report saved on a device with the complete Admin copy keep
 await check('B6 #1: a snapshot conflict lifts the referee view onto the local copy before the three-way merge', async () => {
   const result = completeCase({ rpcError: usesOutbox ? 'PGRST202' : undefined, snapshotError: 'FLBP_DB_CONFLICT' });
   await result.saveReport();
-  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  assert.deepEqual(result.calls.alerts, []);
+  assert.equal(result.calls.notices.length, 1);
+  assert.equal(result.calls.pages.at(-1), 'match');
   assert.equal(result.calls.mergeInputs.length, 1);
   const { baseState, remoteState } = result.calls.mergeInputs[0];
   assertCompleteDataKept(baseState, 'base side of the merge');
@@ -590,7 +634,9 @@ if (usesOutbox) {
       pulledState: bracketState(live), derivedScoresByTeam: { c1: 10, d1: 7 }, reportStatsForm: bracketStats, realBracket: true,
     });
     await result.saveReport();
-    assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+    assert.deepEqual(result.calls.alerts, []);
+    assert.equal(result.calls.notices.length, 1);
+    assert.equal(result.calls.pages.at(-1), 'match');
     const sentFinal = result.calls.rpc[0].matches.find(match => match.id === 'f');
     assert.equal(sentFinal?.teamAId, 'a1', 'the patch must keep the winner advanced by the other referee');
     assert.equal(sentFinal?.teamBId, 'c1', 'the patch must advance this referee\'s winner');
@@ -639,7 +685,9 @@ await check('B3 #3: a correction that keeps the same winner is still saved', asy
     derivedScoresByTeam: { a1: 10, b1: 7 }, reportStatsForm: bracketStats, realBracket: true,
   });
   await result.saveReport();
-  assert.deepEqual(result.calls.alerts, ['alert_report_saved']);
+  assert.deepEqual(result.calls.alerts, []);
+  assert.equal(result.calls.notices.length, 1);
+  assert.equal(result.calls.pages.at(-1), 'match');
   const saved = result.calls.states[0].tournamentMatches;
   assert.equal(saved.find(match => match.id === 's1').scoreB, 7);
   assert.equal(saved.find(match => match.id === 'f').teamAId, 'a1', 'the played final is untouched');

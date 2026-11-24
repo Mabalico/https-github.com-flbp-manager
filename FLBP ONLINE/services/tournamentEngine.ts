@@ -1,6 +1,6 @@
 import { Team, Match, TournamentData, Group, FinalRoundRobinConfig } from '../types';
 import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings';
-import { isFinalGroup } from './groupUtils';
+import { applyFinalGroupSchedule, getFinalGroupStartRound, isFinalGroup } from './groupUtils';
 import { avoidBracketCodeClashes, normalizeMatchCode } from './matchUtils';
 import { buildBracketRoundsFromMatches, isLockedBracketMatchForStructureEdit, reconcileBracketAdvancements } from './tournamentStructureSelectors';
 
@@ -848,7 +848,7 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
 
     const sanitizeBracketPlaceholders = (arr: Match[]) => {
         return arr.map((m) => {
-            if (m.phase !== 'bracket') return m;
+            if (m.phase !== 'bracket' || m.replacedByFinalGroup) return m;
             const round = (m.round || 1);
             const base: Match = { ...m };
 
@@ -955,23 +955,13 @@ export const getFinalRoundRobinActivationStatus = (tournament: TournamentData, m
         return { enabled: true, activated: false, canActivate: false, reason: 'no_bracket_matches', topTeams };
     }
 
-    // Group by round number.
-    const byRound: Record<number, Match[]> = {};
-    for (const m of bracket) {
-        const r = (m.round || 1);
-        if (!byRound[r]) byRound[r] = [];
-        byRound[r].push(m);
-    }
-
-    const desiredMatchCount = topTeams / 2;
-    const roundCandidates = Object.keys(byRound).map(n => parseInt(n, 10)).sort((a, b) => a - b);
-    const roundNum = roundCandidates.find(r => (byRound[r]?.length || 0) === desiredMatchCount);
+    const roundNum = getFinalGroupStartRound(bracket, topTeams);
 
     if (!roundNum) {
         return { enabled: true, activated: false, canActivate: false, reason: 'bracket_too_small_or_unexpected_shape', topTeams };
     }
 
-    const roundMatches = byRound[roundNum] || [];
+    const roundMatches = bracket.filter(m => (m.round || 1) === roundNum);
     const ids = new Set<string>();
     for (const m of roundMatches) {
         const a = m.teamAId;
@@ -1071,7 +1061,8 @@ export const activateFinalRoundRobinStage = (tournament: TournamentData, matches
         },
     };
 
-    return { tournament: nextTournament, matches: [...(matches || []), ...finalMatches] };
+    const scheduled = applyFinalGroupSchedule(nextTournament, [...matches, ...finalMatches]);
+    return { tournament: scheduled, matches: scheduled.matches };
 };
 
 const getRowKey = (rows: Record<string, any>, teamId: string): { points: number; cupsDiff: number; blowDiff: number; cupsFor: number } => {

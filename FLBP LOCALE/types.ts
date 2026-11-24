@@ -43,6 +43,8 @@ export interface Match {
     /** Slot in the successor match where this match winner must advance. */
     nextSlot?: 'A' | 'B' | null;
     hidden?: boolean;
+    /** Unplayed bracket fixture replaced by the activated final round robin. */
+    replacedByFinalGroup?: boolean;
     /** True when the match exists only to represent a BYE auto-advance. */
     isBye?: boolean;
     /** True for extra playoff matches used to resolve group ties. */

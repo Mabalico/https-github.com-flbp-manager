@@ -9,6 +9,7 @@ import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
 import { getMatchParticipantIds, formatMatchScoreLabel, formatMatchTeamsLabel, isByeTeamId } from '../services/matchUtils';
+import { compareTournamentMatches } from '../services/groupUtils';
 import { Trophy, LayoutList, Clock, Medal, X, GitBranch, Star, Wind, UserRound, Users, CalendarDays, Archive, ArrowLeft } from 'lucide-react';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
@@ -182,8 +183,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
 
     const msAll = (matches || [])
       .filter((m) => !isByeOrHidden(m))
-      .slice()
-      .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+      .sort(compareTournamentMatches(data));
 
     const isDoneMatch = (m: Match) => (m.status === 'finished') || !!(m as any).played;
 

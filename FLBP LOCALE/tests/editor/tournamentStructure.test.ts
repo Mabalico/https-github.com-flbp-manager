@@ -9,6 +9,9 @@ import {
 import { diffTournamentStructure } from '../../services/tournamentStructureDiff';
 import { activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
 import { computeGroupStandings } from '../../services/groupStandings';
+import { compareTournamentMatches, formatGroupName } from '../../services/groupUtils';
+import { canPlayMatch, hasUndeterminedParticipants, isByeMatch } from '../../services/matchUtils';
+import { buildTournamentAwards, coerceAppState } from '../../services/storageService';
 import {
   canInsertTeamIntoBracketSlot,
   canReplaceBracketSlot,
@@ -23,6 +26,7 @@ import {
   findSuccessorMatch,
   getSlotValue,
   reconcileBracketAdvancements,
+  suggestGroupCount,
 } from '../../services/tournamentStructureSelectors';
 
 const makeTeam = (id: string, name = id): Team => ({
@@ -125,6 +129,12 @@ const withRandomPrefix = <T>(values: number[], run: () => T): T => {
 const getGeneratedRoundOne = (matches: Match[]) => matches
   .filter((match) => match.phase === 'bracket' && (match.round || 1) === 1)
   .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+defineCase('suggested groups aim for four teams and avoid groups of fewer than three', () => {
+  const expected = [[0, 1], [1, 1], [4, 1], [5, 1], [6, 2], [7, 2], [8, 2], [9, 2],
+    [10, 3], [12, 3], [16, 4], [19, 5], [20, 5], [32, 8]] as const;
+  for (const [teams, groups] of expected) assertEqual(suggestGroupCount(teams), groups, `group count for ${teams} teams`);
+});
 
 defineCase('eligibility marks assigned, locked and eliminated teams correctly', () => {
   const a = makeTeam('A', 'Alpha');
@@ -1089,6 +1099,85 @@ defineCase('adding a preliminary round never gives the bracket a code used by a 
   assertUniqueCodes(next, 'after the preliminary round');
 });
 
+defineCase('an activated Top 4 replaces the semis and final across live, archived and legacy snapshots', () => {
+  const teams = Array.from({ length: 8 }, (_, index) => makeTeam(`team-${index}`));
+  const generated = generateTournamentStructure(teams, { mode: 'elimination', finalRoundRobin: { enabled: true, topTeams: 4 } });
+  let qualifiers = generated.matches;
+  for (const match of getBracketRound(qualifiers, 1)) qualifiers = playBracketMatch(qualifiers, match.id, 10, 4);
+  qualifiers = qualifiers.map(m => m.round === 1 ? { ...m, refereeReportAuthorName: 'TST referee' } : m);
+  const before = JSON.stringify(qualifiers);
+  const { tournament, matches } = activateFinalRoundRobinStage(generated.tournament, qualifiers);
+  const finalGroup = tournament.groups!.find(group => group.stage === 'final')!;
+  assertEqual(JSON.stringify(qualifiers), before, 'activation does not mutate its source');
+  assertEqual(matches.length, qualifiers.length + 6, 'the original bracket and all six final fixtures are retained');
+  for (const original of qualifiers) {
+    const next = matches.find(m => m.id === original.id)!;
+    if (original.round === 1) {
+      assertEqual(JSON.stringify(next), JSON.stringify(original), 'qualifying results survive activation');
+    } else {
+      assertOk(next.hidden && next.replacedByFinalGroup && !next.played && !next.isBye);
+      assertEqual(next.teamAId, original.teamAId);
+      assertEqual(next.teamBId, original.teamBId);
+      assertOk(tournament.rounds!.flat().find(m => m.id === next.id)?.replacedByFinalGroup);
+    }
+  }
+  assertEqual(tournament.matches, matches);
+  assertOk(tournament.rounds!.flat().every(m => !m.refereeReportAuthorName), 'live report metadata stays out of the bracket skeleton');
+  assertEqual(matches.filter(canPlayMatch).find(m => !m.played)?.code, 'F1');
+  assertEqual(activateFinalRoundRobinStage(tournament, matches).matches, matches, 'repeated activation is inert');
+  const reconciled = reconcileBracketAdvancements(matches, { resetFutureParticipants: true });
+  assertEqual(reconciled.filter(m => m.replacedByFinalGroup && m.hidden && !m.played).length, 3);
+
+  const legacy = { ...tournament, rounds: generated.tournament.rounds, matches: [...qualifiers, ...matches.filter(m => m.phase === 'groups')] };
+  const loaded = coerceAppState({ tournament: legacy, tournamentHistory: [legacy] });
+  for (const stored of [loaded.tournament!, loaded.tournamentHistory[0]]) {
+    assertEqual(stored.matches!.filter(m => m.replacedByFinalGroup && m.hidden).length, 3);
+    assertEqual(stored.rounds!.flat().filter(m => m.replacedByFinalGroup && m.hidden).length, 3);
+  }
+  assertEqual(loaded.tournament!.matches, loaded.tournamentMatches);
+
+  // A score recorded before a legacy format switch cannot award the knockout title.
+  const oldFinal = matches.map(m => m.phase === 'bracket' && m.round === 3
+    ? { ...m, hidden: false, replacedByFinalGroup: false, played: true, status: 'finished' as const, teamAId: teams[0].id, scoreA: 10 } : m);
+  assertOk(!buildTournamentAwards(tournament, oldFinal, teams).some(award => award.type === 'winner'));
+  const order = finalGroup.teams.map(team => team.id).reverse();
+  const completed = finishGroupInOrder(oldFinal, finalGroup, order);
+  assertEqual(buildTournamentAwards(tournament, completed, teams).find(award => award.type === 'winner')?.teamName, order[0]);
+});
+
+defineCase('incomplete bracket slots remain searchable as TBD and cannot start or take a report', () => {
+  for (const [a, b] of [[undefined, undefined], ['A', undefined], ['TBD', 'B'], ['A', 'TBD-D-2']]) {
+    const match = makeBracketMatch('future', 2, a, b);
+    assertOk(hasUndeterminedParticipants(match));
+    assertOk(!canPlayMatch(match));
+    assertOk(!match.played);
+  }
+  const bye = makeBracketMatch('bye', 1, 'A', 'BYE');
+  assertOk(isByeMatch(bye) && !canPlayMatch(bye));
+  assertOk(canPlayMatch(makeBracketMatch('ready', 1, 'A', 'B')));
+  const multi = { ...makeGroupMatch('tb', 'Girone Finale', '', ''), teamIds: ['A', 'B', 'C'] };
+  assertOk(canPlayMatch(multi), 'multi-team tie-breaks are playable without teamAId and teamBId');
+  assertOk(!canPlayMatch({ ...multi, teamIds: ['A', 'B', 'TBD'] }));
+});
+
+defineCase('late fixtures stay in their group before knockout rounds and the final group', () => {
+  const groups = [makeGroup('ga', 'Girone A', []), makeGroup('gb', 'Girone B', []), makeGroup('gc', 'Nord', []),
+    { ...makeGroup('gf', 'Titolo', []), stage: 'final' as const }];
+  const tournament = makeTournament('schedule', 'groups_elimination', [], groups);
+  const groupMatch = (id: string, name: string, orderIndex: number) => makeGroupMatch(id, name, 'X', 'Y', { orderIndex });
+  const mixed = [
+    makeBracketMatch('E31', 3, undefined, undefined), groupMatch('C1', 'Nord', 4),
+    groupMatch('F1', 'Titolo', 1), groupMatch('B12', 'Girone B', 3), groupMatch('A1', 'Girone A', 2),
+    makeBracketMatch('E11', 1, 'X', 'Y'), groupMatch('B13', 'Girone B', 100),
+  ];
+  assertEqual(mixed.sort(compareTournamentMatches(tournament)).map(m => m.id).join(','), 'A1,B12,B13,C1,E11,E31,F1');
+  const t = (key: string) => key === 'final_group_label' ? 'Final group' : 'Group';
+  assertEqual(formatGroupName('Girone A', t), 'Group A');
+  assertEqual(formatGroupName('B', t), 'Group B');
+  assertEqual(formatGroupName('Girone Finale', t), 'Final group');
+  assertEqual(formatGroupName('Nord', t), 'Nord');
+});
+
 defineCase('the final round robin skips F codes already used by group F', () => {
   const teams = Array.from({ length: 18 }, (_, index) => makeTeam(`S${index + 1}`));
   const generated = generateTournamentStructure(teams, {
@@ -1110,6 +1199,8 @@ defineCase('the final round robin skips F codes already used by group F', () => 
   const finals = activated.matches.filter((match) => match.groupName === 'Girone Finale');
   assertEqual(finals.length, 28, 'eight finalists play 28 matches');
   assertEqual(finals[0].code, 'F1');
+  assertEqual(activated.matches.filter(m => m.replacedByFinalGroup).length, 7, 'Top 8 replaces the quarters, semis and final');
+  assertOk(activated.matches.filter(isByeMatch).every(m => !m.replacedByFinalGroup));
   assertUniqueCodes(activated.matches, 'after activating the final round robin');
 });
 

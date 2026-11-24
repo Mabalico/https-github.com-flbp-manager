@@ -10,6 +10,7 @@ interface BirthDateInputProps {
   ariaLabel?: string;
   calendarTitle?: string;
   disabled?: boolean;
+  calendarTabIndex?: number;
 }
 
 const maskBirthDateInput = (raw: string) => {
@@ -30,6 +31,7 @@ export const BirthDateInput: React.FC<BirthDateInputProps> = ({
   ariaLabel = 'Data di nascita',
   calendarTitle = 'Apri calendario',
   disabled = false,
+  calendarTabIndex,
 }) => {
   const pickerRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -47,6 +49,7 @@ export const BirthDateInput: React.FC<BirthDateInputProps> = ({
       />
       <button
         type="button"
+        tabIndex={calendarTabIndex}
         onClick={() => {
           if (disabled) return;
           const input = pickerRef.current;

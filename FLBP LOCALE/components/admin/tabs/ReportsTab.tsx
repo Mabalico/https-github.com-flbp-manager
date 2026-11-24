@@ -1,9 +1,13 @@
 import React from 'react';
-import { ClipboardList, Upload, CheckCircle2, Search, X, Play } from 'lucide-react';
+import { flushSync } from 'react-dom';
+import { ClipboardList, Upload, CheckCircle2, Play } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import type { Match, Team } from '../../../types';
-import { getMatchParticipantIds } from '../../../services/matchUtils';
+import { canPlayMatch, getMatchParticipantIds, normalizeMatchCode, pickMatchForCode } from '../../../services/matchUtils';
+import { compareTournamentMatches } from '../../../services/groupUtils';
 import { useTranslation } from '../../../App';
+import { focusReportField, handleReportFieldEnter, reportTieState } from '../../../services/reportEntry';
+import { ReportScoreCards } from '../ReportEntryFeedback';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
 
 export interface ReportsTabProps {
@@ -15,14 +19,8 @@ export interface ReportsTabProps {
     getTeamFromCatalog: (id?: string) => Team | undefined;
     getTeamName: (id?: string) => string;
 
-    reportStatus: 'scheduled' | 'playing' | 'finished';
-    setReportStatus: (v: 'scheduled' | 'playing' | 'finished') => void;
-
-    reportScoreA: string;
-    setReportScoreA: (v: string) => void;
-    reportScoreB: string;
-    setReportScoreB: (v: string) => void;
-
+    reportSaveNotice?: React.ReactNode;
+    reportOcrScoreLabel?: string;
     resultsOnly: boolean;
     reportWinnerTeamId: string;
     setReportWinnerTeamId: (v: string) => void;
@@ -51,12 +49,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     handlePickReportMatch,
     getTeamFromCatalog,
     getTeamName,
-    reportStatus,
-    setReportStatus,
-    reportScoreA,
-    setReportScoreA,
-    reportScoreB,
-    setReportScoreB,
+    reportSaveNotice,
+    reportOcrScoreLabel,
     resultsOnly,
     reportWinnerTeamId,
     setReportWinnerTeamId,
@@ -73,7 +67,12 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     reportOcrText,
     setReportOcrText,
 }) => {
-    const [matchQuery, setMatchQuery] = React.useState('');
+    const [code, setCode] = React.useState('');
+    const [codeError, setCodeError] = React.useState(false);
+    const [duplicateCode, setDuplicateCode] = React.useState('');
+    const codeRef = React.useRef<HTMLInputElement>(null);
+    const matchSelectRef = React.useRef<HTMLSelectElement>(null);
+    const fieldsRef = React.useRef<HTMLDivElement>(null);
     const [showOcrPanel, setShowOcrPanel] = React.useState(false);
     const { t } = useTranslation();
 
@@ -82,6 +81,17 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             setShowOcrPanel(true);
         }
     }, [reportImageBusy, reportImageUrl, reportOcrText]);
+
+    React.useEffect(() => {
+        if (reportMatchId) {
+            focusReportField(fieldsRef.current);
+        } else {
+            setCode('');
+            setCodeError(false);
+            setDuplicateCode('');
+            codeRef.current?.focus();
+        }
+    }, [reportMatchId]);
 
     const normalizeTeamId = (id: unknown) => (typeof id === 'string' ? id.trim().toUpperCase() : '');
     const isPlaceholderTeamId = (id: unknown) => {
@@ -100,6 +110,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             </div>
         </div>
 
+        {reportSaveNotice}
+
         {!state.tournament && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-600 font-bold">
                 {t('admin_no_live_guidance')}. {t('structure')} → <b>{t('start_live')}</b>.
@@ -109,41 +121,53 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
         {state.tournament && (
             <>
                 {(() => {
-                    const teamMap = new Map((state.teams || []).map(t => [t.id, t.name]));
-                    const msAll = [...(state.tournamentMatches || [])]
-                        .sort((a, b) => (a.orderIndex ?? Number.MAX_SAFE_INTEGER) - (b.orderIndex ?? Number.MAX_SAFE_INTEGER));
+                    const sourceMatches = state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches || [];
+                    const msPlayable = sourceMatches.filter(canPlayMatch)
+                        .sort(compareTournamentMatches(state.tournament));
 
-                    // Guardrail: BYE invisibili e TBD esclusi dai flussi referto.
-                    const msPlayable = msAll
-                        .filter(m => !(m as any).hidden)
-                        .filter(m => !m.isBye)
-                        .filter(m => {
-                            const ids = getMatchParticipantIds(m);
-                            return ids.length >= 2 && !ids.some(isPlaceholderTeamId);
-                        });
-
-                    const current = msPlayable.find(m => m.status === 'playing') || msPlayable.find(m => m.status === 'scheduled') || msPlayable[0];
+                    const current = msPlayable.find(m => m.status === 'playing') || msPlayable.find(m => m.status === 'scheduled');
+                    const tournamentComplete = msPlayable.length > 0 && msPlayable.every(m => m.status === 'finished');
                     const playing = msPlayable.find(m => m.status === 'playing');
                     const selected = reportMatchId ? msPlayable.find(m => m.id === reportMatchId) : undefined;
 
                     const formatOpt = (m: Match) => {
                         const ids = getMatchParticipantIds(m);
-                        const names = ids.map(id => id ? (teamMap.get(id) || id) : 'TBD');
+                        const names = ids.map(getTeamName);
                         const code = m.code || '-';
-                        const status = m.status.toUpperCase();
+                        const status = t('match_status_' + m.status);
                         const tb = m.isTieBreak ? ` • ${t('reports_tiebreak_label')}${(typeof m.targetScore === 'number') ? ` ${t('reports_tiebreak_target').replace('{count}', String(m.targetScore))}` : ''}` : '';
-                        return `${code} • ${names.join(' vs ')}${tb} • ${status}`;
+                        return `${code} · ${names.join(' ' + t('versus_short') + ' ')}${tb} · ${status}`;
                     };
 
-                    const normalizedQuery = matchQuery.trim().toLowerCase();
-                    const matchesForSelect = normalizedQuery
-                        ? msPlayable.filter(m => {
-                            const ids = getMatchParticipantIds(m);
-                            const names = ids.map(id => id ? (teamMap.get(id) || id) : 'TBD');
-                            const hay = `${m.code || ''} ${names.join(' ')} ${m.status}`.toLowerCase();
-                            return hay.includes(normalizedQuery);
-                        })
+                    const matchesForSelect = duplicateCode
+                        ? msPlayable.filter(m => normalizeMatchCode(m.code) === duplicateCode)
                         : msPlayable;
+                    const openMatch = (match?: Match) => {
+                        if (!match) return;
+                        setDuplicateCode('');
+                        setCodeError(false);
+                        handlePickReportMatch(match.id);
+                        requestAnimationFrame(() => focusReportField(fieldsRef.current));
+                    };
+                    const openCode = () => {
+                        const normalized = normalizeMatchCode(code);
+                        if (!normalized) {
+                            openMatch(current);
+                            return;
+                        }
+                        const hits = sourceMatches.filter(m => !m.hidden && normalizeMatchCode(m.code) === normalized);
+                        const playable = hits.filter(canPlayMatch);
+                        const match = pickMatchForCode(hits, playable);
+                        if (playable.length > 1) {
+                            flushSync(() => setDuplicateCode(normalized));
+                            matchSelectRef.current?.focus();
+                            try { matchSelectRef.current?.showPicker?.(); } catch { /* The focused select remains keyboard-accessible. */ }
+                        } else if (match || playable.length === 1) {
+                            openMatch(match || playable[0]);
+                        } else {
+                            setCodeError(true);
+                        }
+                    };
 
                     const selectedIds = selected ? getMatchParticipantIds(selected) : [];
                     const selectedTeams = selected
@@ -152,7 +176,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     const isMulti = !!selected && selectedIds.length >= 3;
 
                     const selectedHasPlaceholder = !!selected && (selectedIds.length < 2 || selectedIds.some(isPlaceholderTeamId));
-                    const saveDisabled = reportSaveBusy || selectedHasPlaceholder || (resultsOnly && !reportWinnerTeamId);
 
                     const computeTeamScoreFromForm = (teamId: string, p1?: string, p2?: string) => {
                         const getCan = (playerName?: string) => {
@@ -164,26 +187,40 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         return getCan(p1) + getCan(p2);
                     };
 
+                    const scores = selectedTeams.map(team => ({
+                        id: team.id,
+                        name: team.name || team.id,
+                        score: computeTeamScoreFromForm(team.id, team.player1, team.player2),
+                    }));
+                    const { tied } = reportTieState(scores.map(team => team.score));
+                    const saveDisabled = reportSaveBusy || selectedHasPlaceholder || (resultsOnly ? !reportWinnerTeamId : tied);
+                    const fieldIndexByPlayer = new Map(selectedTeams.flatMap(team =>
+                        [team.player1, team.player2].filter(Boolean).map(player => team.id + '||' + player)
+                    ).map((key, index) => [key, index * 2]));
+
                     const renderPlayerRow = (teamId: string, playerName: string) => {
                         const k = `${teamId}||${playerName}`;
                         const f = reportStatsForm[k] || { canestri: '0', soffi: '0' };
+                        const fieldIndex = fieldIndexByPlayer.get(k) ?? 0;
                         return (
                             <div key={k} className="grid grid-cols-2 gap-2 items-center py-2 sm:grid-cols-12 sm:py-1">
                                 <div className="col-span-2 min-w-0 font-black text-xs leading-tight text-slate-800 whitespace-normal break-words sm:col-span-6">{playerName}</div>
                                 <div className="col-span-1 sm:col-span-3">
                                     <input
-                                        type="number"
-                                        min={0}
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         value={f.canestri}
                                         onChange={(e) => {
-                                            const v = e.target.value;
+                                            const v = e.target.value.replace(/[^0-9]/g, '');
                                             setReportStatsForm(prev => ({
                                                 ...prev,
                                                 [k]: { ...(prev[k] || { canestri: '0', soffi: '0' }), canestri: v }
                                             }));
                                         }}
                                         className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs font-black"
-                                        placeholder="CAN"
+                                        aria-label={`${playerName} · ${t('points')}`}
+                                        data-report-field-index={fieldIndex}
                                         onFocus={handleZeroValueFocus}
                                         onMouseUp={handleZeroValueMouseUp}
                                         onBlur={handleZeroValueBlur}
@@ -191,18 +228,20 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                 </div>
                                 <div className="col-span-1 sm:col-span-3">
                                     <input
-                                        type="number"
-                                        min={0}
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         value={f.soffi}
                                         onChange={(e) => {
-                                            const v = e.target.value;
+                                            const v = e.target.value.replace(/[^0-9]/g, '');
                                             setReportStatsForm(prev => ({
                                                 ...prev,
                                                 [k]: { ...(prev[k] || { canestri: '0', soffi: '0' }), soffi: v }
                                             }));
                                         }}
                                         className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs font-black"
-                                        placeholder="SF"
+                                        aria-label={`${playerName} · ${t('soffi')}`}
+                                        data-report-field-index={fieldIndex + 1}
                                         onFocus={handleZeroValueFocus}
                                         onMouseUp={handleZeroValueMouseUp}
                                         onBlur={handleZeroValueBlur}
@@ -231,38 +270,43 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         </div>
                                     </div>
                                     <div className="text-[11px] font-bold text-slate-500">
-                                        {t('reports_matches_shown').replace('{shown}', String(matchesForSelect.length)).replace('{total}', String(msAll.length))}
+                                        {t('reports_matches_shown').replace('{shown}', String(matchesForSelect.length)).replace('{total}', String(msPlayable.length))}
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-                                    <div className="md:col-span-4">
-                                        <div className="relative">
-                                            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                                            <input
-                                                value={matchQuery}
-                                                onChange={(e) => setMatchQuery(e.target.value)}
-                                                placeholder={t('codes_search_placeholder')}
-                                                className="w-full pl-9 pr-9 border border-slate-200 rounded-xl px-3 py-2 text-sm font-black bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
-                                            />
-                                            {matchQuery.trim() && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setMatchQuery('')}
-                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
-                                                    aria-label={t('clear_search')}
-                                                    title={t('clear_search')}
-                                                >
-                                                    <X className="w-4 h-4 text-slate-500" />
-                                                </button>
-                                            )}
-                                        </div>
+                                <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-[10rem_minmax(0,1fr)_auto]">
+                                    <div>
+                                        <input ref={codeRef}
+                                            value={code}
+                                            aria-label={t('reports_code_placeholder')}
+                                            aria-invalid={codeError}
+                                            autoCapitalize="characters"
+                                            autoComplete="off"
+                                            onChange={event => {
+                                                setCode(event.target.value.toUpperCase());
+                                                setCodeError(false);
+                                                setDuplicateCode('');
+                                            }}
+                                            onKeyDown={event => {
+                                                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                                                event.preventDefault();
+                                                openCode();
+                                            }}
+                                            placeholder={t('reports_code_placeholder')}
+                                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm font-bold focus-visible:ring-2 focus-visible:ring-beer-500"
+                                        />
+                                        {codeError && <p role="status" className="mt-1 text-xs font-bold text-red-700">{t('referees_err_code_not_found')}</p>}
                                     </div>
 
-                                    <div className="md:col-span-6">
-                                        <select
-                                            value={selected?.id || ''}
-                                            onChange={(e) => handlePickReportMatch(e.target.value)}
+                                    <div>
+                                        <select ref={matchSelectRef}
+                                            aria-label={t('reports_select_match_option')}
+                                            value={duplicateCode ? '' : selected?.id || ''}
+                                            onChange={event => {
+                                                const match = msPlayable.find(m => m.id === event.target.value);
+                                                if (match) openMatch(match);
+                                                else handlePickReportMatch('');
+                                            }}
                                             className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-black bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
                                         >
                                             <option value="">{t('reports_select_match_option')}</option>
@@ -272,19 +316,19 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         </select>
                                     </div>
 
-                                    <div className="md:col-span-2 flex gap-2">
+                                    <div className="flex gap-2">
                                         <button
                                             type="button"
-                                            onClick={() => current && handlePickReportMatch(current.id)}
+                                            onClick={() => openMatch(current)}
                                             disabled={!current}
                                             className={`min-h-[44px] flex-1 px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${current ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                                            title={t('reports_pick_next_match')}
+                                            title={tournamentComplete ? t('backup_status_complete') : t('reports_pick_next_match')}
                                         >
-                                            {t('next_round')}
+                                            {tournamentComplete ? t('backup_status_complete') : t('reports_next_match')}
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={() => playing && handlePickReportMatch(playing.id)}
+                                            onClick={() => openMatch(playing)}
                                             disabled={!playing}
                                             className={`min-h-[44px] px-3 py-2 rounded-xl font-black border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 flex items-center justify-center ${playing ? 'border-slate-200 bg-white hover:bg-slate-100' : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                                             aria-label={t('reports_go_playing_match')}
@@ -294,12 +338,12 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                         </button>
                                     </div>
                                 </div>
+                                {!selected && current?.code && (
+                                    <p className="text-xs font-bold text-slate-600">{t('reports_suggested_code').replace('{code}', current.code)}</p>
+                                )}
                                 <div className="flex flex-wrap gap-2 text-[11px] font-bold text-slate-500">
                                     <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
                                         {t('reports_live_code')}: <span className="font-mono">{playing?.code || '-'}</span>
-                                    </span>
-                                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
-                                        {t('reports_next_code')}: <span className="font-mono">{current?.code || '-'}</span>
                                     </span>
                                     <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
                                         {t('reports_flow_state')}: {selected ? t('reports_flow_selected') : t('reports_flow_open')}
@@ -331,7 +375,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                     : (<>{getTeamName(selected.teamAId)} <span className="text-slate-400">{t('versus_short')}</span> {getTeamName(selected.teamBId)}</>)}
                                             </div>
                                             <div className="text-xs font-bold text-slate-500 uppercase">
-                                                {selected.phase === 'groups' ? t('reports_phase_groups') : t('reports_phase_bracket')} • {selected.status}
+                                                {selected.phase === 'groups' ? t('reports_phase_groups') : t('reports_phase_bracket')} · {t('match_status_' + selected.status)}
                                             </div>
                                         </div>
 
@@ -352,14 +396,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                                 type="button"
                                                                 onClick={() => {
                                                                     setReportWinnerTeamId(tt.id);
-                                                                    setReportStatus('finished');
-                                                                    if (!isMulti) {
-                                                                        setReportScoreA(tt.id === selected.teamAId ? '1' : '0');
-                                                                        setReportScoreB(tt.id === selected.teamBId ? '1' : '0');
-                                                                    } else {
-                                                                        setReportScoreA('1');
-                                                                        setReportScoreB('0');
-                                                                    }
                                                                     setReportStatsForm({});
                                                                 }}
                                                                 className={`min-h-[64px] rounded-2xl border px-4 py-3 text-left font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
@@ -377,78 +413,15 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                     })}
                                                 </div>
                                             </div>
-                                        ) : !isMulti ? (
-                                            <div className="grid grid-cols-3 gap-3 items-end">
-                                                <div>
-                                                    <div className="text-[10px] font-black text-slate-500 uppercase mb-1">{t('team_a')}</div>
-                                                    <input
-                                                        type="number"
-                                                        min={0}
-                                                        value={reportScoreA}
-                                                        onChange={(e) => setReportScoreA(e.target.value)}
-                                                        readOnly
-                                                        className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-xl font-black text-center focus:border-beer-500 outline-none bg-slate-50"
-                                                        title={t('reports_score_from_baskets')}
-                                                    />
-                                                </div>
-                                                <div className="text-center font-black text-slate-300 text-2xl pb-2">-</div>
-                                                <div>
-                                                    <div className="text-[10px] font-black text-slate-500 uppercase mb-1">{t('team_b')}</div>
-                                                    <input
-                                                        type="number"
-                                                        min={0}
-                                                        value={reportScoreB}
-                                                        onChange={(e) => setReportScoreB(e.target.value)}
-                                                        readOnly
-                                                        className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-xl font-black text-center focus:border-beer-500 outline-none bg-slate-50"
-                                                        title={t('reports_score_from_baskets')}
-                                                    />
-                                                </div>
-                                            </div>
                                         ) : (
-                                            <div className="space-y-2">
-                                                <div className="text-[10px] font-black text-slate-500 uppercase">{t('reports_scores_derived')}</div>
-                                                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                                                    {selectedTeams.map(tt => (
-                                                        <div key={tt.id} className="flex items-center justify-between px-3 py-2 bg-white">
-                                                            <div className="min-w-0 flex-1 font-black text-sm leading-tight text-slate-900 whitespace-normal break-words">{tt.name || tt.id}</div>
-                                                            <div className="font-mono font-black text-slate-700">
-                                                                {computeTeamScoreFromForm(tt.id, tt.player1, tt.player2)}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {resultsOnly ? (
-                                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-900">
-                                                {t('results_only_report_status_hint')}
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <div className="text-xs font-black text-slate-500 uppercase">{t('status')}</div>
-                                                <select
-                                                    value={reportStatus}
-                                                    onChange={(e) => setReportStatus(e.target.value as any)}
-                                                    className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-black bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
-                                                >
-                                                    <option value="scheduled">{t('match_status_scheduled')}</option>
-                                                    <option value="playing">{t('match_status_playing')}</option>
-                                                    <option value="finished">{t('match_status_finished')}</option>
-                                                </select>
-                                                <div className="text-[10px] font-bold text-slate-400">
-                                                    {t('reports_status_hint')}
-                                                </div>
-                                            </div>
+                                            <ReportScoreCards scores={scores} tieMessage={t('alert_tie_not_allowed')} />
                                         )}
 
                                         {!resultsOnly && (
-                                        <div className="border-t border-slate-100 pt-3 space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="font-black text-slate-800">{t('statistics')}</div>
-                                                <div className="text-[10px] font-bold text-slate-400">{t('reports_stats_hint')}</div>
-                                            </div>
+                                        <div ref={fieldsRef}
+                                            onKeyDown={event => handleReportFieldEnter(event, { tied, canSave: !saveDisabled, save: handleSaveReport })}
+                                            className="border-t border-slate-100 pt-3 space-y-3">
+                                            <div className="font-black text-slate-800">{t('statistics')}</div>
 
                                             {!isMulti ? (
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -520,7 +493,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                     : 'bg-beer-500 text-white hover:bg-beer-600'
                                             }`}
                                         >
-                                            <CheckCircle2 className="w-5 h-5" /> {reportSaveBusy ? 'Salvataggio…' : 'Salva Referto'}
+                                            <CheckCircle2 className="w-5 h-5" /> {reportSaveBusy ? t('referees_save_busy') : t('referees_save_report')}
                                         </button>
 
                                         {selectedHasPlaceholder && (
@@ -542,7 +515,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                 <div className="font-black text-slate-900">{t('photo_ocr')}</div>
                                             </div>
                                             <div className="text-xs font-black text-slate-500">
-                                                {showOcrPanel ? 'Nascondi' : 'Mostra'}
+                                                {showOcrPanel ? t('hide') : t('report_show')}
                                             </div>
                                         </button>
 
@@ -599,7 +572,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                                     <div className="bg-white border border-slate-200 rounded-xl p-2 space-y-2 sm:overflow-auto">
                                                         <img src={reportImageUrl} alt="Referto allineato" className="w-full h-auto rounded-lg" />
                                                         <div className="flex items-center justify-between">
-                                                            <div className="text-xs font-black text-slate-600 uppercase">{t('ocr_beta')}</div>
+                                                            <div className="text-xs font-black text-slate-600 uppercase">
+                                                                {t('ocr_beta')}{reportOcrScoreLabel && <span className="ml-2 font-mono">{reportOcrScoreLabel}</span>}
+                                                            </div>
                                                             {reportOcrBusy && <div className="text-xs font-bold text-slate-500">{t('ocr_reading')}</div>}
                                                         </div>
                                                         <textarea

@@ -5,6 +5,8 @@ import React from 'react';
 import { renderToPipeableStream } from 'react-dom/server';
 import { dictionary as it } from './services/i18n/it';
 import { coerceAppState } from './services/storageService';
+import { activateFinalRoundRobinStage, generateTournamentStructure } from './services/tournamentEngine';
+import { reconcileBracketAdvancements } from './services/tournamentStructureSelectors';
 
 declare global {
   // Consumed solely by vite.ssr-admin-tests.config.ts's guarded fixture transform.
@@ -92,7 +94,7 @@ const assertTab = (html: string, tab: Tab) => {
   if (tab === 'reports') assert(!/\{(?:shown|total|count)\}/.test(html), 'Reports must interpolate match counts and tie-break target.');
 };
 
-const render = async (tab: Tab, authenticated: boolean) => {
+const render = async (tab: Tab | 'codes' | 'monitor_bracket' | 'monitor_groups' | 'structure', authenticated: boolean, state = fixtureState) => {
   session.clear(); local.clear();
   globalThis.__FLBP_SSR_ADMIN_FIXTURE = { authenticated };
   session.setItem('flbp_admin_section', tab === 'data' ? 'data' : 'live');
@@ -119,7 +121,7 @@ const render = async (tab: Tab, authenticated: boolean) => {
     // Streaming waits for React.lazy. renderToString only emits Suspense
     // fallback markup when the requested tab has not been loaded yet.
     const stream = renderToPipeableStream(
-      <AdminDashboard state={fixtureState} setState={() => { throw new Error('SSR must not mutate app state.'); }} onEnterTv={() => {}} />,
+      <AdminDashboard state={state} setState={() => { throw new Error('SSR must not mutate app state.'); }} onEnterTv={() => {}} />,
       {
         onAllReady() { stream.pipe(output); },
         onShellError(error) { clearTimeout(timeout); reject(error); },
@@ -156,5 +158,27 @@ for (const [actualTab, html] of rendered) {
 }
 const hashes = [...rendered.values()].map(html => createHash('sha256').update(html).digest('hex'));
 assert.equal(new Set(hashes).size, rendered.size, 'Different tabs must produce different content.');
+if (!requestedTab) {
+  const teams = Array.from({ length: 8 }, (_, i) => ({ id: 'team-' + i, name: 'TST Team ' + i, player1: 'TST Player ' + i }));
+  const generated = generateTournamentStructure(teams, { mode: 'elimination', finalRoundRobin: { enabled: true, topTeams: 4 } });
+  const qualifiers = reconcileBracketAdvancements(generated.matches.map(m => m.round === 1
+    ? { ...m, played: true, status: 'finished' as const, scoreA: 10, scoreB: 4 } : m));
+  const before = coerceAppState({ teams, tournament: generated.tournament, tournamentMatches: qualifiers });
+  const structure = await render('structure', true, before);
+  assert(/id="structure-group-count"[^>]*value="2"/.test(structure), 'An eight-team roster should start with two groups.');
+  assert(structure.includes('Gironi da 4 squadre · 6 partite per girone'), 'The form explains the proposed group size.');
+  const bracket = await render('monitor_bracket', true, before);
+  const disabledTitle = 'disabled="" title="' + text('monitor_bracket_unavailable_until_tbd_resolved') + '"';
+  assert(bracket.includes('B31') && bracket.split(disabledTitle).length === 3, 'Both actions on the empty final must be disabled.');
+  const active = activateFinalRoundRobinStage(generated.tournament, qualifiers);
+  const after = coerceAppState({ teams, tournament: active.tournament, tournamentMatches: active.matches });
+  for (const tab of ['codes', 'reports', 'monitor_groups'] as const) {
+    const html = await render(tab, true, after);
+    assert(html.includes('F1') && !/B21|B22|B31/.test(html), tab + ' must show final-group fixtures and omit superseded matches.');
+    if (tab === 'codes') assert(html.includes('10/10') || /10(?:<!-- -->)?\/(?:<!-- -->)?10/.test(html), 'Codes total must exclude the three replaced fixtures.');
+    if (tab === 'monitor_groups') assert(html.includes(text('monitor_groups_search_aria')) && html.includes('Girone Finale'), 'The group monitor must render the activated final group.');
+  }
+  console.log('PASS: final-group schedule and TBD actions across four Admin tabs.');
+}
 assert.equal(networkAttempts.length, 0, `Unexpected SSR IO: ${networkAttempts.join(', ')}`);
 console.log(`SSR Admin passed: ${tabs.join(', ')}; distinct content, negative controls, no network IO.`);

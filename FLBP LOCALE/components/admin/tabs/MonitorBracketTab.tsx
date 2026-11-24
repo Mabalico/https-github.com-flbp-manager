@@ -4,7 +4,8 @@ import type { Match, TournamentData } from '../../../types';
 import type { AppState } from '../../../services/storageService';
 import { TournamentBracket } from '../../TournamentBracket';
 import { isTesterMode } from '../../../config/appMode';
-import { getMatchParticipantIds, formatMatchScoreLabel, isByeTeamId, isTbdTeamId } from '../../../services/matchUtils';
+import { canPlayMatch, getMatchParticipantIds, formatMatchScoreLabel, hasUndeterminedParticipants, isByeMatch, isByeTeamId, isTbdTeamId } from '../../../services/matchUtils';
+import { compareTournamentMatches, formatGroupName } from '../../../services/groupUtils';
 import { generateTournamentStructure, getFinalRoundRobinActivationStatus } from '../../../services/tournamentEngine';
 import {
     advanceWinner as advanceBracketWinner,
@@ -101,13 +102,20 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
         const code = ((m.code || m.id || '') + '').toLowerCase();
         const phase = ((m.phase || '') + '').toLowerCase();
         if (code.includes(queryNorm) || phase.includes(queryNorm)) return true;
+        if (hasUndeterminedParticipants(m) && ('tbd'.includes(queryNorm) || t('tbd_label').toLowerCase().includes(queryNorm))) return true;
         const ids = getMatchParticipantIds(m);
         for (const id of ids) {
             const name = ((getTeamName(id) || id || '') + '').toLowerCase();
-            if (name.includes(queryNorm)) return true;
+            if (name.includes(queryNorm) || id.toLowerCase().includes(queryNorm)) return true;
         }
         return false;
-    }, [queryNorm, getTeamName]);
+    }, [queryNorm, getTeamName, t]);
+
+    const schedule = React.useMemo(() => (state.tournamentMatches || [])
+        .filter(m => !m.hidden && !isByeMatch(m))
+        .sort(compareTournamentMatches(state.tournament)), [state.tournament, state.tournamentMatches]);
+    const searchResults = React.useMemo(() => queryNorm ? schedule.filter(matchMatchesQuery) : schedule,
+        [schedule, queryNorm, matchMatchesQuery]);
 
     const integrity = React.useMemo(() => {
         if (!structureSnapshot) return null;
@@ -1248,12 +1256,12 @@ const handleSwapSlots = React.useCallback(() => {
                 </div>
 
                 <div className="text-xs font-bold text-slate-500">
-                    {t('monitor_live_tournament_label')}: {state.tournament ? t('yes') : t('no')} • {t('match_list')}: {(state.tournamentMatches || []).length}
+                    {t('monitor_live_tournament_label')}: {state.tournament ? t('yes') : t('no')} • {t('match_list')}: {schedule.length}
                 </div>
             </div>
         </div>
 
-        {state.tournament && query.trim() && (state.tournamentMatches || []).filter(m => !m.hidden && !m.isBye).filter(matchMatchesQuery).length === 0 && (
+        {state.tournament && queryNorm && !searchResults.length && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700 font-bold flex items-center justify-between gap-3 flex-wrap">
                 <div>
                     {t('monitor_no_match_found_for').replace('{query}', `“${query.trim()}”`)}
@@ -1312,7 +1320,7 @@ const handleSwapSlots = React.useCallback(() => {
                 <div className="text-xs font-mono font-black text-amber-900/80 mt-2 flex flex-wrap gap-2">
                     {openGroupTieBreaks.slice(0, 10).map(m => (
                         <span key={m.id} className="px-2 py-1 rounded-full border border-amber-200 bg-white">
-                            {(m.code || m.id)}{m.groupName ? ` (G ${m.groupName})` : ''}
+                            {(m.code || m.id)}{m.groupName ? ` · ${formatGroupName(m.groupName, t)}` : ''}
                         </span>
                     ))}
                     {openGroupTieBreaks.length > 10 && (
@@ -1982,7 +1990,7 @@ const handleSwapSlots = React.useCallback(() => {
                             onUpdate={handleUpdateLiveMatch}
                             scale={bracketZoom}
                             showConnectors={true}
-                            onMatchClick={(m) => openReportFromCodes(m.id)}
+                            onMatchClick={(m) => { if (canPlayMatch(m)) openReportFromCodes(m.id); }}
                             wrapTeamNames={true}
                             showByeSlots={manualEditMode}
                             participantSelectionMode={manualEditMode}
@@ -2018,18 +2026,9 @@ const handleSwapSlots = React.useCallback(() => {
                 </div>
 
                 {(() => {
-                    // BYE matches are present in data but must remain invisible in UI (no referto, no controls).
-                    const msAll = [...(state.tournamentMatches || [])]
-                        .filter(m => !((m as any).hidden || m.hidden))
-                        .filter(m => !((m as any).isBye || m.isBye))
-                        .filter(m => {
-                            const ids = getMatchParticipantIds(m);
-                            return !ids.some(id => String(id || '').trim().toUpperCase() === 'BYE');
-                        })
-                        .sort(sortByOrderIndexSafe);
-                    const playing = (queryNorm ? msAll.filter(matchMatchesQuery) : msAll).filter(m => m.status === 'playing');
-                    const scheduled = (queryNorm ? msAll.filter(matchMatchesQuery) : msAll).filter(m => m.status === 'scheduled');
-                    const finished = (queryNorm ? msAll.filter(matchMatchesQuery) : msAll).filter(m => m.status === 'finished');
+                    const playing = searchResults.filter(m => m.status === 'playing');
+                    const scheduled = searchResults.filter(m => m.status === 'scheduled');
+                    const finished = searchResults.filter(m => m.status === 'finished');
 
                     const Section = ({ title, items }: { title: string; items: Match[] }) => (
                         <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
@@ -2041,12 +2040,13 @@ const handleSwapSlots = React.useCallback(() => {
                                 {items.map(m => {
                                     const label = m.code ? m.code : m.id;
                                     const ids = getMatchParticipantIds(m);
-                                    const hasPlaceholder = ids.some(id => isPlaceholderTeamId(id));
-                                    const names = ids.map(id => getTeamName(id));
+                                    const hasPlaceholder = !canPlayMatch(m);
+                                    const slots = m.teamIds?.length ? m.teamIds : [m.teamAId, m.teamBId];
+                                    const names = slots.map(id => !id || isTbdTeamId(id) ? t('tbd_label') : getTeamName(id));
                                     const isMulti = ids.length >= 3;
                                     const teamsLabel = isMulti ? names.join(' vs ') : `${names[0] || t('tbd_label')} vs ${names[1] || t('tbd_label')}`;
                                     const where = m.phase === 'groups'
-                                        ? (m.groupName ? t('monitor_groups_group_label').replace('{name}', m.groupName) : t('groups_label'))
+                                        ? (m.groupName ? formatGroupName(m.groupName, t) : t('groups_label'))
                                         : (m.roundName || (m.round ? t('round_n').replace('{n}', String(m.round)) : t('editor_target_bracket')));
                                     const canToggle = m.status !== 'finished';
                                     const toggleDisabled = hasPlaceholder;

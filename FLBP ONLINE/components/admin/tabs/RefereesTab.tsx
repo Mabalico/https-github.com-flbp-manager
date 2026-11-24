@@ -4,6 +4,7 @@ import type { AppState } from '../../../services/storageService';
 import { getPlayerKey, isU25, resolvePlayerKey } from '../../../services/storageService';
 import type { Match, Team } from '../../../types';
 import { formatMatchTeamsLabel, getMatchParticipantIds } from '../../../services/matchUtils';
+import { compareTournamentMatches } from '../../../services/groupUtils';
 import { formatBirthDateDisplay, normalizeBirthDateInput } from '../../../services/playerIdentity';
 import { useTranslation } from '../../../App';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
@@ -255,7 +256,7 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
     
                         .filter(m => hasValidParticipants(m))
     
-                        .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+                        .sort(compareTournamentMatches(state.tournament));
     
                     const blocks: Match[][] = [];
                     for (let i = 0; i < msAll.length; i += nTables) blocks.push(msAll.slice(i, i + nTables));

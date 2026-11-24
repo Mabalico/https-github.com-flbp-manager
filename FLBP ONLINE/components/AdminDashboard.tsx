@@ -6,11 +6,13 @@ import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, 
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
+import { useReportSaveFeedback } from './admin/ReportEntryFeedback';
 import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star, Lock } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
-import { isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, isByeMatch, isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { compareTournamentMatches, isFinalGroup } from '../services/groupUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
@@ -46,6 +48,7 @@ import {
     findLockedSuccessorForWinnerChange,
     reconcileBracketAdvancements,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
+    suggestGroupCount,
 } from '../services/tournamentStructureSelectors';
 
 
@@ -381,10 +384,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournament?.id]);
     const liveOpsSummary = useMemo(() => {
         const matches = Array.isArray(state.tournamentMatches) ? state.tournamentMatches : [];
-        const visible = matches.filter((m: any) => !(m as any)?.hidden && !(m as any)?.isBye);
-        const playing = visible.find(m => m.status === 'playing');
-        const scheduled = visible.find(m => m.status === 'scheduled');
-        const current = playing || scheduled || visible[0] || null;
+        const visible = matches.filter(m => !m.hidden && !isByeMatch(m)).sort(compareTournamentMatches(state.tournament));
+        const playable = visible.filter(canPlayMatch);
+        const playing = playable.find(m => m.status === 'playing');
+        const scheduled = playable.find(m => m.status === 'scheduled');
+        const current = playing || scheduled || playable[0] || null;
         return {
             total: visible.length,
             playingCount: visible.filter(m => m.status === 'playing').length,
@@ -392,7 +396,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             finishedCount: visible.filter(m => m.status === 'finished').length,
             current,
         };
-    }, [state.tournamentMatches]);
+    }, [state.tournament, state.tournamentMatches]);
 
     const safeSessionGet = (key: string): string | null => {
         try {
@@ -863,6 +867,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     const showGroupsMonitor = useMemo(() => {
         const tournamentType = state.tournament?.type;
+        if (state.tournament?.config?.finalRoundRobin?.activated) return true;
         if (tournamentType !== 'groups_elimination' && tournamentType !== 'round_robin') return false;
         const hasGroups = (state.tournament?.groups?.length || 0) > 0;
         const hasGroupMatches = (state.tournamentMatches || []).some(m => m.phase === 'groups' && !m.hidden && !m.isBye);
@@ -904,7 +909,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // Structure Config
     const [tournMode, setTournMode] = useState<'elimination'|'groups_elimination'|'round_robin'>('groups_elimination');
-    const [numGroups, setNumGroups] = useState(4);
+    const [numGroups, setNumGroups] = useState(() => suggestGroupCount((state.teams || []).filter(team => !team.hidden && !team.isBye).length));
+    const [numGroupsTouched, setNumGroupsTouched] = useState(false);
     const [advancing, setAdvancing] = useState(2);
     const [tournName, setTournName] = useState(`${t('admin_tournament_prefix')} ${new Date().toLocaleDateString('it-IT')}`);
     const [tournDate, setTournDate] = useState<string>(() => getTodayInputDate());
@@ -946,6 +952,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
+
+    useEffect(() => {
+        if (numGroupsTouched) return;
+        const proposed = suggestGroupCount(playableTeamsCount);
+        if (proposed === numGroups) return;
+        setNumGroups(proposed);
+        setDraft(null);
+    }, [numGroups, numGroupsTouched, playableTeamsCount]);
 
     useEffect(() => {
         const eligibleIds = new Set((state.teams || [])
@@ -1232,9 +1246,8 @@ const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } |
 
     // Referti (manual + immagine allineata)
     const [reportMatchId, setReportMatchId] = useState<string>('');
-    const [reportStatus, setReportStatus] = useState<'scheduled'|'playing'|'finished'>('finished');
-    const [reportScoreA, setReportScoreA] = useState<string>('0');
-    const [reportScoreB, setReportScoreB] = useState<string>('0');
+    const [reportOcrScoreLabel, setReportOcrScoreLabel] = useState('');
+    const reportSaveFeedback = useReportSaveFeedback(t('close'));
     const [reportWinnerTeamId, setReportWinnerTeamId] = useState<string>('');
     const [reportStatsForm, setReportStatsForm] = useState<Record<string, { canestri: string; soffi: string }>>({});
     const [reportImageUrl, setReportImageUrl] = useState<string>('');
@@ -2510,12 +2523,8 @@ const confirmAliasModal = () => {
         (state.tournament?.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
         const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
         const ms = [...sourceMatches]
-                                    .filter(m => !(m as any).hidden)
-                                    .filter(m => {
-                                        const ids = getMatchParticipantIds(m);
-                                        return !ids.includes('BYE');
-                                    })
-                                    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            .filter(m => !m.hidden && !isByeMatch(m))
+            .sort(compareTournamentMatches(state.tournament));
         const visible = codesStatusFilter === 'all' ? ms : ms.filter(m => m.status === codesStatusFilter);
         const html = `<table><thead><tr><th>Codice</th><th>Fase</th><th>Match</th><th>Score</th><th>Stato</th></tr></thead><tbody>
           ${visible.map(m => {
@@ -2560,7 +2569,7 @@ const confirmAliasModal = () => {
             ? state.tournamentMatches
             : (draft?.m || []);
         const ms = [...sourceMatches]
-            .filter(m => m.phase === 'bracket')
+            .filter(m => m.phase === 'bracket' && !m.hidden && !isByeMatch(m))
             .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
         if (!ms.length) {
             alert(t('alert_no_bracket_print'));
@@ -3002,7 +3011,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 : [];
             const { tournament, matches } = generateTournamentStructure(teams, {
                 mode: tournMode,
-                numGroups,
+                numGroups: Math.max(1, Math.floor(numGroups)),
                 advancingPerGroup: advancing,
                 tournamentName: tournName,
                 startDate: tournDate,
@@ -3017,29 +3026,13 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         }
     };
 
-    const handleStartLive = async () => {
+    const handleStartLive = async (rawRefereesPassword: string) => {
         if (!draft || liveStartPendingRef.current) return;
-        
-        if (state.tournament) {
-            if (!confirm(t('admin_archive_active_before_start_confirm'))) {
-                return;
-            }
-        }
 
         const draftResultsOnly = isResultsOnlyTournament(draft.t);
-        let refereesPassword = '';
-        let refereesAuthVersion = '';
-        if (!draftResultsOnly) {
-            // Each standard live must have its own referees password.
-            // If the admin cancels or leaves it empty, do not start the live.
-            const rawPw = window.prompt(t('enable_referees_password_prompt'), '') ?? '';
-            refereesPassword = rawPw.trim();
-            if (!refereesPassword) {
-                alert(t('referees_password_required'));
-                return;
-            }
-            refereesAuthVersion = new Date().toISOString();
-        }
+        const refereesPassword = rawRefereesPassword.trim();
+        if (!draftResultsOnly && !refereesPassword) return;
+        const refereesAuthVersion = draftResultsOnly ? '' : new Date().toISOString();
         try { safeSessionRemove('flbp_ref_authed'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_for'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_ver'); } catch { /* ignore */ }
@@ -3163,7 +3156,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!confirm(`${t('final_group_activate_confirm_prefix')} Top${top}?\n\n${t('final_group_activate_confirm_body')}`)) return;
 
         const { tournament, matches } = activateFinalRoundRobinStage(state.tournament, ms);
-        setState({ ...state, tournament, tournamentMatches: matches });
+        commitLiveMatches(matches, tournament);
         alert(t('final_group_activated'));
     };
 
@@ -3174,7 +3167,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (idx === -1) return;
         
         const m = matches[idx];
-        if (m.status === 'finished') return; // Cannot toggle finished matches
+        if (m.status === 'finished' || !canPlayMatch(m)) return;
 
         const next = m.status === 'playing' ? 'scheduled' : 'playing';
         matches[idx] = { ...m, status: next };
@@ -3225,6 +3218,12 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             { ...state.tournament, includeU25Awards: archiveIncludeU25Awards },
             state.tournamentMatches,
         ).filter(award => award.tournamentId === state.tournament?.id)
+        : [];
+    const archiveFinalGroup = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament?.config?.finalRoundRobin?.activated
+        ? state.tournament.groups?.find(isFinalGroup) : undefined;
+    const pendingFinalMatches = archiveFinalGroup
+        ? state.tournamentMatches.filter(m => m.phase === 'groups' && m.groupName === archiveFinalGroup.name
+            && !m.hidden && !isByeMatch(m) && m.status !== 'finished').map(m => m.code || m.id)
         : [];
 
     const publishArchive = async (tournamentId: string, awards: HallOfFameEntry[]): Promise<boolean> => {
@@ -3565,7 +3564,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 matches = autoResolveBracketByes(matches);
             } else {
                 const bracketPending = matches
-                    .filter(m => m.phase === 'bracket' && m.status !== 'finished')
+                    .filter(m => m.phase === 'bracket' && m.status !== 'finished' && canPlayMatch(m))
                     .sort((a, b) => (a.round ?? 1) - (b.round ?? 1) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
 
                 const eligible = bracketPending.filter(m => !!m.teamAId && !!m.teamBId);
@@ -3629,7 +3628,7 @@ while (guard < 5000) {
     matches = autoResolveBracketByes(matches);
 
     const eligible = matches
-        .filter(m => m.phase === 'bracket' && m.status !== 'finished')
+        .filter(m => m.phase === 'bracket' && m.status !== 'finished' && canPlayMatch(m))
         .filter(m => !!m.teamAId && !!m.teamBId);
 
     if (!eligible.length) break;
@@ -3667,25 +3666,10 @@ while (guard < 5000) {
         }
     };
 
-    const isReportableMatch = (m: Match) => {
-        const ids = getMatchParticipantIds(m).filter(Boolean);
-        if (ids.length < 2) return false;
-        if (ids.some(isPlaceholderTeamId)) return false;
-        return true;
-    };
+    const isReportableMatch = canPlayMatch;
 
     const initReportFormFromMatch = (m: Match) => {
         setReportMatchId(m.id);
-        setReportStatus(m.status || 'finished');
-        // For multi-team matches, reportScoreA/B are only legacy placeholders for UI.
-        if (m.teamIds && m.teamIds.length >= 2) {
-            const vals = Object.values(m.scoresByTeam || {}).sort((a, b) => b - a);
-            setReportScoreA(String(vals[0] ?? 0));
-            setReportScoreB(String(vals[1] ?? 0));
-        } else {
-            setReportScoreA(String(m.scoreA ?? 0));
-            setReportScoreB(String(m.scoreB ?? 0));
-        }
 
         const participantIdsForWinner = (m.teamIds && m.teamIds.length)
             ? (m.teamIds || [])
@@ -3737,6 +3721,11 @@ while (guard < 5000) {
     };
 
     const handlePickReportMatch = (id: string) => {
+        setReportOcrScoreLabel('');
+        if (!id) {
+            setReportMatchId('');
+            return;
+        }
         const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
         const m = sourceMatches.find(mm => mm.id === id);
         if (!m) return;
@@ -3760,6 +3749,7 @@ while (guard < 5000) {
     };
 
     const handleReportFile = async (file: File) => {
+        setReportOcrScoreLabel('');
         setReportImageBusy(true);
         try {
             const {
@@ -3796,9 +3786,7 @@ while (guard < 5000) {
                 // Score pattern: 10-8, 10 : 8, 10â€“8
                 const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-–:]\s*(\d{1,2})\b/);
                 if (scoreMatch) {
-                    setReportScoreA(scoreMatch[1]);
-                    setReportScoreB(scoreMatch[2]);
-                    setReportStatus('finished');
+                    setReportOcrScoreLabel(`${scoreMatch[1]}–${scoreMatch[2]}`);
                 }
             } finally {
                 setReportOcrBusy(false);
@@ -4062,15 +4050,13 @@ while (guard < 5000) {
             return;
         }
         setState(nextState);
-        const committedMatch = finalMatches.find((match) => match.id === reportMatchId);
-        if (committedMatch) {
-            // Keep the open report card consistent with the durable state.
-            // Previously the player inputs showed the saved values while the
-            // header stayed at the pre-save 0-0 until the match was reopened.
-            initReportFormFromMatch(committedMatch);
-        }
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
-        alert(t('alert_report_saved'));
+        setReportMatchId('');
+        setReportOcrScoreLabel('');
+        setReportImageUrl('');
+        setReportOcrText('');
+        reportSaveFeedback.show(t('report_saved_summary')
+            .replace('{code}', updated.code || '—').replace('{score}', formatMatchScoreLabel(updated).replaceAll('-', '–')));
     };
 
     const handleSaveReport = async () => {
@@ -4899,6 +4885,7 @@ while (guard < 5000) {
                     setP2IsReferee={setP2IsReferee}
                     saveTeam={saveTeam}
                     resetForm={resetForm}
+                    resetGroupSuggestion={() => setNumGroupsTouched(false)}
                     poolN={poolN}
                     setPoolN={setPoolN}
                     genPool={genPool}
@@ -4939,7 +4926,11 @@ while (guard < 5000) {
                     resultsOnly={resultsOnly}
                     setResultsOnly={setResultsOnly}
                     numGroups={numGroups}
-                    setNumGroups={setNumGroups}
+                    setNumGroups={value => {
+                        setNumGroupsTouched(true);
+                        setNumGroups(value);
+                        setDraft(null);
+                    }}
                     advancing={advancing}
                     setAdvancing={setAdvancing}
                     handleGenerate={handleGenerate}
@@ -4955,12 +4946,8 @@ while (guard < 5000) {
                     handlePickReportMatch={handlePickReportMatch}
                     getTeamFromCatalog={getTeamFromCatalog}
                     getTeamName={getTeamName}
-                    reportStatus={reportStatus}
-                    setReportStatus={setReportStatus}
-                    reportScoreA={reportScoreA}
-                    setReportScoreA={setReportScoreA}
-                    reportScoreB={reportScoreB}
-                    setReportScoreB={setReportScoreB}
+                    reportSaveNotice={reportSaveFeedback.notice}
+                    reportOcrScoreLabel={reportOcrScoreLabel}
                     resultsOnly={liveResultsOnly}
                     reportWinnerTeamId={reportWinnerTeamId}
                     setReportWinnerTeamId={setReportWinnerTeamId}
@@ -5147,6 +5134,7 @@ Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online and
         setAssignU25Awards={mvpModalForArchive ? setArchiveIncludeU25Awards : undefined}
         archive={mvpModalForArchive ? {
             awards: archiveReceipt?.awards || archiveAwardPreview,
+            pendingFinalMatches,
             committed: !!archiveReceipt,
             busy: archiveBusy,
             done: archiveDone,

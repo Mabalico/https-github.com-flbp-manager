@@ -4,6 +4,11 @@ import { isFinalGroup } from './groupUtils';
 import { getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
 import type { CurrentPlacement, StructuralPhase, TournamentStructureSnapshot } from './tournamentStructureTypes';
 
+export const suggestGroupCount = (teamCount: number): number => {
+  const suggested = Math.max(1, Math.round(teamCount / 4));
+  return teamCount / suggested < 3 ? Math.max(1, Math.floor(teamCount / 3)) : suggested;
+};
+
 export const buildTournamentStructureSnapshot = (
   tournament: TournamentData,
   matches: Match[],
@@ -216,13 +221,14 @@ export const getMatchById = (snapshot: TournamentStructureSnapshot, matchId: str
 
 export const isLockedBracketMatchForStructureEdit = (match?: Match): boolean => {
   if (!match) return true;
+  if (match.replacedByFinalGroup) return true;
   if (match.phase !== 'bracket') return true;
   if (match.status === 'playing') return true;
   return !!match.played && !match.isBye && !match.hidden;
 };
 
 export const autoResolveBracketByeMatch = (match: Match): Match => {
-  if (!match || match.phase !== 'bracket') return match;
+  if (!match || match.phase !== 'bracket' || match.replacedByFinalGroup) return match;
   if (match.status === 'finished') return match;
   const a = String(match.teamAId || '').trim();
   const b = String(match.teamBId || '').trim();

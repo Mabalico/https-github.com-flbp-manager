@@ -3,7 +3,8 @@ import { LayoutDashboard, Search, X, Play, Square, FileText, ChevronDown, Chevro
 import type { AppState } from '../../../services/storageService';
 import type { Match, TournamentData } from '../../../types';
 import { computeGroupStandings } from '../../../services/groupStandings';
-import { getMatchParticipantIds, formatMatchScoreLabel } from '../../../services/matchUtils';
+import { compareTournamentMatches, formatGroupName, isFinalGroup } from '../../../services/groupUtils';
+import { getMatchParticipantIds, formatMatchScoreLabel, getMatchScoreForTeam } from '../../../services/matchUtils';
 import { buildTournamentStructureSnapshot } from '../../../services/tournamentStructureSelectors';
 import { applyStructuralOperation } from '../../../services/tournamentStructureOperations';
 import { buildTournamentStructureIntegritySummary } from '../../../services/tournamentStructureIntegrity';
@@ -115,7 +116,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
             .filter(m => m.phase === 'groups' && !m.hidden && !m.isBye)
             .filter(m => !getMatchParticipantIds(m).some(id => (id || '').trim().toUpperCase() === 'BYE'))
             .filter(m => m.teamAId !== 'BYE' && m.teamBId !== 'BYE')
-            .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            .sort(compareTournamentMatches(state.tournament));
 
         const byGroup = new Map<string, Match[]>();
         groupMatchesAll.forEach(m => {
@@ -125,7 +126,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
             else byGroup.set(k, [m]);
         });
         return byGroup;
-    }, [state.tournamentMatches]);
+    }, [state.tournament, state.tournamentMatches]);
 
     const integrity = React.useMemo(() => {
         if (!structureSnapshot) return null;
@@ -859,7 +860,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                             >
                                 <option value={ALL_GROUPS}>{t('monitor_groups_all_groups')}</option>
                                 {allGroups.map(g => (
-                                    <option key={g.id} value={g.name}>{t('monitor_groups_group_label').replace('{name}', g.name)}</option>
+                                    <option key={g.id} value={g.name}>{formatGroupName(g.name, t)}</option>
                                 ))}
                             </select>
                         )}
@@ -903,7 +904,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                             <div className="text-xs font-mono font-black text-amber-900/80 mt-2 flex flex-wrap gap-2">
                                 {openGroupTieBreaks.slice(0, 8).map(m => (
                                     <span key={m.id} className="px-2 py-1 rounded-full border border-amber-200 bg-white">
-                                        {(m.code || m.id)}{m.groupName ? ` (G ${m.groupName})` : ''}
+                                        {(m.code || m.id)}{m.groupName ? ` · ${formatGroupName(m.groupName, t)}` : ''}
                                     </span>
                                 ))}
                                 {openGroupTieBreaks.length > 8 && (
@@ -1014,7 +1015,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                 <div className="text-xs font-mono font-black mt-3 flex flex-wrap gap-2">
                     {integrity.concludedGroups.map(name => (
                         <span key={name} className="px-2 py-1 rounded-full border border-slate-200 bg-white text-slate-800">
-                            {t('monitor_groups_group_label').replace('{name}', name)} {t('monitor_groups_concluded_short')}
+                            {formatGroupName(name, t)} {t('monitor_groups_concluded_short')}
                         </span>
                     ))}
                 </div>
@@ -1331,7 +1332,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                                         className={`px-3 py-2 rounded-full text-xs font-black border ${(selected || groupDropTarget === `move:${name}`) ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-200' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                                                                         title={selected ? t('monitor_groups_selected') : t('monitor_groups_select_destination')}
                                                                     >
-                                                                        {t('monitor_groups_group_label').replace('{name}', name)}
+                                                                        {formatGroupName(name, t)}
                                                                     </button>
                                                                 );
                                                             })
@@ -1421,7 +1422,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                 >
                                                     <option value="">{t('monitor_groups_select_placeholder')}</option>
                                                     {availableTargetGroups.map(name => (
-                                                        <option key={name} value={name}>{t('monitor_groups_group_label').replace('{name}', name)}</option>
+                                                        <option key={name} value={name}>{formatGroupName(name, t)}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -1474,7 +1475,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                 >
                                                     <option value="">{t('monitor_groups_select_placeholder')}</option>
                                                     {availableTargetGroups.map(name => (
-                                                        <option key={name} value={name}>{t('monitor_groups_group_label').replace('{name}', name)}</option>
+                                                        <option key={name} value={name}>{formatGroupName(name, t)}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -1578,19 +1579,22 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                     const standings = standingsByGroup.get(g.name) || computeGroupStandings({ teams: (g.teams || []), matches: ms });
                                     const rankedTeams = standings.rankedTeams;
                                     const rows = standings.rows;
+                                    const advancingCount = isFinalGroup(g) || state.tournament?.type !== 'groups_elimination'
+                                        ? 0 : (state.tournament.config?.advancingPerGroup ?? 0);
 
                                     const manualSelectable = manualEditMode && canManualEditGroupsNow && !!selectedGroupObj && g.id === selectedGroupObj.id;
 
                                     const MatchRow: React.FC<{ m: Match }> = ({ m }) => {
                                         const label = m.code ? m.code : m.id;
                                         const ids = getMatchParticipantIds(m);
-                                        const names = ids.map(id => getTeamName(id));
                                         const isMulti = ids.length >= 3;
-                                        const hasPlaceholder = ids.some(id => isPlaceholderTeamId(id));
-                                        const teamsLabel = isMulti ? names.join(' vs ') : `${names[0] || t('tbd_label')} vs ${names[1] || t('tbd_label')}`;
+                                        const slots = m.teamIds?.length ? m.teamIds : [m.teamAId, m.teamBId];
+                                        const hasPlaceholder = slots.some(isPlaceholderTeamId);
                                         const isFinished = m.status === 'finished';
                                         const isPlaying = m.status === 'playing';
-                                        const score = formatMatchScoreLabel(m);
+                                        const ranked = isFinished ? ids.map(id => ({ id, score: getMatchScoreForTeam(m, id) })).sort((a, b) => b.score - a.score) : [];
+                                        const winner = ranked.length > 1 && ranked[0].score > ranked[1].score ? ranked[0].id : undefined;
+                                        const score = formatMatchScoreLabel(m).replaceAll('-', '–');
 
                                         return (
                                             <div
@@ -1598,22 +1602,33 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                     // Guard rail: do not open reports for placeholder (TBD-*) matches.
                                                     if (isFinished && !hasPlaceholder) openReportFromCodes(m.id);
                                                 }}
-                                                className={`px-3 py-2 rounded-lg border ${isFinished && hasPlaceholder ? 'cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-between gap-3 hover:brightness-95 ${isPlaying ? 'border-emerald-200 bg-emerald-50' : isFinished ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-white'}`}
-                                                title={isFinished && hasPlaceholder ? 'Non disponibile: match con placeholder' : ''}
+                                                className={`px-3 py-2 rounded-lg border ${isFinished && hasPlaceholder ? 'cursor-not-allowed' : 'cursor-pointer'} flex items-center justify-between gap-3 hover:brightness-95 ${isPlaying ? 'border-emerald-200 bg-emerald-50' : isFinished ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white'}`}
+                                                title={isFinished && hasPlaceholder ? t('monitor_groups_unavailable_placeholder_match') : undefined}
                                             >
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                                         <span className="font-mono font-black text-xs text-slate-600">{label}</span>
                                                         {m.isTieBreak && (
                                                             <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0 ${isMulti ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
-                                                                SPAREGGIO{isMulti ? ' MULTI' : ''}{typeof m.targetScore === 'number' ? ` a ${m.targetScore}` : ''}
+                                                                {t('tiebreak_label')}{typeof m.targetScore === 'number' ? ` · ${t('reports_tiebreak_target').replace('{count}', String(m.targetScore))}` : ''}
                                                             </span>
                                                         )}
-                                                        <span className="font-black text-slate-900 whitespace-normal break-words">{teamsLabel}</span>
+                                                        <span className="font-bold text-slate-900 break-words">
+                                                            {slots.map((id, index) => (
+                                                                <React.Fragment key={id || index}>
+                                                                    {index > 0 && ` ${t('versus_short')} `}
+                                                                    <span className={id && id === winner ? 'font-black text-emerald-700' : undefined}>
+                                                                        {id && !isPlaceholderTeamId(id) ? getTeamName(id) : t('tbd_label')}
+                                                                    </span>
+                                                                </React.Fragment>
+                                                            ))}
+                                                        </span>
                                                     </div>
-                                                    <div className="text-[11px] font-bold text-slate-500 mt-0.5">
-                                                        {isFinished ? `Risultato: ${score}` : (isPlaying ? 'IN CORSO' : 'DA GIOCARE')}
-                                                    </div>
+                                                    {isFinished && (
+                                                        <div className="mt-0.5 text-[11px] font-bold text-slate-500">
+                                                            {t('monitor_match_score')} <strong className="text-slate-900">{score}</strong>
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
                                                     <span className="px-2 py-1 rounded-full text-[11px] font-black border border-slate-200 bg-slate-50 text-slate-700 uppercase">
@@ -1652,7 +1667,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                         <div key={g.id} id={toGroupDomId(g.name)} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
                                             <div className="bg-slate-900 text-white px-4 py-2 font-black uppercase tracking-wide text-sm flex items-center justify-between">
                                                 <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="whitespace-normal break-words leading-tight">{t('monitor_groups_group_label').replace('{name}', g.name)}</span>
+                                                    <span className="whitespace-normal break-words leading-tight">{formatGroupName(g.name, t)}</span>
                                                     {openTieBreaks.length > 0 && (
                                                         <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-200 text-slate-900 border border-amber-300 shrink-0">
                                                             SPAREGGIO
@@ -1670,22 +1685,22 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                             <thead className="bg-slate-50">
                                                                 <tr className="text-[11px] uppercase tracking-widest text-slate-600">
                                                                     <th className="px-2 py-2 text-left font-black">#</th>
-                                                                    <th className="px-2 py-2 text-left font-black">{t('teams').slice(0, -1) || t('teams')}</th>
+                                                                    <th className="min-w-[7rem] whitespace-nowrap px-2 py-2 text-left font-black">{t('team_view')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_played_short')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_wins_short')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_losses_short')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_cups_for_short')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_cups_against_short')}</th>
-                                                                    <th className="px-2 py-2 text-center font-black">{t('standings_diff_short')}</th>
+                                                                    <th className="whitespace-nowrap px-2 py-2 text-center font-black" title={t('cups_diff_label')}>{t('standings_cup_diff_short')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_blows_for_short')}</th>
                                                                     <th className="px-2 py-2 text-center font-black">{t('standings_blows_against_short')}</th>
-                                                                    <th className="px-2 py-2 text-center font-black">{t('standings_diff_short')}</th>
+                                                                    <th className="whitespace-nowrap px-2 py-2 text-center font-black" title={t('standings_blow_diff_label')}>{t('standings_blow_diff_short')}</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
                                                                 {rankedTeams.map((tt, idx) => {
                                                                     const r = rows[tt.id];
-                                                                    const advancing = idx < (state.tournament?.config?.advancingPerGroup ?? 0);
+                                                                    const advancing = idx < advancingCount;
                                                                     const selected = manualSelectable && ((moveTeamFromGroupId || '') === tt.id || (swapTeamFromSelectedId || '') === tt.id);
                                                                     const focused = (focusTeamId || '') === tt.id;
                                                                     const isInlineEditing = manualSelectable && inlineEditTeamId === tt.id;
@@ -1760,6 +1775,12 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                                             </tbody>
                                                         </table>
                                                     </div>
+                                                    {advancingCount > 0 && (
+                                                        <p className="mt-2 flex items-center gap-2 text-xs font-medium text-slate-600">
+                                                            <span aria-hidden="true" className="h-3 w-3 rounded-sm border border-beer-300 bg-beer-100" />
+                                                            {t('standings_qualification_zone').replace('{count}', String(advancingCount))}
+                                                        </p>
+                                                    )}
                                                 </div>
 
                                                 {manualSelectable && availableTeamsToAdd.length > 0 && (

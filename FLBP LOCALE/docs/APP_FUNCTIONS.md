@@ -301,7 +301,12 @@ In `components/AdminDashboard.tsx`:
 - `adminSection: live | data`
 
 ### 4.2 Tabs Live
+
+Con il Girone Finale Top 4 o Top 8 attivo, le partite di eliminazione ancora da disputare dal turno sostituito in poi restano nello storico della struttura. Il calendario operativo passa alla prima partita del Girone Finale. Monitor Gironi ne mostra classifica e risultati anche nei tornei a eliminazione diretta. Il riepilogo di archiviazione elenca i codici ancora da giocare nel Girone Finale, compresi gli spareggi. Il titolo viene assegnato quando il girone ha un vincitore.
+
+Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un inserimento tardivo. In Monitor Tabellone la ricerca `TBD` trova le partite in attesa di una o di entrambe le squadre. I comandi di avvio e refertazione diventano disponibili quando i partecipanti sono definiti.
 - `components/admin/tabs/TeamsTab.tsx`
+  - Invio salva la scheda manuale e il campo Nome squadra torna attivo. L’import mostra prima le colonne richieste e il modello da scaricare.
   - inserimento squadre, import, simulatore pool
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
   - pre-save UX: impatto stimato su iscritti live / torneo live / storico / righe statistiche / titoli / alias, con messaggi espliciti per **merge** o **separate**
@@ -309,6 +314,8 @@ In `components/AdminDashboard.tsx`:
   - XLSX lazy: `services/lazyXlsx.ts`
   - Sim pool: `services/simPool.ts` + `services/simTeamNames200.ts`
 - `components/admin/tabs/StructureTab.tsx`
+  - La bozza mostra gironi, accoppiamenti e codici. La conferma di avvio raccoglie la password arbitri nella modale dell’app.
+  - Il numero di gironi proposto segue le squadre attive e punta a quattro squadre per girone. La modifica manuale vale fino ad **Azzera form**. L’anteprima segnala gironi piccoli e qualificazioni che farebbero passare tutte le squadre.
   - engine: `services/tournamentEngine.ts` (`generateTournamentStructure`, `syncBracketFromGroups`)
   - UX input numerici: quando un campo contiene solo `0`, il focus seleziona il valore per sovrascrittura immediata (niente delete/backspace preliminare)
   - Grafiche social (story 9:16): pannello `components/admin/SocialGraphicsPanel.tsx`
@@ -333,6 +340,7 @@ In `components/AdminDashboard.tsx`:
     - se il Round 1 e' pieno e nessuna partita reale del bracket e' iniziata, l'editor puo' aggiungere un turno preliminare vuoto per accogliere nuove squadre;
     - la creazione rapida aggiunge la squadra al catalogo/pool, ma il suo inserimento nel tabellone resta un'operazione esplicita della bozza.
 - `components/admin/tabs/ReportsTab.tsx`
+  - Nell’inserimento manuale il codice apre la partita e Invio percorre canestri e soffi. Shift+Invio torna indietro. Il punteggio segue la digitazione. Su un pareggio positivo, Invio dall’ultimo campo riporta al primo. Dopo il salvataggio il referto si chiude, compare una conferma e il campo codice torna attivo. L’Area Arbitri segue lo stesso flusso per la compilazione manuale.
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`
   - simulazione: `services/simulationService.ts` (`simulateMatchResult`)
   - UX input numerici: campi statistici manuali con `0` iniziale selezionabile/sovrascrivibile al primo click
@@ -344,6 +352,7 @@ In `components/AdminDashboard.tsx`:
   - UX input numerici secondari (es. tavoli): `0` iniziale selezionato al focus per compilazione rapida
 - `components/admin/tabs/CodesTab.tsx`
 - `components/admin/tabs/MonitorGroupsTab.tsx`
+  - La classifica distingue la differenza canestri dalla differenza soffi e indica la zona qualificazione. Nelle partite giocate evidenzia punteggio e vincitrice.
   - monitor gironi live: filtro "tutti / singolo girone" + classifica stile campionato (P/V/S, canestri fatti/subiti/diff, soffi fatti/subiti/diff; Pt calcolati ma non mostrati)
   - calcolo classifica: `services/groupStandings.ts`
   - pre-check “integrità torneo”: segnala **squadre escluse** (nel roster ma non in match/gironi)

@@ -1,6 +1,6 @@
 import { Team, Match, TournamentData, TvProjection, TV_PROJECTIONS, HallOfFameEntry, IntegrationScorerEntry } from '../types';
 import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings';
-import { isFinalGroup } from './groupUtils';
+import { applyFinalGroupSchedule, isFinalGroup } from './groupUtils';
 import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from './playerIdentity';
 import { buildMetricAwardEntries } from './awardRules';
 import { normalizeNameLower } from './textUtils';
@@ -114,6 +114,7 @@ export const coerceAppState = (raw: any, options?: { publicSnapshot?: boolean })
     merged.matches = asArr<Match>(merged.matches);
     merged.tournamentMatches = asArr<Match>(merged.tournamentMatches);
     merged.tournamentHistory = asArr<TournamentData>(merged.tournamentHistory)
+        .map(t => t?.config?.finalRoundRobin?.activated ? applyFinalGroupSchedule(t, getTournamentMatchesForAwardsSync(t)) : t)
         .map((t) => normalizeTournamentDataName(t) as TournamentData);
     merged.hallOfFame = asArr<HallOfFameEntry>(merged.hallOfFame)
         .map(normalizeHallOfFameEntryName);
@@ -133,8 +134,8 @@ export const coerceAppState = (raw: any, options?: { publicSnapshot?: boolean })
         const tournamentMatches = asArr<Match>(merged.tournamentMatches);
         const embeddedMatches = asArr<Match>((merged.tournament as any).matches);
         const nextLiveMatches = tournamentMatches.length ? tournamentMatches : embeddedMatches;
-        merged.tournamentMatches = nextLiveMatches;
-        merged.tournament = { ...merged.tournament, matches: nextLiveMatches };
+        merged.tournament = applyFinalGroupSchedule(merged.tournament, nextLiveMatches);
+        merged.tournamentMatches = merged.tournament.matches;
     } else {
         merged.tournamentMatches = asArr<Match>(merged.tournamentMatches);
     }
@@ -254,7 +255,7 @@ export const buildTournamentAwards = (tournament: TournamentData, matches: Match
     }
 
     // Fallback: bracket final
-    if (!winnerTeamId) {
+    if (!winnerTeamId && !finalRrActivated) {
         const bracket = (matches || []).filter(m => m.phase === 'bracket');
         const maxRound = bracket.reduce((acc, m) => Math.max(acc, m.round || 0), 0);
         const finalMatch = bracket
