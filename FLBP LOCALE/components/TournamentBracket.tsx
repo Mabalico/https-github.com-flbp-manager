@@ -651,10 +651,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          // TV pills are white inside a white-text container: every non-winning row needs
                          // its own dark text, or losers and scheduled teams are unreadable.
                          const rowWinAClass = isWinnerA
-                             ? (tvMode ? 'bg-beer-50 border-beer-500 font-black text-beer-900' : editorStructuredLayout ? 'bg-[var(--editor-warning-50)] border-[color:var(--editor-warning-100)] text-[var(--editor-text-primary)] font-semibold' : spectatorLayout ? 'bg-amber-50 border-amber-300 text-amber-950 font-black' : 'bg-beer-100 font-bold text-beer-900')
+                             ? (tvMode ? 'bg-beer-50 border-beer-500 font-black text-beer-900' : editorStructuredLayout ? 'bg-[var(--editor-warning-50)] border-[color:var(--editor-warning-100)] text-[var(--editor-text-primary)] font-semibold' : spectatorLayout ? 'bg-amber-100 border-amber-500 ring-1 ring-amber-500/40 text-slate-950 font-black' : 'bg-beer-100 font-bold text-beer-900')
                              : (tvMode ? 'text-slate-800' : '');
                          const rowWinBClass = isWinnerB
-                             ? (tvMode ? 'bg-beer-50 border-beer-500 font-black text-beer-900' : editorStructuredLayout ? 'bg-[var(--editor-warning-50)] border-[color:var(--editor-warning-100)] text-[var(--editor-text-primary)] font-semibold' : spectatorLayout ? 'bg-amber-50 border-amber-300 text-amber-950 font-black' : 'bg-beer-100 font-bold text-beer-900')
+                             ? (tvMode ? 'bg-beer-50 border-beer-500 font-black text-beer-900' : editorStructuredLayout ? 'bg-[var(--editor-warning-50)] border-[color:var(--editor-warning-100)] text-[var(--editor-text-primary)] font-semibold' : spectatorLayout ? 'bg-amber-100 border-amber-500 ring-1 ring-amber-500/40 text-slate-950 font-black' : 'bg-beer-100 font-bold text-beer-900')
                              : (tvMode ? 'text-slate-800' : '');
                          const changedRowAClass = changedA ? 'border-violet-200 bg-violet-50/85 shadow-[0_0_0_1px_rgba(124,58,237,0.06)]' : '';
                          const changedRowBClass = changedB ? 'border-violet-200 bg-violet-50/85 shadow-[0_0_0_1px_rgba(124,58,237,0.06)]' : '';
@@ -663,8 +663,11 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                          const scoreClass = editorStructuredLayout
                              ? 'ml-3 inline-flex min-w-[34px] items-center justify-center rounded-[10px] bg-slate-900 px-2 py-1 text-[11px] font-black text-white shadow-sm'
                              : spectatorLayout
-                             ? 'ml-3 inline-flex min-w-[34px] items-center justify-center rounded-lg bg-slate-900 px-2 py-1 text-sm font-black text-white shadow-sm'
+                             ? 'ml-3 inline-flex min-w-[34px] items-center justify-center rounded-lg px-2 py-1 text-sm font-black shadow-sm'
                              : `font-mono ${tvMode ? 'text-base font-black' : 'text-lg'}`;
+                         const scoreClassForTeam = (winner: boolean) => spectatorLayout
+                             ? `${scoreClass} ${winner && !tvMode ? 'bg-amber-400 text-slate-950' : 'bg-slate-900 text-white'}`
+                             : scoreClass;
 
                          return (
                             <div 
@@ -804,7 +807,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                             </span>
                                         </span>
                                     )}
-                                    {(() => { const lbl = getOutcomeLabel(match, 'A', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClass}>{lbl}</span> : null; })()}
+                                    {(() => { const lbl = getOutcomeLabel(match, 'A', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClassForTeam(isWinnerA)}>{lbl}</span> : null; })()}
                                 </div>
 
                                 <div
@@ -899,7 +902,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                                             </span>
                                         </span>
                                     )}
-                                    {(() => { const lbl = getOutcomeLabel(match, 'B', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClass}>{lbl}</span> : null; })()}
+                                    {(() => { const lbl = getOutcomeLabel(match, 'B', isByeSlotMatchDisplay); return lbl !== '' ? <span className={scoreClassForTeam(isWinnerB)}>{lbl}</span> : null; })()}
                                 </div>
 
                                 {!readOnly && !isByeSlotMatchDisplay && !preserveEmptySlot && <Edit2 className="w-3 h-3 absolute top-1 right-1 text-slate-300" />}

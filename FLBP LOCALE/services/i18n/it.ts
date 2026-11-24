@@ -2731,5 +2731,8 @@ export const dictionary: TranslationDictionary = {
   "editor_tap_to_place_hint": "Tocca uno slot valido, oppure annulla.",
   "editor_add_to_bracket_bar": "Aggiungi al tabellone",
   "editor_add_to_bracket_hint": "Trascina questa barra su uno slot, oppure fai doppio clic sul lato del match dove vuoi inserirla.",
+  "admin_login_account": "Accedi con il tuo account amministratore.",
+  "admin_login_unavailable": "L’accesso Admin è temporaneamente indisponibile.",
+  "admin_login_try_again": "Controlla email e password, poi riprova.",
   "editor_fullscreen_select_team_first": "Seleziona prima una squadra dal pool, poi trascinala o fai doppio clic su uno slot del tabellone.",
 };

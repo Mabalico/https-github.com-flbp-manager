@@ -2730,5 +2730,8 @@ export const dictionary: TranslationDictionary = {
   "editor_tap_to_place_hint": "Tap a valid slot, or cancel.",
   "editor_add_to_bracket_bar": "Add to bracket",
   "editor_add_to_bracket_hint": "Drag this bar onto a slot, or double-click the match side where you want to place it.",
+  "admin_login_account": "管理者アカウントでログインしてください。",
+  "admin_login_unavailable": "管理者ログインは一時的に利用できません。",
+  "admin_login_try_again": "メールアドレスとパスワードを確認し、もう一度お試しください。",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
 };

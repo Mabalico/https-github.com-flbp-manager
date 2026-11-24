@@ -690,7 +690,6 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                             {tournament.type === 'groups_elimination' && <span className="text-[10px] font-bold text-slate-400 uppercase border border-slate-100 px-2 py-1 rounded">{t('groups_label')}</span>}
                         </div>
                         <h4 className="font-black text-lg text-slate-800 mb-1 group-hover:text-beer-600 transition-colors">{tournament.name}</h4>
-                        <div className="text-sm text-slate-500 mb-4">{safeDateLabel(tournament.startDate)}</div>
                         <div className="flex flex-wrap gap-2 mb-4">
                           {isStructurelessManualArchive(tournament) ? null : (
                             <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">

@@ -1,16 +1,15 @@
 import { scoringRankIndex } from '../services/awardRules';
 import { countedIntegrations, listEditions, editionMatches } from '../services/editionData';
-import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
+import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, loadState, getPlayerKey, resolvePlayerKey, isU25 } from '../services/storageService';
-import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
+import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, getPlayerKeyLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { PlayerStats, Match, Team } from '../types';
 import { useTranslation } from '../App';
-import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, Star, Wind, X, CalendarDays } from 'lucide-react';
+import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, X, CalendarDays } from 'lucide-react';
 import { getSupabaseConfig, pullPublicCareerLeaderboard, pullPublicHallOfFameEntries } from '../services/supabasePublic';
 import { isLocalOnlyMode, isRemoteRepositoryEnabled } from '../services/repository/featureFlags';
 import { normalizeNameLower } from '../services/textUtils';
-import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { hasCountedPlayerStats } from '../services/matchUtils';
@@ -29,6 +28,7 @@ type LeaderboardProps = {
      * When omitted, falls back to localStorage.
      */
     stateOverride?: AppState;
+    returnToListRequest?: number;
 };
 
 const PUBLIC_DB_READ_LS_KEY = 'flbp_public_db_read';
@@ -87,7 +87,7 @@ const getWinningTeamId = (match: Match, teamsSource: Team[]): string | null => {
     return match.scoreA > match.scoreB ? match.teamAId : match.teamBId;
 };
 
-export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
+export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride, returnToListRequest }) => {
     const { t } = useTranslation();
     const nativeShell = isEmbeddedNativeShell();
     const [localStateSnapshot] = useState<AppState | null>(() => (stateOverride ? null : loadState()));
@@ -98,6 +98,14 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
     const [onlyU25, setOnlyU25] = useState(false);
     const [sortField, setSortField] = useState<'points' | 'soffi' | 'gamesPlayed' | 'winRate' | 'avgPoints' | 'avgSoffi'>('points');
     const [selectedPlayer, setSelectedPlayer] = useState<PlayerStats | null>(null);
+
+    useEffect(() => {
+        setSelectedPlayer(null);
+    }, [returnToListRequest]);
+
+    useEffect(() => {
+        if (selectedPlayer) window.scrollTo({ top: 0, behavior: 'instant' });
+    }, [selectedPlayer]);
 
     const [dbStats, setDbStats] = useState<PlayerStats[] | null>(null);
     const [dbHoF, setDbHoF] = useState<import('../types').HallOfFameEntry[] | null>(null);
@@ -332,65 +340,23 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         return res;
     }, [stats]);
 
+    const hallOfFame = state.hallOfFame?.length ? state.hallOfFame : dbHoF || [];
     const titleCountsByPlayerId = useMemo(() => {
-        type TitleCounts = { winner: number; top_scorer: number; defender: number; mvp: number; top_scorer_u25: number; defender_u25: number };
-        const byId: Record<string, TitleCounts> = {};
-
-        const ensure = (id: string) => {
-            if (!byId[id]) byId[id] = { winner: 0, top_scorer: 0, defender: 0, mvp: 0, top_scorer_u25: 0, defender_u25: 0 };
-            return byId[id];
-        };
-
-        // Index players by normalized name to allow safe fallback mapping (only if unique).
-        const byName = new Map<string, string[]>();
-        const validIds = new Set<string>();
-        stats.forEach(p => {
-            const k = normalizeName(p.name);
-            const arr = byName.get(k) || [];
-            arr.push(p.id);
-            byName.set(k, arr);
-            validIds.add(p.id);
-        });
-
-        const uniqueIdByName = (name: string) => {
-            const k = normalizeName(name);
-            const arr = byName.get(k) || [];
-            return arr.length === 1 ? arr[0] : undefined;
-        };
-
-        const hofSource = (dbHoF && dbHoF.length) ? dbHoF : (state.hallOfFame || []);
-
-        hofSource.forEach(e => {
-            if (e.type === 'winner') {
-                getHallOfFamePlayerRefs(state, e).forEach(ref => {
-                    const hasIdentity = !!e.playerIds?.length || !!e.playerBirthDates?.length;
-                    const pid = validIds.has(ref.playerId) ? ref.playerId : hasIdentity ? undefined : uniqueIdByName(ref.playerName);
-                    if (pid) ensure(pid).winner += 1;
-                });
-                return;
-            }
-
-            const primaryName = (e.playerNames && e.playerNames[0]) ? e.playerNames[0] : '';
-            let pid: string | undefined = e.playerId ? resolvePlayerKey(state, e.playerId) : undefined;
-
-            // Prefer direct match, otherwise fallback by unique name (avoid homonym merge).
-            if (!e.playerId && !e.playerBirthDate) {
-                const fallback = uniqueIdByName(primaryName);
-                if (fallback) pid = fallback;
-            }
-
-            if (!pid) return;
-            const c = ensure(pid);
-
-            if (e.type === 'top_scorer') c.top_scorer += 1;
-            if (e.type === 'top_scorer_u25') c.top_scorer_u25 += 1;
-            if (e.type === 'defender') c.defender += 1;
-            if (e.type === 'defender_u25') c.defender_u25 += 1;
-            if (e.type === 'mvp') c.mvp += 1;
-        });
-
-        return byId;
-    }, [stats, state.hallOfFame, dbHoF]);
+        const idsByName = new Map<string, string[]>();
+        for (const player of stats) {
+            const name = normalizeName(player.name);
+            idsByName.set(name, [...(idsByName.get(name) || []), player.id]);
+        }
+        const playerIds = new Set(stats.map(player => player.id));
+        const totals: Record<string, number> = {};
+        for (const row of buildTitledHallOfFameRows(state, hallOfFame)) {
+            const candidates = idsByName.get(normalizeName(row.name)) || [];
+            const hasKnownIdentity = getPlayerKeyLabel(row.key).yob !== 'ND';
+            const id = playerIds.has(row.key) ? row.key : !hasKnownIdentity && candidates.length === 1 ? candidates[0] : null;
+            if (id) totals[id] = (totals[id] || 0) + row.total + row.u25Total;
+        }
+        return totals;
+    }, [stats, state, hallOfFame]);
 
     const rankIndex = (index: number) => scoringRankIndex(filteredStats, index, sortField);
     const filteredStats = stats
@@ -431,86 +397,23 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         </th>
     );
 
-    const renderPlayerAwardBadges = (p: PlayerStats) => {
-        const c = titleCountsByPlayerId[p.id];
-        if (!c) return null;
-        const parts: React.ReactNode[] = [];
-
-        const awardBadge = (
-            key: string,
-            title: string,
-            icon: React.ReactNode,
-            count: number,
-            className: string
-        ) => (
-            <span
-                key={key}
-                title={title}
-                className={`inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-black ${className} cursor-help select-none`}
-            >
-                {icon}
-                {count > 1 ? `×${count}` : ''}
+    const renderPlayerAwardBadges = (player: PlayerStats) => {
+        const count = titleCountsByPlayerId[player.id] || 0;
+        if (!count) return null;
+        return (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-black text-amber-900"
+                title={t('players_titles_count').replace('{count}', String(count))}
+                aria-label={t('players_titles_count').replace('{count}', String(count))}>
+                <Trophy className="h-3.5 w-3.5" aria-hidden />
+                ×{count}
             </span>
         );
-
-        if (c.winner) {
-            parts.push(
-                awardBadge('w', 'Vittoria torneo', <Trophy className="w-4 h-4 text-yellow-600" aria-hidden />, c.winner, 'text-slate-700')
-            );
-        }
-        if (c.top_scorer) {
-            parts.push(
-                awardBadge(
-                    'ts',
-                    'Capocannoniere',
-                    <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                    c.top_scorer,
-                    'text-slate-700'
-                )
-            );
-        }
-        if (c.defender) {
-            parts.push(
-                awardBadge('def', 'Miglior difensore', <Wind className="w-4 h-4 text-sky-600" aria-hidden />, c.defender, 'text-slate-700')
-            );
-        }
-        if (c.mvp) {
-            parts.push(
-                awardBadge('mvp', 'MVP', <Star className="w-4 h-4 text-amber-600" aria-hidden />, c.mvp, 'text-slate-700')
-            );
-        }
-
-        const u25Parts: React.ReactNode[] = [];
-        if (!c.top_scorer && c.top_scorer_u25) {
-            u25Parts.push(
-                awardBadge(
-                    'tsu',
-                    'Capocannoniere U25',
-                    <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                    c.top_scorer_u25,
-                    'text-slate-600'
-                )
-            );
-        }
-        if (!c.defender && c.defender_u25) {
-            u25Parts.push(
-                awardBadge(
-                    'defu',
-                    'Difensore U25',
-                    <Wind className="w-4 h-4 text-sky-600" aria-hidden />,
-                    c.defender_u25,
-                    'text-slate-600'
-                )
-            );
-        }
-        if (u25Parts.length) parts.push(<span key="u25" className="flex items-center gap-1">{u25Parts}</span>);
-        return parts.length ? <span className="flex flex-wrap items-center gap-1">{parts}</span> : null;
     };
 
     if (selectedPlayer) {
         return (
             <PublicPlayerDetail
-                state={state}
+                state={{ ...state, hallOfFame }}
                 playerId={selectedPlayer.id}
                 playerName={selectedPlayer.name}
                 playerBirthDate={selectedPlayer.birthDate}
@@ -738,83 +641,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                     <td className={`${thPad}`}>
                                         <div className="font-bold text-slate-900 text-base flex items-center gap-2 flex-wrap">
                                             <span>{p.name}</span>
-                                            {(() => {
-                                                const c = titleCountsByPlayerId[p.id];
-                                                if (!c) return null;
-                                                const parts: React.ReactNode[] = [];
-
-                                                const awardBadge = (
-                                                    key: string,
-                                                    title: string,
-                                                    icon: React.ReactNode,
-                                                    count: number,
-                                                    className: string
-                                                ) => (
-                                                    <span
-                                                        key={key}
-                                                        title={title}
-                                                        className={`inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-black ${className} cursor-help select-none`}
-                                                    >
-                                                        {icon}
-                                                        {count > 1 ? `×${count}` : ''}
-                                                    </span>
-                                                );
-
-                                                if (c.winner) {
-                                                    parts.push(
-                                                        awardBadge('w', 'Vittoria torneo', <Trophy className="w-4 h-4 text-yellow-600" aria-hidden />, c.winner, 'text-slate-700')
-                                                    );
-                                                }
-                                                if (c.top_scorer) {
-                                                    parts.push(
-                                                        awardBadge(
-                                                            'ts',
-                                                            'Capocannoniere',
-                                                            <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                                                            c.top_scorer,
-                                                            'text-slate-700'
-                                                        )
-                                                    );
-                                                }
-                                                if (c.defender) {
-                                                    parts.push(
-                                                        awardBadge('def', 'Miglior difensore', <Wind className="w-4 h-4 text-sky-600" aria-hidden />, c.defender, 'text-slate-700')
-                                                    );
-                                                }
-                                                if (c.mvp) {
-                                                    parts.push(
-                                                        awardBadge('mvp', 'MVP', <Star className="w-4 h-4 text-amber-600" aria-hidden />, c.mvp, 'text-slate-700')
-                                                    );
-                                                }
-
-                                                // U25 awards: show only if the player doesn't already have the corresponding general award.
-                                                // Render smaller to visually differentiate.
-                                                const u25Parts: React.ReactNode[] = [];
-                                                if (!c.top_scorer && c.top_scorer_u25) {
-                                                    u25Parts.push(
-                                                        awardBadge(
-                                                            'tsu',
-                                                            'Capocannoniere U25',
-                                                            <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                                                            c.top_scorer_u25,
-                                                            'text-slate-600'
-                                                        )
-                                                    );
-                                                }
-                                                if (!c.defender && c.defender_u25) {
-                                                    u25Parts.push(
-                                                        awardBadge(
-                                                            'defu',
-                                                            'Difensore U25',
-                                                            <Wind className="w-4 h-4 text-sky-600" aria-hidden />,
-                                                            c.defender_u25,
-                                                            'text-slate-600'
-                                                        )
-                                                    );
-                                                }
-                                                if (u25Parts.length) parts.push(<span key="u25" className="flex items-center gap-1">{u25Parts}</span>);
-                                                return parts.length ? <span className="flex items-center gap-1">{parts}</span> : null;
-                                            })()}
+                                            {renderPlayerAwardBadges(p)}
                                         </div>
                                         {disambiguateNameMap[normalizeName(p.name)] && getDisplayBirthIdentityLabel(p) && (
                                             <div className="text-[10px] text-slate-400 font-bold">

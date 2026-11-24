@@ -217,13 +217,14 @@ const TvViewLazy = React.lazy(() =>
     loadTvViewModule().then((m) => ({ default: m.TvView }))
 );
 
-const RouteViewFallback: React.FC = () => {
-    const [visible, setVisible] = useState(false);
+const RouteViewFallback: React.FC<{ immediate?: boolean }> = ({ immediate = false }) => {
+    const [visible, setVisible] = useState(immediate);
 
     useEffect(() => {
+        if (immediate) return;
         const timer = window.setTimeout(() => setVisible(true), 250);
         return () => window.clearTimeout(timer);
-    }, []);
+    }, [immediate]);
 
     if (!visible) {
         return <div className="p-6 min-h-[96px]" aria-hidden />;
@@ -598,6 +599,7 @@ const App: React.FC = () => {
     const [translationDictionaries, setTranslationDictionaries] = useState<Partial<Record<Language, TranslationDictionary>>>(() => translations);
     const [selectedTournament, setSelectedTournament] = useState<{ data: TournamentData, isLive: boolean } | null>(null);
     const [routeTournamentId, setRouteTournamentId] = useState(() => typeof window !== 'undefined' && view === 'tournament_detail' ? readRoute().tournamentId : '');
+    const [leaderboardReturnRequest, setLeaderboardReturnRequest] = useState(0);
     const historyIndexRef = useRef(typeof window === 'undefined' ? 0 : Number(window.history.state?.flbpViewIndex) || 0);
     const pendingPopIndexRef = useRef<number | null>(null);
     const [helpGuideReady, setHelpGuideReady] = useState(false);
@@ -656,7 +658,11 @@ const App: React.FC = () => {
             setMenuOpen(false);
         }
         const tournamentId = options?.tournament?.data.id || '';
-        if ((nextView === view && (!tournamentId || tournamentId === routeTournamentId)) || isDraftNavigationPending()) return;
+        if (isDraftNavigationPending()) return;
+        if (nextView === view && (!tournamentId || tournamentId === routeTournamentId)) {
+            if (nextView === 'leaderboard') setLeaderboardReturnRequest(request => request + 1);
+            return;
+        }
 
         const requestId = ++routeNavigationRequestRef.current;
         try {
@@ -682,6 +688,10 @@ const App: React.FC = () => {
             setView(nextView);
         });
     }, [isDedicatedTvProjection, preloadViewChunk, routeTournamentId, view]);
+
+    useEffect(() => {
+        if (view === 'tournament_detail') window.scrollTo({ top: 0, behavior: 'instant' });
+    }, [view, routeTournamentId]);
 
     useEffect(() => {
         if (isDedicatedTvProjection) return;
@@ -1791,7 +1801,7 @@ const App: React.FC = () => {
             case 'leaderboard':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
-                        <LeaderboardLazy stateOverride={stateForPublicViews} />
+                        <LeaderboardLazy stateOverride={stateForPublicViews} returnToListRequest={leaderboardReturnRequest} />
                     </React.Suspense>
                 );
             case 'hof':
@@ -1848,7 +1858,7 @@ const App: React.FC = () => {
             case 'admin':
                 return (
                     <React.Suspense
-                        fallback={<RouteViewFallback />}
+                        fallback={<RouteViewFallback immediate />}
                     >
                         <UiErrorBoundary
                             title={t('admin_ui_error_title')}

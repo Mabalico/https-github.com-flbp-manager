@@ -685,7 +685,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                         setAdminAuthMode('none');
                         setAuthed(false);
                         setSupabaseEmail(null);
-                        setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
+                        setAdminAuthError(t('admin_access_not_authorized'));
                     } else if (currentAdminAuthMode === 'player') {
                         setAuthed(false);
                         setSupabaseEmail(null);
@@ -693,7 +693,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                     } else {
                         setAuthed(false);
                         setSupabaseEmail(null);
-                        setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
+                        setAdminAuthError(t('admin_auth_check_failed'));
                     }
                 }
             } catch {
@@ -4014,7 +4014,7 @@ while (guard < 5000) {
 
             try {
                 if (!supabaseConfig) {
-                    throw new Error(t('db_supabase_not_configured'));
+                    throw new Error(t('admin_login_unavailable'));
                 }
 
                 const existingSession = getSupabaseSession();
@@ -4035,13 +4035,12 @@ while (guard < 5000) {
                     }
 
                     if (!adminAuthPasswordInput.trim()) {
-                        const reason = access.reason || t('admin_access_not_authorized');
-                        throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+                        throw new Error(t('admin_access_not_authorized'));
                     }
                 }
 
                 if (!adminAuthEmailInput.trim()) {
-                    throw new Error(t('admin_supabase_email_label'));
+                    throw new Error(t('player_area_email'));
                 }
                 if (!adminAuthPasswordInput.trim()) {
                     throw new Error(t('admin_enter_valid_password'));
@@ -4052,8 +4051,7 @@ while (guard < 5000) {
                     const access = await ensureSupabaseAdminAccess();
                     if (!access.ok) {
                         await signOutSupabase();
-                        const reason = access.reason || t('admin_access_not_authorized');
-                        throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+                        throw new Error(t('admin_access_not_authorized'));
                     }
                     const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
                     mirrorAdminSessionToPlayer({
@@ -4075,14 +4073,16 @@ while (guard < 5000) {
                     safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
                 }
                 setSupabaseEmail(null);
-                setAdminAuthError(String(err?.message || err || t('admin_access_not_authorized')));
+                const message = String(err?.message || '');
+                const userMessages = ['admin_access_not_authorized', 'admin_enter_valid_password', 'admin_login_unavailable', 'player_area_email'].map(t);
+                setAdminAuthError(userMessages.includes(message) ? message : t('admin_login_try_again'));
             } finally {
                 setLoginBusy(false);
             }
         };
 
         return (
-            <div className="animate-fade-in">
+            <div>
                 <div className="min-h-[60vh] flex items-center justify-center">
                     <div className="w-full max-w-xl">
                         <div className="rounded-3xl overflow-hidden border border-slate-200 bg-white shadow-xl">
@@ -4097,30 +4097,23 @@ while (guard < 5000) {
                                             {t('admin')}
                                         </h2>
                                         <p className="text-sm font-semibold text-white/75 mt-1">
-                                            {t('admin_auth_desc')}
+                                            {t('admin_login_account')}
                                         </p>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="p-6 space-y-4">
-                                <p className="text-slate-600 text-sm font-semibold">
-                                    {t('admin_login_note')}
-                                </p>
-
                                 {!supabaseConfig ? (
                                     <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
                                         <div className="font-black">{t('admin_login_failed')}</div>
-                                        <div className="text-sm font-semibold mt-1">{t('db_supabase_not_configured')}</div>
+                                        <div className="text-sm font-semibold mt-1">{t('admin_login_unavailable')}</div>
                                     </div>
                                 ) : null}
 
-                                {adminSessionChecking && supabaseEmail ? (
-                                    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-900">
-                                        <div className="font-black">{t('admin_supabase_session_detected')}</div>
-                                        <div className="text-sm font-semibold mt-1">
-                                            {supabaseEmail}
-                                        </div>
+                                {adminSessionChecking ? (
+                                    <div role="status" aria-busy="true" className="rounded-2xl border border-sky-200 bg-sky-50 p-4 font-semibold text-sky-900">
+                                        {t('admin_login_busy')}
                                     </div>
                                 ) : null}
 
@@ -4145,7 +4138,7 @@ while (guard < 5000) {
 
                                 <div className="grid grid-cols-1 gap-2">
                                     <label className="text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-email">
-                                        {t('admin_supabase_email_label')}
+                                        {t('player_area_email')}
                                     </label>
                                     <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
                                         <div>
@@ -4157,7 +4150,7 @@ while (guard < 5000) {
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter' && !loginBusy) void doAdminLogin();
                                                 }}
-                                                placeholder={getConfiguredAdminEmail()}
+                                                placeholder={t('player_area_email_placeholder')}
                                                 autoComplete="email"
                                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-800 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
                                             />
@@ -4187,19 +4180,10 @@ while (guard < 5000) {
                                             {loginBusy ? t('admin_login_busy') : t('admin_login')}
                                         </button>
                                     </div>
-                                    <div className="text-xs text-slate-500 font-semibold">
-                                        {t('admin_recommended_email')}: <span className="font-black">{getConfiguredAdminEmail()}</span>.
-                                    </div>
-                                    <div className="text-xs text-slate-500 font-semibold">
-                                        {t('admin_password_server_only')}
-                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="mt-4 text-center text-xs text-slate-400 font-semibold">
-                            {t('admin_internal_access_hint')}
-                        </div>
                     </div>
                 </div>
             </div>

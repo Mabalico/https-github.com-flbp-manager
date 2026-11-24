@@ -578,31 +578,18 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   };
   const CurrentViewIcon = currentViewMeta.icon;
 
-  const renderViewTabs = (tone: 'dark' | 'light') => {
+  const renderViewTabs = () => {
     if (availableViews.length <= 1) return null;
 
-    const containerClass = tone === 'dark'
-      ? 'flex max-w-full flex-nowrap overflow-x-auto bg-white/10 p-1 rounded-xl border border-white/10'
-      : 'flex max-w-full flex-nowrap overflow-x-auto bg-white p-1 rounded-xl border border-slate-200';
-    const activeClass = tone === 'dark'
-      ? 'bg-white shadow text-slate-900'
-      : 'bg-slate-900 shadow text-white';
-    const inactiveClass = tone === 'dark'
-      ? 'text-white/70 hover:text-white hover:bg-white/10'
-      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100';
-    const focusClass = tone === 'dark'
-      ? 'focus-visible:ring-beer-500/60 focus-visible:ring-offset-slate-900'
-      : 'focus-visible:ring-beer-400 focus-visible:ring-offset-slate-50';
-
     return (
-      <div className={containerClass} role="toolbar" aria-label={t('tournament_view')}>
+      <div className="flex max-w-full flex-nowrap overflow-x-auto rounded-xl border border-slate-200 bg-white p-1" role="toolbar" aria-label={t('tournament_view')}>
         {availableViews.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setView(key)}
             aria-pressed={view === key}
-            className={`shrink-0 px-4 py-2 rounded-lg font-black uppercase text-xs transition flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${focusClass} ${
-              view === key ? activeClass : inactiveClass
+            className={`shrink-0 px-4 py-2 rounded-lg font-black uppercase text-xs transition flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2 ${
+              view === key ? 'bg-slate-900 shadow text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Icon className="w-4 h-4" /> {label}
@@ -803,7 +790,7 @@ const visibleTeamsCount = React.useMemo(() => {
                   )}
                 </button>
               )}
-              {!isLive && (
+              {!isLive && !isStructurelessManualArchive && (
                 <button
                   onClick={() => setShowAwards(true)}
                   className={`${btnPrimaryDark} flex items-center justify-center`}
@@ -812,7 +799,6 @@ const visibleTeamsCount = React.useMemo(() => {
                 </button>
               )}
 
-              {renderViewTabs('dark')}
             </div>
 	        </div>
 	      </div>
@@ -852,19 +838,11 @@ const visibleTeamsCount = React.useMemo(() => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" /> {t('go_back')}
-                </button>
-
                 {view === 'groups' && hasGroups && typeof advancingPerGroup === 'number' && (
                   <span className={badgeTopLight}>{t('top_count').replace('{count}', String(advancingPerGroup))}</span>
                 )}
 
-                {renderViewTabs('light')}
+                {renderViewTabs()}
               </div>
             </div>
 
@@ -886,15 +864,6 @@ const visibleTeamsCount = React.useMemo(() => {
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-900 bg-slate-900 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
                     >
                       <Medal className="h-4 w-4" /> {t('open_awards')}
-                    </button>
-                  </div>
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={onBack}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                    >
-                      <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> {t('back_to_archive')}
                     </button>
                   </div>
                 </div>
