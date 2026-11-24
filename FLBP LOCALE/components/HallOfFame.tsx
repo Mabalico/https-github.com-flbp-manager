@@ -9,7 +9,7 @@ import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { readVitePublicDbRead } from '../services/viteEnv';
 import { readCachedPublicHallOfFameEntries, writeCachedPublicHallOfFameEntries } from '../services/publicViewCache';
-import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
+import { buildTitledHallOfFameRows, createHallOfFameChronology } from '../services/hallOfFameView';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
@@ -64,58 +64,13 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     }).format(new Date(ts));
   }, []);
 
-  const extractIsoDateFromKey = React.useCallback((value?: string) => {
-    const raw = String(value || '').trim();
-    if (!raw) return undefined;
-    const match = raw.match(/(^|_)(\d{4}-\d{2}-\d{2})(_|$)/);
-    if (!match?.[2]) return undefined;
-    const iso = match[2];
-    return Number.isFinite(Date.parse(iso)) ? iso : undefined;
-  }, []);
-
-  const tournamentDateById = React.useMemo(() => {
-    const sourceState = stateOverride || localStateSnapshot || { tournamentHistory: [] } as AppState;
-    const map = new Map<string, string>();
-    (sourceState.tournamentHistory || []).forEach((tournament) => {
-      const id = String(tournament?.id || '').trim();
-      const startDate = String(tournament?.startDate || '').trim();
-      if (id && startDate) map.set(id, startDate);
-    });
-    return map;
-  }, [localStateSnapshot, stateOverride]);
-
-  const getTournamentStartDate = React.useCallback((entry: HallOfFameEntry) => {
-    const manualDate = String(entry.sourceTournamentDate || '').trim();
-    return tournamentDateById.get(String(entry.tournamentId || '').trim())
-      || tournamentDateById.get(String(entry.sourceTournamentId || '').trim())
-      || (Number.isFinite(Date.parse(manualDate)) ? manualDate : undefined)
-      || extractIsoDateFromKey(entry.tournamentId)
-      || extractIsoDateFromKey(entry.sourceTournamentId)
-      || extractIsoDateFromKey(entry.id);
-  }, [extractIsoDateFromKey, tournamentDateById]);
-
-  const getHallOfFameSortValue = React.useCallback((entry: HallOfFameEntry) => {
-    const directStartDate = getTournamentStartDate(entry);
-    const ts = Date.parse(String(directStartDate || ''));
-    if (Number.isFinite(ts)) return ts;
-    const yearNum = parseInt(String(entry.year || '0'), 10) || 0;
-    return yearNum > 0 ? Date.UTC(yearNum, 0, 1) : 0;
-  }, [getTournamentStartDate]);
-
-  const sortHallOfFameEntries = React.useCallback((list: HallOfFameEntry[]) => {
-    return list.slice().sort((a, b) => {
-      const byDate = getHallOfFameSortValue(b) - getHallOfFameSortValue(a);
-      if (byDate !== 0) return byDate;
-
-      const byYear = (parseInt(String(b.year || '0'), 10) || 0) - (parseInt(String(a.year || '0'), 10) || 0);
-      if (byYear !== 0) return byYear;
-
-      const byTournament = String(b.tournamentName || '').localeCompare(String(a.tournamentName || ''), 'it', { sensitivity: 'base' });
-      if (byTournament !== 0) return byTournament;
-
-      return String(b.id || '').localeCompare(String(a.id || ''), 'it', { sensitivity: 'base' });
-    });
-  }, [getHallOfFameSortValue]);
+  const chronology = React.useMemo(
+    () => createHallOfFameChronology((stateOverride || localStateSnapshot)?.tournamentHistory || []),
+    [localStateSnapshot, stateOverride],
+  );
+  const { getDate: getTournamentStartDate } = chronology;
+  const sortHallOfFameEntries = React.useCallback((entries: HallOfFameEntry[]) =>
+    [...entries].sort(chronology.compare), [chronology]);
 
   const getTournamentDateLabel = React.useCallback((entry: HallOfFameEntry) => {
     const directStartDate = getTournamentStartDate(entry);
