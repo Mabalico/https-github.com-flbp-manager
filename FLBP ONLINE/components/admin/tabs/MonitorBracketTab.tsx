@@ -1,4 +1,5 @@
 import React from 'react';
+import type { CodesStatusFilter } from './CodesTab';
 import { LayoutDashboard, Search, X, Play, Square, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Match, TournamentData } from '../../../types';
 import type { AppState } from '../../../services/storageService';
@@ -21,6 +22,9 @@ import { buildTournamentStructureIntegritySummary } from '../../../services/tour
 import { useTranslation } from '../../../App';
 
 export interface MonitorBracketTabProps {
+    sharedQuery?: string;
+    onSharedQueryChange?: (query: string) => void;
+    statusFilter?: CodesStatusFilter;
     state: AppState;
     simBusy: boolean;
     handleSimulateTurn: () => void;
@@ -38,6 +42,9 @@ export interface MonitorBracketTabProps {
 }
 
 export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
+    sharedQuery,
+    onSharedQueryChange,
+    statusFilter = 'all',
     state,
     simBusy,
     handleSimulateTurn,
@@ -87,7 +94,9 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
         return buildTournamentStructureSnapshot(state.tournament, state.tournamentMatches || [], state.teams || []);
     }, [state.tournament, state.tournamentMatches, state.teams]);
 
-    const [query, setQuery] = React.useState<string>('');
+    const [localQuery, setLocalQuery] = React.useState('');
+    const query = sharedQuery ?? localQuery;
+    const setQuery = onSharedQueryChange ?? setLocalQuery;
 
     // Lightweight Admin UI tokens (local): keeps toolbar controls consistent with other tabs.
     const toolbarInput =
@@ -98,6 +107,7 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
     const queryNorm = query.trim().toLowerCase();
 
     const matchMatchesQuery = React.useCallback((m: Match) => {
+        if (statusFilter !== 'all' && m.status !== statusFilter) return false;
         if (!queryNorm) return true;
         const code = ((m.code || m.id || '') + '').toLowerCase();
         const phase = ((m.phase || '') + '').toLowerCase();
@@ -109,13 +119,13 @@ export const MonitorBracketTab: React.FC<MonitorBracketTabProps> = ({
             if (name.includes(queryNorm) || id.toLowerCase().includes(queryNorm)) return true;
         }
         return false;
-    }, [queryNorm, getTeamName, t]);
+    }, [queryNorm, getTeamName, t, statusFilter]);
 
     const schedule = React.useMemo(() => (state.tournamentMatches || [])
         .filter(m => !m.hidden && !isByeMatch(m))
         .sort(compareTournamentMatches(state.tournament)), [state.tournament, state.tournamentMatches]);
-    const searchResults = React.useMemo(() => queryNorm ? schedule.filter(matchMatchesQuery) : schedule,
-        [schedule, queryNorm, matchMatchesQuery]);
+    const searchResults = React.useMemo(() => schedule.filter(matchMatchesQuery),
+        [schedule, matchMatchesQuery]);
 
     const integrity = React.useMemo(() => {
         if (!structureSnapshot) return null;
@@ -1203,7 +1213,7 @@ const handleSwapSlots = React.useCallback(() => {
         <div className="flex min-w-0 max-w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 max-w-full">
                 <h3 className="flex max-w-full items-center gap-2 text-lg font-black sm:text-xl">
-                    <LayoutDashboard className="w-5 h-5" /> Monitor Tabellone
+                    <LayoutDashboard className="w-5 h-5" /> {t('monitor_bracket')}
                 </h3>
                 <div className="text-xs font-bold text-slate-500 mt-1">
                     {t('monitor_bracket_quick_search_tip_prefix')} <span className="font-black">{t('monitor_bracket_start_close')}</span> {t('monitor_bracket_quick_search_tip_mid')} <span className="font-black">{t('report_label')}</span> {t('monitor_bracket_quick_search_tip_suffix')}
@@ -1212,7 +1222,7 @@ const handleSwapSlots = React.useCallback(() => {
 
             <div className="flex min-w-0 max-w-full flex-col gap-2 sm:items-end">
                 <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('monitor_bracket_toolbar_aria')}>
-                    <div className="relative w-full sm:w-auto">
+                    {sharedQuery === undefined && <div className="relative w-full sm:w-auto">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                             value={query}
@@ -1231,7 +1241,7 @@ const handleSwapSlots = React.useCallback(() => {
                                 <X className="w-4 h-4 text-slate-500" />
                             </button>
                         )}
-                    </div>
+                    </div>}
 
                     {isTesterMode ? (
                         <>
@@ -1261,10 +1271,10 @@ const handleSwapSlots = React.useCallback(() => {
             </div>
         </div>
 
-        {state.tournament && queryNorm && !searchResults.length && (
+        {state.tournament && (queryNorm || statusFilter !== 'all') && !searchResults.length && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700 font-bold flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                    {t('monitor_no_match_found_for').replace('{query}', `“${query.trim()}”`)}
+                    {queryNorm ? t('monitor_no_match_found_for').replace('{query}', `“${query.trim()}”`) : t('no_results_for_selected_filters')}
                 </div>
                 <button
                     type="button"

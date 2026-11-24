@@ -7,7 +7,7 @@ import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
 import { useReportSaveFeedback } from './admin/ReportEntryFeedback';
-import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star, Lock } from 'lucide-react';
+import { MonitorPlay, Users, Brackets, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Lock } from 'lucide-react';
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
@@ -32,6 +32,8 @@ import { buildUnifiedBackupJsonExport, inspectBackupJsonState, mergeBackupJsonSt
 import { describeTeamImportLayout, detectTeamImportLayout, isTeamImportCoherentWithProfile, loadTeamImportProfile, normalizeTeamImportHeader, saveTeamImportProfile, type TeamImportLayout } from '../services/teamImportProfile';
 
 import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
+import { LiveMatchesToolbar, type LiveMatchesView } from './admin/LiveMatchesToolbar';
+import { LiveClosingSummary } from './admin/LiveClosingSummary';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
@@ -98,6 +100,7 @@ const clearAdminSessionNavKeys = () => {
     const keys = [
         'flbp_admin_section',
         'flbp_admin_last_live_tab',
+        'flbp_admin_matches_view',
         'flbp_admin_data_main_section',
         'flbp_admin_data_subtab',
         'flbp_admin_integrations_subtab',
@@ -117,6 +120,7 @@ const clearAdminSessionNavKeys = () => {
 const NATIVE_ADMIN_NAV_KEYS = new Set([
     'flbp_admin_section',
     'flbp_admin_last_live_tab',
+    'flbp_admin_matches_view',
     'flbp_admin_data_main_section',
     'flbp_admin_data_subtab',
     'flbp_admin_integrations_subtab',
@@ -280,11 +284,24 @@ interface AdminDashboardProps {
     onEnterTv: (mode: TvProjection) => void;
 }
 
-type LiveAdminTab = 'teams'|'structure'|'reports'|'referees'|'codes'|'monitor_groups'|'monitor_bracket';
+type LiveAdminTab = 'teams' | 'structure' | 'matches' | 'referees' | 'closing';
+const liveSteps: { tab: LiveAdminTab; label: string }[] = [
+    { tab: 'teams', label: 'teams' },
+    { tab: 'structure', label: 'structure' },
+    { tab: 'matches', label: 'matches_label' },
+    { tab: 'referees', label: 'referees' },
+    { tab: 'closing', label: 'admin_closing_title' },
+];
+const savedMatchesView = (value: string | null): LiveMatchesView =>
+    value === 'monitor_groups' || value === 'monitor_bracket' || value === 'reports' ? value : 'codes';
+const savedLiveStep = (value: string | null): LiveAdminTab => {
+    if (value === 'codes' || value === 'reports' || value === 'monitor_groups' || value === 'monitor_bracket') return 'matches';
+    return liveSteps.find(step => step.tab === value)?.tab || 'teams';
+};
 type AdminSection = 'live' | 'editor' | 'data';
 type AdminTab = LiveAdminTab | 'editor' | 'data';
 
-type AdminChunkTarget = LiveAdminTab | Extract<AdminSection, 'data' | 'editor'>;
+type AdminChunkTarget = LiveAdminTab | LiveMatchesView | Extract<AdminSection, 'data' | 'editor'>;
 
 const preloadAdminContentChunk = (target: AdminChunkTarget) => {
     switch (target) {
@@ -296,6 +313,7 @@ const preloadAdminContentChunk = (target: AdminChunkTarget) => {
             return loadReportsTabModule();
         case 'referees':
             return loadRefereesTabModule();
+        case 'matches':
         case 'codes':
             return loadCodesTabModule();
         case 'monitor_groups':
@@ -817,53 +835,64 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         const raw = safeSessionGet('flbp_admin_section');
         return raw === 'data' || raw === 'editor' ? raw : 'live';
     });
-    const [lastLiveTab, setLastLiveTab] = useState<'teams'|'structure'|'reports'|'referees'|'codes'|'monitor_groups'|'monitor_bracket'>(() => {
-        const raw = safeSessionGet('flbp_admin_last_live_tab');
-        const ok = raw === 'teams' || raw === 'structure' || raw === 'reports' || raw === 'referees' || raw === 'codes' || raw === 'monitor_groups' || raw === 'monitor_bracket';
-        return ok ? (raw as any) : 'teams';
+    const [lastLiveTab, setLastLiveTab] = useState(() => savedLiveStep(safeSessionGet('flbp_admin_last_live_tab')));
+    const [matchesView, setMatchesView] = useState(() => {
+        const previous = safeSessionGet('flbp_admin_last_live_tab');
+        return savedMatchesView(previous === 'matches' ? safeSessionGet('flbp_admin_matches_view') : previous);
     });
+    const [matchesQuery, setMatchesQuery] = useState('');
     const [tab, setTab] = useState<AdminTab>(() => {
         if (adminSection === 'data') return 'data';
         if (adminSection === 'editor') return 'editor';
         return lastLiveTab;
     });
     const [editorInitialView, setEditorInitialView] = useState<'groups' | 'bracket'>('groups');
-    const [monitorMenuOpen, setMonitorMenuOpen] = useState(false);
-    const monitorMenuButtonRef = useRef<HTMLButtonElement | null>(null);
-    const [monitorMenuPosition, setMonitorMenuPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
     const adminNavigationRequestRef = useRef(0);
 
     const resolveStoredLiveTab = React.useCallback((): LiveAdminTab => {
-        const raw = safeSessionGet('flbp_admin_last_live_tab');
-        const ok = raw === 'teams' || raw === 'structure' || raw === 'reports' || raw === 'referees' || raw === 'codes' || raw === 'monitor_groups' || raw === 'monitor_bracket';
-        return ok ? (raw as LiveAdminTab) : lastLiveTab;
+        const saved = safeSessionGet('flbp_admin_last_live_tab');
+        return saved ? savedLiveStep(saved) : lastLiveTab;
     }, [lastLiveTab]);
+
+    const selectMatchesView = React.useCallback((next: LiveMatchesView) => {
+        setMatchesView(next);
+        safeSessionSet('flbp_admin_matches_view', next);
+    }, []);
+
+    useEffect(() => {
+        const previous = safeSessionGet('flbp_admin_last_live_tab');
+        if (previous !== 'matches' && savedLiveStep(previous) === 'matches') {
+            safeSessionSet('flbp_admin_matches_view', savedMatchesView(previous));
+            safeSessionSet('flbp_admin_last_live_tab', 'matches');
+        }
+    }, []);
 
     const primeAdminContentChunk = React.useCallback((target: AdminChunkTarget) => {
         void preloadAdminContentChunk(target);
     }, []);
 
-    const openLiveTab = React.useCallback(async (next: LiveAdminTab) => {
-        if (adminSection === 'live' && tab === next) return;
+    const openLiveTab = React.useCallback(async (next: LiveAdminTab, nextView?: LiveMatchesView) => {
+        if (adminSection === 'live' && tab === next && (!nextView || nextView === matchesView)) return;
         if (isDraftNavigationPending()) return;
         const requestId = ++adminNavigationRequestRef.current;
         try {
-            await preloadAdminContentChunk(next);
+            await preloadAdminContentChunk(nextView || (next === 'matches' ? matchesView : next));
         } catch {
             // let Suspense/ErrorBoundary handle the actual render failure if the chunk is broken
         }
         if (requestId !== adminNavigationRequestRef.current) return;
         await requestDraftNavigation(() => {
-        if (requestId !== adminNavigationRequestRef.current) return;
-        if (adminSection !== 'live') {
-            safeSessionSet('flbp_admin_section', 'live');
-            setAdminSection('live');
-        }
-        setTab(next);
-        setLastLiveTab(next);
-        safeSessionSet('flbp_admin_last_live_tab', next);
+            if (requestId !== adminNavigationRequestRef.current) return;
+            if (adminSection !== 'live') {
+                safeSessionSet('flbp_admin_section', 'live');
+                setAdminSection('live');
+            }
+            if (next === 'matches' && nextView) selectMatchesView(nextView);
+            setTab(next);
+            setLastLiveTab(next);
+            safeSessionSet('flbp_admin_last_live_tab', next);
         });
-    }, [adminSection, tab]);
+    }, [adminSection, matchesView, selectMatchesView, tab]);
 
     const showGroupsMonitor = useMemo(() => {
         const tournamentType = state.tournament?.type;
@@ -883,12 +912,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournament, state.tournamentMatches]);
     const liveResultsOnly = isResultsOnlyTournament(state.tournament);
     const fantaPretournamentEnabled = state.fantaSettings?.enabled === true;
-
-    const fallbackLiveTab: LiveAdminTab = useMemo(() => {
-        if (liveOpsSummary.playingCount > 0) return 'reports';
-        if (liveOpsSummary.scheduledCount > 0) return 'codes';
-        return 'teams';
-    }, [liveOpsSummary.playingCount, liveOpsSummary.scheduledCount]);
 
     // Pool simulator
     const [poolN, setPoolN] = useState<string>('20');
@@ -939,8 +962,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [playableTeamsCount, finalRrEnabled, finalRrTopTeams]);
 
     // MVP manual selection (supports ties)
-    const [mvpModalOpen, setMvpModalOpen] = useState<boolean>(false);
-    const [mvpModalForArchive, setMvpModalForArchive] = useState<boolean>(false);
     const [mvpSearch, setMvpSearch] = useState<string>('');
     const [mvpSelectedIds, setMvpSelectedIds] = useState<string[]>([]);
     const [archiveIncludeU25Awards, setArchiveIncludeU25Awards] = useState<boolean>(true);
@@ -1021,90 +1042,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [dataMvpPlayerId, setDataMvpPlayerId] = useState<string>('');
 
     // UI helpers (Admin tabs)
-    const tabBtnClass = (active: boolean) => {
-        const base = 'min-w-0 max-w-full break-words px-2 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
-        return `${base} ${active ? 'bg-blue-700/95 backdrop-blur-md text-white border-blue-600 shadow-[0_4px_12px_-2px_rgba(29,78,216,0.3)] transform -translate-y-0.5' : 'bg-white/90 backdrop-blur-sm text-slate-700 border-slate-200/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-white'}`;
-    };
-    const liveTabMeta: Record<LiveAdminTab, { title: string; helper: string }> = {
-        teams: {
-            title: t('teams'),
-            helper: t('admin_tab_teams_helper'),
-        },
-        structure: {
-            title: t('structure'),
-            helper: t('admin_tab_structure_helper'),
-        },
-        reports: {
-            title: t('reports'),
-            helper: t('admin_tab_reports_helper'),
-        },
-        referees: {
-            title: t('referees'),
-            helper: t('admin_tab_referees_helper'),
-        },
-        codes: {
-            title: t('code_list'),
-            helper: t('admin_tab_codes_helper'),
-        },
-        monitor_groups: {
-            title: t('monitor_groups'),
-            helper: t('admin_tab_monitor_groups_helper'),
-        },
-        monitor_bracket: {
-            title: t('monitor_bracket'),
-            helper: t('admin_tab_monitor_bracket_helper'),
-        },
-    };
-    const currentLiveTab = adminSection === 'live' && tab !== 'data' && tab !== 'editor' ? tab as LiveAdminTab : null;
+    const currentMatchesView: LiveMatchesView = matchesView === 'monitor_groups' && !showGroupsMonitor
+        ? (showBracketMonitor ? 'monitor_bracket' : 'codes')
+        : matchesView === 'monitor_bracket' && !showBracketMonitor
+            ? (showGroupsMonitor ? 'monitor_groups' : 'codes') : matchesView;
+    const resumeReportView = tab === 'matches' && currentMatchesView === 'reports';
 
     useEffect(() => {
-        if (adminSection !== 'live') return;
-        if (tab === 'monitor_groups' && !showGroupsMonitor) {
-            openLiveTab(showBracketMonitor ? 'monitor_bracket' : fallbackLiveTab);
-            return;
-        }
-        if (tab === 'monitor_bracket' && !showBracketMonitor) {
-            openLiveTab(showGroupsMonitor ? 'monitor_groups' : fallbackLiveTab);
-        }
-        if (tab === 'referees' && liveResultsOnly) {
-            openLiveTab('reports');
-        }
-    }, [adminSection, fallbackLiveTab, liveResultsOnly, showBracketMonitor, showGroupsMonitor, tab]);
-
-    useEffect(() => {
-        if (!showGroupsMonitor && !showBracketMonitor) {
-            setMonitorMenuOpen(false);
-            return;
-        }
-        if (adminSection !== 'live') {
-            setMonitorMenuOpen(false);
-        }
-    }, [adminSection, showBracketMonitor, showGroupsMonitor]);
-
-    const updateMonitorMenuPosition = React.useCallback(() => {
-        const button = monitorMenuButtonRef.current;
-        if (!button) return;
-        const rect = button.getBoundingClientRect();
-        const menuWidth = 240;
-        const viewportPadding = 12;
-        const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
-        setMonitorMenuPosition({
-            left: Math.min(Math.max(rect.left, viewportPadding), maxLeft),
-            top: rect.bottom + 8,
-        });
-    }, []);
-
-    useEffect(() => {
-        if (!monitorMenuOpen) return;
-        updateMonitorMenuPosition();
-        const handleWindowUpdate = () => updateMonitorMenuPosition();
-        window.addEventListener('resize', handleWindowUpdate);
-        window.addEventListener('scroll', handleWindowUpdate, true);
-        return () => {
-            window.removeEventListener('resize', handleWindowUpdate);
-            window.removeEventListener('scroll', handleWindowUpdate, true);
-        };
-    }, [monitorMenuOpen, updateMonitorMenuPosition]);
+        if (tab === 'referees' && liveResultsOnly) void openLiveTab('matches', 'reports');
+    }, [liveResultsOnly, openLiveTab, tab]);
     const [dataTopScorerU25PlayerId, setDataTopScorerU25PlayerId] = useState<string>('');
     const [dataDefenderU25PlayerId, setDataDefenderU25PlayerId] = useState<string>('');
 
@@ -1705,7 +1651,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
 
         const targets = new Set<AdminChunkTarget>();
         if (adminSection === 'live') {
-            targets.add(tab === 'reports' ? 'reports' : 'teams');
+            targets.add(resumeReportView ? 'reports' : 'teams');
             targets.add('reports');
             targets.add('codes');
             if (showGroupsMonitor) targets.add('monitor_groups');
@@ -1746,7 +1692,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 globalThis.clearTimeout(timeoutId);
             }
         };
-    }, [adminSection, showBracketMonitor, showGroupsMonitor, tab]);
+    }, [adminSection, showBracketMonitor, showGroupsMonitor, resumeReportView]);
 
     useEffect(() => {
         const onOpenDataPersistence = () => {
@@ -1844,17 +1790,20 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         return [];
     };
 
-    const openMvpModal = (forArchive: boolean) => {
-        if (!state.tournament) {
-            alert(t('alert_no_live_selected'));
-            return;
+    const closingTournamentId = state.tournament?.id;
+    const closingDraftId = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (archiveDone && closingTournamentId && archiveReceipt?.tournamentId !== closingTournamentId) {
+            setArchiveReceipt(null);
+            setArchiveDone(false);
+            setArchiveError('');
         }
-        setMvpModalForArchive(forArchive);
-        if (forArchive) setArchiveIncludeU25Awards(true);
+        if (tab !== 'closing' || !closingTournamentId || closingDraftId.current === closingTournamentId) return;
+        closingDraftId.current = closingTournamentId;
         setMvpSearch('');
+        setArchiveIncludeU25Awards(true);
         setMvpSelectedIds(getExistingTournamentMvpIds());
-        setMvpModalOpen(true);
-    };
+    }, [archiveDone, archiveReceipt?.tournamentId, closingTournamentId, tab]);
 
     const applyMvpsToState = (base: AppState, selectedIds: string[]) => {
         if (!base.tournament) return base;
@@ -1954,13 +1903,6 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         }
     };
 
-    const handleArchive = () => {
-        if (!state.tournament) {
-            alert(t('alert_no_live_active'));
-            return;
-        }
-        openMvpModal(true);
-    };
 
     const handleDeleteLiveTournament = () => {
         if (!state.tournament) {
@@ -3091,7 +3033,10 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
             setDraft(null);
             setLateTeamIds([]);
-            setTab('codes');
+            selectMatchesView('codes');
+            setTab('matches');
+            setLastLiveTab('matches');
+            safeSessionSet('flbp_admin_last_live_tab', 'matches');
             alert(t('alert_live_started'));
         } catch (error) {
             const message = `Avvio torneo non confermato. ${error instanceof Error ? error.message : String(error)}`;
@@ -3212,14 +3157,14 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         commitLiveMatches(nextMatches);
     };
 
-    const archiveAwardPreview = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament
+    const archiveAwardPreview = tab === 'closing' && !archiveReceipt && state.tournament
         ? syncTournamentAwardsToHallOfFame(
             applyMvpsToState(state, mvpSelectedIds).hallOfFame,
             { ...state.tournament, includeU25Awards: archiveIncludeU25Awards },
             state.tournamentMatches,
         ).filter(award => award.tournamentId === state.tournament?.id)
         : [];
-    const archiveFinalGroup = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament?.config?.finalRoundRobin?.activated
+    const archiveFinalGroup = tab === 'closing' && !archiveReceipt && state.tournament?.config?.finalRoundRobin?.activated
         ? state.tournament.groups?.find(isFinalGroup) : undefined;
     const pendingFinalMatches = archiveFinalGroup
         ? state.tournamentMatches.filter(m => m.phase === 'groups' && m.groupName === archiveFinalGroup.name
@@ -3258,7 +3203,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return { text, href: 'mailto:info@flbp.it?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text) };
     };
 
-    const submitTournamentArchive = async (includeMvp: boolean) => {
+    const submitTournamentArchive = async () => {
         if (archiveSubmittingRef.current) return;
         archiveSubmittingRef.current = true;
         setArchiveBusy(true);
@@ -3269,7 +3214,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 if (!state.tournament) return;
                 const tournamentId = state.tournament.id;
                 const email = buildRefereeArchiveSummary(state);
-                const decorated = applyMvpsToState(state, includeMvp ? mvpSelectedIds : []);
+                const decorated = applyMvpsToState(state, mvpSelectedIds);
                 const next = archiveTournamentV2(decorated, { includeU25Awards: archiveIncludeU25Awards });
                 const confirmed = await commitAdminStateDurably(next, 'archive-tournament', { skipStructuredSync: true });
                 setState(confirmed);
@@ -3744,7 +3689,10 @@ while (guard < 5000) {
             alert(t('report_unavailable_placeholder'));
             return;
         }
-        setTab('reports');
+        selectMatchesView('reports');
+        setTab('matches');
+        setLastLiveTab('matches');
+        safeSessionSet('flbp_admin_last_live_tab', 'matches');
         handlePickReportMatch(id);
     };
 
@@ -4560,21 +4508,6 @@ while (guard < 5000) {
                                 </div>
                             </details>
 
-                            <button type="button" onClick={() => openMvpModal(false)} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors shadow-sm" title={t('mvp_plural')}>
-                                <Star className="h-4 w-4 text-amber-500" aria-hidden />
-                                <span>{t('mvp_plural')}</span>
-                                {state.tournament && (
-                                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">
-                                        {(() => {
-                                            const c = (state.hallOfFame || []).filter(e => e.tournamentId === state.tournament!.id && e.type === 'mvp').length;
-                                            return c;
-                                        })()}
-                                    </span>
-                                )}
-                            </button>
-                            <button type="button" onClick={handleArchive} className="bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-black inline-flex items-center gap-1.5 hover:bg-red-100 transition-colors shadow-sm">
-                                <Archive className="w-3.5 h-3.5" /> <span>{t('complete_tournament')}</span>
-                            </button>
                         </>
                     )}
 
@@ -4701,7 +4634,7 @@ while (guard < 5000) {
                                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 pb-1">
                                     <span className="shrink-0 text-[11px] font-black text-slate-500 uppercase tracking-wide">{t('admin_ops_hub')}</span>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-blue-800 bg-blue-50 border border-blue-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_area_label')}: <span className="font-black">{liveTabMeta[tab as LiveAdminTab]?.title || '-'}</span>
+                                        {t('admin_area_label')}: <span className="font-black">{tab === 'data' || tab === 'editor' ? '—' : t(liveSteps.find(step => step.tab === tab)?.label || 'teams')}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_guiding_match')}: <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
@@ -4717,132 +4650,21 @@ while (guard < 5000) {
                                     </div>
                                 </div>
 
-                                <div className="relative min-w-0 max-w-full border-t border-slate-100 pt-3">
-                                    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 pb-1">
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'teams' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('teams')}
-                                            onFocus={() => primeAdminContentChunk('teams')}
-                                            onClick={() => { void openLiveTab('teams'); }}
-                                            className={tabBtnClass(tab === 'teams')}
-                                        >
-                                            <Users className="w-4 h-4" /> {t('teams')}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'structure' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('structure')}
-                                            onFocus={() => primeAdminContentChunk('structure')}
-                                            onClick={() => { void openLiveTab('structure'); }}
-                                            className={tabBtnClass(tab === 'structure')}
-                                        >
-                                            <Brackets className="w-4 h-4" /> {t('structure')}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'reports' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('reports')}
-                                            onFocus={() => primeAdminContentChunk('reports')}
-                                            onClick={() => { void openLiveTab('reports'); }}
-                                            className={tabBtnClass(tab === 'reports')}
-                                        >
-                                            <ClipboardList className="w-4 h-4" /> {t('reports')}
-                                        </button>
-                                        {!liveResultsOnly && (
-                                            <button
-                                                type="button"
-                                                aria-current={tab === 'referees' ? 'page' : undefined}
-                                                onMouseEnter={() => primeAdminContentChunk('referees')}
-                                                onFocus={() => primeAdminContentChunk('referees')}
-                                                onClick={() => { void openLiveTab('referees'); }}
-                                                className={tabBtnClass(tab === 'referees')}
-                                            >
-                                                <ShieldCheck className="w-4 h-4" /> {t('referees')}
+                                <ol className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-3 md:grid md:grid-cols-5">
+                                    {liveSteps.map((step, index) => (
+                                        <li key={step.tab} className="min-w-0">
+                                            <button type="button" aria-current={tab === step.tab ? 'step' : undefined}
+                                                disabled={step.tab === 'referees' && liveResultsOnly}
+                                                onMouseEnter={() => primeAdminContentChunk(step.tab)}
+                                                onFocus={() => primeAdminContentChunk(step.tab)}
+                                                onClick={() => { void openLiveTab(step.tab); }}
+                                                className={`inline-flex min-h-[44px] w-full items-center gap-1.5 rounded-lg border px-2 py-2 text-start text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 disabled:opacity-50 sm:gap-2 sm:px-3 sm:text-sm ${tab === step.tab ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-800 hover:bg-blue-50'}`}>
+                                                <span className="shrink-0 rounded-full bg-current/10 px-1.5 tabular-nums" aria-hidden="true">{index + 1}</span>
+                                                {t(step.label)}
                                             </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'codes' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('codes')}
-                                            onFocus={() => primeAdminContentChunk('codes')}
-                                            onClick={() => { void openLiveTab('codes'); }}
-                                            className={tabBtnClass(tab === 'codes')}
-                                        >
-                                            <ListChecks className="w-4 h-4" /> {t('code_list')}
-                                        </button>
-                                        {(showGroupsMonitor && showBracketMonitor) ? (
-                                            <button
-                                                type="button"
-                                                ref={monitorMenuButtonRef}
-                                                aria-expanded={monitorMenuOpen}
-                                                onClick={() => setMonitorMenuOpen(v => !v)}
-                                                className={tabBtnClass(tab === 'monitor_groups' || tab === 'monitor_bracket')}
-                                            >
-                                                <LayoutDashboard className="w-4 h-4" /> {t('admin_monitor_label')}
-                                                <ChevronDown className={`w-4 h-4 opacity-80 transition-transform ${monitorMenuOpen ? 'rotate-180' : ''}`} />
-                                            </button>
-                                        ) : null}
-                                        {showGroupsMonitor && !showBracketMonitor ? (
-                                            <button
-                                                type="button"
-                                                aria-current={tab === 'monitor_groups' ? 'page' : undefined}
-                                                onMouseEnter={() => primeAdminContentChunk('monitor_groups')}
-                                                onFocus={() => primeAdminContentChunk('monitor_groups')}
-                                                onClick={() => { void openLiveTab('monitor_groups'); }}
-                                                className={tabBtnClass(tab === 'monitor_groups')}
-                                            >
-                                                <LayoutDashboard className="w-4 h-4" /> {t('monitor_groups')}
-                                            </button>
-                                        ) : null}
-                                        {!showGroupsMonitor && showBracketMonitor ? (
-                                            <button
-                                                type="button"
-                                                aria-current={tab === 'monitor_bracket' ? 'page' : undefined}
-                                                onMouseEnter={() => primeAdminContentChunk('monitor_bracket')}
-                                                onFocus={() => primeAdminContentChunk('monitor_bracket')}
-                                                onClick={() => { void openLiveTab('monitor_bracket'); }}
-                                                className={tabBtnClass(tab === 'monitor_bracket')}
-                                            >
-                                                <Brackets className="w-4 h-4" /> {t('monitor_bracket')}
-                                            </button>
-                                        ) : null}
-                                    </div>
-
-                                    {(showGroupsMonitor && showBracketMonitor && monitorMenuOpen) ? (
-                                        <div
-                                            className="fixed min-w-[240px] max-w-[92vw] bg-white border border-slate-200 shadow-xl rounded-2xl p-2 z-[60]"
-                                            style={{ left: `${monitorMenuPosition.left}px`, top: `${monitorMenuPosition.top}px` }}
-                                        >
-                                            <div className="grid gap-2">
-                                                <button
-                                                    type="button"
-                                                    onMouseEnter={() => primeAdminContentChunk('monitor_groups')}
-                                                    onFocus={() => primeAdminContentChunk('monitor_groups')}
-                                                    onClick={() => {
-                                                        void openLiveTab('monitor_groups');
-                                                        setMonitorMenuOpen(false);
-                                                    }}
-                                                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-black inline-flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2 ${tab === 'monitor_groups' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
-                                                >
-                                                    <LayoutDashboard className="w-4 h-4" /> {t('monitor_groups')}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onMouseEnter={() => primeAdminContentChunk('monitor_bracket')}
-                                                    onFocus={() => primeAdminContentChunk('monitor_bracket')}
-                                                    onClick={() => {
-                                                        void openLiveTab('monitor_bracket');
-                                                        setMonitorMenuOpen(false);
-                                                    }}
-                                                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-black inline-flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2 ${tab === 'monitor_bracket' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
-                                                >
-                                                    <Brackets className="w-4 h-4" /> {t('monitor_bracket')}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
+                                        </li>
+                                    ))}
+                                </ol>
                             </div>
                         </nav>
                                         ) : adminSection === 'data' ? (
@@ -4939,7 +4761,13 @@ while (guard < 5000) {
                 />
             )}
 
-            {tab === 'reports' && (
+            {tab === 'matches' && (
+                <LiveMatchesToolbar view={currentMatchesView} showGroups={showGroupsMonitor} showBracket={showBracketMonitor}
+                    query={matchesQuery} status={codesStatusFilter} setQuery={setMatchesQuery} setStatus={setCodesStatusFilter}
+                    selectView={next => { void openLiveTab('matches', next); }} printCodes={printCodes} t={t} />
+            )}
+
+            {resumeReportView && (
                 <ReportsTabLazy
                     state={state}
                     reportMatchId={reportMatchId}
@@ -4980,10 +4808,11 @@ while (guard < 5000) {
             )}
 
 
-            {tab === 'codes' && (
+            {tab === 'matches' && currentMatchesView === 'codes' && (
                 <CodesTabLazy
                     state={state}
                     codesStatusFilter={codesStatusFilter}
+                    sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery}
                     setCodesStatusFilter={setCodesStatusFilter}
                     printCodes={printCodes}
                     toggleMatchStatus={toggleMatchStatus}
@@ -4996,8 +4825,9 @@ while (guard < 5000) {
 
             
 
-            {tab === 'monitor_groups' && (
+            {tab === 'matches' && currentMatchesView === 'monitor_groups' && (
                 <MonitorGroupsTabLazy
+                    sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery} statusFilter={codesStatusFilter}
                     state={state}
                     getTeamName={getTeamName}
                     toggleMatchStatus={toggleMatchStatus}
@@ -5007,7 +4837,31 @@ while (guard < 5000) {
                 />
             )}
 
-            {tab === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} />}
+            {tab === 'closing' && (
+                <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+                    <h2 className="text-xl font-black text-slate-950">{t('admin_closing_title')}{state.tournament && !archiveReceipt && <> · {state.tournament.name}</>}</h2>
+                    {state.tournament && !archiveReceipt && (
+                        <LiveClosingSummary tournament={state.tournament} matches={state.tournamentMatches} onOpenReport={openReportFromCodes}
+                            onOpenMatches={code => {
+                                setMatchesQuery(code);
+                                setCodesStatusFilter('all');
+                                void openLiveTab('matches', 'codes');
+                            }} t={t} />
+                    )}
+                    {state.tournament || archiveReceipt ? (
+                        <MvpModal inline forArchive allPlayers={allPlayers} search={mvpSearch} setSearch={setMvpSearch}
+                            selectedIds={mvpSelectedIds} setSelectedIds={setMvpSelectedIds} searchPlaceholder={t('search')}
+                            t={t} onSave={() => { void submitTournamentArchive(); }} saveLabel={t('complete_tournament')}
+                            assignU25Awards={archiveIncludeU25Awards} setAssignU25Awards={setArchiveIncludeU25Awards}
+                            archive={{
+                                awards: archiveReceipt?.awards || archiveAwardPreview, pendingFinalMatches,
+                                committed: !!archiveReceipt, busy: archiveBusy, done: archiveDone, error: archiveError,
+                                email: archiveDone ? archiveReceipt?.email : null,
+                            }} />
+                    ) : <p className="text-sm font-bold text-slate-700">{t('alert_no_live_active')}</p>}
+                </div>
+            )}
+            {tab === 'matches' && currentMatchesView === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery} statusFilter={codesStatusFilter} />}
             </React.Suspense>
 {adminLeaseInfo.status !== 'off' && adminLeaseInfo.status !== 'active' && (
     <div className="fixed inset-0 z-[300] flex items-start justify-center bg-slate-900/40 p-4">
@@ -5084,64 +4938,11 @@ Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online and
     />
 )}
 
-{archiveReceipt && archiveError && !mvpModalOpen && (
+{archiveReceipt && archiveError && tab !== 'closing' && (
     <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4">
         <p>{t('data_db_sync_error_title')}</p>
-        <button type="button" className="font-bold underline" onClick={() => { setMvpModalForArchive(true); setMvpModalOpen(true); }}>
-            {t('archive_retry')}
-        </button>
+        <button type="button" className="font-bold underline" onClick={() => { void openLiveTab('closing'); }}>{t('archive_retry')}</button>
     </div>
-)}
-
-{mvpModalOpen && (
-    <MvpModal
-        forArchive={mvpModalForArchive}
-        allPlayers={allPlayers}
-        search={mvpSearch}
-        setSearch={setMvpSearch}
-        selectedIds={mvpSelectedIds}
-        setSelectedIds={setMvpSelectedIds}
-        searchPlaceholder={t('search')}
-        t={t}
-        onClose={() => {
-            if (archiveBusy) return;
-            setMvpModalOpen(false);
-            if (archiveDone || !archiveReceipt) {
-                setArchiveReceipt(null);
-                setArchiveDone(false);
-                setArchiveError('');
-            }
-        }}
-        onArchiveWithoutMvp={() => void submitTournamentArchive(false)}
-        onSave={async () => {
-            if (mvpModalForArchive) {
-                await submitTournamentArchive(true);
-                return;
-            }
-            if (!state.tournament) return;
-            const next = applyMvpsToState(state, mvpSelectedIds);
-            try {
-                const confirmed = await commitAdminStateDurably(next, 'set-mvp');
-                setState(confirmed);
-                setMvpModalOpen(false);
-                alert(t('alert_mvp_set'));
-            } catch (error) {
-                alert(error instanceof Error ? error.message : String(error));
-            }
-        }}
-        saveLabel={mvpModalForArchive ? t('save_mvp_and_archive') : t('admin_set')}
-        assignU25Awards={archiveIncludeU25Awards}
-        setAssignU25Awards={mvpModalForArchive ? setArchiveIncludeU25Awards : undefined}
-        archive={mvpModalForArchive ? {
-            awards: archiveReceipt?.awards || archiveAwardPreview,
-            pendingFinalMatches,
-            committed: !!archiveReceipt,
-            busy: archiveBusy,
-            done: archiveDone,
-            error: archiveError,
-            email: archiveDone ? archiveReceipt?.email : null,
-        } : undefined}
-    />
 )}
 
         </div>

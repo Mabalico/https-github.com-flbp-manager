@@ -10,6 +10,8 @@ import { useAdminTeamCalls } from '../useAdminTeamCalls';
 export type CodesStatusFilter = 'all' | 'scheduled' | 'playing' | 'finished';
 
 export interface CodesTabProps {
+    sharedQuery?: string;
+    onSharedQueryChange?: (query: string) => void;
     state: AppState;
     codesStatusFilter: CodesStatusFilter;
     setCodesStatusFilter: (v: CodesStatusFilter) => void;
@@ -21,6 +23,8 @@ export interface CodesTabProps {
 }
 
 export const CodesTab: React.FC<CodesTabProps> = ({
+    sharedQuery,
+    onSharedQueryChange,
     state,
     codesStatusFilter,
     setCodesStatusFilter,
@@ -30,7 +34,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
     reloadFromDb,
     isReloadingFromDb = false,
 }) => {
-    const [query, setQuery] = React.useState('');
+    const [localQuery, setLocalQuery] = React.useState('');
+    const query = sharedQuery ?? localQuery;
+    const setQuery = onSharedQueryChange ?? setLocalQuery;
     const { t } = useTranslation();
     const { getTeamCallMeta, triggerTeamCall } = useAdminTeamCalls(state);
 
@@ -144,6 +150,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 
             <div className="flex flex-col gap-2 sm:items-end">
                 <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end" role="toolbar" aria-label={t('codes_toolbar_aria')}>
+                    {sharedQuery === undefined && <>
                     <div className="relative w-full sm:w-auto">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
@@ -177,6 +184,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                         <option value="playing">{t('match_status_playing')}</option>
                         <option value="finished">{t('match_status_finished_plural')}</option>
                     </select>
+                    </>}
 
                     {reloadFromDb && (
                         <button
@@ -191,13 +199,13 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                         </button>
                     )}
 
-                    <button type="button"
+                    {sharedQuery === undefined && <button type="button"
                         onClick={printCodes}
                         className={btnSecondary}
                         title={t('print_code_list')}
                     >
                         <Printer className="w-4 h-4" /> {t('print')}
-                    </button>
+                    </button>}
                 </div>
 
                 <div className="text-xs font-bold text-slate-500">

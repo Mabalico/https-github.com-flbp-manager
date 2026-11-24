@@ -84,7 +84,7 @@ const text = (key: keyof typeof it) => {
 const tabMarkers = {
   teams: [`aria-label="${text('teams_actions_aria')}"`, 'SSR Team Amber'],
   data: [text('data_section_archive_players'), text('data_section_backup'), text('data_accounts_title'), text('data_section_technical')],
-  reports: [text('reports_select_match_step'), text('reports_select_match_option'), 'SSR-R1'],
+  reports: [text('admin_matches_enter_report'), text('reports_select_match_step'), text('reports_select_match_option'), 'SSR-R1'],
 };
 type Tab = keyof typeof tabMarkers;
 
@@ -94,7 +94,7 @@ const assertTab = (html: string, tab: Tab) => {
   if (tab === 'reports') assert(!/\{(?:shown|total|count)\}/.test(html), 'Reports must interpolate match counts and tie-break target.');
 };
 
-const render = async (tab: Tab | 'codes' | 'monitor_bracket' | 'monitor_groups' | 'structure', authenticated: boolean, state = fixtureState) => {
+const render = async (tab: Tab | 'codes' | 'monitor_bracket' | 'monitor_groups' | 'structure' | 'closing', authenticated: boolean, state = fixtureState) => {
   session.clear(); local.clear();
   globalThis.__FLBP_SSR_ADMIN_FIXTURE = { authenticated };
   session.setItem('flbp_admin_section', tab === 'data' ? 'data' : 'live');
@@ -176,8 +176,13 @@ if (!requestedTab) {
     const html = await render(tab, true, after);
     assert(html.includes('F1') && !/B21|B22|B31/.test(html), tab + ' must show final-group fixtures and omit superseded matches.');
     if (tab === 'codes') assert(html.includes('10/10') || /10(?:<!-- -->)?\/(?:<!-- -->)?10/.test(html), 'Codes total must exclude the three replaced fixtures.');
-    if (tab === 'monitor_groups') assert(html.includes(text('monitor_groups_search_aria')) && html.includes('Girone Finale'), 'The group monitor must render the activated final group.');
+    if (tab === 'monitor_groups') assert(html.includes(text('codes_search_aria')) && html.includes('Girone Finale'), 'The group monitor must render the activated final group.');
   }
+  const closing = await render('closing', true, after);
+  for (const key of ['admin_closing_standings', 'admin_closing_unplayed', 'archive_awards_summary'] as const) {
+    assert(closing.includes(text(key)), 'Closing must include ' + key);
+  }
+  assert(closing.includes('F1'), 'Pending final group matches must be linked from Closing.');
   console.log('PASS: final-group schedule and TBD actions across four Admin tabs.');
 }
 assert.equal(networkAttempts.length, 0, `Unexpected SSR IO: ${networkAttempts.join(', ')}`);

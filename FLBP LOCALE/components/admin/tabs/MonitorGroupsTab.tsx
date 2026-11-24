@@ -1,4 +1,5 @@
 import React from 'react';
+import type { CodesStatusFilter } from './CodesTab';
 import { LayoutDashboard, Search, X, Play, Square, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import type { Match, TournamentData } from '../../../types';
@@ -11,6 +12,9 @@ import { buildTournamentStructureIntegritySummary } from '../../../services/tour
 import { useTranslation } from '../../../App';
 
 export interface MonitorGroupsTabProps {
+    sharedQuery?: string;
+    onSharedQueryChange?: (query: string) => void;
+    statusFilter?: CodesStatusFilter;
     state: AppState;
     getTeamName: (teamId?: string) => string;
     toggleMatchStatus: (matchId: string) => void;
@@ -22,6 +26,9 @@ export interface MonitorGroupsTabProps {
 const ALL_GROUPS = '__ALL__';
 
 export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
+    sharedQuery,
+    onSharedQueryChange,
+    statusFilter = 'all',
     state,
     getTeamName,
     toggleMatchStatus,
@@ -48,7 +55,9 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
         return `group-card-${String(name || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     }, []);
 
-    const [query, setQuery] = React.useState<string>('');
+    const [localQuery, setLocalQuery] = React.useState('');
+    const query = sharedQuery ?? localQuery;
+    const setQuery = onSharedQueryChange ?? setLocalQuery;
 
     const tournamentTeams = React.useMemo(() => {
         // Union: prefer live roster, but always include teams added to the global catalog after live start.
@@ -80,6 +89,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
     const queryNorm = query.trim().toLowerCase();
 
     const matchMatchesQuery = React.useCallback((m: Match) => {
+        if (statusFilter !== 'all' && m.status !== statusFilter) return false;
         if (!queryNorm) return true;
         const code = ((m.code || m.id || '') + '').toLowerCase();
         const group = ((m.groupName || '') + '').toLowerCase();
@@ -90,7 +100,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
             if (name.includes(queryNorm)) return true;
         }
         return false;
-    }, [queryNorm, getTeamName]);
+    }, [queryNorm, getTeamName, statusFilter]);
 
     const openGroupTieBreaks = React.useMemo(() => {
         const ms = (state.tournamentMatches || [])
@@ -803,7 +813,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
         for (const g of groups) {
             const msAll = (matchesByGroup.get(g.name) || []);
             total += msAll.length;
-            filtered += (queryNorm ? msAll.filter(matchMatchesQuery).length : msAll.length);
+            filtered += msAll.filter(matchMatchesQuery).length;
         }
         return { total, filtered };
     }, [state.tournament, selectedGroup, allGroups, matchesByGroup, queryNorm, matchMatchesQuery]);
@@ -830,7 +840,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
 
                 <div className="flex flex-col gap-2 sm:items-end">
                     <div className="flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('monitor_groups_toolbar_aria')}>
-                        <div className="relative">
+                        {sharedQuery === undefined && <div className="relative">
                             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                             <input
                                 value={query}
@@ -849,7 +859,7 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                                     <X className="w-4 h-4 text-slate-500" />
                                 </button>
                             )}
-                        </div>
+                        </div>}
 
                         {state.tournament && (allGroups.length > 1) && (
                             <select
@@ -880,10 +890,10 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
 
             {state.tournament && (
                 <>
-                    {query.trim() && searchStats.filtered === 0 && (
+                    {(queryNorm || statusFilter !== 'all') && searchStats.filtered === 0 && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700 font-bold flex items-center justify-between gap-3 flex-wrap">
                             <div>
-                                {t('monitor_no_match_found_for').replace('{query}', `“${query.trim()}”`)}
+                                {queryNorm ? t('monitor_no_match_found_for').replace('{query}', `“${query.trim()}”`) : t('no_results_for_selected_filters')}
                                 <span className="text-slate-600 font-bold"> {t('monitor_groups_try_code_team_group')}</span>
                             </div>
                             <button
@@ -1569,10 +1579,11 @@ export const MonitorGroupsTab: React.FC<MonitorGroupsTabProps> = ({
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                 {groups.map(g => {
                                     const ms = (matchesByGroup.get(g.name) || []);
-                                    const played = ms.filter(m => m.status === 'finished');
-                                    const upcoming = ms.filter(m => m.status !== 'finished');
+                                    const matched = ms.filter(matchMatchesQuery);
+                                    const played = matched.filter(m => m.status === 'finished');
+                                    const upcoming = matched.filter(m => m.status !== 'finished');
                                     const total = ms.length;
-                                    const done = played.length;
+                                    const done = ms.filter(m => m.status === 'finished').length;
                                     const tieBreaks = ms.filter(m => m.isTieBreak);
                                     const openTieBreaks = tieBreaks.filter(m => m.status !== 'finished');
 
