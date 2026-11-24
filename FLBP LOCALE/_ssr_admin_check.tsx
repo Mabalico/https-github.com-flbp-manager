@@ -81,7 +81,7 @@ const text = (key: keyof typeof it) => {
 };
 const tabMarkers = {
   teams: [`aria-label="${text('teams_actions_aria')}"`, 'SSR Team Amber'],
-  data: [text('data_persistence_title'), text('data_traffic_title'), text('data_accounts_title')],
+  data: [text('data_section_archive_players'), text('data_section_backup'), text('data_accounts_title'), text('data_section_technical')],
   reports: [text('reports_select_match_step'), text('reports_select_match_option'), 'SSR-R1'],
 };
 type Tab = keyof typeof tabMarkers;

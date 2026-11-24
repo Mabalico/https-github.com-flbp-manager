@@ -33,7 +33,6 @@ import {
 } from '../../../../services/repository/featureFlags';
 import { clearRemoteDraftCache } from '../../../../services/repository/remoteDraftCache';
 import { flushAutoStructuredSync } from '../../../../services/autoDbSync';
-import { DbMigrationWizard } from './DbMigrationWizard';
 import { Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from '../../../../App';
 
@@ -623,15 +622,6 @@ export const DbSyncPanel: React.FC<{ state: AppState; setState: (s: AppState) =>
                                 </div>
                                 <div className="mt-1 text-slate-500">
                                     {t('db_current_status')}: <span className="font-black">{forceOverwrite ? t('db_active') : t('db_inactive')}</span>
-                                </div>
-                            </div>
-                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-                                <div className="text-xs font-black">{t('db_migration_first_setup')}</div>
-                                <div className="text-xs text-slate-600 mt-1">
-                                    {t('db_migration_full_path')}
-                                </div>
-                                <div className="mt-3">
-                                    <DbMigrationWizard state={state} forceOverwrite={forceOverwrite} />
                                 </div>
                             </div>
                         </div>

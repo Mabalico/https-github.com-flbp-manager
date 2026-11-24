@@ -37,7 +37,6 @@ import {
 import { clearRemoteDraftCache, discardRestorableRemoteDrafts, readCurrentRemoteDraftCache } from '../../../../services/repository/remoteDraftCache';
 import { flushAutoStructuredSync } from '../../../../services/autoDbSync';
 import { AdminDataConfirmModal } from './AdminDataConfirmModal';
-import { DbMigrationWizard } from './DbMigrationWizard';
 import { Cloud, CloudUpload, Eye, EyeOff, HardDrive, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { useTranslation } from '../../../../App';
 import { DATA_PLANE_CHANGE_LS_KEY, resolveDataPlane, type DataPlaneRoute } from '../../../../services/dataPlaneClient';
@@ -1379,15 +1378,6 @@ export const DbSyncPanel: React.FC<{
                             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                                 <div className="font-black">Sovrascrittura controllata</div>
                                 <div className="mt-1">Il comando one-shot è in “Azioni rapide” e richiede sempre confronto, spunta e parola di conferma.</div>
-                            </div>
-                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
-                                <div className="text-xs font-black">{t('db_migration_first_setup')}</div>
-                                <div className="text-xs text-slate-600 mt-1">
-                                    {t('db_migration_full_path')}
-                                </div>
-                                <div className="mt-3">
-                                    <DbMigrationWizard state={state} />
-                                </div>
                             </div>
                         </div>
                     </details>

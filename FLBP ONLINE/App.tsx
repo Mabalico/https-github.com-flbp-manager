@@ -1996,7 +1996,7 @@ const App: React.FC = () => {
 
     const openDbPersistence = () => {
         try { window.sessionStorage.setItem('flbp_admin_section', 'data'); } catch {}
-        try { window.sessionStorage.setItem('flbp_admin_data_main_section', 'persistence'); } catch {}
+        try { window.sessionStorage.setItem('flbp_admin_data_main_section', 'sync'); } catch {}
         void navigateToView('admin');
         try {
             window.dispatchEvent(new CustomEvent('flbp:open-data-persistence'));

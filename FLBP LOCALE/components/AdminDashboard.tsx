@@ -1649,7 +1649,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
 
     useEffect(() => {
         const onOpenDataPersistence = () => {
-            safeSessionSet('flbp_admin_data_main_section', 'persistence');
+            safeSessionSet('flbp_admin_data_main_section', 'sync');
             void switchAdminSection('data');
         };
         const onOpenDataViews = () => {

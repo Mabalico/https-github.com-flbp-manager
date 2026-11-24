@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClipboardList, ListChecks, Printer, Search, ShieldCheck, Trash2, X, Eye, EyeOff } from 'lucide-react';
+import { ClipboardList, ListChecks, Printer, Search, ShieldCheck, Trash2, X, Eye, EyeOff, Copy, ExternalLink } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import { getPlayerKey, isU25, resolvePlayerKey } from '../../../services/storageService';
 import type { Match, Team } from '../../../types';
@@ -20,7 +20,7 @@ export interface RefereesTabProps {
 
 export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setRefTables, getTeamName, updateLiveRefereesPassword, onDeleteReport }) => {
     const [query, setQuery] = React.useState('');
-    const [viewMode, setViewMode] = React.useState<'availability' | 'reports' | 'counter'>('availability');
+    const [viewMode, setViewMode] = React.useState<'reports' | 'counter'>('reports');
     const [reportQuery, setReportQuery] = React.useState('');
     const [expandedReportId, setExpandedReportId] = React.useState<string | null>(null);
     const [passwordDraft, setPasswordDraft] = React.useState('');
@@ -29,6 +29,15 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
     const [passwordError, setPasswordError] = React.useState<string | null>(null);
     const nTables = Math.max(1, Math.floor(refTables || 1));
     const { t } = useTranslation();
+    const [copyStatus, setCopyStatus] = React.useState<'copied' | 'failed' | null>(null);
+    const route = '?view=referees_area';
+    const accessUrl = typeof window === 'undefined' ? route : new URL(route, window.location.href).href;
+    const copyLink = async () => {
+        try {
+            await navigator.clipboard.writeText(accessUrl);
+            setCopyStatus('copied');
+        } catch { setCopyStatus('failed'); }
+    };
 
 
     // Lightweight Admin UI tokens (local to this tab): keeps buttons/inputs consistent
@@ -60,102 +69,11 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
         alert(result.message);
     };
     
-    return (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-                <h3 className="text-xl font-black flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5" /> {t('referees')}
-                </h3>
-                <div className="text-xs font-bold text-slate-500 mt-1">
-                    {t('referees_tab_desc')}
-                </div>
-            </div>
-    
-            <div className="flex flex-col gap-2 sm:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2" role="toolbar" aria-label={t('referees_actions_toolbar')}>
-                    <div className="relative">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            placeholder={t('referees_search_placeholder')}
-                            aria-label={t('referees_search_aria')}
-                            className={`w-full sm:w-72 max-w-full pl-9 pr-9 ${inputBase}`}
-                        />
-                        {query.trim() && (
-                            <button
-                                type="button"
-                                onClick={() => setQuery('')}
-                                className={`${iconBtn} absolute right-2 top-1/2 -translate-y-1/2`}
-                                aria-label={t('clear_search')}
-                                title={t('clear_search')}
-                            >
-                                <X className="w-4 h-4 text-slate-500" />
-                            </button>
-                        )}
-                    </div>
+    const panelClass = 'space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5';
 
-                    <div className="flex items-center gap-2">
-                        {!passwordOpen ? (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setPasswordOpen(true);
-                                    setPasswordError(null);
-                                }}
-                                disabled={!state.tournament}
-                                className={`${btnBase} disabled:bg-slate-100 disabled:text-slate-400`}
-                                title={!state.tournament ? t('alert_no_live_active') : t('referees_reset_password')}
-                            >
-                                {t('referees_password_button')}
-                            </button>
-                        ) : (
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <div className="relative">
-                                    <input
-                                        type={showPasswordDraft ? 'text' : 'password'}
-                                        value={passwordDraft}
-                                        onChange={(e) => {
-                                            setPasswordDraft(e.target.value);
-                                            setPasswordError(null);
-                                        }}
-                                        placeholder={t('referees_new_password_placeholder')}
-                                        className={`w-52 px-3 pr-10 ${inputBase}`}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPasswordDraft((v) => !v)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 rounded-lg p-1"
-                                        aria-label={showPasswordDraft ? t('hide_password') : t('show_password')}
-                                        title={showPasswordDraft ? t('hide_password') : t('show_password')}
-                                    >
-                                        {showPasswordDraft ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                    </button>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={handlePasswordSave}
-                                    disabled={!state.tournament}
-                                    className="inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
-                                >
-                                    {t('save_password')}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPasswordOpen(false);
-                                        setPasswordDraft('');
-                                        setPasswordError(null);
-                                    }}
-                                    className={btnBase}
-                                >
-                                    {t('referees_add_cancel')}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-    
+    const renderTables = (availability?: React.ReactNode) => (
+        <section className={panelClass} aria-label={t('tables_label')}>
+            <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
                         <div className="text-xs font-black text-slate-700 whitespace-nowrap">{t('tables_label')}</div>
                         <input
@@ -174,21 +92,100 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                             onBlur={handleZeroValueBlur}
                         />
                     </div>
-                </div>
-    
-                <div className="text-xs font-bold text-slate-500">
-                    {t('referees_round_block_prefix')} <b>{nTables}</b> {t('match_count_suffix')}
-                </div>
-                {passwordOpen && passwordError ? (
-                    <div className="text-xs font-black text-red-600">{passwordError}</div>
-                ) : null}
+                <p className="text-xs font-bold text-slate-600">{t('referees_round_block_prefix')} <b>{nTables}</b> {t('match_count_suffix')}</p>
             </div>
-        </div>
+            {availability}
+        </section>
+    );
+
+    return (
+    <div className="space-y-4">
+        <section className={panelClass}>
+            <h3 className="flex items-center gap-2 text-lg font-black">
+                <ShieldCheck className="h-5 w-5" aria-hidden="true" />{t('referees_access_heading')}
+            </h3>
+            <p className="select-all break-all rounded-lg bg-slate-50 p-3 font-mono text-base font-semibold text-slate-900">{accessUrl}</p>
+            <div className="flex flex-wrap items-center gap-2">
+                <button type="button" className={btnBase} onClick={() => { void copyLink(); }}>
+                    <Copy className="h-4 w-4" aria-hidden="true" />{t('referees_copy_link')}
+                </button>
+                <a className={btnBase} href={accessUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4" aria-hidden="true" />{t('open')}
+                </a>
+                {copyStatus && <span role="status" className="text-sm text-slate-700">{t(copyStatus === 'copied' ? 'referees_link_copied' : 'referees_copy_failed')}</span>}
+            </div>
+            <div className="flex items-center gap-2">
+                {!passwordOpen ? (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setPasswordOpen(true);
+                            setPasswordError(null);
+                        }}
+                        disabled={!state.tournament}
+                        className={`${btnBase} disabled:bg-slate-100 disabled:text-slate-400`}
+                        title={!state.tournament ? t('alert_no_live_active') : t('referees_reset_password')}
+                    >
+                        {t('referees_reset_password')}
+                    </button>
+                ) : (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative">
+                            <input
+                                type={showPasswordDraft ? 'text' : 'password'}
+                                value={passwordDraft}
+                                onChange={(e) => {
+                                    setPasswordDraft(e.target.value);
+                                    setPasswordError(null);
+                                }}
+                                placeholder={t('referees_new_password_placeholder')}
+                                aria-label={t('referees_new_password_placeholder')}
+                                autoComplete="new-password"
+                                className={`w-52 px-3 pr-10 ${inputBase}`}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPasswordDraft((v) => !v)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 rounded-lg p-1"
+                                aria-label={showPasswordDraft ? t('hide_password') : t('show_password')}
+                                title={showPasswordDraft ? t('hide_password') : t('show_password')}
+                            >
+                                {showPasswordDraft ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handlePasswordSave}
+                            disabled={!state.tournament}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
+                        >
+                            {t('save_password')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setPasswordOpen(false);
+                                setPasswordDraft('');
+                                setPasswordError(null);
+                            }}
+                            className={btnBase}
+                        >
+                            {t('referees_add_cancel')}
+                        </button>
+                    </div>
+                )}
+            </div>
     
+            {passwordOpen && passwordError && <p role="alert" className="text-sm font-bold text-red-700">{passwordError}</p>}
+        </section>
+
+        {!state.tournament && renderTables()}
+
         {!state.tournament && (
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-600 font-bold">
-                {t('admin_no_live_guidance')}. {t('structure')} → <b>{t('start_live')}</b>.
-            </div>
+            <section className={panelClass}>
+                <h3 className="text-lg font-black">{t('referees_reports_received')}</h3>
+                <p className="text-sm font-bold text-slate-600">{t('admin_no_live_guidance')}. {t('structure')} → <b>{t('start_live')}</b>.</p>
+            </section>
         )}
     
         {state.tournament && (
@@ -733,114 +730,136 @@ export const RefereesTab: React.FC<RefereesTabProps> = ({ state, refTables, setR
                         </div>
                     );
     
+                    const availability = (
+                        <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <summary className="cursor-pointer font-black">{t('referees_availability_tab')}</summary>
+                            <div className="mt-3 space-y-3">
+                                <div className="relative">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        value={query}
+                                        onChange={(e) => setQuery(e.target.value)}
+                                        placeholder={t('referees_search_placeholder')}
+                                        aria-label={t('referees_search_aria')}
+                                        className={`w-full sm:w-72 max-w-full pl-9 pr-9 ${inputBase}`}
+                                    />
+                                    {query.trim() && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setQuery('')}
+                                            className={`${iconBtn} absolute right-2 top-1/2 -translate-y-1/2`}
+                                            aria-label={t('clear_search')}
+                                            title={t('clear_search')}
+                                        >
+                                            <X className="w-4 h-4 text-slate-500" />
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                                        <div className="flex items-center justify-between gap-3 mb-2">
+                                            <div className="font-black text-slate-900">{t('current_round')}</div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-xs font-bold text-slate-500">{currentMatches.length}/{nTables}</div>
+                                                <button type="button"
+                                                    onClick={() => printRefSheets('Referti - Turno corrente', currentMatches, currentBlockIdx + 1)}
+                                                    className={btnBase}
+                                                    title={t('print_scoresheets_current_round')}
+                                                    aria-label={t('print_scoresheets_current_round')}
+                                                >
+                                                    <Printer className="w-4 h-4" /> <span className="hidden sm:inline">{t('print')}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {currentMatches.length === 0 ? (
+                                            <div className="text-sm font-bold text-slate-600">{t('no_matches_queued')}</div>
+                                        ) : (
+                                            <div className="space-y-1 text-xs font-bold text-slate-700">
+                                                {currentMatches.map(m => (<div key={m.id} className="leading-tight whitespace-normal break-words">{fmtMatch(m)}</div>))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                                        <div className="flex items-center justify-between gap-3 mb-2">
+                                            <div className="font-black text-slate-900">{t('next_round')}</div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-xs font-bold text-slate-500">{nextMatches.length}/{nTables}</div>
+                                                <button type="button"
+                                                    onClick={() => printRefSheets('Referti - Prossimo turno', nextMatches, currentBlockIdx + 2)}
+                                                    className={btnBase}
+                                                    title={t('print_scoresheets_next_round')}
+                                                    aria-label={t('print_scoresheets_next_round')}
+                                                >
+                                                    <Printer className="w-4 h-4" /> <span className="hidden sm:inline">{t('print')}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {nextMatches.length === 0 ? (
+                                            <div className="text-sm font-bold text-slate-600">{t('no_next_round_matches')}</div>
+                                        ) : (
+                                            <div className="space-y-1 text-xs font-bold text-slate-700">
+                                                {nextMatches.map(m => (<div key={m.id} className="leading-tight whitespace-normal break-words">{fmtMatch(m)}</div>))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {refs.length === 0 && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 font-bold">
+                                        {t('no_referees_found_assign')} <b>{t('teams')}</b>.
+                                    </div>
+                                )}
+
+                                {refs.length > 0 && query.trim() ? (
+                                    <div className="text-xs font-bold text-slate-500">
+                                        {t('search_results')}: <b>{refsFiltered.length}</b>/{refs.length}
+                                    </div>
+                                ) : null}
+
+                                {refs.length > 0 && refsFiltered.length === 0 && (
+                                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700 font-bold flex items-center justify-between gap-3 flex-wrap">
+                                        <div className="min-w-0">{t('no_referee_matches_search')} <b>“{query.trim()}”</b>.</div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setQuery('')}
+                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg font-black border border-slate-200 bg-white hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
+                                        >
+                                            <X className="w-4 h-4" /> {t('clear_search')}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {refsFiltered.length > 0 && (
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                        {renderBox(t('referees_busy_now'), 'rose', engagedNow, t('none_short'))}
+                                        {renderBox(t('referees_free_now'), 'emerald', freeNow, t('none_free'))}
+                                        {renderBox(t('referees_busy_next_round'), 'slate', engagedNext, t('none_short'))}
+                                    </div>
+                                )}
+
+                                <div className="text-xs font-bold text-slate-500">
+                                    {t('referees_rounds_note_prefix')} <b>{nTables}</b> {t('referees_rounds_note_suffix')}
+                                </div>
+                            </div>
+                        </details>
+                    );
+
                     return (
-                        <div className="space-y-4">
+                        <>
+                        {renderTables(availability)}
+                        <section className={panelClass}>
+                            <h3 className="text-lg font-black">{t('referees_reports_received')}</h3>
                             <div className="flex flex-wrap items-center gap-2">
-                                <button type="button" onClick={() => setViewMode('availability')} className={viewMode === 'availability' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
-                                    <ShieldCheck className="w-4 h-4" /> {t('referees_availability_tab')}
-                                </button>
-                                <button type="button" onClick={() => setViewMode('reports')} className={viewMode === 'reports' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
+                                <button type="button" aria-pressed={viewMode === 'reports'} onClick={() => setViewMode('reports')} className={viewMode === 'reports' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
                                     <ClipboardList className="w-4 h-4" /> {t('referees_audits_title')}
                                 </button>
-                                <button type="button" onClick={() => setViewMode('counter')} className={viewMode === 'counter' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
+                                <button type="button" aria-pressed={viewMode === 'counter'} onClick={() => setViewMode('counter')} className={viewMode === 'counter' ? 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-black border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2' : btnBase}>
                                     <ListChecks className="w-4 h-4" /> {t('referees_counter_title')}
                                 </button>
                             </div>
-
-
-                            {viewMode === 'availability' && (
-                                <>
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                                    <div className="flex items-center justify-between gap-3 mb-2">
-                                        <div className="font-black text-slate-900">{t('current_round')}</div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-xs font-bold text-slate-500">{currentMatches.length}/{nTables}</div>
-                                            <button type="button"
-                                                onClick={() => printRefSheets('Referti - Turno corrente', currentMatches, currentBlockIdx + 1)}
-                                                className={btnBase}
-                                                title={t('print_scoresheets_current_round')}
-                                                aria-label={t('print_scoresheets_current_round')}
-                                            >
-                                                <Printer className="w-4 h-4" /> <span className="hidden sm:inline">{t('print')}</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {currentMatches.length === 0 ? (
-                                        <div className="text-sm font-bold text-slate-600">{t('no_matches_queued')}</div>
-                                    ) : (
-                                        <div className="space-y-1 text-xs font-bold text-slate-700">
-                                            {currentMatches.map(m => (<div key={m.id} className="leading-tight whitespace-normal break-words">{fmtMatch(m)}</div>))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                                    <div className="flex items-center justify-between gap-3 mb-2">
-                                        <div className="font-black text-slate-900">{t('next_round')}</div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-xs font-bold text-slate-500">{nextMatches.length}/{nTables}</div>
-                                            <button type="button"
-                                                onClick={() => printRefSheets('Referti - Prossimo turno', nextMatches, currentBlockIdx + 2)}
-                                                className={btnBase}
-                                                title={t('print_scoresheets_next_round')}
-                                                aria-label={t('print_scoresheets_next_round')}
-                                            >
-                                                <Printer className="w-4 h-4" /> <span className="hidden sm:inline">{t('print')}</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {nextMatches.length === 0 ? (
-                                        <div className="text-sm font-bold text-slate-600">{t('no_next_round_matches')}</div>
-                                    ) : (
-                                        <div className="space-y-1 text-xs font-bold text-slate-700">
-                                            {nextMatches.map(m => (<div key={m.id} className="leading-tight whitespace-normal break-words">{fmtMatch(m)}</div>))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-    
-                            {refs.length === 0 && (
-                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900 font-bold">
-                                    {t('no_referees_found_assign')} <b>{t('teams')}</b>.
-                                </div>
-                            )}
-    
-                            {refs.length > 0 && query.trim() ? (
-                                <div className="text-xs font-bold text-slate-500">
-                                    {t('search_results')}: <b>{refsFiltered.length}</b>/{refs.length}
-                                </div>
-                            ) : null}
-    
-                            {refs.length > 0 && refsFiltered.length === 0 && (
-                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700 font-bold flex items-center justify-between gap-3 flex-wrap">
-                                    <div className="min-w-0">{t('no_referee_matches_search')} <b>“{query.trim()}”</b>.</div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setQuery('')}
-                                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg font-black border border-slate-200 bg-white hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500"
-                                    >
-                                        <X className="w-4 h-4" /> {t('clear_search')}
-                                    </button>
-                                </div>
-                            )}
-    
-                            {refsFiltered.length > 0 && (
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                    {renderBox(t('referees_busy_now'), 'rose', engagedNow, t('none_short'))}
-                                    {renderBox(t('referees_free_now'), 'emerald', freeNow, t('none_free'))}
-                                    {renderBox(t('referees_busy_next_round'), 'slate', engagedNext, t('none_short'))}
-                                </div>
-                            )}
-    
-                            <div className="text-xs font-bold text-slate-500">
-                                {t('referees_rounds_note_prefix')} <b>{nTables}</b> {t('referees_rounds_note_suffix')}
-                            </div>
-                                </>
-                            )}
-
-                            {viewMode === 'reports' && renderReportsView()}
-                            {viewMode === 'counter' && renderCounterView()}
-                        </div>
+                            {viewMode === 'reports' ? renderReportsView() : renderCounterView()}
+                        </section>
+                        </>
                     );
                 })()}
             </>
