@@ -393,6 +393,10 @@ Supporto UI:
 
 - Su schermi stretti i comandi e le schede Admin si dispongono su più righe. I menu rimangono accessibili anche con un torneo live.
 
+Quando apri una scheda torneo o giocatore, la vista parte dall'alto. Riaprire Classifica Storica dalla navigazione torna all'elenco. Il badge della classifica somma i riconoscimenti del profilo. Le fonti cumulative dei marcatori hanno un'etichetta leggibile e le schede dell'Albo d'oro mantengono le etichette anche su telefono.
+
+La pagina Admin mostra subito il caricamento e descrive l'accesso con i termini del modulo. I dettagli tecnici del database sono consultabili dagli strumenti Admin dopo l'accesso.
+
 ## 5) TV Mode (read-only)
 
 - Nelle viste TV il tabellone indica il campione sulla sua riga. La vista mista mostra anche il Girone Finale e usa tutta la larghezza del tabellone quando non ci sono gironi.

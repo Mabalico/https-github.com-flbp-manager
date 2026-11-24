@@ -40,7 +40,7 @@ try {
     page.setDefaultNavigationTimeout(60000);
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(origin + '/tests/ui/fantaNavigation.html', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Tornei', exact: true }).waitFor();
+    await home(page).waitFor();
     return { context, page };
   };
   const menu = async (page, name) => {
@@ -48,7 +48,7 @@ try {
     await page.getByRole('button', { name, exact: typeof name === 'string' }).last().click();
   };
   const fanta = page => page.getByRole('heading', { name: 'Torneo Fanta concluso', exact: true });
-  const home = page => page.getByRole('heading', { name: 'Tornei', exact: true });
+  const home = page => page.getByRole('heading', { name: 'Ultimi tornei', exact: true });
   const back = page => page.getByRole('button', { name: 'Indietro', exact: true }).click();
   const mode = async (page, button, value) => {
     await page.getByRole('button', { name: button, exact: true }).click();

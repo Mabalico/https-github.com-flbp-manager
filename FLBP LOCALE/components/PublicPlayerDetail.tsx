@@ -295,11 +295,13 @@ const buildParticipationRows = (profile: PlayerProfileSnapshot, t: (key: string)
 
   profile.contributions.forEach((row) => {
     const tournamentId = cleanDisplayValue(row.tournamentId);
+    const tournamentName = row.tournamentName || '';
+    const importedTotals = row.sourceType === 'manual_integration' && (!tournamentId || /\.(xlsx?|csv|ods)$/i.test(tournamentName.trim()));
 
     const item = ensureRow({
       id: tournamentId || 'integrated-history',
       openTournamentId: tournamentId,
-      name: row.tournamentName || (tournamentId ? null : t('player_area_integrated_history')),
+      name: importedTotals ? t('player_area_integrated_history') : tournamentName || null,
       year: row.tournamentYear || null,
       team: row.teamName || null,
     });

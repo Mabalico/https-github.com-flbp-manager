@@ -9,7 +9,7 @@ import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { readVitePublicDbRead } from '../services/viteEnv';
 import { readCachedPublicHallOfFameEntries, writeCachedPublicHallOfFameEntries } from '../services/publicViewCache';
-import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
+import { buildTitledHallOfFameRows, createHallOfFameChronology } from '../services/hallOfFameView';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
@@ -54,12 +54,6 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     return t('titled_players_plural');
   }, [activeTab, t]);
 
-  // Avoid fading the left edge of the first tab button ("Vincitori/Campioni"):
-  // show the left gradient only when the tab row has been scrolled.
-  const tabListRef = React.useRef<HTMLDivElement | null>(null);
-  const [showLeftFade, setShowLeftFade] = useState(false);
-  const [showRightFade, setShowRightFade] = useState(false);
-
   const safeDateLabel = React.useCallback((value?: string) => {
     const ts = Date.parse(String(value || ''));
     if (!Number.isFinite(ts)) return '';
@@ -70,58 +64,13 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     }).format(new Date(ts));
   }, []);
 
-  const extractIsoDateFromKey = React.useCallback((value?: string) => {
-    const raw = String(value || '').trim();
-    if (!raw) return undefined;
-    const match = raw.match(/(^|_)(\d{4}-\d{2}-\d{2})(_|$)/);
-    if (!match?.[2]) return undefined;
-    const iso = match[2];
-    return Number.isFinite(Date.parse(iso)) ? iso : undefined;
-  }, []);
-
-  const tournamentDateById = React.useMemo(() => {
-    const sourceState = stateOverride || localStateSnapshot || { tournamentHistory: [] } as AppState;
-    const map = new Map<string, string>();
-    (sourceState.tournamentHistory || []).forEach((tournament) => {
-      const id = String(tournament?.id || '').trim();
-      const startDate = String(tournament?.startDate || '').trim();
-      if (id && startDate) map.set(id, startDate);
-    });
-    return map;
-  }, [localStateSnapshot, stateOverride]);
-
-  const getTournamentStartDate = React.useCallback((entry: HallOfFameEntry) => {
-    const manualDate = String(entry.sourceTournamentDate || '').trim();
-    return tournamentDateById.get(String(entry.tournamentId || '').trim())
-      || tournamentDateById.get(String(entry.sourceTournamentId || '').trim())
-      || (Number.isFinite(Date.parse(manualDate)) ? manualDate : undefined)
-      || extractIsoDateFromKey(entry.tournamentId)
-      || extractIsoDateFromKey(entry.sourceTournamentId)
-      || extractIsoDateFromKey(entry.id);
-  }, [extractIsoDateFromKey, tournamentDateById]);
-
-  const getHallOfFameSortValue = React.useCallback((entry: HallOfFameEntry) => {
-    const directStartDate = getTournamentStartDate(entry);
-    const ts = Date.parse(String(directStartDate || ''));
-    if (Number.isFinite(ts)) return ts;
-    const yearNum = parseInt(String(entry.year || '0'), 10) || 0;
-    return yearNum > 0 ? Date.UTC(yearNum, 0, 1) : 0;
-  }, [getTournamentStartDate]);
-
-  const sortHallOfFameEntries = React.useCallback((list: HallOfFameEntry[]) => {
-    return list.slice().sort((a, b) => {
-      const byDate = getHallOfFameSortValue(b) - getHallOfFameSortValue(a);
-      if (byDate !== 0) return byDate;
-
-      const byYear = (parseInt(String(b.year || '0'), 10) || 0) - (parseInt(String(a.year || '0'), 10) || 0);
-      if (byYear !== 0) return byYear;
-
-      const byTournament = String(b.tournamentName || '').localeCompare(String(a.tournamentName || ''), 'it', { sensitivity: 'base' });
-      if (byTournament !== 0) return byTournament;
-
-      return String(b.id || '').localeCompare(String(a.id || ''), 'it', { sensitivity: 'base' });
-    });
-  }, [getHallOfFameSortValue]);
+  const chronology = React.useMemo(
+    () => createHallOfFameChronology((stateOverride || localStateSnapshot)?.tournamentHistory || []),
+    [localStateSnapshot, stateOverride],
+  );
+  const { getDate: getTournamentStartDate } = chronology;
+  const sortHallOfFameEntries = React.useCallback((entries: HallOfFameEntry[]) =>
+    [...entries].sort(chronology.compare), [chronology]);
 
   const getTournamentDateLabel = React.useCallback((entry: HallOfFameEntry) => {
     const directStartDate = getTournamentStartDate(entry);
@@ -137,20 +86,6 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
       playerBirthDate: String(input.playerBirthDate || '').trim() || undefined,
     });
   }, []);
-
-  const updateTabFades = React.useCallback(() => {
-    const el = tabListRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
-    setShowLeftFade(scrollLeft > 1);
-    setShowRightFade(scrollLeft + clientWidth < scrollWidth - 1);
-  }, []);
-
-  useEffect(() => {
-    updateTabFades();
-    window.addEventListener('resize', updateTabFades);
-    return () => window.removeEventListener('resize', updateTabFades);
-  }, [updateTabFades]);
 
   const PUBLIC_DB_READ_LS_KEY = 'flbp_public_db_read';
   const publicDbReadEnabled = () => {
@@ -220,12 +155,10 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
     id,
     label,
     icon,
-    badge,
   }: {
     id: 'winner' | 'top_scorer' | 'top_scorer_u25' | 'defender' | 'defender_u25' | 'mvp' | 'titled';
     label: string;
     icon: React.ReactNode;
-    badge?: string;
   }) => {
     const isActive = activeTab === id;
     return (
@@ -237,19 +170,14 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
         aria-selected={isActive}
         aria-label={label}
         onClick={() => setActiveTab(id)}
-        className={`inline-flex items-center gap-2 whitespace-nowrap px-4 py-2.5 rounded-xl font-black text-sm transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${
+        className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl font-black text-xs sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${
           isActive
             ? 'bg-beer-500 text-white shadow-md ring-1 ring-beer-200'
             : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
         }`}
       >
         <span className="shrink-0">{icon}</span>
-        {badge && (
-          <span className="inline-flex items-center rounded-full bg-slate-900/10 px-2 py-0.5 text-[10px] font-black text-slate-700">
-            {badge}
-          </span>
-        )}
-        <span className="hidden sm:inline">{label}</span>
+        <span>{label}</span>
       </button>
     );
   };
@@ -316,7 +244,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
       const colCount = 9;
 
       const headerButtonClass = (active: boolean) =>
-        `inline-flex items-center justify-center w-full gap-1.5 rounded-lg px-1 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${
+        `inline-flex flex-col items-center justify-center w-full gap-1 rounded-lg px-1 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${
           active ? 'text-beer-600' : 'text-slate-500 hover:text-slate-700'
         }`;
 
@@ -325,12 +253,12 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
 
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className={tableScrollClass}>
-            <table className="w-full text-left" style={{ minWidth: 840 }}>
+            <table className="w-full min-w-[760px] text-start lg:min-w-0 lg:table-fixed">
               <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                 <tr>
-                  <th className={`py-3 px-3 sm:p-4 w-16 text-center ${stickyTh}`}>#</th>
-                  <th className={`py-3 px-3 sm:p-4 ${stickyTh}`}>{t('players')}</th>
-                  <th className={`py-3 px-3 sm:p-4 text-center ${stickyTh}`}>
+                  <th className={`sticky start-0 z-20 w-12 min-w-12 bg-slate-50 px-1 py-3 text-center ${stickyTh}`}>#</th>
+                  <th className={`sticky start-12 z-20 w-[170px] bg-slate-50 px-3 py-3 lg:w-[24%] ${stickyTh}`}>{t('players')}</th>
+                  <th className={`px-2 py-3 text-center ${stickyTh}`}>
                     <button
                       type="button"
                       onClick={() => setTitledSort('total')}
@@ -351,6 +279,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_winner')}
                     >
                       <Trophy className="w-4 h-4" aria-hidden />
+                      <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_winner')}</span>
                     </button>
                   </th>
                   <th className={`py-3 px-3 sm:p-4 text-center ${stickyTh}`} title={t('tournament_top_scorer')}>
@@ -361,6 +290,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_top_scorer')}
                     >
                       <PlasticCupIcon className="w-4 h-4" />
+                      <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_top_scorer')}</span>
                     </button>
                   </th>
                   <th className={`py-3 px-3 sm:p-4 text-center ${stickyTh}`} title={t('tournament_defender')}>
@@ -371,6 +301,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_defender')}
                     >
                       <Wind className="w-4 h-4" aria-hidden />
+                      <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_defender')}</span>
                     </button>
                   </th>
                   <th className={`py-3 px-3 sm:p-4 text-center ${stickyTh}`} title={t('tournament_mvp')}>
@@ -381,6 +312,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_mvp')}
                     >
                       <Star className="w-4 h-4" aria-hidden />
+                      <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_mvp')}</span>
                     </button>
                   </th>
                   <th className={`py-3 px-3 sm:p-4 text-center ${stickyTh}`} title={t('tournament_top_scorer_u25')}>
@@ -391,7 +323,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_top_scorer_u25')}
                     >
                       <PlasticCupIcon className="w-4 h-4" />
-                      <span className="text-[10px] font-black opacity-70">U25</span>
+                      <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_top_scorer_u25')}</span>
                     </button>
                   </th>
                   <th className={`py-3 px-3 sm:p-4 text-center ${stickyTh}`} title={t('tournament_defender_u25')}>
@@ -402,7 +334,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_defender_u25')}
                     >
                       <Wind className="w-4 h-4" aria-hidden />
-                      <span className="text-[10px] font-black opacity-70">U25</span>
+                      <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_defender_u25')}</span>
                     </button>
                   </th>
                 </tr>
@@ -424,8 +356,8 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                     tabIndex={0}
                     aria-label={`Apri dati giocatore ${p.name}`}
                   >
-                    <td className="py-3 px-3 sm:p-4 text-center font-bold text-slate-400">{idx + 1}</td>
-                    <td className="py-3 px-3 sm:p-4 font-black text-slate-800 text-lg sm:whitespace-nowrap break-words">{p.name}</td>
+                    <td className="sticky start-0 z-10 w-12 min-w-12 bg-white py-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                    <td className="sticky start-12 z-10 bg-white px-3 py-3 text-sm font-black text-slate-800 [overflow-wrap:anywhere] lg:text-base">{p.name}</td>
 
                     <td className="py-3 px-3 sm:p-4 text-center font-black text-beer-600 text-xl">{p.total}</td>
 
@@ -613,28 +545,14 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
 
       <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex flex-col gap-3" role="toolbar" aria-label={t('hall_of_fame_aria')}>
-          <div className="relative">
-            <div
-              role="tablist"
-              aria-label={t('hall_of_fame_aria')}
-              ref={tabListRef}
-              onScroll={updateTabFades}
-              className="relative z-10 flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-10 scrollbar-hide"
-            >
-              <TabButton id="winner" label={t('winner_plural')} icon={<Trophy className="w-4 h-4" aria-hidden />} />
-              <TabButton id="top_scorer" label={t('top_scorers_plural')} icon={<PlasticCupIcon className="w-4 h-4 text-slate-700" />} />
-              <TabButton id="top_scorer_u25" label={`${t('top_scorers_plural')} (U25)`} badge="U25" icon={<PlasticCupIcon className="w-4 h-4 text-slate-700" />} />
-              <TabButton id="defender" label={t('defenders_plural')} icon={<Wind className="w-4 h-4" aria-hidden />} />
-              <TabButton id="defender_u25" label={`${t('defenders_plural')} (U25)`} badge="U25" icon={<Wind className="w-4 h-4" aria-hidden />} />
-              <TabButton id="mvp" label={t('mvp_plural')} icon={<Star className="w-4 h-4" aria-hidden />} />
-              <TabButton id="titled" label={t('titled_players_plural')} icon={<Medal className="w-4 h-4" aria-hidden />} />
-            </div>
-            {showRightFade && (
-              <div className="pointer-events-none absolute right-0 top-0 z-0 h-full w-10 bg-gradient-to-l from-white to-transparent" />
-            )}
-            {showLeftFade && (
-              <div className="pointer-events-none absolute left-0 top-0 z-0 h-full w-6 bg-gradient-to-r from-white to-transparent" />
-            )}
+          <div role="tablist" aria-label={t('hall_of_fame_aria')} className="flex flex-wrap gap-2">
+            <TabButton id="winner" label={t('winner_plural')} icon={<Trophy className="w-4 h-4" aria-hidden />} />
+            <TabButton id="top_scorer" label={t('top_scorers_plural')} icon={<PlasticCupIcon className="w-4 h-4 text-slate-700" />} />
+            <TabButton id="top_scorer_u25" label={`${t('top_scorers_plural')} (U25)`} icon={<PlasticCupIcon className="w-4 h-4 text-slate-700" />} />
+            <TabButton id="defender" label={t('defenders_plural')} icon={<Wind className="w-4 h-4" aria-hidden />} />
+            <TabButton id="defender_u25" label={`${t('defenders_plural')} (U25)`} icon={<Wind className="w-4 h-4" aria-hidden />} />
+            <TabButton id="mvp" label={t('mvp_plural')} icon={<Star className="w-4 h-4" aria-hidden />} />
+            <TabButton id="titled" label={t('titled_players_plural')} icon={<Medal className="w-4 h-4" aria-hidden />} />
           </div>
 
           {activeTab === 'titled' && (

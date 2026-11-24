@@ -1,16 +1,15 @@
 import { scoringRankIndex } from '../services/awardRules';
 import { countedIntegrations, listEditions, editionMatches } from '../services/editionData';
-import { getHallOfFamePlayerRefs } from '../services/playerDataProvenance';
+import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, loadState, getPlayerKey, resolvePlayerKey, isU25 } from '../services/storageService';
-import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
+import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, getPlayerKeyLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { PlayerStats, Match, Team } from '../types';
 import { useTranslation } from '../App';
-import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, Star, Wind, X, CalendarDays } from 'lucide-react';
+import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, X, CalendarDays } from 'lucide-react';
 import { getSupabaseConfig, pullPublicCareerLeaderboard, pullPublicHallOfFameEntries } from '../services/supabasePublic';
 import { isLocalOnlyMode, isRemoteRepositoryEnabled } from '../services/repository/featureFlags';
 import { normalizeNameLower } from '../services/textUtils';
-import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { hasCountedPlayerStats } from '../services/matchUtils';
@@ -29,6 +28,7 @@ type LeaderboardProps = {
      * When omitted, falls back to localStorage.
      */
     stateOverride?: AppState;
+    returnToListRequest?: number;
 };
 
 const PUBLIC_DB_READ_LS_KEY = 'flbp_public_db_read';
@@ -87,7 +87,7 @@ const getWinningTeamId = (match: Match, teamsSource: Team[]): string | null => {
     return match.scoreA > match.scoreB ? match.teamAId : match.teamBId;
 };
 
-export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
+export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride, returnToListRequest }) => {
     const { t } = useTranslation();
     const nativeShell = isEmbeddedNativeShell();
     const [localStateSnapshot] = useState<AppState | null>(() => (stateOverride ? null : loadState()));
@@ -98,6 +98,14 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride }) => {
     const [onlyU25, setOnlyU25] = useState(false);
     const [sortField, setSortField] = useState<'points' | 'soffi' | 'gamesPlayed' | 'winRate' | 'avgPoints' | 'avgSoffi'>('points');
     const [selectedPlayer, setSelectedPlayer] = useState<PlayerStats | null>(null);
+
+    useEffect(() => {
+        setSelectedPlayer(null);
+    }, [returnToListRequest]);
+
+    useEffect(() => {
+        if (selectedPlayer) window.scrollTo({ top: 0, behavior: 'instant' });
+    }, [selectedPlayer]);
 
     const [dbStats, setDbStats] = useState<PlayerStats[] | null>(null);
     const [dbHoF, setDbHoF] = useState<import('../types').HallOfFameEntry[] | null>(null);
@@ -332,65 +340,23 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         return res;
     }, [stats]);
 
+    const hallOfFame = state.hallOfFame?.length ? state.hallOfFame : dbHoF || [];
     const titleCountsByPlayerId = useMemo(() => {
-        type TitleCounts = { winner: number; top_scorer: number; defender: number; mvp: number; top_scorer_u25: number; defender_u25: number };
-        const byId: Record<string, TitleCounts> = {};
-
-        const ensure = (id: string) => {
-            if (!byId[id]) byId[id] = { winner: 0, top_scorer: 0, defender: 0, mvp: 0, top_scorer_u25: 0, defender_u25: 0 };
-            return byId[id];
-        };
-
-        // Index players by normalized name to allow safe fallback mapping (only if unique).
-        const byName = new Map<string, string[]>();
-        const validIds = new Set<string>();
-        stats.forEach(p => {
-            const k = normalizeName(p.name);
-            const arr = byName.get(k) || [];
-            arr.push(p.id);
-            byName.set(k, arr);
-            validIds.add(p.id);
-        });
-
-        const uniqueIdByName = (name: string) => {
-            const k = normalizeName(name);
-            const arr = byName.get(k) || [];
-            return arr.length === 1 ? arr[0] : undefined;
-        };
-
-        const hofSource = (dbHoF && dbHoF.length) ? dbHoF : (state.hallOfFame || []);
-
-        hofSource.forEach(e => {
-            if (e.type === 'winner') {
-                getHallOfFamePlayerRefs(state, e).forEach(ref => {
-                    const hasIdentity = !!e.playerIds?.length || !!e.playerBirthDates?.length;
-                    const pid = validIds.has(ref.playerId) ? ref.playerId : hasIdentity ? undefined : uniqueIdByName(ref.playerName);
-                    if (pid) ensure(pid).winner += 1;
-                });
-                return;
-            }
-
-            const primaryName = (e.playerNames && e.playerNames[0]) ? e.playerNames[0] : '';
-            let pid: string | undefined = e.playerId ? resolvePlayerKey(state, e.playerId) : undefined;
-
-            // Prefer direct match, otherwise fallback by unique name (avoid homonym merge).
-            if (!e.playerId && !e.playerBirthDate) {
-                const fallback = uniqueIdByName(primaryName);
-                if (fallback) pid = fallback;
-            }
-
-            if (!pid) return;
-            const c = ensure(pid);
-
-            if (e.type === 'top_scorer') c.top_scorer += 1;
-            if (e.type === 'top_scorer_u25') c.top_scorer_u25 += 1;
-            if (e.type === 'defender') c.defender += 1;
-            if (e.type === 'defender_u25') c.defender_u25 += 1;
-            if (e.type === 'mvp') c.mvp += 1;
-        });
-
-        return byId;
-    }, [stats, state.hallOfFame, dbHoF]);
+        const idsByName = new Map<string, string[]>();
+        for (const player of stats) {
+            const name = normalizeName(player.name);
+            idsByName.set(name, [...(idsByName.get(name) || []), player.id]);
+        }
+        const playerIds = new Set(stats.map(player => player.id));
+        const totals: Record<string, number> = {};
+        for (const row of buildTitledHallOfFameRows(state, hallOfFame)) {
+            const candidates = idsByName.get(normalizeName(row.name)) || [];
+            const hasKnownIdentity = getPlayerKeyLabel(row.key).yob !== 'ND';
+            const id = playerIds.has(row.key) ? row.key : !hasKnownIdentity && candidates.length === 1 ? candidates[0] : null;
+            if (id) totals[id] = (totals[id] || 0) + row.total + row.u25Total;
+        }
+        return totals;
+    }, [stats, state, hallOfFame]);
 
     const rankIndex = (index: number) => scoringRankIndex(filteredStats, index, sortField);
     const filteredStats = stats
@@ -431,86 +397,23 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         </th>
     );
 
-    const renderPlayerAwardBadges = (p: PlayerStats) => {
-        const c = titleCountsByPlayerId[p.id];
-        if (!c) return null;
-        const parts: React.ReactNode[] = [];
-
-        const awardBadge = (
-            key: string,
-            title: string,
-            icon: React.ReactNode,
-            count: number,
-            className: string
-        ) => (
-            <span
-                key={key}
-                title={title}
-                className={`inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-black ${className} cursor-help select-none`}
-            >
-                {icon}
-                {count > 1 ? `×${count}` : ''}
+    const renderPlayerAwardBadges = (player: PlayerStats) => {
+        const count = titleCountsByPlayerId[player.id] || 0;
+        if (!count) return null;
+        return (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-black text-amber-900"
+                title={t('players_titles_count').replace('{count}', String(count))}
+                aria-label={t('players_titles_count').replace('{count}', String(count))}>
+                <Trophy className="h-3.5 w-3.5" aria-hidden />
+                ×{count}
             </span>
         );
-
-        if (c.winner) {
-            parts.push(
-                awardBadge('w', 'Vittoria torneo', <Trophy className="w-4 h-4 text-yellow-600" aria-hidden />, c.winner, 'text-slate-700')
-            );
-        }
-        if (c.top_scorer) {
-            parts.push(
-                awardBadge(
-                    'ts',
-                    'Capocannoniere',
-                    <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                    c.top_scorer,
-                    'text-slate-700'
-                )
-            );
-        }
-        if (c.defender) {
-            parts.push(
-                awardBadge('def', 'Miglior difensore', <Wind className="w-4 h-4 text-sky-600" aria-hidden />, c.defender, 'text-slate-700')
-            );
-        }
-        if (c.mvp) {
-            parts.push(
-                awardBadge('mvp', 'MVP', <Star className="w-4 h-4 text-amber-600" aria-hidden />, c.mvp, 'text-slate-700')
-            );
-        }
-
-        const u25Parts: React.ReactNode[] = [];
-        if (!c.top_scorer && c.top_scorer_u25) {
-            u25Parts.push(
-                awardBadge(
-                    'tsu',
-                    'Capocannoniere U25',
-                    <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                    c.top_scorer_u25,
-                    'text-slate-600'
-                )
-            );
-        }
-        if (!c.defender && c.defender_u25) {
-            u25Parts.push(
-                awardBadge(
-                    'defu',
-                    'Difensore U25',
-                    <Wind className="w-4 h-4 text-sky-600" aria-hidden />,
-                    c.defender_u25,
-                    'text-slate-600'
-                )
-            );
-        }
-        if (u25Parts.length) parts.push(<span key="u25" className="flex items-center gap-1">{u25Parts}</span>);
-        return parts.length ? <span className="flex flex-wrap items-center gap-1">{parts}</span> : null;
     };
 
     if (selectedPlayer) {
         return (
             <PublicPlayerDetail
-                state={state}
+                state={{ ...state, hallOfFame }}
                 playerId={selectedPlayer.id}
                 playerName={selectedPlayer.name}
                 playerBirthDate={selectedPlayer.birthDate}
@@ -521,9 +424,9 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
     }
 
     return (
-        <div className="space-y-8 animate-fade-in">
+        <div className="space-y-3 sm:space-y-8">
             {/* Public page header: "sport scoreboard" vibe + clear hierarchy */}
-            <div className="bg-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+            <div className="hidden overflow-hidden rounded-3xl bg-slate-900 p-8 text-white shadow-xl sm:block sm:relative">
                 <div className="absolute -right-24 -top-24 w-72 h-72 rounded-full bg-beer-500/20 blur-3xl" aria-hidden />
                 <div className="absolute -left-24 -bottom-24 w-72 h-72 rounded-full bg-blue-500/10 blur-3xl" aria-hidden />
 
@@ -562,7 +465,12 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                 </div>
             </div>
 
-            <div role="toolbar" aria-label={t('leaderboard_controls')} className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 sm:hidden">
+                <h1 className="text-xl font-black text-slate-950">{t('historical')}</h1>
+                <span className="text-sm font-bold text-slate-600">{filteredStats.length} {t('players').toLocaleLowerCase()}</span>
+            </div>
+
+            <div role="toolbar" aria-label={t('leaderboard_controls')} className="flex flex-col items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:gap-4 sm:p-5 md:flex-row">
                 <div className="relative w-full md:w-96">
                     <Search className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" aria-hidden />
                     <input 
@@ -584,8 +492,8 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                         </button>
                     )}
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 w-full md:w-auto">
-                    <div className="relative w-full sm:w-auto sm:min-w-[200px]">
+                <div className="flex w-full items-center gap-2 sm:flex-wrap sm:justify-end md:w-auto">
+                    <div className="relative hidden w-full sm:block sm:w-auto sm:min-w-[180px]">
                         <CalendarDays className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" aria-hidden />
                         <select
                             value={yearFilter}
@@ -599,7 +507,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                             ))}
                         </select>
                     </div>
-                    <div className="relative w-full sm:w-auto sm:min-w-[220px]">
+                    <div className="relative min-w-0 flex-1 sm:w-auto sm:min-w-[185px] sm:flex-none">
                         <ArrowUpDown className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" aria-hidden />
                         <select
                             value={sortField}
@@ -619,16 +527,17 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                     <button 
                         onClick={() => setOnlyPro(!onlyPro)}
                         aria-pressed={onlyPro}
-                        className={`inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-black transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyPro ? 'bg-beer-500 text-white ring-1 ring-beer-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                        className={`inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl px-2.5 py-2 text-sm font-black transition shadow-sm sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyPro ? 'bg-beer-500 text-white ring-1 ring-beer-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                         title={t('pro_mode')}
+                        aria-label={t('pro_mode')}
                     >
-                        <Filter className="w-4 h-4" />
-                        {t('pro_mode')}
+                        <Filter className="hidden h-4 w-4 sm:block" aria-hidden="true" />
+                        <span className="sm:hidden">Pro</span><span className="hidden sm:inline">{t('pro_mode')}</span>
                     </button>
                     <button
                         onClick={() => setOnlyU25(!onlyU25)}
                         aria-pressed={onlyU25}
-                        className={`inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-black transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyU25 ? 'bg-green-600 text-white ring-1 ring-green-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                        className={`inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl px-2.5 py-2 text-sm font-black transition shadow-sm sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyU25 ? 'bg-green-600 text-white ring-1 ring-green-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                         title="U25"
                     >
                         U25
@@ -636,68 +545,39 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                 </div>
             </div>
 
-            <div className="hidden">
-                {filteredStats.map((p, idx) => (
-                    <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setSelectedPlayer(p)}
-                        className="w-full rounded-[22px] border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-beer-200 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
-                        aria-label={`Apri dati giocatore ${p.name}`}
-                    >
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-xs font-black text-white">
-                                        {rankIndex(idx) < 3 ? (
-                                            rankIndex(idx) === 0 ? <Trophy className="h-4 w-4 text-yellow-400" /> :
-                                            rankIndex(idx) === 1 ? <Medal className="h-4 w-4 text-slate-300" /> :
-                                            <Medal className="h-4 w-4 text-orange-300" />
-                                        ) : rankIndex(idx) + 1}
+            <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white sm:hidden">
+                {filteredStats.map((player, index) => {
+                    const titles = titleCountsByPlayerId[player.id] || 0;
+                    const value = sortField === 'winRate' ? formatWinRate(player) : player[sortField];
+                    const unit = sortField === 'points' || sortField === 'avgPoints' ? t('leaderboard_points_short')
+                        : sortField === 'soffi' || sortField === 'avgSoffi' ? t('leaderboard_soffi_short')
+                        : sortField === 'gamesPlayed' ? t('games').toLocaleLowerCase() : '';
+                    return (
+                        <li key={player.id}>
+                            <button type="button" className="flex min-h-[58px] w-full items-center gap-2 px-3 py-2 text-start hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-600" onClick={() => setSelectedPlayer(player)}>
+                                <span className="w-6 shrink-0 text-center text-sm font-black tabular-nums text-slate-600">{rankIndex(index) + 1}</span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block break-words text-sm font-black text-slate-950">{player.name}</span>
+                                    {disambiguateNameMap[normalizeName(player.name)] && getDisplayBirthIdentityLabel(player) && (
+                                        <span className="block text-xs text-slate-600">{getDisplayBirthIdentityLabel(player)}</span>
+                                    )}
+                                    <span className="block text-xs font-medium text-slate-600">
+                                        {t(player.gamesPlayed === 1 ? 'leaderboard_games_one' : 'leaderboard_games_count').replace('{count}', String(player.gamesPlayed))}
+                                        {' · '}{t(titles === 1 ? 'leaderboard_title_one' : 'players_titles_count').replace('{count}', String(titles))}
                                     </span>
-                                    <div className="min-w-0">
-                                        <div className="truncate text-base font-black text-slate-950">{p.name}</div>
-                                        {disambiguateNameMap[normalizeName(p.name)] && getDisplayBirthIdentityLabel(p) ? (
-                                            <div className="text-[11px] font-bold text-slate-400">{getDisplayBirthIdentityLabel(p)}</div>
-                                        ) : null}
-                                    </div>
-                                </div>
-                                <div className="mt-2">{renderPlayerAwardBadges(p)}</div>
-                            </div>
-                            <div className="shrink-0 text-right">
-                                <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">{t('games')}</div>
-                                <div className="text-xl font-black text-slate-900">{p.gamesPlayed}</div>
-                            </div>
-                        </div>
+                                </span>
+                                {renderPlayerAwardBadges(player)}
+                                <span className="shrink-0 text-end text-lg font-black tabular-nums text-slate-950">
+                                    {value}{unit && <span className="text-[10px] font-bold text-slate-600">{' '}{unit}</span>}
+                                </span>
+                            </button>
+                        </li>
+                    );
+                })}
+                {filteredStats.length === 0 && <li className="p-5 text-center text-sm text-slate-600">{t('no_players_found')}</li>}
+            </ul>
 
-                        <div className="mt-4 grid grid-cols-3 gap-2">
-                            <div className="rounded-2xl bg-beer-50 px-3 py-2">
-                                <div className="text-[10px] font-black uppercase text-beer-700">{t('points')}</div>
-                                <div className="text-lg font-black text-slate-950">{p.points}</div>
-                            </div>
-                            <div className="rounded-2xl bg-sky-50 px-3 py-2">
-                                <div className="text-[10px] font-black uppercase text-sky-700">{t('soffi')}</div>
-                                <div className="text-lg font-black text-slate-950">{p.soffi}</div>
-                            </div>
-                            <div className="rounded-2xl bg-emerald-50 px-3 py-2">
-                                <div className="text-[10px] font-black uppercase text-emerald-700">{t('standings_wins_short')}%</div>
-                                <div className="text-lg font-black text-slate-950">{formatWinRate(p)}</div>
-                            </div>
-                        </div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">{t('avg_points')}: <span className="text-slate-900">{p.avgPoints}</span></div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">{t('avg_soffi')}: <span className="text-slate-900">{p.avgSoffi}</span></div>
-                        </div>
-                    </button>
-                ))}
-                {filteredStats.length === 0 && (
-                    <div className="rounded-[22px] border border-slate-200 bg-white p-8 text-center font-bold text-slate-400">
-                        {t('no_players_found')}
-                    </div>
-                )}
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:block">
                 <div className={tableScrollClass}>
                     <table className="w-full min-w-[820px] text-left text-[13px] sm:min-w-[1020px] sm:text-sm">
                         <thead className="bg-slate-50 text-slate-500 text-xs font-black uppercase tracking-wider">
@@ -738,83 +618,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                     <td className={`${thPad}`}>
                                         <div className="font-bold text-slate-900 text-base flex items-center gap-2 flex-wrap">
                                             <span>{p.name}</span>
-                                            {(() => {
-                                                const c = titleCountsByPlayerId[p.id];
-                                                if (!c) return null;
-                                                const parts: React.ReactNode[] = [];
-
-                                                const awardBadge = (
-                                                    key: string,
-                                                    title: string,
-                                                    icon: React.ReactNode,
-                                                    count: number,
-                                                    className: string
-                                                ) => (
-                                                    <span
-                                                        key={key}
-                                                        title={title}
-                                                        className={`inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-black ${className} cursor-help select-none`}
-                                                    >
-                                                        {icon}
-                                                        {count > 1 ? `×${count}` : ''}
-                                                    </span>
-                                                );
-
-                                                if (c.winner) {
-                                                    parts.push(
-                                                        awardBadge('w', 'Vittoria torneo', <Trophy className="w-4 h-4 text-yellow-600" aria-hidden />, c.winner, 'text-slate-700')
-                                                    );
-                                                }
-                                                if (c.top_scorer) {
-                                                    parts.push(
-                                                        awardBadge(
-                                                            'ts',
-                                                            'Capocannoniere',
-                                                            <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                                                            c.top_scorer,
-                                                            'text-slate-700'
-                                                        )
-                                                    );
-                                                }
-                                                if (c.defender) {
-                                                    parts.push(
-                                                        awardBadge('def', 'Miglior difensore', <Wind className="w-4 h-4 text-sky-600" aria-hidden />, c.defender, 'text-slate-700')
-                                                    );
-                                                }
-                                                if (c.mvp) {
-                                                    parts.push(
-                                                        awardBadge('mvp', 'MVP', <Star className="w-4 h-4 text-amber-600" aria-hidden />, c.mvp, 'text-slate-700')
-                                                    );
-                                                }
-
-                                                // U25 awards: show only if the player doesn't already have the corresponding general award.
-                                                // Render smaller to visually differentiate.
-                                                const u25Parts: React.ReactNode[] = [];
-                                                if (!c.top_scorer && c.top_scorer_u25) {
-                                                    u25Parts.push(
-                                                        awardBadge(
-                                                            'tsu',
-                                                            'Capocannoniere U25',
-                                                            <PlasticCupIcon className="w-4 h-4 text-slate-700" />,
-                                                            c.top_scorer_u25,
-                                                            'text-slate-600'
-                                                        )
-                                                    );
-                                                }
-                                                if (!c.defender && c.defender_u25) {
-                                                    u25Parts.push(
-                                                        awardBadge(
-                                                            'defu',
-                                                            'Difensore U25',
-                                                            <Wind className="w-4 h-4 text-sky-600" aria-hidden />,
-                                                            c.defender_u25,
-                                                            'text-slate-600'
-                                                        )
-                                                    );
-                                                }
-                                                if (u25Parts.length) parts.push(<span key="u25" className="flex items-center gap-1">{u25Parts}</span>);
-                                                return parts.length ? <span className="flex items-center gap-1">{parts}</span> : null;
-                                            })()}
+                                            {renderPlayerAwardBadges(p)}
                                         </div>
                                         {disambiguateNameMap[normalizeName(p.name)] && getDisplayBirthIdentityLabel(p) && (
                                             <div className="text-[10px] text-slate-400 font-bold">

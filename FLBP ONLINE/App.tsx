@@ -1,4 +1,5 @@
 import { createDatabaseRestoreSession, DATABASE_RESTORE_EVENT, type DatabaseRestoreRequest, type DatabaseRestoreStatus } from './services/databaseRestoreCoordinator';
+import { createHallOfFameChronology } from './services/hallOfFameView';
 import { publicEditionHistory } from './services/editionData';
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { Home } from './components/Home';
@@ -223,13 +224,14 @@ const TvViewLazy = React.lazy(() =>
     loadTvViewModule().then((m) => ({ default: m.TvView }))
 );
 
-const RouteViewFallback: React.FC = () => {
-    const [visible, setVisible] = useState(false);
+const RouteViewFallback: React.FC<{ immediate?: boolean }> = ({ immediate = false }) => {
+    const [visible, setVisible] = useState(immediate);
 
     useEffect(() => {
+        if (immediate) return;
         const timer = window.setTimeout(() => setVisible(true), 250);
         return () => window.clearTimeout(timer);
-    }, []);
+    }, [immediate]);
 
     if (!visible) {
         return <div className="p-6 min-h-[96px]" aria-hidden />;
@@ -608,6 +610,7 @@ const App: React.FC = () => {
     const [translationDictionaries, setTranslationDictionaries] = useState<Partial<Record<Language, TranslationDictionary>>>(() => translations);
     const [selectedTournament, setSelectedTournament] = useState<{ data: TournamentData, isLive: boolean } | null>(null);
     const [routeTournamentId, setRouteTournamentId] = useState(() => typeof window !== 'undefined' && view === 'tournament_detail' ? readRoute().tournamentId : '');
+    const [leaderboardReturnRequest, setLeaderboardReturnRequest] = useState(0);
     const historyIndexRef = useRef(typeof window === 'undefined' ? 0 : Number(window.history.state?.flbpViewIndex) || 0);
     const pendingPopIndexRef = useRef<number | null>(null);
     const [helpGuideReady, setHelpGuideReady] = useState(false);
@@ -666,7 +669,11 @@ const App: React.FC = () => {
             setMenuOpen(false);
         }
         const tournamentId = options?.tournament?.data.id || '';
-        if ((nextView === view && (!tournamentId || tournamentId === routeTournamentId)) || isDraftNavigationPending()) return;
+        if (isDraftNavigationPending()) return;
+        if (nextView === view && (!tournamentId || tournamentId === routeTournamentId)) {
+            if (nextView === 'leaderboard') setLeaderboardReturnRequest(request => request + 1);
+            return;
+        }
 
         const requestId = ++routeNavigationRequestRef.current;
         try {
@@ -692,6 +699,10 @@ const App: React.FC = () => {
             setView(nextView);
         });
     }, [isDedicatedTvProjection, preloadViewChunk, routeTournamentId, view]);
+
+    useEffect(() => {
+        if (view === 'tournament_detail') window.scrollTo({ top: 0, behavior: 'instant' });
+    }, [view, routeTournamentId]);
 
     useEffect(() => {
         if (isDedicatedTvProjection) return;
@@ -903,6 +914,40 @@ const App: React.FC = () => {
     const stateForPublicViews = React.useMemo<AppState>(() => {
         return mergePublicViewState(state, publicDbState);
     }, [publicDbState, state]);
+
+    const publicHistory = React.useMemo(() => publicEditionHistory(stateForPublicViews), [stateForPublicViews]);
+    const publicWinners = React.useMemo(() => {
+        const chronology = createHallOfFameChronology(stateForPublicViews.tournamentHistory);
+        const entries = stateForPublicViews.hallOfFame.filter(entry => entry.type === 'winner').sort(chronology.compare);
+        const winnersById = new Map<string, string>();
+        for (const entry of entries) {
+            for (const id of [entry.tournamentId, entry.sourceTournamentId]) {
+                if (id && entry.teamName && !winnersById.has(id)) winnersById.set(id, entry.teamName);
+            }
+        }
+        const winner = entries[0];
+        return {
+            winnersById,
+            lastChampion: winner ? {
+                date: chronology.getDate(winner) || String(winner.year || ''),
+                teamName: winner.teamName,
+                players: winner.playerNames || [],
+                tournamentName: winner.tournamentName,
+            } : undefined,
+        };
+    }, [stateForPublicViews.hallOfFame, stateForPublicViews.tournamentHistory]);
+    const publicLiveTournament = stateForPublicViews.tournament;
+    const [mainHeader, setMainHeader] = useState<HTMLElement | null>(null);
+    const [mainHeaderHeight, setMainHeaderHeight] = useState(0);
+    useEffect(() => {
+        if (!mainHeader) return;
+        const measure = () => setMainHeaderHeight(mainHeader.offsetHeight);
+        measure();
+        if (typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(measure);
+        observer.observe(mainHeader);
+        return () => observer.disconnect();
+    }, [mainHeader]);
 
     const hasAdminSnapshotSession = !!getSupabaseAccessToken();
     const stateForPlayerArea = React.useMemo<AppState>(() => (
@@ -1303,6 +1348,7 @@ const App: React.FC = () => {
     }, [language, translationDictionaries]);
 
     const t = useCallback((key: string) => getTranslationValue(translationDictionaries, language, key), [translationDictionaries, language]);
+    const publicTournamentNavLabel = publicLiveTournament ? t('public_tournaments_live_nav') : undefined;
     const [menuOpen, setMenuOpen] = useState(false);
 
     useEffect(() => {
@@ -1933,14 +1979,42 @@ const App: React.FC = () => {
         );
     }
 
+    const renderHome = () => {
+        const live = publicLiveTournament;
+        const teams = live?.teams?.length ? live.teams : stateForPublicViews.teams;
+        return (
+            <Home
+                onNavigate={nextView => { void navigateToView(nextView); }}
+                onOpenTournament={id => {
+                    const tournament = live?.id === id ? live : publicHistory.find(edition => edition.id === id);
+                    if (tournament) handleViewTournament(tournament, live?.id === id);
+                }}
+                liveTournament={live ? {
+                    id: live.id,
+                    name: live.name,
+                    date: live.startDate,
+                    teamsCount: teams.filter(team => !team.hidden && !team.isBye && !['BYE', 'TBD'].includes(String(team.name || '').trim().toUpperCase())).length,
+                    formatLabel: t(live.type === 'groups_elimination' ? 'format_groups_elimination_short' : live.type === 'round_robin' ? 'format_round_robin' : 'format_elimination'),
+                } : undefined}
+                lastChampion={publicWinners.lastChampion}
+                recentTournaments={publicHistory.slice(0, 3).map(edition => ({
+                    id: edition.id,
+                    name: edition.name,
+                    date: edition.startDate,
+                    winnerTeamName: publicWinners.winnersById.get(edition.id),
+                }))}
+            />
+        );
+    };
+
     const renderView = () => {
         switch(view) {
             case 'home':
-                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!stateForPublicViews.tournament} tournamentName={stateForPublicViews.tournament?.name} />;
+                return renderHome();
             case 'leaderboard':
                 return (
                     <React.Suspense fallback={<RouteViewFallback /> }>
-                        <LeaderboardLazy stateOverride={stateForPublicViews} />
+                        <LeaderboardLazy stateOverride={stateForPublicViews} returnToListRequest={leaderboardReturnRequest} />
                     </React.Suspense>
                 );
             case 'hof':
@@ -1981,12 +2055,13 @@ const App: React.FC = () => {
             case 'tournament':
                 {
                     const liveTournament = stateForPublicViews.tournament || null;
-                    const history = publicEditionHistory(stateForPublicViews);
+                    const history = publicHistory;
                     return (
                         <React.Suspense fallback={<RouteViewFallback /> }>
                             <PublicTournamentsLazy
                                 liveTournament={liveTournament}
                                 history={history}
+                                winnersById={publicWinners.winnersById}
                                 liveMatches={stateForPublicViews.tournamentMatches || []}
                                 liveTeams={(stateForPublicViews.tournament?.teams && stateForPublicViews.tournament.teams.length) ? stateForPublicViews.tournament.teams : (stateForPublicViews.teams || [])}
                                 onViewTournament={handleViewTournament}
@@ -1997,7 +2072,7 @@ const App: React.FC = () => {
             case 'admin':
                 return (
                     <React.Suspense
-                        fallback={<RouteViewFallback />}
+                        fallback={<RouteViewFallback immediate />}
                     >
                         <UiErrorBoundary
                             title={t('admin_ui_error_title')}
@@ -2070,7 +2145,7 @@ const App: React.FC = () => {
                     </React.Suspense>
                 );
             default:
-                return <Home onNavigate={(nextView) => { void navigateToView(nextView); }} tournamentActive={!!state.tournament} tournamentName={state.tournament?.name} />;
+                return renderHome();
         }
     };
 
@@ -2168,9 +2243,9 @@ const App: React.FC = () => {
                     isAndroidWebViewRuntime={androidWebViewRuntime}
                 />
                 {/* Main Layout */}
-                <div className="pb-24">
+                <div className="pb-24" style={{ '--flbp-main-header-height': `${mainHeaderHeight}px` } as React.CSSProperties}>
                     {/* Top Bar */}
-                    <header className={isPublicView
+                    <header ref={setMainHeader} className={isPublicView
                         ? "sticky top-0 z-20 bg-slate-950/90 backdrop-blur-md text-white border-b border-white/10 shadow-sm"
                         : "sticky top-0 z-20 bg-slate-50/70 backdrop-blur-md border-b border-slate-200/60 shadow-sm"}>
                         <div className="max-w-7xl mx-auto px-2 sm:px-4 md:px-6 py-3 md:py-4 flex flex-wrap items-center justify-between gap-2 lg:gap-3">
@@ -2214,11 +2289,6 @@ const App: React.FC = () => {
                                     </div>
                                 )}
 
-                                {isPublicView && stateForPublicViews.tournament ? (
-                                    <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider border border-red-400/20 bg-red-500/15 text-red-100">
-                                        {t('live_badge')}
-                                    </span>
-                                ) : null}
                             </div>
 
                             {isPublicView ? (
@@ -2234,6 +2304,7 @@ const App: React.FC = () => {
                                         <span>{t('dashboard')}</span>
                                     </button>
                                     <button
+                                        aria-label={publicTournamentNavLabel}
                                         aria-current={view === 'tournament' || view === 'tournament_detail' ? 'page' : undefined}
                                         onClick={() => { void navigateToView('tournament'); }}
                                         onMouseEnter={() => primeViewChunk('tournament')}
@@ -2242,6 +2313,11 @@ const App: React.FC = () => {
                                     >
                                         <Swords className="w-4 h-4" />
                                         <span>{t('tournaments')}</span>
+                                        {publicLiveTournament && (
+                                            <span aria-hidden="true" className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-red-200">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />{t('live_badge')}
+                                            </span>
+                                        )}
                                     </button>
                                     <button
                                         aria-current={view === 'leaderboard' ? 'page' : undefined}
@@ -2457,13 +2533,16 @@ const App: React.FC = () => {
                             </button>
                             <button
                                 type="button"
+                                aria-label={publicTournamentNavLabel}
                                 aria-current={view === 'tournament' || view === 'tournament_detail' ? 'page' : undefined}
                                 onClick={() => { void navigateToView('tournament'); }}
                                 onMouseEnter={() => primeViewChunk('tournament')}
                                 onFocus={() => primeViewChunk('tournament')}
                                 className={mobileBottomNavItemClass(view === 'tournament' || view === 'tournament_detail')}
                             >
-                                <span className={mobileBottomNavIconClass(view === 'tournament' || view === 'tournament_detail')}><Swords className="h-5 w-5" /></span>
+                                <span className={`relative ${mobileBottomNavIconClass(view === 'tournament' || view === 'tournament_detail')}`}><Swords className="h-5 w-5" />
+                                    {publicLiveTournament && <span aria-hidden="true" className="absolute end-0 top-0 h-2.5 w-2.5 rounded-full bg-red-400 ring-2 ring-slate-950" />}
+                                </span>
                                 <span className={`max-w-full break-words text-balance ${mobileBottomNavLabelClass(view === 'tournament' || view === 'tournament_detail')}`}>{t('tournaments')}</span>
                             </button>
                             <button

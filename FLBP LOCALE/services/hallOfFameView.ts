@@ -18,6 +18,44 @@ export type TitledHallOfFamePlayerRow = {
   u25Total: number;
 };
 
+const extractHallOfFameIsoDate = (key?: string) => {
+  const date = String(key || '').trim().match(/(?:^|_)(\d{4}-\d{2}-\d{2})(?:_|$)/)?.[1];
+  return date && Number.isFinite(Date.parse(date)) ? date : undefined;
+};
+
+export const createHallOfFameChronology = (history: AppState['tournamentHistory']) => {
+  const tournamentDates = new Map<string, string>();
+  for (const tournament of history || []) {
+    const id = String(tournament.id || '').trim();
+    const date = String(tournament.startDate || '').trim();
+    if (id && date) tournamentDates.set(id, date);
+  }
+
+  const getDate = (entry: HallOfFameEntry) => {
+    const manualDate = String(entry.sourceTournamentDate || '').trim();
+    return tournamentDates.get(String(entry.tournamentId || '').trim())
+      || tournamentDates.get(String(entry.sourceTournamentId || '').trim())
+      || (Number.isFinite(Date.parse(manualDate)) ? manualDate : undefined)
+      || extractHallOfFameIsoDate(entry.tournamentId)
+      || extractHallOfFameIsoDate(entry.sourceTournamentId)
+      || extractHallOfFameIsoDate(entry.id);
+  };
+
+  const year = (entry: HallOfFameEntry) => parseInt(String(entry.year || '0'), 10) || 0;
+  const sortValue = (entry: HallOfFameEntry) => {
+    const timestamp = Date.parse(getDate(entry) || '');
+    if (Number.isFinite(timestamp)) return timestamp;
+    return year(entry) > 0 ? Date.UTC(year(entry), 0, 1) : 0;
+  };
+  const compare = (a: HallOfFameEntry, b: HallOfFameEntry) =>
+    sortValue(b) - sortValue(a)
+      || year(b) - year(a)
+      || String(b.tournamentName || '').localeCompare(String(a.tournamentName || ''), 'it', { sensitivity: 'base' })
+      || String(b.id || '').localeCompare(String(a.id || ''), 'it', { sensitivity: 'base' });
+
+  return { getDate, compare };
+};
+
 const normalize = (value: string) => normalizeNameLower(value || '');
 
 const preferredDisplayName = (key: string, fallback: string) => {
