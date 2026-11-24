@@ -63,8 +63,7 @@ Effetto atteso:
 Obiettivo:
 - ripristinare i capocannonieri storici mancanti nei backup modernizzati
 
-Backup corretto attuale:
-- `backups/flbp_backup_2026-03-29_codex-fixed-v7.json`
+Per la verifica serve un backup JSON aggiornato dell'ambiente di prova, con lo storico da controllare.
 
 Capocannonieri reinseriti:
 - `03/01/2015 - D'Amore Tancredi`

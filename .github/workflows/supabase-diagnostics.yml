@@ -135,7 +135,7 @@ jobs:
           jq -e '.schemaVersion == 1 and .database.sizeBytes > 0' supabase-metrics.json >/dev/null
 
       - name: Upload metrics artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: supabase-metrics-${{ github.event.inputs.phase }}-${{ github.run_id }}
           path: supabase-metrics.json
