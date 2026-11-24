@@ -106,7 +106,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
     const matchCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const [fitScale, setFitScale] = useState(1);
     const [scaledBox, setScaledBox] = useState<{ w: number; h: number } | null>(null);
-    const [connectorLayout, setConnectorLayout] = useState({ width: 0, height: 0, paths: [] as string[] });
+    const [connectorPaths, setConnectorPaths] = useState<string[]>([]);
 
     const userScale = (typeof scale === 'number' && isFinite(scale) && scale > 0) ? scale : 1;
     const renderCompleteStructure = showConnectors && readOnly && !tvMode;
@@ -280,12 +280,9 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                 });
             }
 
-            const width = content.scrollWidth;
-            const height = content.scrollHeight;
-            setConnectorLayout(previous => previous.width === width && previous.height === height
-                && previous.paths.length === paths.length && previous.paths.every((path, index) => path === paths[index])
+            setConnectorPaths(previous => previous.length === paths.length && previous.every((path, index) => path === paths[index])
                 ? previous
-                : { width, height, paths });
+                : paths);
         };
         measure();
         const observer = new ResizeObserver(measure);
@@ -426,7 +423,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
         const name = rounds[index]?.[0]?.roundName;
         return name ? localizeBracketRound(name, t) : t('round_n').replace('{n}', String(index + 1));
     };
-    const containerOverflowClass = boundedScroll ? 'max-h-[min(70dvh,48rem)] overflow-auto overscroll-contain' : (fitToWidth || fitToBox)
+    const containerOverflowClass = boundedScroll ? 'isolate max-h-[min(70dvh,48rem)] overflow-auto overscroll-contain' : (fitToWidth || fitToBox)
         ? ((compactPublicFit && !fitToBox) ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden')
         : (spectatorLayout ? 'overflow-x-auto overflow-y-hidden overscroll-x-contain' : 'overflow-x-auto');
     const containerPadClass = editorStructuredLayout
@@ -441,15 +438,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                     className={`relative flex ${tvRoundsGapClass} ${tvMode ? 'scale-100' : ''} ${spectatorLayout ? 'mx-auto' : ''}`}
                     style={((fitToWidth || fitToBox) || userScale !== 1) ? { transform: `scale(${finalScale})`, transformOrigin: 'top left', width: 'max-content' } : { width: 'max-content' }}
                 >
-            {showConnectors && !tvMode && connectorLayout.paths.length > 0 && (
+            {showConnectors && !tvMode && connectorPaths.length > 0 && (
+                // Sized by its parent: a measured width would keep the content at its
+                // widest size after a rotation or a window resize.
                 <svg
-                    className="pointer-events-none absolute inset-0 overflow-visible"
-                    width={connectorLayout.width}
-                    height={connectorLayout.height}
-                    viewBox={`0 0 ${connectorLayout.width} ${connectorLayout.height}`}
+                    className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
                     aria-hidden="true"
                 >
-                    {connectorLayout.paths.map((d, idx) => (
+                    {connectorPaths.map((d, idx) => (
                         <g key={`${idx}-${d}`}>
                             <path
                                 d={d}

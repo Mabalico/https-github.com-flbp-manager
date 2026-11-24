@@ -2,7 +2,7 @@ import React from 'react';
 import type { Match, TournamentData } from '../../types';
 import { computeGroupStandings } from '../../services/groupStandings';
 import { isFinalGroup } from '../../services/groupUtils';
-import { formatMatchTeamsLabel, getMatchParticipantIds, isPlaceholderTeamId } from '../../services/matchUtils';
+import { formatMatchTeamsLabel, getMatchParticipantIds, getUnplayedMatches, isPlaceholderTeamId } from '../../services/matchUtils';
 import { resolveWinnerTeamId } from '../../services/tournamentStructureSelectors';
 
 interface Props {
@@ -49,7 +49,7 @@ const standings = (tournament: TournamentData, matches: Match[]) => {
 
 export const LiveClosingSummary: React.FC<Props> = ({ tournament, matches, onOpenReport, onOpenMatches, t }) => {
     const visible = matches.filter(match => !match.hidden && !match.isBye && !getMatchParticipantIds(match).some(id => id.toUpperCase() === 'BYE'));
-    const unplayed = visible.filter(match => match.status !== 'finished' && !match.played);
+    const unplayed = getUnplayedMatches(matches);
     const ranks = standings(tournament, visible);
     const teamNames = new Map(tournament.teams.map(team => [team.id, team.name]));
 

@@ -10,6 +10,7 @@ const ts=createRequire(path.join(root,'package.json'))('typescript');
 let passed=0;
 const parse=filename=>ts.createSourceFile(filename,fs.readFileSync(filename,'utf8'),ts.ScriptTarget.Latest,true);
 const compile=(source,context)=>vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const check=async(label,run)=>{await run();passed++;console.log(`PASS: ${label}`);};
 for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
   const source=parse(path.resolve(root,'..',edition,'services/supabaseRest.ts'));
@@ -56,6 +57,92 @@ for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
   }
 }
 
+for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
+  const source=parse(path.resolve(root,'..',edition,'services/supabaseRest.ts'));
+  const statement=source.statements.find(s=>ts.isVariableStatement(s)&&s.declarationList.declarations.some(d=>d.name.text==='returnCancelledFantaLive'));
+  assert.ok(statement);
+  const requests=[];let responses=[],waits=0;
+  const context={exports:{},getSupabaseConfig:()=>({workspaceId:'fixture'}),requireSupabaseWriteSession:async()=>({accessToken:'fixture-only'}),
+    rpcUrl:(_cfg,name)=>'https://fixture.invalid/rpc/'+name,buildHeaders:()=>({}),readErrorBody:async response=>response.body,
+    fetchWithTimeout:async(url,options)=>{requests.push({url,...options});return responses.length>1?responses.shift():responses[0];},
+    setTimeout:done=>{waits++;done();},
+  };
+  compile(statement.getText(source),context);
+  const run=async(...queue)=>{requests.length=0;waits=0;responses=queue;return context.exports.returnCancelledFantaLive(' live-1 ');};
+  const accepted={ok:true,json:async()=>({ok:true,returned:3,kept:1})},stillLive={ok:false,body:'{"message":"FLBP_TOURNAMENT_STILL_LIVE: fixture"}'};
+  await check(edition+': a cancelled live hands Fanta back with one scoped RPC',async()=>{
+    const result=await run(accepted);
+    assert.deepEqual([result.returned,result.kept,requests.length],[3,1,1]);
+    assert.ok(requests[0].url.endsWith('/rpc/fanta_return_cancelled_live'));
+    assert.deepEqual(JSON.parse(requests[0].body),{p_workspace_id:'fixture',p_tournament_id:'live-1'});
+  });
+  await check(edition+': the hand-back waits for a late local publication, with a limit',async()=>{
+    await run(stillLive,accepted);assert.deepEqual([requests.length,waits],[2,1]);
+    await assert.rejects(run(stillLive),error=>error.message.includes('FLBP_TOURNAMENT_STILL_LIVE'));assert.equal(requests.length,4);
+  });
+  await check(edition+': a missing RPC, a refusal or an unconfirmed receipt is never reported as success',async()=>{
+    for(const response of [{ok:false,body:'PGRST202'},{ok:false,body:'FLBP_TOURNAMENT_ARCHIVED'},{ok:true,json:async()=>({ok:false})},{ok:true,json:async()=>null}]){
+      await assert.rejects(run(response));assert.equal(requests.length,1);
+    }
+  });
+}
+
+// The real cancellation: the durable snapshot first, then only the Fanta hand-back.
+for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
+  const source=parse(path.resolve(root,'..',edition,'components/AdminDashboard.tsx'));
+  const wanted=new Set(['confirmCancelLive','finishCancelLive']),found=[];
+  const collect=node=>{if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)&&wanted.has(node.name.text))found.push(node.getText(source));ts.forEachChild(node,collect);};
+  collect(source);assert.equal(found.length,2);
+  const cancelFixture=({commitError,fantaError,configured=true}={})=>{
+    const events=[],state={teams:[{id:'a'}],tournament:{id:'live-1',name:'Cup $& one'},tournamentMatches:[{id:'m1'}],tournamentHistory:[{id:'old'}],hallOfFame:[{id:'h'}]};
+    const commit=async(next,options)=>{events.push(['commit',next,options]);if(commitError)throw commitError;return next;};
+    const context={exports:{},state,cancelLiveBusyRef:{current:false},cancelLiveBackupRef:{current:state},
+      commitAdminStateDurably:(next,_source,options)=>commit(next,options),
+      window:{setTimeout:()=>1,clearTimeout:()=>{},dispatchEvent:event=>{
+        if(event.type==='flbp:live-state-committed')commit(event.detail.state,event.detail).then(event.detail.resolveDurableCommit,event.detail.rejectDurableCommit);
+        else events.push(['event',event.type]);
+      }},
+      CustomEvent:class{constructor(type,options){this.type=type;this.detail=options?.detail;}},FANTA_APP_CHANGE_EVENT:'fanta-change',
+      getSupabaseConfig:()=>configured?{}:null,
+      returnCancelledFantaLive:async id=>{events.push(['return',id]);if(fantaError)throw fantaError;return {returned:1,kept:0};},
+      closeLiveCallsForTournament:id=>events.push(['close-calls',id]),recoverToSafeAdmin:()=>{},
+      setCancelLiveStage:value=>events.push(['stage',value]),setCancelLiveError:value=>events.push(['error',value]),
+      setCancelLiveFeedback:value=>events.push(['feedback',value]),setCancelLiveBusy:()=>{},setCancelLiveFantaBusy:()=>{},
+      setCancelLivePending:value=>events.push(['pending',value]),storePendingCancelledLive:value=>events.push(['stored',value]),
+      t:key=>key==='admin_delete_live_tournament_done'?'done {name}':key,console:{warn:()=>{}},
+    };
+    compile(found.map(value=>'const '+value+';').join('\n')+'\nexports.confirm=confirmCancelLive;exports.finish=finishCancelLive;',context);
+    return {context,events,last:name=>events.filter(event=>event[0]===name).at(-1)?.[1]};
+  };
+  await check(edition+': cancelling keeps archive and awards, then returns Fanta once',async()=>{
+    const f=cancelFixture();await f.context.exports.confirm();await tick();
+    const [,next,options]=f.events.find(event=>event[0]==='commit');
+    assert.equal(options.snapshotOnly,true);
+    assert.deepEqual([next.tournament,next.tournamentMatches.length,next.tournamentHistory.length,next.hallOfFame.length],[null,0,1,1]);
+    assert.ok(f.events.findIndex(event=>event[0]==='commit')<f.events.findIndex(event=>event[0]==='return'));
+    assert.deepEqual(f.events.filter(event=>event[0]==='return').map(event=>event[1]),['live-1']);
+    assert.equal(f.last('feedback'),'done Cup $& one');
+    assert.deepEqual([f.last('pending'),f.last('stored')],[null,null]);
+    assert.ok(f.events.some(event=>event[0]==='event'&&event[1]==='fanta-change'));
+  });
+  await check(edition+': an unconfirmed cancellation never touches Fanta',async()=>{
+    const f=cancelFixture({commitError:new Error('offline')});await f.context.exports.confirm();await tick();
+    assert.ok(!f.events.some(event=>['return','close-calls','pending','feedback'].includes(event[0])));
+    assert.equal(f.last('error'),'admin_cancel_live_failed');
+  });
+  await check(edition+': a failed hand-back stays visible and can be retried alone',async()=>{
+    const f=cancelFixture({fantaError:new Error('offline')});await f.context.exports.confirm();await tick();
+    assert.equal(f.last('stage'),null);assert.equal(f.last('pending').id,'live-1');assert.equal(f.last('stored').id,'live-1');
+    f.context.returnCancelledFantaLive=async id=>{f.events.push(['return',id]);return {returned:1,kept:0};};
+    await f.context.exports.finish(f.last('pending'));
+    assert.equal(f.events.filter(event=>event[0]==='commit').length,1);assert.equal(f.last('pending'),null);
+  });
+  await check(edition+': without Supabase the cancellation ends locally',async()=>{
+    const f=cancelFixture({configured:false});await f.context.exports.confirm();await tick();
+    assert.ok(f.events.some(event=>event[0]==='feedback')&&!f.events.some(event=>['return','pending'].includes(event[0])));
+  });
+}
+
 // Execute the real two Admin handlers with only IO/repository callbacks replaced.
 const adminSource=parse(path.join(root,'components/AdminDashboard.tsx'));
 const names=new Set(['toggleFantaPretournament','handleStartLive']);
@@ -91,7 +178,6 @@ const fixture=(priorTournament=false)=>{
   compile(handlerSource,context);
   return {context,events,resolve,reject};
 };
-const tick=()=>new Promise(resolve=>setImmediate(resolve));
 await check('Fanta toggle waits for durable confirmation before success/phase sync and suppresses duplicate clicks',async()=>{
   const f=fixture();f.context.fantaPretournamentEnabled=false;const task=f.context.exports.toggle();await tick();
   await f.context.exports.toggle();

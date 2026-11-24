@@ -62,9 +62,12 @@ if (!/resetFantaPhaseAfterTournamentArchive[\s\S]{0,800}resetFantaConfigToPretou
 const archiveStart = adminDashboard.indexOf('const submitTournamentArchive =');
 const archiveEnd = adminDashboard.indexOf('const handleUpdateTournamentAndMatches', archiveStart);
 const archive = archiveStart >= 0 && archiveEnd > archiveStart ? adminDashboard.slice(archiveStart, archiveEnd) : '';
-if (!/onSave=\{\(\) => \{\s*void submitTournamentArchive\(\);\s*\}\}/.test(adminDashboard)
+if (!/onSave=\{requestTournamentArchive\}/.test(adminDashboard)
+  || !/if \(archiveReceipt\) void submitTournamentArchive\(\);\s*else if \(state\.tournament\) setArchiveConfirmOpen\(true\);/.test(archive)
+  || !/<ArchiveConfirmDialog[\s\S]{0,900}onConfirm=\{\(\) => \{ setArchiveConfirmOpen\(false\); void submitTournamentArchive\(\); \}\}/.test(adminDashboard)
+  || (adminDashboard.match(/void submitTournamentArchive\(\)/g) || []).length !== 2
   || !/applyMvpsToState\(state,\s*mvpSelectedIds\)/.test(archive)) {
-  failures.push('Il pulsante Chiusura deve usare lo stesso flusso di archiviazione con qualunque selezione MVP, anche vuota.');
+  failures.push('Chiusura deve chiedere conferma prima di archiviare e usare lo stesso flusso con qualunque selezione MVP, anche vuota.');
 }
 if (!/await commitAdminStateDurably\([\s\S]*await publishArchive\([\s\S]*await archiveFantaTournamentEdition\([\s\S]*!hasNewLiveTournament && !await resetFantaPhaseAfterTournamentArchive\(\)/.test(archive)) {
   failures.push('Il salvataggio e la pubblicazione devono precedere lo storico Fanta e l’eventuale ritorno al Pretorneo.');

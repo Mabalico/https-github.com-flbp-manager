@@ -161,6 +161,14 @@ begin
     or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
     or strpos(pg_get_functiondef(v_signature), '12 hours') = 0
   then raise exception 'Data-plane reclaim RPC lacks its Admin gate or grace period'; end if;
+  -- Cancelled live: only an Admin session can hand Fanta back.
+  v_signature := 'public.fanta_return_cancelled_live(text,text)'::regprocedure;
+  if has_function_privilege('anon', v_signature, 'EXECUTE')
+    or not has_function_privilege('authenticated', v_signature, 'EXECUTE')
+    or not (select prosecdef from pg_proc where oid = v_signature)
+    or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
+    or strpos(pg_get_functiondef(v_signature), 'FLBP_TOURNAMENT_STILL_LIVE') = 0
+  then raise exception 'Cancelled-live Fanta RPC lacks its Admin gate or live guard'; end if;
   -- Report saves may create the tie-break they make necessary: one server-only
   -- rule, used by both the Admin and the referee entrypoints.
   foreach v_signature in array array[

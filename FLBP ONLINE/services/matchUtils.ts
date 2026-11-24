@@ -91,6 +91,10 @@ export const hasUndeterminedParticipants = (match: Match): boolean => {
 export const canPlayMatch = (match: Match): boolean =>
   !match.hidden && !match.replacedByFinalGroup && !isByeMatch(match) && !hasUndeterminedParticipants(match);
 
+/** Visible matches still waiting for a result, undetermined bracket slots included. */
+export const getUnplayedMatches = (matches: Match[]): Match[] => matches.filter(match =>
+  !match.hidden && !match.replacedByFinalGroup && !isByeMatch(match) && match.status !== 'finished' && !match.played);
+
 /**
  * Returns the score for a team in a match.
  * Prefers explicit `scoresByTeam` (multi-team), then 1v1 `scoreA/scoreB`,

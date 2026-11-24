@@ -8,7 +8,7 @@ import { loadImageProcessingService, type RefertoStructuredOcrResult } from '../
 import { syncBracketFromGroups, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
-import { canPlayMatch, isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, hasUndeterminedParticipants, isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
 import { compareTournamentMatches } from '../services/groupUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
 import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, isMatchResultRpcMissingError, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, pushRefereeMatchResults, verifyRefereePassword } from '../services/supabaseRest';
@@ -960,15 +960,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        const isValidRefMatch = (m: Match) => {
-            const ids = getMatchParticipantIds(m);
-            if (!ids.length) return false;
-            if (ids.some(x => isByeTeamId(x))) return false;
-            if (ids.some(x => isTbdTeamId(x))) return false;
-            return true;
-        };
-
-        const hits = hitsAll.filter(isValidRefMatch);
+        // A knockout match can have only one team while the other is still to be decided.
+        const hits = hitsAll.filter(canPlayMatch);
         if (!hits.length) {
             // Keep legacy behavior: show the first match-specific error.
             const candidate = hitsAll[0];
@@ -983,7 +976,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 setReportCodeError(t('referees_err_is_bye') || 'Questo codice corrisponde a un BYE. Nessun referto richiesto.');
                 return;
             }
-            if (ids.some(x => isTbdTeamId(x))) {
+            if (hasUndeterminedParticipants(candidate)) {
                 setFoundMatchId('');
                 setReportCodeError(t('referees_err_has_tbd') || 'Questo match contiene TBD: non è ancora pronto per il referto.');
                 return;
@@ -1507,13 +1500,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        const hits = hitsAll.filter(m => {
-            const ids = getMatchParticipantIds(m);
-            if (!ids.length) return false;
-            if (ids.some(x => isByeTeamId(x))) return false;
-            if (ids.some(x => isTbdTeamId(x))) return false;
-            return true;
-        });
+        const hits = hitsAll.filter(canPlayMatch);
         if (!hits.length) {
             // Fall back to legacy single-hit validation on the first candidate.
             const candidate = hitsAll[0];
@@ -1526,7 +1513,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 setOcrModalError(t('referees_err_is_bye') || 'Questo codice corrisponde a un BYE.');
                 return;
             }
-            if (ids.some(x => isTbdTeamId(x))) {
+            if (hasUndeterminedParticipants(candidate)) {
                 setOcrModalError(t('referees_err_has_tbd') || 'Questo match contiene TBD: non è pronto per il referto.');
                 return;
             }

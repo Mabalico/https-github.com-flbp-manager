@@ -206,6 +206,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                             <div key={k} className="grid grid-cols-2 gap-2 items-center py-2 sm:grid-cols-12 sm:py-1">
                                 <div className="col-span-2 min-w-0 font-black text-xs leading-tight text-slate-800 whitespace-normal break-words sm:col-span-6">{playerName}</div>
                                 <div className="col-span-1 sm:col-span-3">
+                                    <span className="mb-1 block text-[11px] font-bold text-slate-600 sm:hidden" aria-hidden="true">{t('points')}</span>
                                     <input
                                         type="text"
                                         inputMode="numeric"
@@ -227,6 +228,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                     />
                                 </div>
                                 <div className="col-span-1 sm:col-span-3">
+                                    <span className="mb-1 block text-[11px] font-bold text-slate-600 sm:hidden" aria-hidden="true">{t('soffi')}</span>
                                     <input
                                         type="text"
                                         inputMode="numeric"

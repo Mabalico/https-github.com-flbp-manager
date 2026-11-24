@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { PassThrough } from 'node:stream';
 import React from 'react';
-import { renderToPipeableStream } from 'react-dom/server';
+import { renderToPipeableStream, renderToStaticMarkup } from 'react-dom/server';
 import { dictionary as it } from './services/i18n/it';
 import { coerceAppState } from './services/storageService';
 import { activateFinalRoundRobinStage, generateTournamentStructure } from './services/tournamentEngine';
@@ -54,6 +54,7 @@ Object.defineProperties(globalThis, {
 // Import after IO fixtures exist. App/translation context and every lazy tab
 // remain the actual modules bundled from the current checkout.
 const { AdminDashboard } = await import('./components/AdminDashboard');
+const { ArchiveConfirmDialog } = await import('./components/admin/modals/ArchiveConfirmDialog');
 const fixtureState = coerceAppState({
   teams: [
     { id: 'ssr-a', name: 'SSR Team Amber', player1: 'Rossi Marco', player2: 'Verdi Anna' },
@@ -185,5 +186,30 @@ if (!requestedTab) {
   assert(closing.includes('F1'), 'Pending final group matches must be linked from Closing.');
   console.log('PASS: final-group schedule and TBD actions across four Admin tabs.');
 }
+{
+  const confirmMarkup = (unplayedCount: number, champion?: string) => renderToStaticMarkup(
+    <ArchiveConfirmDialog
+      open
+      tournamentName="SSR Cup"
+      champion={champion}
+      mvpNames={[]}
+      unplayed={Array.from({ length: unplayedCount }, (_, index) => ({ id: 'm' + index, code: 'A' + index, scoreA: 0, scoreB: 0, played: false, status: 'scheduled' as const, phase: 'groups' as const }))}
+      onConfirm={() => {}}
+      onClose={() => {}}
+      t={key => it[key] ?? key}
+    />
+  );
+  const confirmButton = (html: string) => html.match(new RegExp('<button[^>]*>' + it.complete_tournament + '</button>'))?.[0] ?? '';
+  const complete = confirmMarkup(0, 'SSR Team Amber');
+  assert(complete.includes('SSR Cup') && complete.includes('SSR Team Amber'), 'The archive confirmation names the tournament and its winner.');
+  assert(confirmButton(complete) && !confirmButton(complete).includes('disabled=""'), 'A complete tournament needs one confirmation.');
+  assert(!complete.includes('type="checkbox"'), 'A complete tournament needs no acknowledgement.');
+  const open = confirmMarkup(12, 'SSR Team Amber');
+  assert(confirmButton(open).includes('disabled=""'), 'Unplayed matches keep the archive disabled until acknowledged.');
+  assert(open.includes('type="checkbox"') && open.includes(it.admin_closing_unplayed) && open.includes('A9 · +2'), 'The dialog lists the first unplayed codes.');
+  const noWinner = confirmMarkup(0);
+  assert(confirmButton(noWinner).includes('disabled=""') && noWinner.includes(it.archive_confirm_no_winner), 'A missing winner also needs an acknowledgement.');
+}
+
 assert.equal(networkAttempts.length, 0, `Unexpected SSR IO: ${networkAttempts.join(', ')}`);
 console.log(`SSR Admin passed: ${tabs.join(', ')}; distinct content, negative controls, no network IO.`);

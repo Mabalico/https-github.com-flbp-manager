@@ -3404,6 +3404,38 @@ export const resetFantaConfigToPretournament = async (): Promise<void> => {
     if (!res.ok) throw new Error(await readErrorBody(res));
 };
 
+// Removes a cancelled live tournament from the public Fanta and returns the
+// rosters promoted at its start to the pre-tournament. The database refuses a
+// tournament that is still live or archived, so it can be repeated safely.
+export const returnCancelledFantaLive = async (tournamentId: string): Promise<{ returned: number; kept: number }> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const resolvedTournamentId = String(tournamentId || '').trim();
+    if (!resolvedTournamentId) throw new Error('ID torneo annullato mancante.');
+    for (let attempt = 1; ; attempt += 1) {
+        const session = await requireSupabaseWriteSession();
+        const res = await fetchWithTimeout(
+            rpcUrl(cfg, 'fanta_return_cancelled_live'),
+            {
+                method: 'POST',
+                headers: buildHeaders(cfg, session.accessToken),
+                body: JSON.stringify({ p_workspace_id: cfg.workspaceId, p_tournament_id: resolvedTournamentId }),
+            },
+            8000,
+            { source: 'returnCancelledFantaLive', kind: 'sync' }
+        );
+        if (res.ok) {
+            const result = await res.json();
+            if (result?.ok !== true) throw new Error('Riallineamento Fanta non confermato.');
+            return { returned: Number(result.returned) || 0, kept: Number(result.kept) || 0 };
+        }
+        const body = await readErrorBody(res);
+        // In local mode the public projection follows the confirmed commit by about a second.
+        if (attempt >= 4 || !body.includes('FLBP_TOURNAMENT_STILL_LIVE')) throw new Error(body);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+};
+
 export const hasFantaPretournamentTeams = async (): Promise<boolean> => {
     const cfg = getSupabaseConfig();
     if (!cfg) return false;

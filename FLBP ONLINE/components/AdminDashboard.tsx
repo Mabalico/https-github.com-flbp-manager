@@ -11,12 +11,12 @@ import { MonitorPlay, Users, Brackets, Upload, Download, Trash2, Plus, ShieldChe
 import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded, didQualificationChangeAfterBracketStarted } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
-import { canPlayMatch, isByeMatch, isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, getUnplayedMatches, isByeMatch, isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
 import { compareTournamentMatches, isFinalGroup } from '../services/groupUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, isSameSupabaseAuthSession, isSupabaseAdminSessionExpired, isSupabaseSessionPastExpiry, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutCurrentSupabaseSessions, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, isSameSupabaseAuthSession, isSupabaseAdminSessionExpired, isSupabaseSessionPastExpiry, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, returnCancelledFantaLive, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutCurrentSupabaseSessions, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { pullPublicTournamentsList } from '../services/supabaseRest';
 import { resolveDataPlane } from '../services/dataPlaneClient';
@@ -35,6 +35,7 @@ import { describeTeamImportLayout, detectTeamImportLayout, isTeamImportCoherentW
 import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
 import { LiveMatchesToolbar, type LiveMatchesView } from './admin/LiveMatchesToolbar';
 import { LiveClosingSummary } from './admin/LiveClosingSummary';
+import { ArchiveConfirmDialog } from './admin/modals/ArchiveConfirmDialog';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
@@ -330,6 +331,21 @@ const preloadAdminContentChunk = (target: AdminChunkTarget) => {
     }
 };
 
+
+// A reload must not hide that Fanta is still attached to a cancelled tournament.
+const CANCELLED_LIVE_PENDING_KEY = 'flbp_admin_cancelled_live_pending';
+const readPendingCancelledLive = (): { id: string; name: string } | null => {
+    try {
+        const stored = JSON.parse(localStorage.getItem(CANCELLED_LIVE_PENDING_KEY) || 'null');
+        return typeof stored?.id === 'string' && stored.id ? { id: stored.id, name: String(stored.name || '') } : null;
+    } catch { return null; }
+};
+const storePendingCancelledLive = (value: { id: string; name: string } | null) => {
+    try {
+        if (value) localStorage.setItem(CANCELLED_LIVE_PENDING_KEY, JSON.stringify(value));
+        else localStorage.removeItem(CANCELLED_LIVE_PENDING_KEY);
+    } catch { /* The notice stays visible until this page is closed. */ }
+};
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState, onEnterTv }) => {
     const { t } = useTranslation();
@@ -974,10 +990,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [cancelLiveFeedback, setCancelLiveFeedback] = useState('');
     const cancelLiveBackupRef = useRef<AppState | null>(null);
     const cancelLiveBusyRef = useRef(false);
+    const [cancelLiveFantaBusy, setCancelLiveFantaBusy] = useState(false);
+    const [cancelLivePending, setCancelLivePending] = useState<{ id: string; name: string } | null>(readPendingCancelledLive);
     const [archiveDone, setArchiveDone] = useState(false);
     const [archiveError, setArchiveError] = useState('');
     const [archiveReceipt, setArchiveReceipt] = useState<{ tournamentId: string; awards: HallOfFameEntry[]; email: { text: string; href: string } | null } | null>(null);
     const archiveSubmittingRef = useRef(false);
+    const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+    const closeArchiveConfirm = React.useCallback(() => setArchiveConfirmOpen(false), []);
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
@@ -1767,6 +1787,8 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         setArchiveIncludeU25Awards(true);
         setMvpSelectedIds(getExistingTournamentMvpIds());
     }, [archiveDone, archiveReceipt?.tournamentId, closingTournamentId, tab]);
+    // Whoever confirms must be looking at this tournament's closing page.
+    useEffect(() => setArchiveConfirmOpen(false), [closingTournamentId, tab]);
 
     const applyMvpsToState = (base: AppState, selectedIds: string[]) => {
         if (!base.tournament) return base;
@@ -1867,6 +1889,35 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
     };
 
 
+    // The cancellation is already saved when this runs: it only hands Fanta back
+    // to the pre-tournament, so a failure is shown and retried on its own.
+    const finishCancelLive = async (cancelled: { id: string; name: string }) => {
+        if (!getSupabaseConfig()) return;
+        setCancelLiveFantaBusy(true);
+        setCancelLivePending(cancelled);
+        storePendingCancelledLive(cancelled);
+        try {
+            await returnCancelledFantaLive(cancelled.id);
+            setCancelLivePending(null);
+            storePendingCancelledLive(null);
+            window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+        } catch (error) {
+            console.warn('FLBP Fanta hand-back after live cancellation did not complete', error);
+        } finally {
+            setCancelLiveFantaBusy(false);
+        }
+    };
+
+    useEffect(() => {
+        // A restored backup can bring the tournament back: nothing is left to hand over.
+        if (!cancelLivePending || cancelLiveFantaBusy) return;
+        const restored = state.tournament?.id === cancelLivePending.id
+            || (state.tournamentHistory || []).some(tournament => tournament.id === cancelLivePending.id);
+        if (!restored) return;
+        setCancelLivePending(null);
+        storePendingCancelledLive(null);
+    }, [cancelLiveFantaBusy, cancelLivePending, state.tournament?.id, state.tournamentHistory]);
+
     const closeCancelLive = () => {
         if (cancelLiveBusyRef.current) return;
         cancelLiveBackupRef.current = null;
@@ -1905,9 +1956,10 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
             await commitAdminStateDurably(next, 'admin-cancel-live', { snapshotOnly: true });
             closeLiveCallsForTournament(id);
             recoverToSafeAdmin();
-            setCancelLiveFeedback(t('admin_delete_live_tournament_done').replace('{name}', name));
+            setCancelLiveFeedback(t('admin_delete_live_tournament_done').replace('{name}', () => name));
             cancelLiveBackupRef.current = null;
             setCancelLiveStage(null);
+            void finishCancelLive({ id, name });
         } catch (error) {
             console.warn('FLBP live cancellation did not complete', error);
             setCancelLiveError(t('admin_cancel_live_failed'));
@@ -3252,6 +3304,12 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             archiveSubmittingRef.current = false;
             setArchiveBusy(false);
         }
+    };
+
+    const requestTournamentArchive = () => {
+        // A committed archive only has its publication left to retry.
+        if (archiveReceipt) void submitTournamentArchive();
+        else if (state.tournament) setArchiveConfirmOpen(true);
     };
 
     const handleUpdateTournamentAndMatches = (tournament: TournamentData, matches: Match[]) => {
@@ -4605,6 +4663,14 @@ while (guard < 5000) {
                 </div>
             )}
             {cancelLiveFeedback && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{cancelLiveFeedback}</p>}
+            {cancelLivePending && !cancelLiveFantaBusy && (
+                <div role="alert" className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-950">
+                    <p>{t('admin_cancel_live_fanta_pending').replace('{name}', () => cancelLivePending.name)}</p>
+                    <button type="button" className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-black hover:bg-amber-100" onClick={() => { void finishCancelLive(cancelLivePending); }}>
+                        {t('admin_cancel_live_fanta_retry')}
+                    </button>
+                </div>
+            )}
             <AdminDataConfirmModal
                 open={cancelLiveStage !== null}
                 tone={cancelLiveStage === 'backup' ? 'warning' : 'danger'}
@@ -4866,7 +4932,7 @@ while (guard < 5000) {
                     {state.tournament || archiveReceipt ? (
                         <MvpModal inline forArchive allPlayers={allPlayers} search={mvpSearch} setSearch={setMvpSearch}
                             selectedIds={mvpSelectedIds} setSelectedIds={setMvpSelectedIds} searchPlaceholder={t('search')}
-                            t={t} onSave={() => { void submitTournamentArchive(); }} saveLabel={t('complete_tournament')}
+                            t={t} onSave={requestTournamentArchive} saveLabel={t('complete_tournament')}
                             assignU25Awards={archiveIncludeU25Awards} setAssignU25Awards={setArchiveIncludeU25Awards}
                             archive={{
                                 awards: archiveReceipt?.awards || archiveAwardPreview, pendingFinalMatches,
@@ -4874,6 +4940,16 @@ while (guard < 5000) {
                                 email: archiveDone ? archiveReceipt?.email : null,
                             }} />
                     ) : <p className="text-sm font-bold text-slate-700">{t('alert_no_live_active')}</p>}
+                    <ArchiveConfirmDialog
+                        open={archiveConfirmOpen && !!state.tournament && !archiveReceipt}
+                        tournamentName={state.tournament?.name || ''}
+                        champion={archiveAwardPreview.find(award => award.type === 'winner')?.teamName}
+                        mvpNames={allPlayers.filter(player => mvpSelectedIds.includes(player.id)).map(player => player.name)}
+                        unplayed={getUnplayedMatches(state.tournamentMatches || [])}
+                        onConfirm={() => { setArchiveConfirmOpen(false); void submitTournamentArchive(); }}
+                        onClose={closeArchiveConfirm}
+                        t={t}
+                    />
                 </div>
             )}
             {tab === 'matches' && currentMatchesView === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery} statusFilter={codesStatusFilter} />}

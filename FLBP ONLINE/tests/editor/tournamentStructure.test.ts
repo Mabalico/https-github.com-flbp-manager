@@ -10,7 +10,7 @@ import { diffTournamentStructure } from '../../services/tournamentStructureDiff'
 import { activateFinalRoundRobinStage, didQualificationChangeAfterBracketStarted, ensureFinalTieBreakIfNeeded, generateTournamentStructure, syncBracketFromGroups } from '../../services/tournamentEngine';
 import { computeGroupStandings } from '../../services/groupStandings';
 import { compareTournamentMatches, formatGroupName } from '../../services/groupUtils';
-import { canPlayMatch, hasUndeterminedParticipants, isByeMatch } from '../../services/matchUtils';
+import { canPlayMatch, getUnplayedMatches, hasUndeterminedParticipants, isByeMatch } from '../../services/matchUtils';
 import { buildTournamentAwards, coerceAppState } from '../../services/storageService';
 import {
   canInsertTeamIntoBracketSlot,
@@ -1428,6 +1428,20 @@ defineCase('a group F tie-break and a final tie-break never share an FTB code', 
   const groupTieBreak = withGroup.find((match) => match.groupName === 'Girone F' && match.isTieBreak);
   assertOk(groupTieBreak, 'the three-way tie in group F creates a tie-break');
   assertEqual(groupTieBreak!.code, 'FTB2', 'the group F tie-break skips the FTB1 of the final');
+});
+
+defineCase('the closing page counts every visible match still waiting for a result', () => {
+  const finished = { played: true, status: 'finished' as const, scoreA: 10, scoreB: 4 };
+  const unplayed = getUnplayedMatches([
+    makeGroupMatch('done', 'Girone A', 'A1', 'A2', finished),
+    makeGroupMatch('todo', 'Girone A', 'A1', 'A3'),
+    makeGroupMatch('playing', 'Girone A', 'A2', 'A3', { status: 'playing' }),
+    makeGroupMatch('pending-slot', 'Girone A', 'A1', '', { phase: 'bracket', groupName: undefined }),
+    makeGroupMatch('bye', 'Girone A', 'A1', 'BYE', { phase: 'bracket', groupName: undefined }),
+    makeGroupMatch('hidden', 'Girone A', 'A1', 'A4', { hidden: true }),
+    makeGroupMatch('replaced', 'Girone A', 'A1', 'A4', { phase: 'bracket', replacedByFinalGroup: true }),
+  ]);
+  assertEqual(unplayed.map(match => match.id).join(','), 'todo,playing,pending-slot');
 });
 
 let failed = 0;

@@ -770,5 +770,19 @@ await check('B2 #3: OCR confirmation of a different shared code asks for the man
   assert.deepEqual(result.calls.forms, []);
   assert.deepEqual(result.calls.ocrErrors, ['referees_duplicate_code_use_manual']);
 });
+await check('a knockout match with only one team cannot be opened by code or OCR', async () => {
+  const matches = legacyFourByFour({ finishedGroups: ['A', 'B'] })
+    .map(match => match.id === 'r2m1' ? { ...match, teamAId: 'a1', teamBId: '' } : match);
+  const lookup = legacyCase(matches, { reportCode: 'B21' });
+  lookup.lookupMatchByCode();
+  assert.deepEqual(lookup.calls.forms, []);
+  assert.deepEqual(lookup.calls.pages, []);
+  assert.equal(lookup.calls.foundIds.at(-1), '');
+  assert.equal(lookup.calls.codeErrors.at(-1), 'referees_err_has_tbd');
+  const ocr = legacyCase(matches, { ocrModalCode: 'B21' });
+  ocr.confirmOcrModal();
+  assert.deepEqual(ocr.calls.forms, []);
+  assert.deepEqual(ocr.calls.ocrErrors, ['referees_err_has_tbd']);
+});
 
 console.log(`Referee report save: ${passed} checks passed (${usesOutbox ? 'ONLINE outbox/RPC' : 'LOCALE snapshot'}).`);

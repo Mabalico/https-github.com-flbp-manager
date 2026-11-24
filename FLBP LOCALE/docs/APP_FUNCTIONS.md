@@ -279,7 +279,7 @@ Note robuste emerse dalle ultime correzioni:
 
 ## 4) Area Admin (gestione)
 
-- **Completa e archivia** mostra i premi in anteprima. Dopo il salvataggio, il riepilogo offre il testo degli arbitraggi da copiare o aprire nel client email. Se la pubblicazione si interrompe, puoi riprovarla dal riepilogo.
+- **Completa e archivia** mostra i premi in anteprima e chiede conferma con torneo, vincitore e MVP. Se restano partite da giocare o manca il vincitore, la conferma elenca i codici e si attiva solo spuntando **Archivia lo stesso**. Dopo il salvataggio, il riepilogo offre il testo degli arbitraggi da copiare o aprire nel client email. Se la pubblicazione si interrompe, puoi riprovarla dal riepilogo.
 - Il sito pubblico mostra i premi pubblicati, compresi gli Under 25 e tutti i pari merito.
 
 Entry: `components/AdminDashboard.tsx`.
@@ -600,7 +600,7 @@ In Editor, Monitor e scheda pubblica il tabellone ha scorrimento interno. In Edi
 
 ### Annullamento del live e convocazioni
 
-In modalità Ufficiale **Annulla torneo live** richiede il download del backup JSON e una seconda conferma. Se il torneo o le partite cambiano tra i due passaggi, serve un backup aggiornato. Al salvataggio vengono rimossi il torneo e il calendario live. Storico, Albo d’oro e Fanta conservano i propri dati.
+In modalità Ufficiale **Annulla torneo live** richiede il download del backup JSON e una seconda conferma. Se il torneo o le partite cambiano tra i due passaggi, serve un backup aggiornato. Al salvataggio vengono rimossi il torneo e il calendario live. Storico e Albo d’oro non cambiano. FantaBeerpong torna al Pretorneo e le rose passate al live tornano con lui; chi ne ha già salvata una nuova in Pretorneo conserva quella. Se questo passaggio non riesce, l’avviso **Riprova con il Fanta** resta in Area Admin anche dopo un ricaricamento. Serve la migration `20261124000200_fanta_return_cancelled_live.sql`.
 
 La Home mostra il nome del torneo quando il live è attivo. Nelle grafiche Social gli slot automatici coprono tutte le partite convocabili. L’ora inserita è quella della convocazione. L’inizio della partita viene calcolato un’ora dopo.
 
