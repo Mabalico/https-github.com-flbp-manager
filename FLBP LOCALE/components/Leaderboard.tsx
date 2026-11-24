@@ -4,9 +4,10 @@ import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AppState, loadState, getPlayerKey, resolvePlayerKey, isU25 } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, getPlayerKeyLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
-import { PlayerStats, Match, Team } from '../types';
+import { HallOfFameEntry, PlayerStats, Match, Team } from '../types';
 import { useTranslation } from '../App';
-import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, X, CalendarDays } from 'lucide-react';
+import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, X, CalendarDays, Star, Wind } from 'lucide-react';
+import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { getSupabaseConfig, pullPublicCareerLeaderboard, pullPublicHallOfFameEntries } from '../services/supabasePublic';
 import { isLocalOnlyMode, isRemoteRepositoryEnabled } from '../services/repository/featureFlags';
 import { normalizeNameLower } from '../services/textUtils';
@@ -32,6 +33,17 @@ type LeaderboardProps = {
 };
 
 const PUBLIC_DB_READ_LS_KEY = 'flbp_public_db_read';
+type PlayerTitles = { total: number; byType: Partial<Record<HallOfFameEntry['type'], number>> };
+
+const playerTitleBadges = [
+    { type: 'winner', label: 'edition_award_winner', Icon: Trophy, color: 'border-amber-200 bg-amber-50 text-amber-900' },
+    { type: 'top_scorer', label: 'edition_award_top_scorer', Icon: PlasticCupIcon, color: 'border-orange-200 bg-orange-50 text-orange-900' },
+    { type: 'defender', label: 'edition_award_defender', Icon: Wind, color: 'border-sky-200 bg-sky-50 text-sky-900' },
+    { type: 'mvp', label: 'edition_award_mvp', Icon: Star, color: 'border-violet-200 bg-violet-50 text-violet-900' },
+    { type: 'top_scorer_u25', label: 'edition_award_top_scorer_u25', Icon: PlasticCupIcon, color: 'border-orange-200 bg-orange-50 text-orange-900' },
+    { type: 'defender_u25', label: 'edition_award_defender_u25', Icon: Wind, color: 'border-sky-200 bg-sky-50 text-sky-900' },
+] as const;
+
 const publicDbReadEnabled = (): boolean => {
     if (isLocalOnlyMode()) return false;
     if (isRemoteRepositoryEnabled()) return true;
@@ -341,21 +353,28 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
     }, [stats]);
 
     const hallOfFame = state.hallOfFame?.length ? state.hallOfFame : dbHoF || [];
-    const titleCountsByPlayerId = useMemo(() => {
+    const titlesByPlayerId = useMemo(() => {
         const idsByName = new Map<string, string[]>();
         for (const player of stats) {
             const name = normalizeName(player.name);
             idsByName.set(name, [...(idsByName.get(name) || []), player.id]);
         }
         const playerIds = new Set(stats.map(player => player.id));
-        const totals: Record<string, number> = {};
+        const titles = new Map<string, PlayerTitles>();
         for (const row of buildTitledHallOfFameRows(state, hallOfFame)) {
             const candidates = idsByName.get(normalizeName(row.name)) || [];
             const hasKnownIdentity = getPlayerKeyLabel(row.key).yob !== 'ND';
             const id = playerIds.has(row.key) ? row.key : !hasKnownIdentity && candidates.length === 1 ? candidates[0] : null;
-            if (id) totals[id] = (totals[id] || 0) + row.total + row.u25Total;
+            if (!id) continue;
+            const playerTitles: PlayerTitles = titles.get(id) || { total: 0, byType: {} };
+            for (const { type } of playerTitleBadges) {
+                const count = row.breakdown[type];
+                if (count) playerTitles.byType[type] = (playerTitles.byType[type] || 0) + count;
+            }
+            playerTitles.total += row.total + row.u25Total;
+            titles.set(id, playerTitles);
         }
-        return totals;
+        return titles;
     }, [stats, state, hallOfFame]);
 
     const rankIndex = (index: number) => scoringRankIndex(filteredStats, index, sortField);
@@ -397,15 +416,22 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         </th>
     );
 
-    const renderPlayerAwardBadges = (player: PlayerStats) => {
-        const count = titleCountsByPlayerId[player.id] || 0;
-        if (!count) return null;
+    const renderPlayerAwardBadges = (player: PlayerStats, id?: string) => {
+        const titles = titlesByPlayerId.get(player.id);
+        if (!titles?.total) return null;
         return (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-black text-amber-900"
-                title={t('players_titles_count').replace('{count}', String(count))}
-                aria-label={t('players_titles_count').replace('{count}', String(count))}>
-                <Trophy className="h-3.5 w-3.5" aria-hidden />
-                ×{count}
+            <span id={id} className="mt-1 flex flex-wrap gap-1">
+                {playerTitleBadges.map(({ type, label, Icon, color }) => {
+                    const count = titles.byType[type];
+                    if (!count) return null;
+                    return (
+                        <span key={type} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-bold leading-tight ${color}`}>
+                            <span className="inline-flex shrink-0" aria-hidden="true"><Icon className="h-3 w-3" /></span>
+                            <span>{t(label)}</span>
+                            <span className="shrink-0 tabular-nums">×{count}</span>
+                        </span>
+                    );
+                })}
             </span>
         );
     };
@@ -547,7 +573,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
 
             <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white sm:hidden">
                 {filteredStats.map((player, index) => {
-                    const titles = titleCountsByPlayerId[player.id] || 0;
+                    const titles = titlesByPlayerId.get(player.id)?.total || 0;
                     const value = sortField === 'winRate' ? formatWinRate(player) : player[sortField];
                     const unit = sortField === 'points' || sortField === 'avgPoints' ? t('leaderboard_points_short')
                         : sortField === 'soffi' || sortField === 'avgSoffi' ? t('leaderboard_soffi_short')
@@ -565,8 +591,8 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                         {t(player.gamesPlayed === 1 ? 'leaderboard_games_one' : 'leaderboard_games_count').replace('{count}', String(player.gamesPlayed))}
                                         {' · '}{t(titles === 1 ? 'leaderboard_title_one' : 'players_titles_count').replace('{count}', String(titles))}
                                     </span>
+                                    {renderPlayerAwardBadges(player)}
                                 </span>
-                                {renderPlayerAwardBadges(player)}
                                 <span className="shrink-0 text-end text-lg font-black tabular-nums text-slate-950">
                                     {value}{unit && <span className="text-[10px] font-bold text-slate-600">{' '}{unit}</span>}
                                 </span>
@@ -607,6 +633,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                     role="button"
                                     tabIndex={0}
                                     aria-label={`Apri dati giocatore ${p.name}`}
+                                    aria-describedby={titlesByPlayerId.get(p.id)?.total ? `leaderboard-awards-${idx}` : undefined}
                                 >
                                     <td className={`${thPad} text-center font-black text-slate-400`}>
                                         {rankIndex(idx) < 3 ? (
@@ -616,15 +643,13 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                         ) : rankIndex(idx) + 1}
                                     </td>
                                     <td className={`${thPad}`}>
-                                        <div className="font-bold text-slate-900 text-base flex items-center gap-2 flex-wrap">
-                                            <span>{p.name}</span>
-                                            {renderPlayerAwardBadges(p)}
-                                        </div>
+                                        <div className="text-base font-bold text-slate-900">{p.name}</div>
                                         {disambiguateNameMap[normalizeName(p.name)] && getDisplayBirthIdentityLabel(p) && (
                                             <div className="text-[10px] text-slate-400 font-bold">
                                                 {getDisplayBirthIdentityLabel(p)}
                                             </div>
                                         )}
+                                        {renderPlayerAwardBadges(p, `leaderboard-awards-${idx}`)}
                                     </td>
                                     <td className={`${thPad} text-center font-bold`}>{p.gamesPlayed}</td>
                                     <td className={`${thPad} text-center font-black text-lg ${sortField === 'points' ? 'text-beer-600' : 'text-slate-700'}`}>{p.points}</td>
