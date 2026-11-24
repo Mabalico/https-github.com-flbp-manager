@@ -5,6 +5,9 @@ import { readTvProjectionFromUrl } from './services/tvProjectionRoute';
 
 import './styles.css';
 
+const webFonts = document.querySelector<HTMLLinkElement>('#flbp-web-fonts');
+if (webFonts) webFonts.rel = 'stylesheet';
+
 // Conservative offline/cache (service worker)
 // - Network-first for HTML navigations (avoid "stale app" issues)
 // - Cache-first for built assets (/assets/*)
@@ -16,9 +19,15 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       const isNativeWindowsShell = Boolean((globalThis as any).__FLBP_NATIVE_WRITER_WINDOW_ID);
       const routedTvActive = readTvProjectionFromUrl(window.location.href) !== null;
-      const storedTvActive = !isNativeWindowsShell && !!window.localStorage.getItem('flbp_tv_mode');
+      let storedTvActive = false;
+      let disabled = false;
+      try {
+        storedTvActive = !isNativeWindowsShell && !!window.localStorage.getItem('flbp_tv_mode');
+        disabled = window.localStorage.getItem('flbp_sw_disabled') === '1';
+      } catch {
+        // The URL still identifies dedicated TV, even when storage is disabled.
+      }
       const tvActive = routedTvActive || storedTvActive;
-      const disabled = window.localStorage.getItem('flbp_sw_disabled') === '1';
       if (tvActive) {
         // TV must be as "fresh" as possible. Best-effort cleanup.
         try {
@@ -56,7 +65,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       });
     });
   } catch {
-    // Intentionally ignore: localStorage access can throw in some environments.
+    // Service worker registration is optional.
   }
 }
 

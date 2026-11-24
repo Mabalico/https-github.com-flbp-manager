@@ -2468,8 +2468,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
                   <form
                     autoComplete="on"
-                    data-lpignore="true"
-                    data-1p-ignore="true"
                     className={`mt-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:block md:p-5 space-y-4 [overflow-anchor:none] ${emailPanelOpen ? 'block' : 'hidden'}`}
                     onSubmit={(event) => {
                       event.preventDefault();
@@ -2501,16 +2499,15 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
                       <div className="space-y-3">
                         <div>
-                          <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</div>
+                          <label htmlFor="player-email" className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_email')}</label>
                           <input
+                            id="player-email"
                             type="email"
                             name="player-email"
                             inputMode="email"
-                            autoComplete="email"
+                            autoComplete={authMode === 'login' ? 'username' : 'email'}
                             autoCapitalize="none"
                             spellCheck={false}
-                            data-lpignore="true"
-                            data-1p-ignore="true"
                             value={email}
                             onChange={(event) => setEmail(event.target.value)}
                             className={inputClass}
@@ -2518,14 +2515,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           />
                         </div>
                         <div>
-                          <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_password')}</div>
+                          <label htmlFor="player-password" className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_password')}</label>
                           <div className="relative">
                             <input
+                              id="player-password"
                               type={showPassword ? 'text' : 'password'}
                               name="player-password"
                               autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                              data-lpignore="true"
-                              data-1p-ignore="true"
                               value={password}
                               onChange={(event) => setPassword(event.target.value)}
                               className={`${inputClass} pr-12`}
@@ -2546,8 +2542,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                           <>
                             <div className="grid gap-3 md:grid-cols-2">
                               <div>
-                                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</div>
+                                <label htmlFor="player-first-name" className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{t('name_label')}</label>
                                 <input
+                                  id="player-first-name"
                                   name="player-first-name"
                                   autoComplete="given-name"
                                   value={firstName}
@@ -2557,8 +2554,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                                 />
                               </div>
                               <div>
-                                <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</div>
+                                <label htmlFor="player-last-name" className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_last_name')}</label>
                                 <input
+                                  id="player-last-name"
                                   name="player-last-name"
                                   autoComplete="family-name"
                                   value={lastName}
@@ -2625,14 +2623,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
 
                   <div className="space-y-3">
                     <div>
-                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_recovery_new_password')}</div>
+                      <label htmlFor="player-recovery-password" className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_recovery_new_password')}</label>
                       <div className="relative">
                         <input
+                          id="player-recovery-password"
                           type={showRecoveryPassword ? 'text' : 'password'}
                           name="player-recovery-password"
                           autoComplete="new-password"
-                          data-lpignore="true"
-                          data-1p-ignore="true"
                           value={recoveryPassword}
                           onChange={(event) => setRecoveryPassword(event.target.value)}
                           className={`${inputClass} pr-12`}
@@ -2651,13 +2648,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({ state, onOpenReferees, o
                     </div>
 
                     <div>
-                      <div className="mb-1 text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_recovery_confirm_password')}</div>
+                      <label htmlFor="player-recovery-password-confirm" className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{t('player_area_recovery_confirm_password')}</label>
                       <input
+                        id="player-recovery-password-confirm"
                         type={showRecoveryPassword ? 'text' : 'password'}
                         name="player-recovery-password-confirm"
                         autoComplete="new-password"
-                        data-lpignore="true"
-                        data-1p-ignore="true"
                         value={recoveryPasswordConfirm}
                         onChange={(event) => setRecoveryPasswordConfirm(event.target.value)}
                         className={inputClass}

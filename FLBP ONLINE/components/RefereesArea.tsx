@@ -76,13 +76,11 @@ const isRefereeRateLimited = (value: unknown): boolean => {
 
 // The server refused the report itself (for example a tie-break it cannot
 // accept): sending it again cannot help, so the referee warns the Admin.
-const refereeRejectedReportMessage = (reason: string) => [
-    'Il server ha rifiutato il referto.',
-    '',
-    `Motivo: ${reason}`,
-    '',
-    'Il referto resta salvato su questo dispositivo: avvisa l\'Admin, che può inserire il risultato dall\'area Admin.',
-].join('\n');
+const refereeRejectedReportMessage = (reason: string, t: (key: string) => string) => [
+    t('report_dialog_rejected').replace('{reason}', () => reason),
+    t('report_dialog_referee_queued'),
+    t('report_dialog_referee_contact_admin'),
+].join('\n\n');
 
 // Since migration 20261119000100 flbp_referee_pull_live_state returns only the
 // referee view of the live tournament (teams, groups, config, roster, matches):
@@ -606,7 +604,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             setLoginError(null);
             const replayed = await replayPendingReports(entered);
             if (replayed > 0) {
-                alert(`${replayed} refert${replayed === 1 ? 'o pendente sincronizzato' : 'i pendenti sincronizzati'}.`);
+                alert(t('report_dialog_referee_replayed').replace('{count}', String(replayed)));
             }
         } catch (e: any) {
             const msg = String(e?.message || e || '');
@@ -1189,7 +1187,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
 
         if (foundMatch.status === 'finished') {
-            const ok = confirm(t('referees_overwrite_confirm') || 'Match già finito. Vuoi sovrascrivere il referto?');
+            const ok = confirm(t('referees_overwrite_confirm'));
             if (!ok) return;
         }
 
@@ -1231,11 +1229,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             if (workingState !== state) {
                 if (getMatchParticipantIds(base).join('|') !== getMatchParticipantIds(foundMatch).join('|')) {
                     applyRefereeState(workingState);
-                    alert('La partita è cambiata nel torneo live. Ho ricaricato i dati: controlla il referto prima di salvare di nuovo.');
+                    alert(t('report_dialog_referee_fixture_changed'));
                     return;
                 }
                 if (base.status === 'finished' && foundMatch.status !== 'finished') {
-                    const ok = confirm(t('referees_overwrite_confirm') || 'Match già finito. Vuoi sovrascrivere il referto?');
+                    const ok = confirm(t('referees_overwrite_confirm'));
                     if (!ok) {
                         applyRefereeState(workingState);
                         return;
@@ -1262,7 +1260,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             const max = vals.length ? Math.max(...vals) : 0;
             const leaders = Object.keys(scoresByTeam).filter(id => (scoresByTeam[id] || 0) === max);
             if (leaders.length !== 1) {
-                alert(t('alert_tie_not_allowed') || 'Pareggio non ammesso: inserisci lo spareggio nei canestri dei giocatori.');
+                alert(t('alert_tie_not_allowed'));
                 return;
             }
 
@@ -1308,8 +1306,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 alert([
                     t('editor_winner_cannot_advance'),
                     '',
-                    `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso.`,
-                    'Il referto non è stato salvato: chiedi all\'Admin di correggere il tabellone.',
+                    t('report_dialog_locked_successor').replace('{code}', () => lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''),
+                    t('report_dialog_referee_locked_advice'),
                 ].join('\n'));
                 return;
             }
@@ -1341,7 +1339,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             if (shouldUseRefereeRemotePush) {
                 if (!refereePassword) {
-                    alert(t('referees_session_expired_relogin') || 'Sessione arbitro scaduta su questo dispositivo. Per sicurezza la password arbitri non viene salvata nel browser: effettua di nuovo il login arbitri.');
+                    alert(t('referees_session_expired_relogin'));
                     return;
                 }
                 let useSnapshotFallback = false;
@@ -1371,20 +1369,20 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         applyRefereeState(nextState);
-                        alert('Conflitto DB: il referto è conservato nella coda locale e non verrà perso. Verifica la versione remota prima di riprovare.');
+                        alert(t('report_dialog_referee_queue_conflict'));
                         return;
                     } else if (rejectionReason) {
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncError(e?.message || String(e), 'snapshot');
-                        alert(refereeRejectedReportMessage(rejectionReason));
+                        alert(refereeRejectedReportMessage(rejectionReason, t));
                         return;
                     } else {
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncError(e?.message || String(e), 'snapshot');
                         applyRefereeState(nextState);
                         alert(isRefereeRateLimited(e)
-                            ? `${t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.'}\n\nIl referto è salvato sul dispositivo e verrà riprovato dopo il nuovo accesso arbitri.`
-                            : 'Connessione non disponibile: il referto è salvato sul dispositivo e verrà riprovato dopo il nuovo accesso arbitri.');
+                            ? `${t('referees_rate_limited')}\n\n${t('report_dialog_referee_queue_relogin')}`
+                            : `${t('db_connection_unavailable')}\n\n${t('report_dialog_referee_queue_relogin')}`);
                         return;
                     }
                 }
@@ -1432,18 +1430,18 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             markDbSyncConflict(e?.message || 'Conflitto DB');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
                             applyRefereeState(nextState);
-                            alert('Conflitto DB: il referto resta conservato nella coda locale.');
+                            alert(t('report_dialog_referee_queue_conflict'));
                         } else if (getMatchResultRejectionReason(e)) {
                             markDbSyncError(e?.message || String(e), 'snapshot');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
-                            alert(refereeRejectedReportMessage(getMatchResultRejectionReason(e) || ''));
+                            alert(refereeRejectedReportMessage(getMatchResultRejectionReason(e) || '', t));
                         } else {
                             markDbSyncError(e?.message || String(e), 'snapshot');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
                             applyRefereeState(nextState);
                             alert(isRefereeRateLimited(e)
-                                ? `${t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.'}\n\nIl referto resta conservato nella coda locale.`
-                                : 'Salvataggio remoto non riuscito: il referto resta conservato nella coda locale.');
+                                ? `${t('referees_rate_limited')}\n\n${t('report_dialog_referee_queued')}`
+                                : `${t('referees_db_save_failed')}\n\n${t('report_dialog_referee_queued')}`);
                         }
                         return;
                     }
@@ -1609,7 +1607,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             if (ocrUnavailable && !text) setOcrModalError(t('referees_ocr_unavailable'));
         } catch (e) {
             console.error(e);
-            alert(t('referees_ocr_failed') || "Errore durante l'OCR. Prova un'altra foto.");
+                alert(t('referees_ocr_failed'));
         } finally {
             setOcrBusy(false);
         }
