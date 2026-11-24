@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Melde dich mit deinem Administratorkonto an.",
   "admin_login_unavailable": "Die Admin-Anmeldung ist vorübergehend nicht verfügbar.",
   "admin_login_try_again": "Prüfe E-Mail-Adresse und Passwort und versuche es erneut.",
+  "admin_qualification_changed_after_bracket_start": "Die Korrektur ändert die qualifizierten Teams oder ihre Setzposition. Die K.-o.-Runde hat begonnen. Prüfe die Paarungen und passe sie im Struktureditor an.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "In der Datenbank wurde kein gültiger Admin-Datenstand gefunden.",
   "report_dialog_snapshot_reload_failed": "Der Datenstand konnte nicht aus der Datenbank geladen werden.\n\n{error}",

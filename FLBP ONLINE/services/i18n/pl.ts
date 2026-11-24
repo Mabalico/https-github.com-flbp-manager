@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Zaloguj się na konto administratora.",
   "admin_login_unavailable": "Logowanie administratora jest chwilowo niedostępne.",
   "admin_login_try_again": "Sprawdź adres e-mail i hasło, a następnie spróbuj ponownie.",
+  "admin_qualification_changed_after_bracket_start": "Korekta zmienia drużyny awansujące lub ich rozstawienie. Faza pucharowa już trwa. Sprawdź pary i popraw je w edytorze struktury.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "Nie znaleziono prawidłowej migawki administratora w bazie danych.",
   "report_dialog_snapshot_reload_failed": "Nie udało się ponownie wczytać stanu z bazy danych.\n\n{error}",

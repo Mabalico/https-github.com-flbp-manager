@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Войдите в аккаунт администратора.",
   "admin_login_unavailable": "Вход в панель администратора временно недоступен.",
   "admin_login_try_again": "Проверьте адрес электронной почты и пароль, затем повторите попытку.",
+  "admin_qualification_changed_after_bracket_start": "Исправление меняет состав прошедших дальше команд или их посев. Матчи плей-офф уже начались. Проверьте пары и исправьте их в редакторе структуры.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "В базе данных нет действительного снимка состояния администратора.",
   "report_dialog_snapshot_reload_failed": "Не удалось заново загрузить состояние из базы данных.\n\n{error}",

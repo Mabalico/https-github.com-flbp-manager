@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "请使用管理员账号登录。",
   "admin_login_unavailable": "管理员登录暂时无法使用。",
   "admin_login_try_again": "请检查电子邮箱和密码后重试。",
+  "admin_qualification_changed_after_bracket_start": "更正会改变晋级队伍或其种子位置。淘汰赛已经开始。请检查对阵，并在结构编辑器中调整。",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "数据库中没有有效的管理员状态快照。",
   "report_dialog_snapshot_reload_failed": "无法从数据库重新加载状态。\n\n{error}",

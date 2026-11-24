@@ -370,6 +370,7 @@ const coerceTournamentConfig = (cfg: any): TournamentConfig => {
 
     return {
         advancingPerGroup: Number.isFinite(v) && v >= 0 ? v : 2,
+        ...(cfg?.groupSeeding === 'opposite_halves' ? { groupSeeding: 'opposite_halves' as const } : {}),
         ...(resultsOnly ? { resultsOnly: true } : {}),
         ...(finalRoundRobin ? { finalRoundRobin } : {}),
         ...(refTables ? { refTables } : {})

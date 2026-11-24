@@ -3,8 +3,7 @@ import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings'
 import { applyFinalGroupSchedule, getFinalGroupStartRound, isFinalGroup } from './groupUtils';
 import { avoidBracketCodeClashes, normalizeMatchCode } from './matchUtils';
 import { buildBracketRoundsFromMatches, isLockedBracketMatchForStructureEdit, reconcileBracketAdvancements } from './tournamentStructureSelectors';
-
-const uuid = () => Math.random().toString(36).substr(2, 9);
+import { uuid } from './id';
 
 const isByeId = (id?: string) => String(id || '').toUpperCase() === 'BYE';
 const isTbdId = (id?: string) => {
@@ -219,6 +218,69 @@ const buildRound1PairsWithPrelimsBottom = (seededParticipants: string[], targetS
     return pairs;
 };
 
+interface GroupBracketSeed {
+    id: string;
+    groupIndex: number;
+    rank: number;
+}
+
+const compareBracketSeeds = (a: GroupBracketSeed, b: GroupBracketSeed) => a.rank - b.rank || a.groupIndex - b.groupIndex;
+
+const buildOppositeHalfRound1Pairs = (groups: Group[], advancing: number, matchCount: number): Array<[string, string]> => {
+    const orderedGroups = [...groups].sort((a, b) => getGroupLetter(a.name).localeCompare(getGroupLetter(b.name)));
+    const seeds = orderedGroups.flatMap((group, groupIndex) =>
+        Array.from({ length: Math.min(advancing, (group.teams || []).length) }, (_, index) => ({
+            id: `TBD-${getGroupLetter(group.name)}-${index + 1}`,
+            groupIndex,
+            rank: index + 1,
+        }))
+    ).sort(compareBracketSeeds).slice(0, matchCount * 2);
+
+    if (matchCount % 2 !== 0) {
+        return buildRound1PairsWithPrelimsBottom(seeds.map(seed => seed.id), matchCount * 2, matchCount);
+    }
+
+    const halves: [GroupBracketSeed[], GroupBracketSeed[]] = [[], []];
+    const firsts = seeds.filter(seed => seed.rank === 1);
+    const seconds = new Map(seeds.filter(seed => seed.rank === 2).map(seed => [seed.groupIndex, seed]));
+    const remaining = seeds.filter(seed => seed.rank > 2);
+    let firstHalf = 0;
+    for (const first of firsts) {
+        const second = seconds.get(first.groupIndex);
+        if (!second) {
+            remaining.push(first);
+            continue;
+        }
+        halves[firstHalf].push(first);
+        halves[1 - firstHalf].push(second);
+        firstHalf = 1 - firstHalf;
+    }
+    for (const seed of remaining.sort(compareBracketSeeds)) {
+        const half = halves[0].length <= halves[1].length ? 0 : 1;
+        halves[half].push(seed);
+    }
+
+    return halves.flatMap(half => {
+        half.sort(compareBracketSeeds);
+        const halfMatchCount = matchCount / 2;
+        const byeCount = Math.max(0, halfMatchCount * 2 - half.length);
+        const prelims = half.slice(byeCount);
+        const pairCount = prelims.length / 2;
+        const preferred = prelims.slice(0, pairCount).map((seed, index) => [seed, prelims[prelims.length - 1 - index]] as const);
+        // Opposite sides of the group-sorted list avoid rematches whenever
+        // no group occupies more than half of the preliminary draw.
+        const byGroup = [...prelims].sort((a, b) => a.groupIndex - b.groupIndex || a.rank - b.rank);
+        const realPairs = preferred.some(([a, b]) => a.groupIndex === b.groupIndex)
+            ? byGroup.slice(0, pairCount).map((seed, index) => [seed, byGroup[index + pairCount]] as const)
+            : preferred;
+        const byeSlots = halfMatchCount - realPairs.length;
+        return [
+            ...Array.from({ length: byeSlots }, (_, index): [string, string] => [half[index]?.id || 'BYE', 'BYE']),
+            ...realPairs.map(([a, b]): [string, string] => [a.id, b.id]),
+        ];
+    });
+};
+
 
 export const generateTournamentStructure = (teams: Team[], config: GenerateOptions): { tournament: TournamentData, matches: Match[] } => {
     const activeTeams = (teams || []).filter(team => !team.hidden && !team.isBye);
@@ -345,7 +407,7 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
 
     // Round 1
     const round1Matches: Match[] = [];
-    if (currentRoundSize === 0) {
+    if (currentRoundSize < 1) {
         const tournament: TournamentData = {
             id: uuid(),
             name: config.tournamentName || `Torneo ${new Date().toLocaleDateString()}`,
@@ -355,7 +417,12 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
             rounds: rounds,
             groups: groups,
             matches: allMatches,
-            config: { advancingPerGroup: config.advancingPerGroup || 2, resultsOnly: !!config.resultsOnly, finalRoundRobin: config.finalRoundRobin }
+            config: {
+                advancingPerGroup: config.advancingPerGroup || 2,
+                ...(config.mode === 'groups_elimination' ? { groupSeeding: 'opposite_halves' as const } : {}),
+                resultsOnly: !!config.resultsOnly,
+                finalRoundRobin: config.finalRoundRobin,
+            },
         };
         return { tournament, matches: allMatches };
     }
@@ -486,8 +553,7 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
     } else {
         // Groups mode: pre-fill bracket Round 1 using deterministic placeholders (TBD-<Group>-<Rank>).
         const advancing = config.advancingPerGroup || 2;
-        const seeded = buildSeededParticipantsFromGroups(groups, advancing);
-        const pairs = buildRound1PairsWithPrelimsBottom(seeded, targetSize, currentRoundSize);
+        const pairs = buildOppositeHalfRound1Pairs(groups, advancing, currentRoundSize);
 
         for (let i = 0; i < currentRoundSize; i++) {
             const [pA, pB] = pairs[i];
@@ -616,6 +682,7 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
         matches: allMatches,
         config: {
             advancingPerGroup: config.advancingPerGroup || 2,
+            ...(config.mode === 'groups_elimination' ? { groupSeeding: 'opposite_halves' as const } : {}),
             resultsOnly: !!config.resultsOnly,
             finalRoundRobin: config.finalRoundRobin,
         }
@@ -624,9 +691,28 @@ export const generateTournamentStructure = (teams: Team[], config: GenerateOptio
     return { tournament, matches: allMatches };
 };
 
+export const didQualificationChangeAfterBracketStarted = (
+    tournament: TournamentData,
+    previousMatches: Match[],
+    nextMatches: Match[],
+    groupName?: string,
+): boolean => {
+    if (tournament.type !== 'groups_elimination' || !groupName) return false;
+    const group = tournament.groups?.find(candidate => candidate.name === groupName && !isFinalGroup(candidate));
+    if (!group || !previousMatches.some(match => match.phase === 'bracket' && isLockedBracketMatchForStructureEdit(match))) return false;
+    const advancing = tournament.config?.advancingPerGroup || 2;
+    const qualifierIds = (matches: Match[]) => isGroupComplete(group, matches)
+        ? computeGroupRanking(group, matches).ranked.slice(0, advancing).map(team => team.id)
+        : [];
+    const previous = qualifierIds(previousMatches);
+    const next = qualifierIds(nextMatches);
+    return previous.length !== next.length || previous.some((id, index) => id !== next[index]);
+};
+
 export const syncBracketFromGroups = (tournament: TournamentData, matches: Match[]): Match[] => {
     if (!tournament || tournament.type !== 'groups_elimination') return matches;
     const advancing = tournament.config?.advancingPerGroup || 2;
+    const oppositeHalves = tournament.config?.groupSeeding === 'opposite_halves';
     const groups = (tournament.groups || []).filter(g => !isFinalGroup(g));
     const teams = tournament.teams || [];
 
@@ -752,10 +838,11 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
     if (!round1.length) return reconcileBracketAdvancements(out);
 
     const targetSize = round1.length * 2;
-    const allGroupsComplete = groups.length > 0 && groups.every(g => isGroupComplete(g, out));
 
     // Build desired Round1 pairs depending on completion state.
     const desiredPairs: Array<[string, string]> = (() => {
+        if (oppositeHalves) return buildOppositeHalfRound1Pairs(groups, advancing, round1.length);
+        const allGroupsComplete = groups.length > 0 && groups.every(g => isGroupComplete(g, out));
         if (allGroupsComplete) {
             const orderedGroups = [...groups].sort((a, b) => getGroupLetter(a.name).localeCompare(getGroupLetter(b.name)));
             const participants: string[] = [];
@@ -791,7 +878,7 @@ export const syncBracketFromGroups = (tournament: TournamentData, matches: Match
     // Placeholders of the groups that are complete right now, resolved to their teams.
     const placeholderToTeamId: Record<string, string> = {};
     groups.forEach(g => {
-        if (!isGroupComplete(g, out)) return;
+        if (!isGroupComplete(g, out) && !(oppositeHalves && g.teams?.length === 1)) return;
         const letter = getGroupLetter(g.name);
         const { ranked } = computeGroupRanking(g, out);
         for (let r = 1; r <= advancing; r++) {

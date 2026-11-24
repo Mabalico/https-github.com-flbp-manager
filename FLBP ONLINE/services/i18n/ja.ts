@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "管理者アカウントでログインしてください。",
   "admin_login_unavailable": "管理者ログインは一時的に利用できません。",
   "admin_login_try_again": "メールアドレスとパスワードを確認し、もう一度お試しください。",
+  "admin_qualification_changed_after_bracket_start": "修正により通過チームまたはシード位置が変わります。決勝トーナメントはすでに始まっています。対戦を確認し、構成エディターで調整してください。",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "データベースに有効な管理者スナップショットが見つかりませんでした。",
   "report_dialog_snapshot_reload_failed": "データベースから状態を再読み込みできませんでした。\n\n{error}",

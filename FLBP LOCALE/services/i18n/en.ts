@@ -2811,6 +2811,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Sign in with your administrator account.",
   "admin_login_unavailable": "Admin sign-in is temporarily unavailable.",
   "admin_login_try_again": "Check your email and password, then try again.",
+  "admin_qualification_changed_after_bracket_start": "The correction changes the qualifiers or their seed positions. The bracket has started. Check the matchups and adjust them in the structure editor.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "No valid Admin snapshot was found in the database.",
   "report_dialog_snapshot_reload_failed": "Could not reload the state from the database.\n\n{error}",

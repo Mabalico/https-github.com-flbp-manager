@@ -8,6 +8,8 @@ import { buildPlayerProfileSnapshot, getAliasRemovalImpact, removePlayerAliasMap
 import { deleteHallOfFameEntry, getHallOfFameEntryOrigin, reassignHallOfFameEntry } from '../../services/hallOfFameAdmin';
 import { buildTitledHallOfFameRows } from '../../services/hallOfFameView';
 import { generateTournamentStructure } from '../../services/tournamentEngine';
+import { listEditions } from '../../services/editionData';
+import { buildFantaFinalAwardLookup, getFantaMatchResult } from '../../services/fantabeerpong/fantaSupabaseService';
 import { deriveYoBFromBirthDate, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../services/playerIdentity';
 import { __buildNormalizedTournamentRowsForTest, sanitizeAppStateForPublic } from '../../services/supabaseRest';
 import { mergePublicViewState } from '../../services/publicViewState';
@@ -631,6 +633,51 @@ defineCase('tournament generation keeps the selected tournament date', () => {
   );
 
   assertEqual(tournament.startDate, '2026-07-18T00:00:00.000Z');
+  assertEqual(tournament.id.includes('_'), true, 'new tournament IDs use the shared generator format');
+});
+
+defineCase('edition dates follow the Italian calendar across midnight and the year boundary', () => {
+  const state = coerceAppState({
+    tournament: { id: 'summer', name: 'Summer', startDate: '2026-07-17T22:30:00Z' },
+    tournamentHistory: [
+      { id: 'winter', name: 'Winter', startDate: '2026-12-31T23:30:00Z' },
+      { id: 'fixed', name: 'Fixed date', startDate: '2026-12-31' },
+    ],
+  });
+  const editions = new Map(listEditions(state).map(edition => [edition.id, edition]));
+  assertEqual(editions.get('summer')?.date, '2026-07-18');
+  assertEqual(editions.get('winter')?.date, '2027-01-01');
+  assertEqual(editions.get('winter')?.year, '2027');
+  assertEqual(editions.get('fixed')?.date, '2026-12-31');
+});
+
+defineCase('Fanta reads all three tie-break scores and awards a win only to the unique leader', () => {
+  const pair = { id: 'tie', phase: 'groups', team_a_id: 'a', team_b_id: 'b', score_a: 10, score_b: 5, played: true };
+  const match: Match = {
+    id: 'tie', phase: 'groups', isTieBreak: true, played: true, status: 'finished',
+    teamIds: ['a', 'b', 'c'], scoresByTeam: { a: 10, b: 5, c: 12 }, scoreA: 10, scoreB: 5,
+  };
+  assertEqual(getFantaMatchResult(pair, match)?.winnerTeamId, 'c');
+  assertEqual(getFantaMatchResult(pair, match)?.loserTeamId, null);
+  assertEqual(getFantaMatchResult(pair, { ...match, scoresByTeam: { a: 10, b: 5, c: 10 } }), null);
+  assertEqual(getFantaMatchResult(pair)?.winnerTeamId, 'a', 'legacy 1v1 rows still use their two scores');
+});
+
+defineCase('Fanta final awards require an identifiable real team for a homonym', () => {
+  const teams = [
+    { id: 'first', name: 'First', player1: 'Alex Rossi', player2: 'Another Alex' },
+    { id: 'second', name: 'Second', player1: 'Alex Rossi', player2: 'Third Player' },
+  ];
+  const getPoints = buildFantaFinalAwardLookup([
+    { id: 'champion', type: 'winner', team_name: 'First' },
+    { id: 'mvp', type: 'mvp', team_name: 'second', player_names: ['Alex Rossi'] },
+    { id: 'ambiguous', type: 'defender', player_names: ['Alex Rossi'] },
+    { id: 'unambiguous', type: 'top_scorer', player_names: ['Third Player'] },
+  ], teams);
+  assertEqual(getPoints('Alex Rossi', 'first'), 10);
+  assertEqual(getPoints('Alex Rossi', 'second'), 10);
+  assertEqual(getPoints('Third Player', 'second'), 10);
+  assertEqual(getPoints('Another Alex', 'first'), 10);
 });
 
 defineCase('normalized tournament row mapper matches the legacy export mapping for sample backup', () => {

@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Connectez-vous avec votre compte administrateur.",
   "admin_login_unavailable": "L’accès à l’administration est temporairement indisponible.",
   "admin_login_try_again": "Vérifiez votre adresse e-mail et votre mot de passe, puis réessayez.",
+  "admin_qualification_changed_after_bracket_start": "La correction change les qualifiés ou leur position. Les matchs du tableau ont déjà commencé. Vérifiez les rencontres et ajustez-les dans l’éditeur de structure.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "Aucun instantané Admin valide dans la base de données.",
   "report_dialog_snapshot_reload_failed": "Impossible de recharger les données depuis la base.\n\n{error}",

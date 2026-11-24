@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Yönetici hesabınla oturum aç.",
   "admin_login_unavailable": "Yönetici girişi geçici olarak kullanılamıyor.",
   "admin_login_try_again": "E-posta adresini ve şifreni kontrol edip tekrar dene.",
+  "admin_qualification_changed_after_bracket_start": "Düzeltme, tur atlayan takımları veya sıralarını değiştiriyor. Eleme aşaması başladı. Eşleşmeleri kontrol et ve yapı düzenleyicisinde düzelt.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "Veritabanında geçerli bir yönetici anlık görüntüsü bulunamadı.",
   "report_dialog_snapshot_reload_failed": "Durum veritabanından yeniden yüklenemedi.\n\n{error}",

@@ -2811,6 +2811,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "Accedi con il tuo account amministratore.",
   "admin_login_unavailable": "L’accesso Admin è temporaneamente indisponibile.",
   "admin_login_try_again": "Controlla email e password, poi riprova.",
+  "admin_qualification_changed_after_bracket_start": "La correzione cambia le qualificate o la loro posizione. Il tabellone è già iniziato. Controlla gli abbinamenti e correggili nell’editor struttura.",
   "editor_fullscreen_select_team_first": "Seleziona prima una squadra dal pool, poi trascinala o fai doppio clic su uno slot del tabellone.",
   "report_dialog_snapshot_missing": "Nessuno snapshot Admin valido nel database.",
   "report_dialog_snapshot_reload_failed": "Impossibile ricaricare lo stato dal database.\n\n{error}",

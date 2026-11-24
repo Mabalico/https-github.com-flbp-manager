@@ -99,6 +99,8 @@ export interface FinalRoundRobinConfig {
 
 export interface TournamentConfig {
     advancingPerGroup: number;
+    /** Seeding for newly generated group brackets. Missing on legacy tournaments. */
+    groupSeeding?: 'opposite_halves';
     /**
      * Optional lightweight tournament mode: only winners/losers are tracked.
      * Match reports do not collect player stats and scorer/defender awards are skipped.

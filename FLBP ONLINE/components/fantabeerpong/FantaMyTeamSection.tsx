@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from '../../App';
 import { AlertCircle, ArrowRight, CheckCircle2, Shield, Star, Users, Wind, Target, Zap, Trophy, History, Loader2, LogIn } from 'lucide-react';
-import { fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fantaRealPlayerKey, fetchFantaStandings, fetchFantaTeamDetail, fetchUserFantaTeam, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, PLAYER_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import { loadState } from '../../services/storageService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
@@ -117,7 +117,7 @@ export const FantaMyTeamSection: React.FC<Props> = ({ onOpenStandings, onOpenPla
              totalFantasyPoints += fp;
 
              return {
-                id: r.player_id,
+                id: fantaRealPlayerKey(r.player_id, stat.real_team_id || r.real_team_id),
                 playerName: stat.player_name || r.player_name || label.name,
                 realTeamName,
                 role: r.role as FantaRosterRole,

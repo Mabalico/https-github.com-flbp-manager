@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowDown, ArrowUpDown, Loader2, Search, Shield, Users, X } from 'lucide-react';
 import { useTranslation } from '../../App';
-import { fetchFantaPlayerStandings, fetchUserFantaTeam, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fantaRealPlayerKey, fetchFantaPlayerStandings, fetchUserFantaTeam, invalidateFantaConfigCache } from '../../services/fantabeerpong/fantaSupabaseService';
 import { FANTA_APP_CHANGE_EVENT, readPlayerPresenceSnapshot } from '../../services/playerAppService';
 import type { FantaPlayersStandingsRow } from '../../services/fantabeerpong/types';
 import { panelClass } from './_shared';
@@ -63,7 +63,7 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null)
       ]);
 
-      const myPlayerIds = userTeam?.roster.map(r => r.player_id) || [];
+      const myRoster = userTeam?.roster || [];
 
       const ordered = sortCopy(rawRows, (left, right) => {
         if ((right.total_points || 0) !== (left.total_points || 0)) return (right.total_points || 0) - (left.total_points || 0);
@@ -88,7 +88,8 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
         note: r.status === 'eliminated' && r.eliminated_by_team_name
           ? t('fanta_eliminated_by').replace('{name}', r.eliminated_by_team_name)
           : t('fanta_sync_note'),
-        isInMyTeam: myPlayerIds.includes(r.player_key)
+        isInMyTeam: myRoster.some(player => r.player_key === fantaRealPlayerKey(player.player_id, player.real_team_id)
+          || (r.player_key === player.player_id && (!r.real_team_id || !player.real_team_id || r.real_team_id === player.real_team_id)))
       }));
       setRows(mapped);
       setLoading(false);

@@ -2810,6 +2810,7 @@ export const dictionary: TranslationDictionary = {
   "admin_login_account": "سجّل الدخول بحساب المسؤول.",
   "admin_login_unavailable": "تسجيل دخول المسؤول غير متاح مؤقتًا.",
   "admin_login_try_again": "تحقّق من البريد الإلكتروني وكلمة المرور، ثم أعد المحاولة.",
+  "admin_qualification_changed_after_bracket_start": "يغيّر التصحيح الفرق المتأهلة أو ترتيبها. بدأت مرحلة خروج المغلوب. تحقّق من المواجهات وعدّلها في محرّر البنية.",
   "editor_fullscreen_select_team_first": "Select a team from the pool first, then drag it or double-click a bracket slot.",
   "report_dialog_snapshot_missing": "تعذّر العثور على لقطة صالحة لحالة الإدارة في قاعدة البيانات.",
   "report_dialog_snapshot_reload_failed": "تعذّرت إعادة تحميل الحالة من قاعدة البيانات.\n\n{error}",
