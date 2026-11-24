@@ -1,4 +1,4 @@
-import type { Match, TournamentData } from '../types';
+import type { Group, Match, TournamentData } from '../types';
 import { isByeMatch } from './matchUtils';
 
 /**
@@ -82,4 +82,14 @@ export const applyFinalGroupSchedule = (tournament: TournamentData, matches: Mat
     result.rounds = rounds.map((round, index) => round.map(m => markReplaced(m, m.round || index + 1, liveById.get(m.id))));
   }
   return result;
+};
+
+export const findTvFinalGroup = (groups: readonly Group[]): Group | undefined =>
+  groups.find(group => group.stage === 'final')
+  ?? groups.find(group => !group.stage && isFinalGroupName(group.name));
+
+export const getTvMatchGroupName = (match: Match, finalGroup?: Group): string => {
+  const name = String(match.groupName || '').trim();
+  if (name) return name;
+  return /^FTB/i.test(String(match.code || '').trim()) ? (finalGroup?.name?.trim() || '') : '';
 };
