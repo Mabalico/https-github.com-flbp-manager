@@ -30,9 +30,10 @@ const server = await createServer({
           .replace('}, [accountId, sessionMode]);', '}, [session]);');
       }
       if (regression === '--prove-edition-regression' && file.endsWith('/admin/tabs/DataTab.tsx')) {
-        assert(source.includes('void requestDraftNavigation(() => setMainSection(section));'));
+        const guard = /void requestDraftNavigation\(\(\) => \{(\s+setMainSection\(section\);[\s\S]*?)\n        \}\);/g;
+        assert.equal([...source.matchAll(guard)].length, 1, 'exactly one guarded Data section transition');
         mutationApplied = true;
-        return source.replace('void requestDraftNavigation(() => setMainSection(section));', 'setMainSection(section);');
+        return source.replace(guard, 'void (() => {$1\n        })();');
       }
     },
   }] : [],
