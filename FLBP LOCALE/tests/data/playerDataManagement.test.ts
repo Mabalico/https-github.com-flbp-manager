@@ -1,6 +1,6 @@
 import { registerEditionManagementCases } from './editionManagementCases';
 import { registerStateConflictMergeCases } from './stateConflictMergeCases';
-import { archiveTournamentV2, buildTournamentAwards, coerceAppState, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
+import { archiveTournamentV2, buildTournamentAwards, coerceAppState, mergeIntoLiveTournamentTeams, syncArchivedHistoryToHallOfFame, syncTournamentAwardsToHallOfFame, type AppState } from '../../services/storageService';
 import type { HallOfFameEntry, IntegrationScorerEntry, Match, Team, TournamentData } from '../../types';
 import { removeArchivedTournamentDeep } from '../../services/archiveCascadeDelete';
 import { buildPlayerProfileSnapshot, getAliasRemovalImpact, removePlayerAliasMapping } from '../../services/playerDataProvenance';
@@ -527,6 +527,29 @@ defineCase('live archive flow writes automatic hall of fame entries while preser
   assertOk(archived.hallOfFame.some((entry) => entry.tournamentId === 'arch_2025' && entry.type === 'winner'));
   assertOk(archived.hallOfFame.some((entry) => entry.tournamentId === 'arch_2025' && entry.type === 'top_scorer'));
   assertOk(archived.hallOfFame.some((entry) => entry.tournamentId === 'arch_2025' && entry.type === 'mvp'));
+});
+
+defineCase('live team renames reach group snapshots and preserve the names in archived editions', () => {
+  const team = makeTeam('theta', 'TST Theta', 'Rossi Mario', 1999, 'Verdi Anna', 1998);
+  const other = makeTeam('delta', 'TST Delta', 'Neri Luca', 1997, 'Bianchi Sara', 2000);
+  const live: TournamentData = {
+    id: 'live-rename', name: 'TST Live', startDate: '2026-11-23', type: 'groups_elimination',
+    teams: [team, other], groups: [{ id: 'g1', name: 'Girone A', teams: [team, other] }, { id: 'gf', name: 'Girone Finale', teams: [team, other], stage: 'final' }],
+    config: { advancingPerGroup: 2 },
+  };
+  const archive = { ...live, id: 'archive-rename', name: 'TST Archived' };
+  const renamed = { ...team, name: 'TST Theta B' };
+  const updated = mergeIntoLiveTournamentTeams(live, [renamed, other])!;
+  assertEqual(updated.teams[0].name, renamed.name);
+  assertOk(updated.groups!.every(group => group.teams[0].name === renamed.name));
+  assertOk(updated.groups!.every(group => group.teams[1] === other));
+  assertEqual(live.groups![0].teams[0].name, team.name);
+  const state = coerceAppState({ tournament: updated, tournamentHistory: [archive], teams: [renamed, other] });
+  const publicState = coerceAppState(sanitizeAppStateForPublic(state), { publicSnapshot: true });
+  assertOk(publicState.tournament!.groups!.every(group => group.teams[0].name === renamed.name));
+  assertEqual(publicState.tournamentHistory[0].groups![0].teams[0].name, team.name);
+  const oldSnapshot = coerceAppState({ tournament: { ...live, teams: [renamed, other] } });
+  assertEqual(oldSnapshot.tournament!.groups![0].teams[0].name, renamed.name);
 });
 
 defineCase('public hydration preserves archived Under 25 awards, ties and data privacy', () => {

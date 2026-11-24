@@ -311,6 +311,7 @@ Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un 
 - `components/admin/tabs/TeamsTab.tsx`
   - Invio salva la scheda manuale e il campo Nome squadra torna attivo. L’import mostra prima le colonne richieste e il modello da scaricare.
   - inserimento squadre, import, simulatore pool
+  - la rinomina durante il live aggiorna partite, classifiche dei gironi e TV. Le edizioni archiviate conservano il nome originale.
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
   - pre-save UX: impatto stimato su iscritti live / torneo live / storico / righe statistiche / titoli / alias, con messaggi espliciti per **merge** o **separate**
   - CSV: `services/adminCsvUtils.ts`
