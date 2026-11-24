@@ -252,12 +252,12 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
         <div className="space-y-3">
 
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className={tableScrollClass}>
-            <table className="w-full min-w-[760px] text-start lg:min-w-0 lg:table-fixed">
+            <div className={tableScrollClass} role="region" aria-label={t('titled_players_plural')} tabIndex={0}>
+            <table className="w-full min-w-[760px] text-start">
               <thead className="bg-slate-50 text-xs font-black uppercase text-slate-500">
                 <tr>
                   <th className={`sticky start-0 z-20 w-12 min-w-12 bg-slate-50 px-1 py-3 text-center ${stickyTh}`}>#</th>
-                  <th className={`sticky start-12 z-20 w-[170px] bg-slate-50 px-3 py-3 lg:w-[24%] ${stickyTh}`}>{t('players')}</th>
+                  <th className={`z-20 w-[170px] whitespace-nowrap bg-slate-50 px-3 py-3 sm:sticky sm:start-12 ${stickyTh}`}>{t('players')}</th>
                   <th className={`px-2 py-3 text-center ${stickyTh}`}>
                     <button
                       type="button"
@@ -357,7 +357,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                     aria-label={`Apri dati giocatore ${p.name}`}
                   >
                     <td className="sticky start-0 z-10 w-12 min-w-12 bg-white py-3 text-center font-bold text-slate-400">{idx + 1}</td>
-                    <td className="sticky start-12 z-10 bg-white px-3 py-3 text-sm font-black text-slate-800 [overflow-wrap:anywhere] lg:text-base">{p.name}</td>
+                    <td className="z-10 whitespace-nowrap bg-white px-3 py-3 text-sm font-black text-slate-800 sm:sticky sm:start-12 lg:text-base">{p.name}</td>
 
                     <td className="py-3 px-3 sm:p-4 text-center font-black text-beer-600 text-xl">{p.total}</td>
 

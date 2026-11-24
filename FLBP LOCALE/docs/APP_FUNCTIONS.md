@@ -226,7 +226,7 @@ Definito in `types.ts`.
 
 ### Albo d’oro / Integrazioni marcatori
 - `HallOfFameEntry` (titoli: winner/mvp/top_scorer/defender + U25)
-- In `components/HallOfFame.tsx` tab **Giocatori Titolati**: aggrega titoli per giocatore e mostra colonne Totale/Campione/Cannoniere/Difensore/MVP.
+- La scheda **Giocatori Titolati** dell’Albo d’oro aggrega i titoli per giocatore nelle colonne Totale, Campione, Cannoniere, Difensore, MVP e U25. I nomi rimangono interi su una riga e la tabella può scorrere in orizzontale.
   - Sorting: Totale → Campione(winner) → Cannoniere(top_scorer) → Difensore(defender) → MVP(mvp) → nome.
   - Titoli U25: **sempre visibili** come colonne dedicate `⚪(U25)` e `🌬️(U25)` (senza toggle). Nello sorting contano **solo come ultimo tie-break** (valgono meno di tutti gli altri titoli).
   - Badge torneo nei box pubblici: mostra la **data completa del torneo** quando disponibile (`startDate` da archivio / fallback da id storico); se il dato legacy manca del tutto, resta il fallback all'anno.
@@ -381,7 +381,7 @@ Supporto UI:
 
 - Su schermi stretti i comandi e le schede Admin si dispongono su più righe. I menu rimangono accessibili anche con un torneo live.
 
-Quando apri una scheda torneo o giocatore, la vista parte dall'alto. Riaprire Classifica Storica dalla navigazione torna all'elenco. Il badge della classifica somma i riconoscimenti del profilo. Le fonti cumulative dei marcatori hanno un'etichetta leggibile e le schede dell'Albo d'oro mantengono le etichette anche su telefono.
+Quando apri una scheda torneo o giocatore, la vista parte dall'alto. Riaprire Classifica Storica dalla navigazione torna all'elenco. I badge di Campione, Cannoniere, Difensore, MVP e U25 mostrano il numero di titoli per categoria. Su telefono compare anche il totale. Le fonti cumulative dei marcatori hanno un'etichetta leggibile e le schede dell'Albo d'oro mantengono le etichette anche su telefono.
 
 La pagina Admin mostra subito il caricamento e descrive l'accesso con i termini del modulo. I dettagli tecnici del database sono consultabili dagli strumenti Admin dopo l'accesso.
 
