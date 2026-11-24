@@ -29,6 +29,7 @@ const installAuthBridge = () => {
     }
   };
   window.addEventListener(SUPABASE_AUTH_STATE_CHANGE_EVENT, sync);
+  window.addEventListener('storage', sync);
   // also keep current token snapshot for first connect
   lastAuthToken = getSupabaseSession()?.accessToken || null;
 };

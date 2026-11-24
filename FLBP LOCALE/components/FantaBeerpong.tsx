@@ -151,7 +151,7 @@ export const FantaBeerpong: React.FC<Props> = ({ onBack }) => {
               <Trophy className="h-3.5 w-3.5" />
               FantaBeerpong
             </div>
-            <h1 className="mt-3 max-w-[14rem] truncate text-3xl font-black uppercase tracking-tight text-white sm:max-w-none sm:text-4xl">{t('fanta_shell_title')}</h1>
+            <h1 className="mt-3 min-w-0 break-words text-[clamp(1.45rem,6vw,2.25rem)] font-black uppercase tracking-tight text-white">{t('fanta_shell_title')}</h1>
             <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-white/75 md:text-base">{t('fanta_shell_subtitle')}</p>
             {shellResultsOnly && (
               <p className="mt-3 max-w-2xl rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm font-black leading-6 text-amber-50">

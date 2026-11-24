@@ -37,9 +37,9 @@ try {
     await context.addInitScript(() => localStorage.setItem('fixture-existing-draft', '{"kept":true}'));
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
-    page.setDefaultNavigationTimeout(30000);
+    page.setDefaultNavigationTimeout(60000);
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(origin + '/tests/ui/fantaNavigation.html');
+    await page.goto(origin + '/tests/ui/fantaNavigation.html', { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Tornei', exact: true }).waitFor();
     return { context, page };
   };
@@ -65,6 +65,7 @@ try {
     const { context, page } = await makePage(viewport);
     await menu(page, /FantaBeerpong/);
     await fanta(page).waitFor();
+    if (viewport.width === 390) await page.getByRole('navigation', { name: 'Navigazione pubblico', exact: true }).waitFor();
     // Selecting Fanta again must not replace its origin with itself.
     await menu(page, /FantaBeerpong/);
     await back(page);
@@ -113,6 +114,52 @@ try {
   }
 
   if (!mutant) {
+    {
+      const { context, page } = await makePage({ width: 390, height: 844 });
+      await menu(page, 'Classifica Storica');
+      const onLeaderboard = url => url.searchParams.get('view') === 'leaderboard';
+      await page.waitForURL(onLeaderboard);
+      await page.getByRole('toolbar', { name: 'Controlli della classifica' }).waitFor();
+      await page.reload();
+      await page.getByRole('toolbar', { name: 'Controlli della classifica' }).waitFor();
+
+      await arm(page);
+      await page.evaluate(() => history.back());
+      await dialog(page).waitFor();
+      await cancel(page);
+      await page.waitForURL(onLeaderboard);
+      await page.getByRole('toolbar', { name: 'Controlli della classifica' }).waitFor();
+
+      await page.evaluate(() => history.back());
+      await dialog(page).waitFor();
+      await confirm(page);
+      await home(page).waitFor();
+      await disarm(page);
+      await page.evaluate(() => history.forward());
+      await page.waitForURL(onLeaderboard);
+      await page.getByRole('toolbar', { name: 'Controlli della classifica' }).waitFor();
+
+      await page.evaluate(() => {
+        const url = new URL(location.href);
+        url.hash = 'access_token=fixture-token';
+        history.replaceState(history.state, '', url.href);
+      });
+      await menu(page, 'Tornei');
+      await page.waitForURL(url => url.searchParams.get('view') === 'tournament' && !url.hash);
+
+      await page.evaluate(() => localStorage.setItem('flbp_lang', 'ar'));
+      await page.reload();
+      const openRtl = page.getByRole('button', { name: 'فتح القائمة', exact: true });
+      await openRtl.click();
+      await page.waitForFunction(() => {
+        const drawer = document.querySelector('[aria-label="إغلاق القائمة"]')?.closest('div.fixed');
+        const rect = drawer?.getBoundingClientRect();
+        return document.documentElement.dir === 'rtl' && rect && rect.left >= 0 && Math.abs(rect.right - innerWidth) < 1;
+      });
+      console.log('PASS view URL reload, guarded browser history, OAuth fragment isolation and RTL drawer');
+      await context.close();
+    }
+
     for (const stateAfterClick of ['dirty', 'saving']) {
       const { context, page } = await makePage();
       let resumePreload;

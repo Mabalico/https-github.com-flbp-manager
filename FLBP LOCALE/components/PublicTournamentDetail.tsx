@@ -3,14 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { Team, TournamentData, Match, HallOfFameEntry } from '../types';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
+import { localizeBracketRound, localizeGroupName } from '../services/i18nService';
 import { TournamentBracket } from './TournamentBracket';
+import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
+import { normalizeNameLower } from '../services/textUtils';
 import { TournamentLeaderboard } from './TournamentLeaderboard';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
 import { getMatchParticipantIds, formatMatchScoreLabel, formatMatchTeamsLabel, isByeTeamId } from '../services/matchUtils';
 import { compareTournamentMatches } from '../services/groupUtils';
-import { Trophy, LayoutList, Clock, Medal, X, GitBranch, Star, Wind, UserRound, Users, CalendarDays, Archive, ArrowLeft } from 'lucide-react';
+import { Trophy, LayoutList, Clock, Medal, X, GitBranch, Star, Wind, UserRound, Users, CalendarDays, Archive, ArrowLeft, Search } from 'lucide-react';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
@@ -39,6 +42,9 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   publicState,
 }) => {
   const { t } = useTranslation();
+  const [bracketSearch, setBracketSearch] = useState('');
+  const [highlightedMatchId, setHighlightedMatchId] = useState('');
+  const bracketRef = React.useRef<HTMLDivElement>(null);
 
   const btnBaseDark = "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none";
   const btnGhostDark = `${btnBaseDark} text-white bg-white/10 hover:bg-white/20 border border-white/10 px-4 py-2 text-xs`;
@@ -74,8 +80,8 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   }, [teams]);
 
   const getTeamName = (id?: string) => {
-    if (!id) return 'TBD';
-    return teamNameById.get(id) || 'TBD';
+    if (!id) return t('tbd_label');
+    return teamNameById.get(id) || t('tbd_label');
   };
 
   const openTeamPlayerProfile = (name?: string | null, birthDate?: string | null) => {
@@ -85,6 +91,25 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   };
 
   const dataResultsOnly = isResultsOnlyTournament(data);
+  const bracketSearchMatches = React.useMemo(() => {
+    const query = normalizeNameLower(bracketSearch);
+    if (!query) return [];
+    return getPreferredBracketRounds(data, matches).flat()
+      .filter(match => !match.hidden && !match.isBye && !isByeTeamId(match.teamAId) && !isByeTeamId(match.teamBId))
+      .map(match => ({
+        id: match.id,
+        label: [match.code, ...getMatchParticipantIds(match).map(id => teamNameById.get(id) || t('tbd_label'))].filter(Boolean).join(' · '),
+      }))
+      .filter(match => normalizeNameLower(match.label).includes(query)).slice(0, 12);
+  }, [bracketSearch, data, matches, teamNameById, t]);
+
+  const revealBracketMatch = (id: string) => {
+    setHighlightedMatchId(id);
+    setBracketSearch('');
+    bracketRef.current?.querySelector(`[data-bracket-match-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  };
+
   const tournamentAwards = hallOfFame
     .filter((h) => h.tournamentId === data.id)
     .filter((h) => !dataResultsOnly || h.type === 'winner' || h.type === 'mvp');
@@ -235,7 +260,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
             <div className="text-sm font-black leading-tight text-white whitespace-normal break-words" title={label}>{label}</div>
             {(m.phase || m.groupName || m.roundName) && (
               <div className="text-[11px] font-bold leading-tight text-white/60 whitespace-normal break-words">
-                {m.groupName ? `${t('group_word')} ${m.groupName}` : (m.roundName || (m.phase === 'bracket' ? t('bracket_word') : ''))}
+                {m.groupName ? localizeGroupName(m.groupName, t) : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.phase === 'bracket' ? t('bracket_word') : ''))}
               </div>
             )}
           </div>
@@ -317,7 +342,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
                 { key: 'live', label: t('live_label') },
                 { key: 'next', label: t('next_label') },
                 { key: 'played', label: t('played_label') },
-                { key: 'tbd', label: 'TBD' },
+                { key: 'tbd', label: t('tbd_label') },
               ] as const).map((opt) => {
                 const active = turnsTab === opt.key;
                 const base = 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wide border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
@@ -360,7 +385,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
                 : (pinAnyLive ? t('current_turn') : t('next_turn'));
 
               return (
-                <div className="sticky top-0 z-10 -mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
+                <div className="-mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -690,7 +715,7 @@ const visibleTeamsCount = React.useMemo(() => {
                 aria-label={t('back')}
                 className={btnGhostDark}
               >
-                &larr; {t('back')}
+                <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" aria-hidden /> {t('back')}
               </button>
 
               <div className="min-w-0">
@@ -733,7 +758,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
                   {isStructurelessManualArchive ? null : (
                     <span className="inline-flex items-center gap-2 bg-white/10 border border-white/10 px-3 py-1.5 rounded-full text-xs font-bold text-white/90">
-                      <Users className="w-4 h-4 text-beer-500" /> {visibleTeamsCount} squadre
+                      <Users className="w-4 h-4 text-beer-500" /> {visibleTeamsCount} {t(visibleTeamsCount === 1 ? 'team_label' : 'teams').toLocaleLowerCase()}
                     </span>
                   )}
 
@@ -800,7 +825,7 @@ const visibleTeamsCount = React.useMemo(() => {
             <div className="text-xs font-bold text-amber-800">
               {t('waiting_label')} {pendingGroupTieBreaks
                 .slice(0, 6)
-                .map((m) => `${m.code || ''}${m.groupName ? ` (${m.groupName})` : ''}`)
+                .map((m) => `${m.code || ''}${m.groupName ? ` (${localizeGroupName(m.groupName, t)})` : ''}`)
                 .join(', ')}
               {pendingGroupTieBreaks.length > 6 ? ' …' : ''}
             </div>
@@ -832,7 +857,7 @@ const visibleTeamsCount = React.useMemo(() => {
                   onClick={onBack}
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" /> {t('go_back')}
+                  <ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" /> {t('go_back')}
                 </button>
 
                 {view === 'groups' && hasGroups && typeof advancingPerGroup === 'number' && (
@@ -869,7 +894,7 @@ const visibleTeamsCount = React.useMemo(() => {
                       onClick={onBack}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
                     >
-                      <ArrowLeft className="h-4 w-4" /> {t('back_to_archive')}
+                      <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" /> {t('back_to_archive')}
                     </button>
                   </div>
                 </div>
@@ -895,7 +920,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
                         <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 font-black uppercase text-slate-700 flex justify-between">
 
-                          <span>{g.name}</span>
+                          <span>{localizeGroupName(g.name, t)}</span>
 
                           {typeof advancingPerGroup === 'number' && (
 
@@ -1079,15 +1104,29 @@ const visibleTeamsCount = React.useMemo(() => {
                       </div>
                       <div className="text-[11px] font-black uppercase tracking-wide text-white/50">{t('scroll_bracket')}</div>
                     </div>
+                    <label className="relative mt-3 block max-w-sm">
+                      <span className="sr-only">{t('bracket_search_placeholder')}</span>
+                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" aria-hidden="true" />
+                      <input type="search" value={bracketSearch} onChange={event => setBracketSearch(event.target.value)}
+                        placeholder={t('bracket_search_placeholder')} className="w-full rounded-xl border border-white/15 bg-slate-950/50 py-2 pe-3 ps-9 text-sm text-white placeholder:text-white/60" />
+                    </label>
+                    {!!bracketSearch.trim() && <div className="mt-2 grid max-h-40 max-w-lg gap-1 overflow-auto">
+                      {bracketSearchMatches.map(match => (
+                        <button key={match.id} type="button" className="rounded-lg px-3 py-2 text-start text-sm font-bold text-white hover:bg-white/10" onClick={() => revealBracketMatch(match.id)}>{match.label}</button>
+                      ))}
+                      {!bracketSearchMatches.length && <p className="text-sm text-white/70">{t('no_matches_for_selected_filter')}</p>}
+                    </div>}
                   </div>
 
-                  <div className="relative bg-[linear-gradient(180deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.88)_100%)]">
+                  <div ref={bracketRef} className="relative bg-[linear-gradient(180deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.88)_100%)]">
                     <TournamentBracket
                       teams={teams}
                       data={data}
                       matches={matches}
                       readOnly={true}
                       showConnectors={true}
+                      boundedScroll
+                      highlightedMatchId={highlightedMatchId}
                       wrapTeamNames={true}
                       onTeamClick={(team) => setSelectedTeam(team)}
                     />

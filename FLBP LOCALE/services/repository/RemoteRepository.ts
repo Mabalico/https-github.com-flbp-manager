@@ -30,6 +30,8 @@ export class RemoteRepository implements AppStateRepository {
   private pendingState: AppState | null = null;
   private flushInFlight: Promise<void> | null = null;
   private pullInFlight: Promise<boolean> | null = null;
+  private readonly preserveLocalEdits = new Set<() => boolean>();
+  private unsubscribeRealtime: (() => void) | null = null;
   private listeners = new Set<(state: AppState, meta?: RepositoryUpdateMeta) => void>();
   private lastRemoteUpdatedAt: string | null = null;
   private lastStateFingerprint = '';
@@ -157,18 +159,22 @@ export class RemoteRepository implements AppStateRepository {
       // ignore
     }
 
-    try {
-      subscribeWorkspaceStateRealtime(({ updatedAt }) => {
-        if (!this.shouldBackgroundRefresh()) return;
-        if (updatedAt && updatedAt === this.lastRemoteUpdatedAt) return;
-        void this.refresh();
-      });
-    } catch {
-      // realtime is best-effort: polling continues to cover the gap
-    }
-
     void this.reconcileStaleDraft();
   }
+
+  setAdminRealtimeActive = (active: boolean): void => {
+    if (!active || !hasSupabaseWriteSession()) {
+      this.unsubscribeRealtime?.();
+      this.unsubscribeRealtime = null;
+      return;
+    }
+
+    this.unsubscribeRealtime ??= subscribeWorkspaceStateRealtime(({ updatedAt }) => {
+      if (!this.shouldBackgroundRefresh()) return;
+      if (updatedAt && updatedAt === this.lastRemoteUpdatedAt) return;
+      void this.refresh();
+    });
+  };
 
   private fingerprint(state: AppState): string {
     try {
@@ -281,10 +287,12 @@ export class RemoteRepository implements AppStateRepository {
     }
   }
 
-  subscribe(listener: (state: AppState, meta?: RepositoryUpdateMeta) => void): () => void {
+  subscribe(listener: (state: AppState, meta?: RepositoryUpdateMeta) => void, preserveLocalEdit?: () => boolean): () => void {
     this.listeners.add(listener);
+    if (preserveLocalEdit) this.preserveLocalEdits.add(preserveLocalEdit);
     return () => {
       this.listeners.delete(listener);
+      if (preserveLocalEdit) this.preserveLocalEdits.delete(preserveLocalEdit);
     };
   }
 
@@ -404,12 +412,13 @@ export class RemoteRepository implements AppStateRepository {
     }, RemoteRepository.REMOTE_SAVE_DEBOUNCE_MS);
   }
 
-  flush = async (): Promise<void> => {
+  flush = async (): Promise<AppState | void> => {
     if (this.pendingTimer != null) {
       window.clearTimeout(this.pendingTimer);
       this.pendingTimer = null;
     }
     await this.flushNow();
+    if (!this.pendingState && !hasRemoteDraftCache() && this.lastRemoteState) return this.lastRemoteState;
   };
 
   private async pullAndApply(opts?: { forceEmit?: boolean }): Promise<boolean> {
@@ -422,6 +431,10 @@ export class RemoteRepository implements AppStateRepository {
         const row = await pullWorkspaceState();
         if (!row?.state) return false;
         if (this.externalRestorePaused) return false;
+        if (this.pendingState || hasRemoteDraftCache()) return false;
+        // Give React's pending debounce a chance to persist against its
+        // original base before advancing the cursor to this incoming row.
+        if ([...this.preserveLocalEdits].some(preserve => preserve())) return false;
 
         const nextState = coerceAppState(row.state);
         const nextFingerprint = this.fingerprint(nextState);

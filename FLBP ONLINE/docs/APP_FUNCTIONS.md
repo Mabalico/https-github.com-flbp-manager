@@ -588,6 +588,22 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 - `components/AdminDashboard.tsx`: negli alert import multi-sheet gli “altri fogli controllati” escludono il foglio già letto, per evitare liste fuorvianti.
 
 
+### Navigazione del sito e lingue
+
+La vista si conserva nell’URL con `?view=`. Le schede torneo includono anche `flbp_tournament`, così si possono riaprire dopo un aggiornamento o da un collegamento condiviso. Indietro e Avanti rispettano la protezione delle bozze. Gli URL TV mantengono `flbp_tv` e la modalità in sola lettura.
+
+In arabo il menu si apre a destra e le frecce di navigazione si orientano con il testo. I nomi registrati dei turni del tabellone vengono tradotti al momento della visualizzazione.
+
+### Tabelloni con 128 squadre
+
+In Editor, Monitor e scheda pubblica il tabellone ha scorrimento interno. In Editor, **Adatta** mostra tutti i turni in larghezza. Dopo la selezione di uno slot del primo turno, i posti futuri vuoti restano neutri. Nella scheda pubblica la ricerca per squadra o codice porta alla partita. In TV le proiezioni dividono un tabellone classico da 128 squadre in otto sezioni iniziali e una pagina conclusiva.
+
+### Annullamento del live e convocazioni
+
+In modalità Ufficiale **Annulla torneo live** richiede il download del backup JSON e una seconda conferma. Se il torneo o le partite cambiano tra i due passaggi, serve un backup aggiornato. Al salvataggio vengono rimossi il torneo e il calendario live. Storico, Albo d’oro e Fanta conservano i propri dati.
+
+La Home mostra il nome del torneo quando il live è attivo. Nelle grafiche Social gli slot automatici coprono tutte le partite convocabili. L’ora inserita è quella della convocazione. L’inizio della partita viene calcolato un’ora dopo.
+
 ### Integrazioni — aggiornamento 7 settembre 2026
 
 La navigazione usa Tornei passati, Giocatori e Statistiche extra. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).

@@ -6,9 +6,10 @@ import { useTranslation } from '../App';
 interface HomeProps {
   onNavigate: (view: any) => void;
   tournamentActive: boolean;
+  tournamentName?: string;
 }
 
-export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive }) => {
+export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive, tournamentName }) => {
   const { t } = useTranslation();
 
   const btnBase = "inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-6 py-3 font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 sm:w-auto";
@@ -44,6 +45,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive }) => {
           <p className="max-w-xl text-sm md:text-base font-bold leading-relaxed text-white/70">
             {t('hero_public_subtitle')}
           </p>
+          {tournamentActive && tournamentName && <p className="mt-4 break-words text-base font-black text-white sm:text-lg">{tournamentName}</p>}
           <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-4 mt-6 sm:mt-8 items-stretch sm:items-center">
             {tournamentActive ? (
               <>
@@ -106,9 +108,9 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, tournamentActive }) => {
               {t('active_now')}
             </div>
           )}
-          <div className="mt-5 pt-4 border-t border-slate-100 text-xs font-black uppercase tracking-wide text-slate-400 group-hover:text-beer-500 transition-colors">
+          {tournamentActive && <div className="mt-5 border-t border-slate-100 pt-4 text-xs font-black uppercase tracking-wide text-slate-600 transition-colors group-hover:text-beer-700">
             {t('open_tournament_live')}
-          </div>
+          </div>}
         </button>
 
         <button

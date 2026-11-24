@@ -600,7 +600,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
             {yearsCount > 0 && (
               <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-bold">
                 <span className="w-2 h-2 rounded-full bg-white/50" aria-hidden />
-                {yearsCount} {t('year')}
+                {t(yearsCount === 1 ? 'public_year_count_one' : 'public_year_count_other').replace('{count}', String(yearsCount))}
               </span>
             )}
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-bold" title={activeTabLabel}>

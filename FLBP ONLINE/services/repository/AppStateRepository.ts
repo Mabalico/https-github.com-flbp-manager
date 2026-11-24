@@ -17,6 +17,8 @@ export type RepositoryUpdateMeta = {
   updatedAt?: string;
   version?: number | null;
   operationId?: string | null;
+  /** A partial write receipt whose authoritative snapshot must be read back. */
+  readBack?: boolean;
   /** Explicit authoritative hydration: discard this window's pending draft. */
   discardPendingDraft?: boolean;
 };
@@ -26,7 +28,8 @@ export interface AppStateRepository {
   load(): AppState;
   save(state: AppState): void;
 
-  subscribe?: (listener: (state: AppState, meta?: RepositoryUpdateMeta) => void) => () => void;
+  subscribe?: (listener: (state: AppState, meta?: RepositoryUpdateMeta) => void, preserveLocalEdit?: () => boolean) => () => void;
+  setAdminRealtimeActive?: (active: boolean) => void;
   acknowledgeExternalCommit?: (state: AppState, meta?: RepositoryUpdateMeta) => void;
   /** Pause new writes and wait for requests already sent before a database restore. */
   prepareForExternalRestore?: () => Promise<void>;

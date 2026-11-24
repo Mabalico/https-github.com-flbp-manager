@@ -371,9 +371,9 @@ export const canRemoveTeamFromGroup = (
 export const canInsertTeamIntoBracketSlot = (
   snapshot: TournamentStructureSnapshot,
   teamId: string,
-  slotKey: string
+  slotKey: string,
+  teamState = getTeamEligibility(snapshot, teamId, 'bracket')
 ): StructuralTargetCheck => {
-  const teamState = getTeamEligibility(snapshot, teamId, 'bracket');
   if (teamState.status !== 'eligible') return blocked(teamState.reasonCode, teamState.humanMessage);
 
   const parsed = parseSlotKey(slotKey);
@@ -414,7 +414,8 @@ export const canInsertTeamIntoBracketSlot = (
 export const canReplaceBracketSlot = (
   snapshot: TournamentStructureSnapshot,
   slotKey: string,
-  newTeamId: string
+  newTeamId: string,
+  teamState = getTeamEligibility(snapshot, newTeamId, 'bracket')
 ): StructuralTargetCheck => {
   const parsed = parseSlotKey(slotKey);
   if (!parsed) return blocked('invalid_slot', 'Slot bracket non valido.');
@@ -442,7 +443,6 @@ export const canReplaceBracketSlot = (
       );
     }
   }
-  const teamState = getTeamEligibility(snapshot, newTeamId, 'bracket');
   if (teamState.status !== 'eligible') return blocked(teamState.reasonCode, teamState.humanMessage);
   return allowed('ok', 'Sostituzione consentita sullo slot selezionato.');
 };
