@@ -2,19 +2,21 @@ import type { HallOfFameEntry } from '../types';
 import { requestDatabaseRestore } from '../services/databaseRestoreCoordinator';
 import { hasUnsavedDraft, isDraftNavigationPending, requestDraftNavigation } from '../services/draftNavigationGuard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, syncTournamentAwardsToHallOfFame, syncArchivedHistoryToHallOfFame } from '../services/storageService';
+import { AppState, archiveTournamentV2, setTournamentMvps, getPlayerKey, isU25, resolvePlayerKey, getPlayerKeyLabel, coerceAppState, mergeIntoLiveTournamentTeams, syncTournamentAwardsToHallOfFame, syncArchivedHistoryToHallOfFame } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatBirthDateDisplay, normalizeBirthDateInput, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { Team, TvProjection, TournamentData, Match, IntegrationScorerEntry } from '../types';
 import { useTranslation } from '../App';
-import { Archive, MonitorPlay, Users, Brackets, ClipboardList, LayoutDashboard, ListChecks, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Star, Lock } from 'lucide-react';
-import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
+import { useReportSaveFeedback } from './admin/ReportEntryFeedback';
+import { MonitorPlay, Users, Brackets, Upload, Download, Trash2, Plus, ShieldCheck, PlayCircle, Settings, CheckCircle2, ChevronDown, Lock } from 'lucide-react';
+import { generateTournamentStructure, syncBracketFromGroups, getFinalRoundRobinActivationStatus, activateFinalRoundRobinStage, ensureFinalTieBreakIfNeeded, didQualificationChangeAfterBracketStarted } from '../services/tournamentEngine';
 import { simulateMatchResult, simulateMultiMatchResult, simulateResultsOnlyMatchResult, simulateResultsOnlyMultiMatchResult } from '../services/simulationService';
 import { cloneMatchesForResultSync, collectChangedMatchResults, getMatchParticipantIds, formatMatchScoreLabel } from '../services/matchUtils';
-import { isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, getUnplayedMatches, isByeMatch, isPlaceholderTeamId, pickMatchForCode } from '../services/matchUtils';
+import { compareTournamentMatches, isFinalGroup } from '../services/groupUtils';
 import { buildCanonicalPlayerNameFromParts, normalizeCol, normalizeNameLower, splitCanonicalPlayerName } from '../services/textUtils';
 import { TournamentBracket } from './TournamentBracket';
 import { loadImageProcessingService } from '../services/lazyImageProcessing';
-import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, isSameSupabaseAuthSession, isSupabaseAdminSessionExpired, isSupabaseSessionPastExpiry, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutCurrentSupabaseSessions, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
+import { SUPABASE_AUTH_STATE_CHANGE_EVENT, archiveFantaTournamentEdition, cancelActivePlayerAppCallsForMatch, clearSupabaseSession, ensureFreshPlayerSupabaseSession, ensureSupabaseAdminAccess, exportFullDatabaseBackup, getConfiguredAdminEmail, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseConfig, getSupabaseSession, hasFantaPretournamentTeams, hasPublicHallOfFameFinalAwards, isMatchResultRpcMissingError, isSameSupabaseAuthSession, isSupabaseAdminSessionExpired, isSupabaseSessionPastExpiry, promoteFantaPretournamentToTournament, pullAdminPlayerAccounts, pullAdminUserRoles, pullWorkspaceState, pushAdminMatchResults, pushNormalizedFromState, pushWorkspaceState, resetFantaConfigToPretournament, restoreFullDatabaseBackup, returnCancelledFantaLive, setPlayerSupabaseSession, setRemoteBaseUpdatedAt, setSupabaseSession, signInWithPassword, signOutCurrentSupabaseSessions, signOutSupabase, syncFantaPretournamentRosters } from '../services/supabaseRest';
 import { flushAutoStructuredSync } from '../services/autoDbSync';
 import { pullPublicTournamentsList } from '../services/supabaseRest';
 import { resolveDataPlane } from '../services/dataPlaneClient';
@@ -22,6 +24,7 @@ import type { AdminCommitOptions } from '../services/repository/AppStateReposito
 import { FANTA_APP_CHANGE_EVENT, signOutPlayerPreviewSession } from '../services/playerAppService';
 
 import { uuid } from '../services/id';
+import { AdminDataConfirmModal } from './admin/tabs/data/AdminDataConfirmModal';
 import { downloadBlob } from '../services/adminDownloadUtils';
 import { decodeCsvText, detectCsvSeparator, parseCsvRows } from '../services/adminCsvUtils';
 import { generateSimPoolTeams } from '../services/simPool';
@@ -30,6 +33,9 @@ import { buildUnifiedBackupJsonExport, inspectBackupJsonState, mergeBackupJsonSt
 import { describeTeamImportLayout, detectTeamImportLayout, isTeamImportCoherentWithProfile, loadTeamImportProfile, normalizeTeamImportHeader, saveTeamImportProfile, type TeamImportLayout } from '../services/teamImportProfile';
 
 import { AliasModal, type AliasConflict } from './admin/modals/AliasModal';
+import { LiveMatchesToolbar, type LiveMatchesView } from './admin/LiveMatchesToolbar';
+import { LiveClosingSummary } from './admin/LiveClosingSummary';
+import { ArchiveConfirmDialog } from './admin/modals/ArchiveConfirmDialog';
 import { MvpModal } from './admin/modals/MvpModal';
 import { APP_MODE, isAppModeLockedForPublicDeploy, isTesterMode, setAppModeOverride } from '../config/appMode';
 import { readAdminSyncState, subscribeAdminSyncState, type AdminSyncState } from '../services/adminSyncState';
@@ -46,6 +52,7 @@ import {
     findLockedSuccessorForWinnerChange,
     reconcileBracketAdvancements,
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
+    suggestGroupCount,
 } from '../services/tournamentStructureSelectors';
 
 
@@ -95,6 +102,7 @@ const clearAdminSessionNavKeys = () => {
     const keys = [
         'flbp_admin_section',
         'flbp_admin_last_live_tab',
+        'flbp_admin_matches_view',
         'flbp_admin_data_main_section',
         'flbp_admin_data_subtab',
         'flbp_admin_integrations_subtab',
@@ -114,6 +122,7 @@ const clearAdminSessionNavKeys = () => {
 const NATIVE_ADMIN_NAV_KEYS = new Set([
     'flbp_admin_section',
     'flbp_admin_last_live_tab',
+    'flbp_admin_matches_view',
     'flbp_admin_data_main_section',
     'flbp_admin_data_subtab',
     'flbp_admin_integrations_subtab',
@@ -277,11 +286,24 @@ interface AdminDashboardProps {
     onEnterTv: (mode: TvProjection) => void;
 }
 
-type LiveAdminTab = 'teams'|'structure'|'reports'|'referees'|'codes'|'monitor_groups'|'monitor_bracket';
+type LiveAdminTab = 'teams' | 'structure' | 'matches' | 'referees' | 'closing';
+const liveSteps: { tab: LiveAdminTab; label: string }[] = [
+    { tab: 'teams', label: 'teams' },
+    { tab: 'structure', label: 'structure' },
+    { tab: 'matches', label: 'matches_label' },
+    { tab: 'referees', label: 'referees' },
+    { tab: 'closing', label: 'admin_closing_title' },
+];
+const savedMatchesView = (value: string | null): LiveMatchesView =>
+    value === 'monitor_groups' || value === 'monitor_bracket' || value === 'reports' ? value : 'codes';
+const savedLiveStep = (value: string | null): LiveAdminTab => {
+    if (value === 'codes' || value === 'reports' || value === 'monitor_groups' || value === 'monitor_bracket') return 'matches';
+    return liveSteps.find(step => step.tab === value)?.tab || 'teams';
+};
 type AdminSection = 'live' | 'editor' | 'data';
 type AdminTab = LiveAdminTab | 'editor' | 'data';
 
-type AdminChunkTarget = LiveAdminTab | Extract<AdminSection, 'data' | 'editor'>;
+type AdminChunkTarget = LiveAdminTab | LiveMatchesView | Extract<AdminSection, 'data' | 'editor'>;
 
 const preloadAdminContentChunk = (target: AdminChunkTarget) => {
     switch (target) {
@@ -293,6 +315,7 @@ const preloadAdminContentChunk = (target: AdminChunkTarget) => {
             return loadReportsTabModule();
         case 'referees':
             return loadRefereesTabModule();
+        case 'matches':
         case 'codes':
             return loadCodesTabModule();
         case 'monitor_groups':
@@ -309,12 +332,27 @@ const preloadAdminContentChunk = (target: AdminChunkTarget) => {
 };
 
 
+// A reload must not hide that Fanta is still attached to a cancelled tournament.
+const CANCELLED_LIVE_PENDING_KEY = 'flbp_admin_cancelled_live_pending';
+const readPendingCancelledLive = (): { id: string; name: string } | null => {
+    try {
+        const stored = JSON.parse(localStorage.getItem(CANCELLED_LIVE_PENDING_KEY) || 'null');
+        return typeof stored?.id === 'string' && stored.id ? { id: stored.id, name: String(stored.name || '') } : null;
+    } catch { return null; }
+};
+const storePendingCancelledLive = (value: { id: string; name: string } | null) => {
+    try {
+        if (value) localStorage.setItem(CANCELLED_LIVE_PENDING_KEY, JSON.stringify(value));
+        else localStorage.removeItem(CANCELLED_LIVE_PENDING_KEY);
+    } catch { /* The notice stays visible until this page is closed. */ }
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState, onEnterTv }) => {
     const { t } = useTranslation();
     const commitAdminStateDurably = (
         nextState: AppState,
         source: string,
-        options?: AdminCommitOptions,
+        options?: AdminCommitOptions & { snapshotOnly?: boolean },
     ) => new Promise<AppState>((resolve, reject) => {
         let settled = false;
         const finish = (callback: () => void) => {
@@ -332,6 +370,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                 source,
                 skipStructuredSync: options?.skipStructuredSync === true,
                 requireDurableRepositoryCommit: true,
+                snapshotOnly: options?.snapshotOnly,
                 reviewedDraft: options?.reviewedDraft,
                 resolveDurableCommit: (confirmedState: AppState) => finish(() => resolve(confirmedState)),
                 rejectDurableCommit: (error: Error) => finish(() => reject(error)),
@@ -381,10 +420,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournament?.id]);
     const liveOpsSummary = useMemo(() => {
         const matches = Array.isArray(state.tournamentMatches) ? state.tournamentMatches : [];
-        const visible = matches.filter((m: any) => !(m as any)?.hidden && !(m as any)?.isBye);
-        const playing = visible.find(m => m.status === 'playing');
-        const scheduled = visible.find(m => m.status === 'scheduled');
-        const current = playing || scheduled || visible[0] || null;
+        const visible = matches.filter(m => !m.hidden && !isByeMatch(m)).sort(compareTournamentMatches(state.tournament));
+        const playable = visible.filter(canPlayMatch);
+        const playing = playable.find(m => m.status === 'playing');
+        const scheduled = playable.find(m => m.status === 'scheduled');
+        const current = playing || scheduled || playable[0] || null;
         return {
             total: visible.length,
             playingCount: visible.filter(m => m.status === 'playing').length,
@@ -392,7 +432,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
             finishedCount: visible.filter(m => m.status === 'finished').length,
             current,
         };
-    }, [state.tournamentMatches]);
+    }, [state.tournament, state.tournamentMatches]);
 
     const safeSessionGet = (key: string): string | null => {
         try {
@@ -770,7 +810,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                         setAdminAuthMode('none');
                         setAuthed(false);
                         setSupabaseEmail(null);
-                        setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
+                        setAdminAuthError(t('admin_access_not_authorized'));
                     } else if (currentAdminAuthMode === 'player') {
                         setAuthed(false);
                         setSupabaseEmail(null);
@@ -778,7 +818,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
                     } else {
                         setAuthed(false);
                         setSupabaseEmail(null);
-                        setAdminAuthError(access.reason || 'Accesso admin non autorizzato.');
+                        setAdminAuthError(t('admin_auth_check_failed'));
                     }
                 }
             } catch {
@@ -813,56 +853,68 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         const raw = safeSessionGet('flbp_admin_section');
         return raw === 'data' || raw === 'editor' ? raw : 'live';
     });
-    const [lastLiveTab, setLastLiveTab] = useState<'teams'|'structure'|'reports'|'referees'|'codes'|'monitor_groups'|'monitor_bracket'>(() => {
-        const raw = safeSessionGet('flbp_admin_last_live_tab');
-        const ok = raw === 'teams' || raw === 'structure' || raw === 'reports' || raw === 'referees' || raw === 'codes' || raw === 'monitor_groups' || raw === 'monitor_bracket';
-        return ok ? (raw as any) : 'teams';
+    const [lastLiveTab, setLastLiveTab] = useState(() => savedLiveStep(safeSessionGet('flbp_admin_last_live_tab')));
+    const [matchesView, setMatchesView] = useState(() => {
+        const previous = safeSessionGet('flbp_admin_last_live_tab');
+        return savedMatchesView(previous === 'matches' ? safeSessionGet('flbp_admin_matches_view') : previous);
     });
+    const [matchesQuery, setMatchesQuery] = useState('');
     const [tab, setTab] = useState<AdminTab>(() => {
         if (adminSection === 'data') return 'data';
         if (adminSection === 'editor') return 'editor';
         return lastLiveTab;
     });
     const [editorInitialView, setEditorInitialView] = useState<'groups' | 'bracket'>('groups');
-    const [monitorMenuOpen, setMonitorMenuOpen] = useState(false);
-    const monitorMenuButtonRef = useRef<HTMLButtonElement | null>(null);
-    const [monitorMenuPosition, setMonitorMenuPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
     const adminNavigationRequestRef = useRef(0);
 
     const resolveStoredLiveTab = React.useCallback((): LiveAdminTab => {
-        const raw = safeSessionGet('flbp_admin_last_live_tab');
-        const ok = raw === 'teams' || raw === 'structure' || raw === 'reports' || raw === 'referees' || raw === 'codes' || raw === 'monitor_groups' || raw === 'monitor_bracket';
-        return ok ? (raw as LiveAdminTab) : lastLiveTab;
+        const saved = safeSessionGet('flbp_admin_last_live_tab');
+        return saved ? savedLiveStep(saved) : lastLiveTab;
     }, [lastLiveTab]);
+
+    const selectMatchesView = React.useCallback((next: LiveMatchesView) => {
+        setMatchesView(next);
+        safeSessionSet('flbp_admin_matches_view', next);
+    }, []);
+
+    useEffect(() => {
+        const previous = safeSessionGet('flbp_admin_last_live_tab');
+        if (previous !== 'matches' && savedLiveStep(previous) === 'matches') {
+            safeSessionSet('flbp_admin_matches_view', savedMatchesView(previous));
+            safeSessionSet('flbp_admin_last_live_tab', 'matches');
+        }
+    }, []);
 
     const primeAdminContentChunk = React.useCallback((target: AdminChunkTarget) => {
         void preloadAdminContentChunk(target);
     }, []);
 
-    const openLiveTab = React.useCallback(async (next: LiveAdminTab) => {
-        if (adminSection === 'live' && tab === next) return;
+    const openLiveTab = React.useCallback(async (next: LiveAdminTab, nextView?: LiveMatchesView) => {
+        if (adminSection === 'live' && tab === next && (!nextView || nextView === matchesView)) return;
         if (isDraftNavigationPending()) return;
         const requestId = ++adminNavigationRequestRef.current;
         try {
-            await preloadAdminContentChunk(next);
+            await preloadAdminContentChunk(nextView || (next === 'matches' ? matchesView : next));
         } catch {
             // let Suspense/ErrorBoundary handle the actual render failure if the chunk is broken
         }
         if (requestId !== adminNavigationRequestRef.current) return;
         await requestDraftNavigation(() => {
-        if (requestId !== adminNavigationRequestRef.current) return;
-        if (adminSection !== 'live') {
-            safeSessionSet('flbp_admin_section', 'live');
-            setAdminSection('live');
-        }
-        setTab(next);
-        setLastLiveTab(next);
-        safeSessionSet('flbp_admin_last_live_tab', next);
+            if (requestId !== adminNavigationRequestRef.current) return;
+            if (adminSection !== 'live') {
+                safeSessionSet('flbp_admin_section', 'live');
+                setAdminSection('live');
+            }
+            if (next === 'matches' && nextView) selectMatchesView(nextView);
+            setTab(next);
+            setLastLiveTab(next);
+            safeSessionSet('flbp_admin_last_live_tab', next);
         });
-    }, [adminSection, tab]);
+    }, [adminSection, matchesView, selectMatchesView, tab]);
 
     const showGroupsMonitor = useMemo(() => {
         const tournamentType = state.tournament?.type;
+        if (state.tournament?.config?.finalRoundRobin?.activated) return true;
         if (tournamentType !== 'groups_elimination' && tournamentType !== 'round_robin') return false;
         const hasGroups = (state.tournament?.groups?.length || 0) > 0;
         const hasGroupMatches = (state.tournamentMatches || []).some(m => m.phase === 'groups' && !m.hidden && !m.isBye);
@@ -878,12 +930,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [state.tournament, state.tournamentMatches]);
     const liveResultsOnly = isResultsOnlyTournament(state.tournament);
     const fantaPretournamentEnabled = state.fantaSettings?.enabled === true;
-
-    const fallbackLiveTab: LiveAdminTab = useMemo(() => {
-        if (liveOpsSummary.playingCount > 0) return 'reports';
-        if (liveOpsSummary.scheduledCount > 0) return 'codes';
-        return 'teams';
-    }, [liveOpsSummary.playingCount, liveOpsSummary.scheduledCount]);
 
     // Pool simulator
     const [poolN, setPoolN] = useState<string>('20');
@@ -904,7 +950,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
 
     // Structure Config
     const [tournMode, setTournMode] = useState<'elimination'|'groups_elimination'|'round_robin'>('groups_elimination');
-    const [numGroups, setNumGroups] = useState(4);
+    const [numGroups, setNumGroups] = useState(() => suggestGroupCount((state.teams || []).filter(team => !team.hidden && !team.isBye).length));
+    const [numGroupsTouched, setNumGroupsTouched] = useState(false);
     const [advancing, setAdvancing] = useState(2);
     const [tournName, setTournName] = useState(`${t('admin_tournament_prefix')} ${new Date().toLocaleDateString('it-IT')}`);
     const [tournDate, setTournDate] = useState<string>(() => getTodayInputDate());
@@ -933,19 +980,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     }, [playableTeamsCount, finalRrEnabled, finalRrTopTeams]);
 
     // MVP manual selection (supports ties)
-    const [mvpModalOpen, setMvpModalOpen] = useState<boolean>(false);
-    const [mvpModalForArchive, setMvpModalForArchive] = useState<boolean>(false);
     const [mvpSearch, setMvpSearch] = useState<string>('');
     const [mvpSelectedIds, setMvpSelectedIds] = useState<string[]>([]);
     const [archiveIncludeU25Awards, setArchiveIncludeU25Awards] = useState<boolean>(true);
     const [archiveBusy, setArchiveBusy] = useState(false);
+    const [cancelLiveStage, setCancelLiveStage] = useState<'backup' | 'confirm' | null>(null);
+    const [cancelLiveBusy, setCancelLiveBusy] = useState(false);
+    const [cancelLiveError, setCancelLiveError] = useState('');
+    const [cancelLiveFeedback, setCancelLiveFeedback] = useState('');
+    const cancelLiveBackupRef = useRef<AppState | null>(null);
+    const cancelLiveBusyRef = useRef(false);
+    const [cancelLiveFantaBusy, setCancelLiveFantaBusy] = useState(false);
+    const [cancelLivePending, setCancelLivePending] = useState<{ id: string; name: string } | null>(readPendingCancelledLive);
     const [archiveDone, setArchiveDone] = useState(false);
     const [archiveError, setArchiveError] = useState('');
     const [archiveReceipt, setArchiveReceipt] = useState<{ tournamentId: string; awards: HallOfFameEntry[]; email: { text: string; href: string } | null } | null>(null);
     const archiveSubmittingRef = useRef(false);
+    const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+    const closeArchiveConfirm = React.useCallback(() => setArchiveConfirmOpen(false), []);
     
     // Draft
     const [draft, setDraft] = useState<{t: TournamentData, m: Match[]} | null>(null);
+
+    useEffect(() => {
+        if (numGroupsTouched) return;
+        const proposed = suggestGroupCount(playableTeamsCount);
+        if (proposed === numGroups) return;
+        setNumGroups(proposed);
+        setDraft(null);
+    }, [numGroups, numGroupsTouched, playableTeamsCount]);
 
     useEffect(() => {
         const eligibleIds = new Set((state.teams || [])
@@ -1007,90 +1070,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
     const [dataMvpPlayerId, setDataMvpPlayerId] = useState<string>('');
 
     // UI helpers (Admin tabs)
-    const tabBtnClass = (active: boolean) => {
-        const base = 'min-w-0 max-w-full break-words px-2 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 border transition-all duration-300 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2';
-        return `${base} ${active ? 'bg-blue-700/95 backdrop-blur-md text-white border-blue-600 shadow-[0_4px_12px_-2px_rgba(29,78,216,0.3)] transform -translate-y-0.5' : 'bg-white/90 backdrop-blur-sm text-slate-700 border-slate-200/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-white'}`;
-    };
-    const liveTabMeta: Record<LiveAdminTab, { title: string; helper: string }> = {
-        teams: {
-            title: t('teams'),
-            helper: t('admin_tab_teams_helper'),
-        },
-        structure: {
-            title: t('structure'),
-            helper: t('admin_tab_structure_helper'),
-        },
-        reports: {
-            title: t('reports'),
-            helper: t('admin_tab_reports_helper'),
-        },
-        referees: {
-            title: t('referees'),
-            helper: t('admin_tab_referees_helper'),
-        },
-        codes: {
-            title: t('code_list'),
-            helper: t('admin_tab_codes_helper'),
-        },
-        monitor_groups: {
-            title: t('monitor_groups'),
-            helper: t('admin_tab_monitor_groups_helper'),
-        },
-        monitor_bracket: {
-            title: t('monitor_bracket'),
-            helper: t('admin_tab_monitor_bracket_helper'),
-        },
-    };
-    const currentLiveTab = adminSection === 'live' && tab !== 'data' && tab !== 'editor' ? tab as LiveAdminTab : null;
+    const currentMatchesView: LiveMatchesView = matchesView === 'monitor_groups' && !showGroupsMonitor
+        ? (showBracketMonitor ? 'monitor_bracket' : 'codes')
+        : matchesView === 'monitor_bracket' && !showBracketMonitor
+            ? (showGroupsMonitor ? 'monitor_groups' : 'codes') : matchesView;
+    const resumeReportView = tab === 'matches' && currentMatchesView === 'reports';
 
     useEffect(() => {
-        if (adminSection !== 'live') return;
-        if (tab === 'monitor_groups' && !showGroupsMonitor) {
-            openLiveTab(showBracketMonitor ? 'monitor_bracket' : fallbackLiveTab);
-            return;
-        }
-        if (tab === 'monitor_bracket' && !showBracketMonitor) {
-            openLiveTab(showGroupsMonitor ? 'monitor_groups' : fallbackLiveTab);
-        }
-        if (tab === 'referees' && liveResultsOnly) {
-            openLiveTab('reports');
-        }
-    }, [adminSection, fallbackLiveTab, liveResultsOnly, showBracketMonitor, showGroupsMonitor, tab]);
-
-    useEffect(() => {
-        if (!showGroupsMonitor && !showBracketMonitor) {
-            setMonitorMenuOpen(false);
-            return;
-        }
-        if (adminSection !== 'live') {
-            setMonitorMenuOpen(false);
-        }
-    }, [adminSection, showBracketMonitor, showGroupsMonitor]);
-
-    const updateMonitorMenuPosition = React.useCallback(() => {
-        const button = monitorMenuButtonRef.current;
-        if (!button) return;
-        const rect = button.getBoundingClientRect();
-        const menuWidth = 240;
-        const viewportPadding = 12;
-        const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
-        setMonitorMenuPosition({
-            left: Math.min(Math.max(rect.left, viewportPadding), maxLeft),
-            top: rect.bottom + 8,
-        });
-    }, []);
-
-    useEffect(() => {
-        if (!monitorMenuOpen) return;
-        updateMonitorMenuPosition();
-        const handleWindowUpdate = () => updateMonitorMenuPosition();
-        window.addEventListener('resize', handleWindowUpdate);
-        window.addEventListener('scroll', handleWindowUpdate, true);
-        return () => {
-            window.removeEventListener('resize', handleWindowUpdate);
-            window.removeEventListener('scroll', handleWindowUpdate, true);
-        };
-    }, [monitorMenuOpen, updateMonitorMenuPosition]);
+        if (tab === 'referees' && liveResultsOnly) void openLiveTab('matches', 'reports');
+    }, [liveResultsOnly, openLiveTab, tab]);
     const [dataTopScorerU25PlayerId, setDataTopScorerU25PlayerId] = useState<string>('');
     const [dataDefenderU25PlayerId, setDataDefenderU25PlayerId] = useState<string>('');
 
@@ -1232,9 +1220,8 @@ const [pendingTeamsImport, setPendingTeamsImport] = useState<{ teams: Team[] } |
 
     // Referti (manual + immagine allineata)
     const [reportMatchId, setReportMatchId] = useState<string>('');
-    const [reportStatus, setReportStatus] = useState<'scheduled'|'playing'|'finished'>('finished');
-    const [reportScoreA, setReportScoreA] = useState<string>('0');
-    const [reportScoreB, setReportScoreB] = useState<string>('0');
+    const [reportOcrScoreLabel, setReportOcrScoreLabel] = useState('');
+    const reportSaveFeedback = useReportSaveFeedback(t('close'));
     const [reportWinnerTeamId, setReportWinnerTeamId] = useState<string>('');
     const [reportStatsForm, setReportStatsForm] = useState<Record<string, { canestri: string; soffi: string }>>({});
     const [reportImageUrl, setReportImageUrl] = useState<string>('');
@@ -1692,7 +1679,7 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
 
         const targets = new Set<AdminChunkTarget>();
         if (adminSection === 'live') {
-            targets.add(tab === 'reports' ? 'reports' : 'teams');
+            targets.add(resumeReportView ? 'reports' : 'teams');
             targets.add('reports');
             targets.add('codes');
             if (showGroupsMonitor) targets.add('monitor_groups');
@@ -1733,11 +1720,11 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
                 globalThis.clearTimeout(timeoutId);
             }
         };
-    }, [adminSection, showBracketMonitor, showGroupsMonitor, tab]);
+    }, [adminSection, showBracketMonitor, showGroupsMonitor, resumeReportView]);
 
     useEffect(() => {
         const onOpenDataPersistence = () => {
-            safeSessionSet('flbp_admin_data_main_section', 'persistence');
+            safeSessionSet('flbp_admin_data_main_section', 'sync');
             void switchAdminSection('data');
         };
         const onOpenDataViews = () => {
@@ -1755,51 +1742,6 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
     const sortedTeams = useMemo(() => {
         return [...(state.teams || [])];
     }, [state.teams]);
-
-    // When a live tournament is active, keep its roster (tournament.teams) in sync with the global catalog (state.teams).
-    // This allows late-added teams (after the live started) to be selectable in bracket/groups tools and to resolve names.
-    const mergeIntoLiveTournamentTeams = (tournament: TournamentData | undefined, globalTeams: Team[]): TournamentData | undefined => {
-        if (!tournament) return tournament;
-        const liveTeams = Array.isArray(tournament.teams) ? tournament.teams : [];
-        const globals = Array.isArray(globalTeams) ? globalTeams : [];
-
-        const globalById = new Map<string, Team>();
-        for (const gt of globals) globalById.set(gt.id, gt);
-
-        const liveById = new Map<string, Team>();
-        for (const lt of liveTeams) liveById.set(lt.id, lt);
-
-        let changed = false;
-        const nextLiveTeams: Team[] = liveTeams.map((lt) => {
-            const gt = globalById.get(lt.id);
-            if (!gt) return lt;
-            const merged = { ...lt, ...gt };
-            // mark changed only on key fields we show in UI
-            if (
-                lt.name !== merged.name ||
-                lt.player1 !== merged.player1 ||
-                lt.player2 !== merged.player2 ||
-                lt.player1YoB !== merged.player1YoB ||
-                lt.player2YoB !== merged.player2YoB ||
-                (lt as any).player1IsReferee !== (merged as any).player1IsReferee ||
-                (lt as any).player2IsReferee !== (merged as any).player2IsReferee ||
-                (lt as any).isReferee !== (merged as any).isReferee
-            ) {
-                changed = true;
-            }
-            return merged;
-        });
-
-        for (const gt of globals) {
-            if (!liveById.has(gt.id)) {
-                nextLiveTeams.push(gt);
-                changed = true;
-            }
-        }
-
-        if (!changed) return tournament;
-        return { ...tournament, teams: nextLiveTeams };
-    };
 
     const allPlayers = useMemo(() => {
         const out: { id: string; name: string; label: string }[] = [];
@@ -1831,17 +1773,22 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         return [];
     };
 
-    const openMvpModal = (forArchive: boolean) => {
-        if (!state.tournament) {
-            alert(t('alert_no_live_selected'));
-            return;
+    const closingTournamentId = state.tournament?.id;
+    const closingDraftId = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (archiveDone && closingTournamentId && archiveReceipt?.tournamentId !== closingTournamentId) {
+            setArchiveReceipt(null);
+            setArchiveDone(false);
+            setArchiveError('');
         }
-        setMvpModalForArchive(forArchive);
-        if (forArchive) setArchiveIncludeU25Awards(true);
+        if (tab !== 'closing' || !closingTournamentId || closingDraftId.current === closingTournamentId) return;
+        closingDraftId.current = closingTournamentId;
         setMvpSearch('');
+        setArchiveIncludeU25Awards(true);
         setMvpSelectedIds(getExistingTournamentMvpIds());
-        setMvpModalOpen(true);
-    };
+    }, [archiveDone, archiveReceipt?.tournamentId, closingTournamentId, tab]);
+    // Whoever confirms must be looking at this tournament's closing page.
+    useEffect(() => setArchiveConfirmOpen(false), [closingTournamentId, tab]);
 
     const applyMvpsToState = (base: AppState, selectedIds: string[]) => {
         if (!base.tournament) return base;
@@ -1941,12 +1888,85 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
         }
     };
 
-    const handleArchive = () => {
-        if (!state.tournament) {
-            alert(t('alert_no_live_active'));
+
+    // The cancellation is already saved when this runs: it only hands Fanta back
+    // to the pre-tournament, so a failure is shown and retried on its own.
+    const finishCancelLive = async (cancelled: { id: string; name: string }) => {
+        if (!getSupabaseConfig()) return;
+        setCancelLiveFantaBusy(true);
+        setCancelLivePending(cancelled);
+        storePendingCancelledLive(cancelled);
+        try {
+            await returnCancelledFantaLive(cancelled.id);
+            setCancelLivePending(null);
+            storePendingCancelledLive(null);
+            window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+        } catch (error) {
+            console.warn('FLBP Fanta hand-back after live cancellation did not complete', error);
+        } finally {
+            setCancelLiveFantaBusy(false);
+        }
+    };
+
+    useEffect(() => {
+        // A restored backup can bring the tournament back: nothing is left to hand over.
+        if (!cancelLivePending || cancelLiveFantaBusy) return;
+        const restored = state.tournament?.id === cancelLivePending.id
+            || (state.tournamentHistory || []).some(tournament => tournament.id === cancelLivePending.id);
+        if (!restored) return;
+        setCancelLivePending(null);
+        storePendingCancelledLive(null);
+    }, [cancelLiveFantaBusy, cancelLivePending, state.tournament?.id, state.tournamentHistory]);
+
+    const closeCancelLive = () => {
+        if (cancelLiveBusyRef.current) return;
+        cancelLiveBackupRef.current = null;
+        setCancelLiveStage(null);
+        setCancelLiveError('');
+    };
+
+    const downloadCancelLiveBackup = () => {
+        if (!state.tournament) return;
+        try {
+            const json = JSON.stringify(buildUnifiedBackupJsonExport(state), null, 2);
+            downloadBlob(new Blob([json], { type: 'application/json' }), 'flbp_backup_live_' + new Date().toISOString().slice(0, 10) + '.json');
+            cancelLiveBackupRef.current = state;
+            setCancelLiveError('');
+            setCancelLiveStage('confirm');
+        } catch {
+            setCancelLiveError(t('alert_export_backup_fail'));
+        }
+    };
+
+    const confirmCancelLive = async () => {
+        if (cancelLiveBusyRef.current || !cancelLiveBackupRef.current || !state.tournament) return;
+        const backup = cancelLiveBackupRef.current;
+        if (backup.tournament !== state.tournament || backup.tournamentMatches !== state.tournamentMatches) {
+            cancelLiveBackupRef.current = null;
+            setCancelLiveStage('backup');
+            setCancelLiveError(t('admin_cancel_live_changed'));
             return;
         }
-        openMvpModal(true);
+        const { id, name } = state.tournament;
+        const next: AppState = { ...state, tournament: null, tournamentMatches: [] };
+        cancelLiveBusyRef.current = true;
+        setCancelLiveBusy(true);
+        setCancelLiveError('');
+        try {
+            await commitAdminStateDurably(next, 'admin-cancel-live', { snapshotOnly: true });
+            closeLiveCallsForTournament(id);
+            recoverToSafeAdmin();
+            setCancelLiveFeedback(t('admin_delete_live_tournament_done').replace('{name}', () => name));
+            cancelLiveBackupRef.current = null;
+            setCancelLiveStage(null);
+            void finishCancelLive({ id, name });
+        } catch (error) {
+            console.warn('FLBP live cancellation did not complete', error);
+            setCancelLiveError(t('admin_cancel_live_failed'));
+        } finally {
+            cancelLiveBusyRef.current = false;
+            setCancelLiveBusy(false);
+        }
     };
 
     const handleDeleteLiveTournament = () => {
@@ -2180,7 +2200,7 @@ const confirmAliasModal = () => {
         const idx = teams.findIndex(t => t.id === pendingTeamSave.id);
         if (idx >= 0) teams[idx] = { ...teams[idx], ...pendingTeamSave };
         else teams.push(pendingTeamSave);
-        nextState = { ...nextState, teams };
+        nextState = { ...nextState, teams, tournament: mergeIntoLiveTournamentTeams(nextState.tournament, teams) };
         syncFantaPretournamentTeamsBestEffort(teams, 'confirm-team-save', { previousTeams: pendingTeamSavePreviousTeam ? [pendingTeamSavePreviousTeam] : undefined });
         resetForm();
     }
@@ -2510,12 +2530,8 @@ const confirmAliasModal = () => {
         (state.tournament?.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
         const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
         const ms = [...sourceMatches]
-                                    .filter(m => !(m as any).hidden)
-                                    .filter(m => {
-                                        const ids = getMatchParticipantIds(m);
-                                        return !ids.includes('BYE');
-                                    })
-                                    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+            .filter(m => !m.hidden && !isByeMatch(m))
+            .sort(compareTournamentMatches(state.tournament));
         const visible = codesStatusFilter === 'all' ? ms : ms.filter(m => m.status === codesStatusFilter);
         const html = `<table><thead><tr><th>Codice</th><th>Fase</th><th>Match</th><th>Score</th><th>Stato</th></tr></thead><tbody>
           ${visible.map(m => {
@@ -2541,14 +2557,14 @@ const confirmAliasModal = () => {
         try {
             const remoteRow = await pullWorkspaceState({ source: 'AdminDashboard.codes.reloadSnapshot', kind: 'admin' });
             if (!remoteRow?.state) {
-                alert('Non ho trovato uno snapshot admin valido nel DB.');
+                alert(t('report_dialog_snapshot_missing'));
                 return;
             }
             const remoteState = coerceAppState(remoteRow.state);
             setRemoteBaseUpdatedAt(remoteRow.updated_at || null);
             setState(remoteState);
         } catch (error: any) {
-            alert(`Non riesco a ricaricare lo stato dal DB.\n\n${String(error?.message || error || '')}`);
+            alert(t('report_dialog_snapshot_reload_failed').replace('{error}', () => String(error?.message || error || '')));
         } finally {
             setCodesReloading(false);
         }
@@ -2560,7 +2576,7 @@ const confirmAliasModal = () => {
             ? state.tournamentMatches
             : (draft?.m || []);
         const ms = [...sourceMatches]
-            .filter(m => m.phase === 'bracket')
+            .filter(m => m.phase === 'bracket' && !m.hidden && !isByeMatch(m))
             .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
         if (!ms.length) {
             alert(t('alert_no_bracket_print'));
@@ -2633,15 +2649,15 @@ const confirmAliasModal = () => {
         candidate: WorkbookImportCandidate | { parsed: { headersNormalized: string[]; detectedLayout: TeamImportLayout | null }; sheetName?: string } | null,
         alternatives: WorkbookImportCandidate[] = [],
     ) => {
-        const foundLayout = describeTeamImportLayout(candidate?.parsed?.detectedLayout ?? null);
-        const expectedLayout = describeTeamImportLayout(importProfile?.layout ?? null);
+        const foundLayout = describeTeamImportLayout(candidate?.parsed?.detectedLayout, t);
+        const expectedLayout = describeTeamImportLayout(importProfile?.layout, t);
         const sheetLabel = candidate?.sheetName ? `
 ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const headerPreview = (candidate?.parsed?.headersNormalized || []).slice(0, 8).join(', ');
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
-- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout)} · squadre ${alt.parsed.teams.length}`).join('\n- ')}`
+- ${alternatives.slice(0, 3).map(alt => `${alt.sheetName}: ${describeTeamImportLayout(alt.parsed.detectedLayout, t)} · ${t('teams')}: ${alt.parsed.teams.length}`).join('\n- ')}`
             : '';
         return `${t('alert_import_error')}
 
@@ -2930,7 +2946,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     const genPool = (n: number) => {
         const teams = generateSimPoolTeams(n, state, uuid);
         if (!teams.length) {
-            alert('Nel JSON non ci sono ancora abbastanza squadre o giocatori reali per generare il pool simulazioni.');
+            alert(t('report_dialog_simulation_pool_insufficient'));
             return;
         }
         const merged = [...(state.teams || []), ...teams];
@@ -3002,7 +3018,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 : [];
             const { tournament, matches } = generateTournamentStructure(teams, {
                 mode: tournMode,
-                numGroups,
+                numGroups: Math.max(1, Math.floor(numGroups)),
                 advancingPerGroup: advancing,
                 tournamentName: tournName,
                 startDate: tournDate,
@@ -3017,29 +3033,13 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         }
     };
 
-    const handleStartLive = async () => {
+    const handleStartLive = async (rawRefereesPassword: string) => {
         if (!draft || liveStartPendingRef.current) return;
-        
-        if (state.tournament) {
-            if (!confirm(t('admin_archive_active_before_start_confirm'))) {
-                return;
-            }
-        }
 
         const draftResultsOnly = isResultsOnlyTournament(draft.t);
-        let refereesPassword = '';
-        let refereesAuthVersion = '';
-        if (!draftResultsOnly) {
-            // Each standard live must have its own referees password.
-            // If the admin cancels or leaves it empty, do not start the live.
-            const rawPw = window.prompt(t('enable_referees_password_prompt'), '') ?? '';
-            refereesPassword = rawPw.trim();
-            if (!refereesPassword) {
-                alert(t('referees_password_required'));
-                return;
-            }
-            refereesAuthVersion = new Date().toISOString();
-        }
+        const refereesPassword = rawRefereesPassword.trim();
+        if (!draftResultsOnly && !refereesPassword) return;
+        const refereesAuthVersion = draftResultsOnly ? '' : new Date().toISOString();
         try { safeSessionRemove('flbp_ref_authed'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_for'); } catch { /* ignore */ }
         try { safeSessionRemove('flbp_ref_authed_ver'); } catch { /* ignore */ }
@@ -3098,10 +3098,13 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             }
             setDraft(null);
             setLateTeamIds([]);
-            setTab('codes');
+            selectMatchesView('codes');
+            setTab('matches');
+            setLastLiveTab('matches');
+            safeSessionSet('flbp_admin_last_live_tab', 'matches');
             alert(t('alert_live_started'));
         } catch (error) {
-            const message = `Avvio torneo non confermato. ${error instanceof Error ? error.message : String(error)}`;
+            const message = t('report_dialog_live_start_unconfirmed').replace('{error}', () => error instanceof Error ? error.message : String(error));
             setFantaSyncFeedback({ tone: 'error', message });
             alert(message);
         } finally {
@@ -3163,7 +3166,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!confirm(`${t('final_group_activate_confirm_prefix')} Top${top}?\n\n${t('final_group_activate_confirm_body')}`)) return;
 
         const { tournament, matches } = activateFinalRoundRobinStage(state.tournament, ms);
-        setState({ ...state, tournament, tournamentMatches: matches });
+        commitLiveMatches(matches, tournament);
         alert(t('final_group_activated'));
     };
 
@@ -3174,7 +3177,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (idx === -1) return;
         
         const m = matches[idx];
-        if (m.status === 'finished') return; // Cannot toggle finished matches
+        if (m.status === 'finished' || !canPlayMatch(m)) return;
 
         const next = m.status === 'playing' ? 'scheduled' : 'playing';
         matches[idx] = { ...m, status: next };
@@ -3211,7 +3214,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (!state.tournament) return;
         const match = (state.tournamentMatches || []).find((m) => m.id === matchId);
         if (!match) return;
-        const ok = confirm('Cancellare il referto e riportare questa partita in stato programmato? Se il risultato ha già propagato squadre nei turni successivi, controlla manualmente il tabellone dopo la cancellazione.');
+        const ok = confirm(t('report_dialog_clear_confirm'));
         if (!ok) return;
         const nextMatches = (state.tournamentMatches || []).map((m) =>
             m.id === matchId ? clearRefereeReportFromMatch(m) : m
@@ -3219,12 +3222,18 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         commitLiveMatches(nextMatches);
     };
 
-    const archiveAwardPreview = mvpModalOpen && mvpModalForArchive && !archiveReceipt && state.tournament
+    const archiveAwardPreview = tab === 'closing' && !archiveReceipt && state.tournament
         ? syncTournamentAwardsToHallOfFame(
             applyMvpsToState(state, mvpSelectedIds).hallOfFame,
             { ...state.tournament, includeU25Awards: archiveIncludeU25Awards },
             state.tournamentMatches,
         ).filter(award => award.tournamentId === state.tournament?.id)
+        : [];
+    const archiveFinalGroup = tab === 'closing' && !archiveReceipt && state.tournament?.config?.finalRoundRobin?.activated
+        ? state.tournament.groups?.find(isFinalGroup) : undefined;
+    const pendingFinalMatches = archiveFinalGroup
+        ? state.tournamentMatches.filter(m => m.phase === 'groups' && m.groupName === archiveFinalGroup.name
+            && !m.hidden && !isByeMatch(m) && m.status !== 'finished').map(m => m.code || m.id)
         : [];
 
     const publishArchive = async (tournamentId: string, awards: HallOfFameEntry[]): Promise<boolean> => {
@@ -3259,7 +3268,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         return { text, href: 'mailto:info@flbp.it?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text) };
     };
 
-    const submitTournamentArchive = async (includeMvp: boolean) => {
+    const submitTournamentArchive = async () => {
         if (archiveSubmittingRef.current) return;
         archiveSubmittingRef.current = true;
         setArchiveBusy(true);
@@ -3270,7 +3279,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 if (!state.tournament) return;
                 const tournamentId = state.tournament.id;
                 const email = buildRefereeArchiveSummary(state);
-                const decorated = applyMvpsToState(state, includeMvp ? mvpSelectedIds : []);
+                const decorated = applyMvpsToState(state, mvpSelectedIds);
                 const next = archiveTournamentV2(decorated, { includeU25Awards: archiveIncludeU25Awards });
                 const confirmed = await commitAdminStateDurably(next, 'archive-tournament', { skipStructuredSync: true });
                 setState(confirmed);
@@ -3295,6 +3304,12 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             archiveSubmittingRef.current = false;
             setArchiveBusy(false);
         }
+    };
+
+    const requestTournamentArchive = () => {
+        // A committed archive only has its publication left to retry.
+        if (archiveReceipt) void submitTournamentArchive();
+        else if (state.tournament) setArchiveConfirmOpen(true);
     };
 
     const handleUpdateTournamentAndMatches = (tournament: TournamentData, matches: Match[]) => {
@@ -3367,7 +3382,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
     };
 
     const describeReportForConflict = (snapshot: AppState, match?: Match | null) => {
-        if (!match) return 'Referto non presente nello snapshot remoto.';
+        if (!match) return t('report_dialog_missing');
         const ids = getMatchParticipantIds(match).filter(Boolean);
         const teams = ids.length
             ? ids.map(id => getTeamNameFromStateSnapshot(snapshot, id)).join(' vs ')
@@ -3381,14 +3396,14 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
             return acc;
         }, { canestri: 0, soffi: 0 });
         const savedBy = match.refereeReportAuthorName
-            ? `\nSalvato da: ${match.refereeReportAuthorName}${match.refereeReportSavedAt ? ` (${new Date(match.refereeReportSavedAt).toLocaleString()})` : ''}`
+            ? `\n${t('report_dialog_saved_by').replace('{name}', () => match.refereeReportAuthorName || '')}${match.refereeReportSavedAt ? ` (${new Date(match.refereeReportSavedAt).toLocaleString()})` : ''}`
             : '';
         return [
-            `Match: ${match.code || match.id}`,
-            `Squadre: ${teams}`,
-            `Stato: ${match.status || 'scheduled'}${match.played ? ' / giocata' : ''}`,
-            `Punteggio: ${score}`,
-            `Statistiche: ${statsTotals.canestri} canestri, ${statsTotals.soffi} soffi`,
+            `${t('match')}: ${match.code || match.id}`,
+            `${t('teams')}: ${teams}`,
+            `${t('status')}: ${t(`match_status_${match.status || 'scheduled'}`)}`,
+            `${t('score_label')}: ${score}`,
+            `${t('statistics')}: ${statsTotals.canestri} ${t('points_baskets')}, ${statsTotals.soffi} ${t('soffi')}`,
         ].join('\n') + savedBy;
     };
 
@@ -3565,7 +3580,7 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
                 matches = autoResolveBracketByes(matches);
             } else {
                 const bracketPending = matches
-                    .filter(m => m.phase === 'bracket' && m.status !== 'finished')
+                    .filter(m => m.phase === 'bracket' && m.status !== 'finished' && canPlayMatch(m))
                     .sort((a, b) => (a.round ?? 1) - (b.round ?? 1) || (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
 
                 const eligible = bracketPending.filter(m => !!m.teamAId && !!m.teamBId);
@@ -3629,7 +3644,7 @@ while (guard < 5000) {
     matches = autoResolveBracketByes(matches);
 
     const eligible = matches
-        .filter(m => m.phase === 'bracket' && m.status !== 'finished')
+        .filter(m => m.phase === 'bracket' && m.status !== 'finished' && canPlayMatch(m))
         .filter(m => !!m.teamAId && !!m.teamBId);
 
     if (!eligible.length) break;
@@ -3667,25 +3682,10 @@ while (guard < 5000) {
         }
     };
 
-    const isReportableMatch = (m: Match) => {
-        const ids = getMatchParticipantIds(m).filter(Boolean);
-        if (ids.length < 2) return false;
-        if (ids.some(isPlaceholderTeamId)) return false;
-        return true;
-    };
+    const isReportableMatch = canPlayMatch;
 
     const initReportFormFromMatch = (m: Match) => {
         setReportMatchId(m.id);
-        setReportStatus(m.status || 'finished');
-        // For multi-team matches, reportScoreA/B are only legacy placeholders for UI.
-        if (m.teamIds && m.teamIds.length >= 2) {
-            const vals = Object.values(m.scoresByTeam || {}).sort((a, b) => b - a);
-            setReportScoreA(String(vals[0] ?? 0));
-            setReportScoreB(String(vals[1] ?? 0));
-        } else {
-            setReportScoreA(String(m.scoreA ?? 0));
-            setReportScoreB(String(m.scoreB ?? 0));
-        }
 
         const participantIdsForWinner = (m.teamIds && m.teamIds.length)
             ? (m.teamIds || [])
@@ -3737,6 +3737,11 @@ while (guard < 5000) {
     };
 
     const handlePickReportMatch = (id: string) => {
+        setReportOcrScoreLabel('');
+        if (!id) {
+            setReportMatchId('');
+            return;
+        }
         const sourceMatches = (state.tournamentMatches?.length ? state.tournamentMatches : state.tournament?.matches) || [];
         const m = sourceMatches.find(mm => mm.id === id);
         if (!m) return;
@@ -3755,11 +3760,15 @@ while (guard < 5000) {
             alert(t('report_unavailable_placeholder'));
             return;
         }
-        setTab('reports');
+        selectMatchesView('reports');
+        setTab('matches');
+        setLastLiveTab('matches');
+        safeSessionSet('flbp_admin_last_live_tab', 'matches');
         handlePickReportMatch(id);
     };
 
     const handleReportFile = async (file: File) => {
+        setReportOcrScoreLabel('');
         setReportImageBusy(true);
         try {
             const {
@@ -3796,9 +3805,7 @@ while (guard < 5000) {
                 // Score pattern: 10-8, 10 : 8, 10â€“8
                 const scoreMatch = cleaned.match(/\b(\d{1,2})\s*[-–:]\s*(\d{1,2})\b/);
                 if (scoreMatch) {
-                    setReportScoreA(scoreMatch[1]);
-                    setReportScoreB(scoreMatch[2]);
-                    setReportStatus('finished');
+                    setReportOcrScoreLabel(`${scoreMatch[1]}–${scoreMatch[2]}`);
                 }
             } finally {
                 setReportOcrBusy(false);
@@ -3836,23 +3843,17 @@ while (guard < 5000) {
                         buildReportConflictSignature(remoteMatch) !== buildReportConflictSignature(localBaseMatch);
 
                     if (selectedMatchChanged) {
-                        const overwrite = confirm([
-                            'Il DB contiene un referto piu recente per questa partita.',
-                            '',
-                            'Referto nel DB:',
-                            describeReportForConflict(remoteState, remoteMatch),
-                            '',
-                            'Referto nella tua finestra:',
-                            describeReportForConflict(state, localBaseMatch),
-                            '',
-                            'OK = applica comunque il tuo referto sopra i dati aggiornati.',
-                            'Annulla = ricarica i dati del DB senza salvare.',
-                        ].join('\n'));
+                        const overwrite = confirm(t('report_dialog_preflight_conflict').replace(
+                            /\{(remote|local)\}/g,
+                            (_, source) => source === 'remote'
+                                ? describeReportForConflict(remoteState, remoteMatch)
+                                : describeReportForConflict(state, localBaseMatch),
+                        ));
 
                         if (!overwrite) {
                             setRemoteBaseUpdatedAt(remoteUpdatedAt);
                             setState(remoteState);
-                            alert('Ho ricaricato i dati aggiornati dal DB. Controlla il referto prima di salvare di nuovo.');
+                            alert(t('report_dialog_preflight_reloaded'));
                             return;
                         }
                     }
@@ -3864,7 +3865,7 @@ while (guard < 5000) {
                 }
             } catch (error: any) {
                 console.warn('Admin report preflight failed', error);
-                alert(`Non riesco a verificare lo stato aggiornato del DB prima del salvataggio.\n\n${String(error?.message || error || '')}\n\nRiprova tra qualche secondo: il referto non e stato salvato.`);
+                alert(t('report_dialog_preflight_failed').replace('{error}', () => String(error?.message || error || '')));
                 return;
             }
         }
@@ -3976,10 +3977,9 @@ while (guard < 5000) {
         if (lockedSuccessor && !confirm([
             t('editor_winner_cannot_advance'),
             '',
-            `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso e resterà con la squadra precedente.`,
+            t('report_dialog_locked_successor').replace('{code}', () => lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''),
             '',
-            'OK = salva comunque il referto e correggi poi il tabellone dall\'editor struttura.',
-            'Annulla = non salvare.',
+            t('report_dialog_admin_locked_confirm'),
         ].join('\n'))) {
             return;
         }
@@ -4014,6 +4014,7 @@ while (guard < 5000) {
                     tournamentId: workingState.tournament?.id || state.tournament.id,
                     matchId: reportMatchId,
                     matches: reportMatchesToPersist,
+                    deferSnapshotCursor: true,
                 });
                 window.dispatchEvent(new CustomEvent('flbp:live-state-committed', {
                     detail: {
@@ -4021,6 +4022,7 @@ while (guard < 5000) {
                         source: 'admin-save-report',
                         skipStructuredSync: true,
                         skipRepositoryPersist: true,
+                        readBackCommit: true,
                         committedUpdatedAt: committed.updated_at || null,
                         committedVersion: committed.version ?? null,
                         committedOperationId: committed.operation_id ?? null,
@@ -4047,30 +4049,27 @@ while (guard < 5000) {
             // is not a connection problem: saving the same data again would fail.
             const rejectionReason = getMatchResultRejectionReason(error);
             alert(rejectionReason ? [
-                'Il referto non è stato salvato: il server lo ha rifiutato.',
-                '',
-                `Motivo: ${rejectionReason}`,
-                '',
-                'Ricarica la pagina per avere i dati aggiornati del torneo, controlla il girone e poi riprova.',
-            ].join('\n') : [
-                'Il referto non è stato salvato su Supabase.',
-                '',
-                'Non chiudere questa finestra: controlla la connessione, poi riprova il salvataggio.',
-                '',
-                String(error?.message || error || ''),
-            ].join('\n'));
+                t('report_dialog_rejected').replace('{reason}', () => rejectionReason),
+                t('report_dialog_admin_rejected_advice'),
+            ].join('\n\n') : t('report_dialog_admin_save_failed').replace('{error}', () => String(error?.message || error || '')));
             return;
         }
         setState(nextState);
-        const committedMatch = finalMatches.find((match) => match.id === reportMatchId);
-        if (committedMatch) {
-            // Keep the open report card consistent with the durable state.
-            // Previously the player inputs showed the saved values while the
-            // header stayed at the pre-save 0-0 until the match was reopened.
-            initReportFormFromMatch(committedMatch);
-        }
+        const qualificationChanged = workingState.tournament && updated.phase === 'groups'
+            && didQualificationChangeAfterBracketStarted(
+                workingState.tournament,
+                workingState.tournamentMatches?.length ? workingState.tournamentMatches : workingState.tournament.matches || [],
+                finalMatches,
+                updated.groupName,
+            );
+        if (qualificationChanged) alert(t('admin_qualification_changed_after_bracket_start'));
         closeLiveCallsForMatch(updated, workingState.tournament?.id || state.tournament.id);
-        alert(t('alert_report_saved'));
+        setReportMatchId('');
+        setReportOcrScoreLabel('');
+        setReportImageUrl('');
+        setReportOcrText('');
+        reportSaveFeedback.show(t('report_saved_summary')
+            .replace('{code}', updated.code || '—').replace('{score}', formatMatchScoreLabel(updated).replaceAll('-', '–')));
     };
 
     const handleSaveReport = async () => {
@@ -4132,7 +4131,7 @@ while (guard < 5000) {
 
             try {
                 if (!supabaseConfig) {
-                    throw new Error(t('db_supabase_not_configured'));
+                    throw new Error(t('admin_login_unavailable'));
                 }
 
                 const existingSession = getSupabaseSession();
@@ -4153,13 +4152,12 @@ while (guard < 5000) {
                     }
 
                     if (!adminAuthPasswordInput.trim()) {
-                        const reason = access.reason || t('admin_access_not_authorized');
-                        throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+                        throw new Error(t('admin_access_not_authorized'));
                     }
                 }
 
                 if (!adminAuthEmailInput.trim()) {
-                    throw new Error(t('admin_supabase_email_label'));
+                    throw new Error(t('player_area_email'));
                 }
                 if (!adminAuthPasswordInput.trim()) {
                     throw new Error(t('admin_enter_valid_password'));
@@ -4170,8 +4168,7 @@ while (guard < 5000) {
                     const access = await ensureSupabaseAdminAccess();
                     if (!access.ok) {
                         await signOutSupabase();
-                        const reason = access.reason || t('admin_access_not_authorized');
-                        throw new Error(`${reason} ${t('admin_access_denied_hint')} public.admin_users.`);
+                        throw new Error(t('admin_access_not_authorized'));
                     }
                     const resolvedEmail = access.email || result.email || adminAuthEmailInput.trim();
                     mirrorAdminSessionToPlayer({
@@ -4193,14 +4190,16 @@ while (guard < 5000) {
                     safeSessionRemove(ADMIN_LEGACY_AUTH_LS_KEY);
                 }
                 setSupabaseEmail(null);
-                setAdminAuthError(String(err?.message || err || t('admin_access_not_authorized')));
+                const message = String(err?.message || '');
+                const userMessages = ['admin_access_not_authorized', 'admin_enter_valid_password', 'admin_login_unavailable', 'player_area_email'].map(t);
+                setAdminAuthError(userMessages.includes(message) ? message : t('admin_login_try_again'));
             } finally {
                 setLoginBusy(false);
             }
         };
 
         return (
-            <div className="animate-fade-in">
+            <div>
                 <div className="min-h-[60vh] flex items-center justify-center">
                     <div className="w-full max-w-xl">
                         <div className="rounded-3xl overflow-hidden border border-slate-200 bg-white shadow-xl">
@@ -4215,30 +4214,23 @@ while (guard < 5000) {
                                             {t('admin')}
                                         </h2>
                                         <p className="text-sm font-semibold text-white/75 mt-1">
-                                            {t('admin_auth_desc')}
+                                            {t('admin_login_account')}
                                         </p>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="p-6 space-y-4">
-                                <p className="text-slate-600 text-sm font-semibold">
-                                    {t('admin_login_note')}
-                                </p>
-
                                 {!supabaseConfig ? (
                                     <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900">
                                         <div className="font-black">{t('admin_login_failed')}</div>
-                                        <div className="text-sm font-semibold mt-1">{t('db_supabase_not_configured')}</div>
+                                        <div className="text-sm font-semibold mt-1">{t('admin_login_unavailable')}</div>
                                     </div>
                                 ) : null}
 
-                                {adminSessionChecking && supabaseEmail ? (
-                                    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-900">
-                                        <div className="font-black">{t('admin_supabase_session_detected')}</div>
-                                        <div className="text-sm font-semibold mt-1">
-                                            {supabaseEmail}
-                                        </div>
+                                {adminSessionChecking ? (
+                                    <div role="status" aria-busy="true" className="rounded-2xl border border-sky-200 bg-sky-50 p-4 font-semibold text-sky-900">
+                                        {t('admin_login_busy')}
                                     </div>
                                 ) : null}
 
@@ -4262,11 +4254,11 @@ while (guard < 5000) {
                                 ) : null}
 
                                 <div className="grid grid-cols-1 gap-2">
-                                    <label className="text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-email">
-                                        {t('admin_supabase_email_label')}
-                                    </label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
-                                        <div>
+                                    <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                                        <div className="space-y-2">
+                                            <label className="block text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-email">
+                                                {t('player_area_email')}
+                                            </label>
                                             <input
                                                 id="admin-access-email"
                                                 type="email"
@@ -4275,12 +4267,15 @@ while (guard < 5000) {
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter' && !loginBusy) void doAdminLogin();
                                                 }}
-                                                placeholder={getConfiguredAdminEmail()}
+                                                placeholder={t('player_area_email_placeholder')}
                                                 autoComplete="email"
                                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-800 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
                                             />
                                         </div>
-                                        <div>
+                                        <div className="space-y-2">
+                                            <label className="block text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-password">
+                                                {t('admin_password_placeholder')}
+                                            </label>
                                             <input
                                                 id="admin-access-password"
                                                 autoFocus={reauthenticating}
@@ -4305,19 +4300,10 @@ while (guard < 5000) {
                                             {loginBusy ? t('admin_login_busy') : t('admin_login')}
                                         </button>
                                     </div>
-                                    <div className="text-xs text-slate-500 font-semibold">
-                                        {t('admin_recommended_email')}: <span className="font-black">{getConfiguredAdminEmail()}</span>.
-                                    </div>
-                                    <div className="text-xs text-slate-500 font-semibold">
-                                        {t('admin_password_server_only')}
-                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="mt-4 text-center text-xs text-slate-400 font-semibold">
-                            {t('admin_internal_access_hint')}
-                        </div>
                     </div>
                 </div>
             </div>
@@ -4574,21 +4560,6 @@ while (guard < 5000) {
                                 </div>
                             </details>
 
-                            <button type="button" onClick={() => openMvpModal(false)} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors shadow-sm" title={t('mvp_plural')}>
-                                <Star className="h-4 w-4 text-amber-500" aria-hidden />
-                                <span>{t('mvp_plural')}</span>
-                                {state.tournament && (
-                                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">
-                                        {(() => {
-                                            const c = (state.hallOfFame || []).filter(e => e.tournamentId === state.tournament!.id && e.type === 'mvp').length;
-                                            return c;
-                                        })()}
-                                    </span>
-                                )}
-                            </button>
-                            <button type="button" onClick={handleArchive} className="bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-black inline-flex items-center gap-1.5 hover:bg-red-100 transition-colors shadow-sm">
-                                <Archive className="w-3.5 h-3.5" /> <span>{t('complete_tournament')}</span>
-                            </button>
                         </>
                     )}
 
@@ -4686,6 +4657,38 @@ while (guard < 5000) {
                 </div>
             </header>
 
+            {adminSection === 'live' && !isTesterMode && state.tournament && (
+                <div className="flex justify-end">
+                    <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-bold text-rose-800 hover:bg-rose-50"
+                        onClick={() => { setCancelLiveFeedback(''); setCancelLiveStage('backup'); }}>
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />{t('admin_cancel_live_title')}
+                    </button>
+                </div>
+            )}
+            {cancelLiveFeedback && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{cancelLiveFeedback}</p>}
+            {cancelLivePending && !cancelLiveFantaBusy && (
+                <div role="alert" className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-950">
+                    <p>{t('admin_cancel_live_fanta_pending').replace('{name}', () => cancelLivePending.name)}</p>
+                    <button type="button" className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-black hover:bg-amber-100" onClick={() => { void finishCancelLive(cancelLivePending); }}>
+                        {t('admin_cancel_live_fanta_retry')}
+                    </button>
+                </div>
+            )}
+            <AdminDataConfirmModal
+                open={cancelLiveStage !== null}
+                tone={cancelLiveStage === 'backup' ? 'warning' : 'danger'}
+                title={t(cancelLiveStage === 'backup' ? 'admin_cancel_live_title' : 'admin_cancel_live_confirm_title')}
+                description={t(cancelLiveStage === 'backup' ? 'admin_cancel_live_backup' : 'admin_cancel_live_confirm_hint')
+                    .replace('{name}', state.tournament?.name || '')}
+                confirmLabel={t(cancelLiveBusy ? 'referees_save_busy' : cancelLiveStage === 'backup' ? 'backup_download_json' : 'admin_cancel_live_confirm_title')}
+                cancelLabel={t('cancel')}
+                confirmDisabled={cancelLiveBusy || !state.tournament}
+                onClose={closeCancelLive}
+                onConfirm={cancelLiveStage === 'backup' ? downloadCancelLiveBackup : () => void confirmCancelLive()}
+            >
+                {cancelLiveError && <p role="alert" className="text-sm font-bold text-rose-800">{cancelLiveError}</p>}
+            </AdminDataConfirmModal>
+
             {adminSection === 'live' && isTesterMode && (
                 <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 shadow-[0_4px_20px_-4px_rgba(251,191,36,0.2)]">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
@@ -4715,7 +4718,7 @@ while (guard < 5000) {
                                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 pb-1">
                                     <span className="shrink-0 text-[11px] font-black text-slate-500 uppercase tracking-wide">{t('admin_ops_hub')}</span>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-blue-800 bg-blue-50 border border-blue-200 rounded-full px-3.5 py-1.5 shadow-sm">
-                                        {t('admin_area_label')}: <span className="font-black">{liveTabMeta[tab as LiveAdminTab]?.title || '-'}</span>
+                                        {t('admin_area_label')}: <span className="font-black">{tab === 'data' || tab === 'editor' ? '—' : t(liveSteps.find(step => step.tab === tab)?.label || 'teams')}</span>
                                     </div>
                                     <div className="shrink-0 text-xs sm:text-sm font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-full px-3.5 py-1.5 shadow-sm">
                                         {t('admin_guiding_match')}: <span className="font-mono">{liveOpsSummary.current?.code || '-'}</span>
@@ -4731,132 +4734,21 @@ while (guard < 5000) {
                                     </div>
                                 </div>
 
-                                <div className="relative min-w-0 max-w-full border-t border-slate-100 pt-3">
-                                    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 pb-1">
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'teams' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('teams')}
-                                            onFocus={() => primeAdminContentChunk('teams')}
-                                            onClick={() => { void openLiveTab('teams'); }}
-                                            className={tabBtnClass(tab === 'teams')}
-                                        >
-                                            <Users className="w-4 h-4" /> {t('teams')}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'structure' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('structure')}
-                                            onFocus={() => primeAdminContentChunk('structure')}
-                                            onClick={() => { void openLiveTab('structure'); }}
-                                            className={tabBtnClass(tab === 'structure')}
-                                        >
-                                            <Brackets className="w-4 h-4" /> {t('structure')}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'reports' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('reports')}
-                                            onFocus={() => primeAdminContentChunk('reports')}
-                                            onClick={() => { void openLiveTab('reports'); }}
-                                            className={tabBtnClass(tab === 'reports')}
-                                        >
-                                            <ClipboardList className="w-4 h-4" /> {t('reports')}
-                                        </button>
-                                        {!liveResultsOnly && (
-                                            <button
-                                                type="button"
-                                                aria-current={tab === 'referees' ? 'page' : undefined}
-                                                onMouseEnter={() => primeAdminContentChunk('referees')}
-                                                onFocus={() => primeAdminContentChunk('referees')}
-                                                onClick={() => { void openLiveTab('referees'); }}
-                                                className={tabBtnClass(tab === 'referees')}
-                                            >
-                                                <ShieldCheck className="w-4 h-4" /> {t('referees')}
+                                <ol className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-3 md:grid md:grid-cols-5">
+                                    {liveSteps.map((step, index) => (
+                                        <li key={step.tab} className="min-w-0">
+                                            <button type="button" aria-current={tab === step.tab ? 'step' : undefined}
+                                                disabled={step.tab === 'referees' && liveResultsOnly}
+                                                onMouseEnter={() => primeAdminContentChunk(step.tab)}
+                                                onFocus={() => primeAdminContentChunk(step.tab)}
+                                                onClick={() => { void openLiveTab(step.tab); }}
+                                                className={`inline-flex min-h-[44px] w-full items-center gap-1.5 rounded-lg border px-2 py-2 text-start text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 disabled:opacity-50 sm:gap-2 sm:px-3 sm:text-sm ${tab === step.tab ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-800 hover:bg-blue-50'}`}>
+                                                <span className="shrink-0 rounded-full bg-current/10 px-1.5 tabular-nums" aria-hidden="true">{index + 1}</span>
+                                                {t(step.label)}
                                             </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            aria-current={tab === 'codes' ? 'page' : undefined}
-                                            onMouseEnter={() => primeAdminContentChunk('codes')}
-                                            onFocus={() => primeAdminContentChunk('codes')}
-                                            onClick={() => { void openLiveTab('codes'); }}
-                                            className={tabBtnClass(tab === 'codes')}
-                                        >
-                                            <ListChecks className="w-4 h-4" /> {t('code_list')}
-                                        </button>
-                                        {(showGroupsMonitor && showBracketMonitor) ? (
-                                            <button
-                                                type="button"
-                                                ref={monitorMenuButtonRef}
-                                                aria-expanded={monitorMenuOpen}
-                                                onClick={() => setMonitorMenuOpen(v => !v)}
-                                                className={tabBtnClass(tab === 'monitor_groups' || tab === 'monitor_bracket')}
-                                            >
-                                                <LayoutDashboard className="w-4 h-4" /> {t('admin_monitor_label')}
-                                                <ChevronDown className={`w-4 h-4 opacity-80 transition-transform ${monitorMenuOpen ? 'rotate-180' : ''}`} />
-                                            </button>
-                                        ) : null}
-                                        {showGroupsMonitor && !showBracketMonitor ? (
-                                            <button
-                                                type="button"
-                                                aria-current={tab === 'monitor_groups' ? 'page' : undefined}
-                                                onMouseEnter={() => primeAdminContentChunk('monitor_groups')}
-                                                onFocus={() => primeAdminContentChunk('monitor_groups')}
-                                                onClick={() => { void openLiveTab('monitor_groups'); }}
-                                                className={tabBtnClass(tab === 'monitor_groups')}
-                                            >
-                                                <LayoutDashboard className="w-4 h-4" /> {t('monitor_groups')}
-                                            </button>
-                                        ) : null}
-                                        {!showGroupsMonitor && showBracketMonitor ? (
-                                            <button
-                                                type="button"
-                                                aria-current={tab === 'monitor_bracket' ? 'page' : undefined}
-                                                onMouseEnter={() => primeAdminContentChunk('monitor_bracket')}
-                                                onFocus={() => primeAdminContentChunk('monitor_bracket')}
-                                                onClick={() => { void openLiveTab('monitor_bracket'); }}
-                                                className={tabBtnClass(tab === 'monitor_bracket')}
-                                            >
-                                                <Brackets className="w-4 h-4" /> {t('monitor_bracket')}
-                                            </button>
-                                        ) : null}
-                                    </div>
-
-                                    {(showGroupsMonitor && showBracketMonitor && monitorMenuOpen) ? (
-                                        <div
-                                            className="fixed min-w-[240px] max-w-[92vw] bg-white border border-slate-200 shadow-xl rounded-2xl p-2 z-[60]"
-                                            style={{ left: `${monitorMenuPosition.left}px`, top: `${monitorMenuPosition.top}px` }}
-                                        >
-                                            <div className="grid gap-2">
-                                                <button
-                                                    type="button"
-                                                    onMouseEnter={() => primeAdminContentChunk('monitor_groups')}
-                                                    onFocus={() => primeAdminContentChunk('monitor_groups')}
-                                                    onClick={() => {
-                                                        void openLiveTab('monitor_groups');
-                                                        setMonitorMenuOpen(false);
-                                                    }}
-                                                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-black inline-flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2 ${tab === 'monitor_groups' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
-                                                >
-                                                    <LayoutDashboard className="w-4 h-4" /> {t('monitor_groups')}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onMouseEnter={() => primeAdminContentChunk('monitor_bracket')}
-                                                    onFocus={() => primeAdminContentChunk('monitor_bracket')}
-                                                    onClick={() => {
-                                                        void openLiveTab('monitor_bracket');
-                                                        setMonitorMenuOpen(false);
-                                                    }}
-                                                    className={`w-full text-left px-3.5 py-2.5 rounded-xl font-black inline-flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2 ${tab === 'monitor_bracket' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
-                                                >
-                                                    <Brackets className="w-4 h-4" /> {t('monitor_bracket')}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
+                                        </li>
+                                    ))}
+                                </ol>
                             </div>
                         </nav>
                                         ) : adminSection === 'data' ? (
@@ -4899,6 +4791,7 @@ while (guard < 5000) {
                     setP2IsReferee={setP2IsReferee}
                     saveTeam={saveTeam}
                     resetForm={resetForm}
+                    resetGroupSuggestion={() => setNumGroupsTouched(false)}
                     poolN={poolN}
                     setPoolN={setPoolN}
                     genPool={genPool}
@@ -4939,7 +4832,11 @@ while (guard < 5000) {
                     resultsOnly={resultsOnly}
                     setResultsOnly={setResultsOnly}
                     numGroups={numGroups}
-                    setNumGroups={setNumGroups}
+                    setNumGroups={value => {
+                        setNumGroupsTouched(true);
+                        setNumGroups(value);
+                        setDraft(null);
+                    }}
                     advancing={advancing}
                     setAdvancing={setAdvancing}
                     handleGenerate={handleGenerate}
@@ -4948,19 +4845,21 @@ while (guard < 5000) {
                 />
             )}
 
-            {tab === 'reports' && (
+            {tab === 'matches' && (
+                <LiveMatchesToolbar view={currentMatchesView} showGroups={showGroupsMonitor} showBracket={showBracketMonitor}
+                    query={matchesQuery} status={codesStatusFilter} setQuery={setMatchesQuery} setStatus={setCodesStatusFilter}
+                    selectView={next => { void openLiveTab('matches', next); }} printCodes={printCodes} t={t} />
+            )}
+
+            {resumeReportView && (
                 <ReportsTabLazy
                     state={state}
                     reportMatchId={reportMatchId}
                     handlePickReportMatch={handlePickReportMatch}
                     getTeamFromCatalog={getTeamFromCatalog}
                     getTeamName={getTeamName}
-                    reportStatus={reportStatus}
-                    setReportStatus={setReportStatus}
-                    reportScoreA={reportScoreA}
-                    setReportScoreA={setReportScoreA}
-                    reportScoreB={reportScoreB}
-                    setReportScoreB={setReportScoreB}
+                    reportSaveNotice={reportSaveFeedback.notice}
+                    reportOcrScoreLabel={reportOcrScoreLabel}
                     resultsOnly={liveResultsOnly}
                     reportWinnerTeamId={reportWinnerTeamId}
                     setReportWinnerTeamId={setReportWinnerTeamId}
@@ -4993,10 +4892,11 @@ while (guard < 5000) {
             )}
 
 
-            {tab === 'codes' && (
+            {tab === 'matches' && currentMatchesView === 'codes' && (
                 <CodesTabLazy
                     state={state}
                     codesStatusFilter={codesStatusFilter}
+                    sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery}
                     setCodesStatusFilter={setCodesStatusFilter}
                     printCodes={printCodes}
                     toggleMatchStatus={toggleMatchStatus}
@@ -5009,8 +4909,9 @@ while (guard < 5000) {
 
             
 
-            {tab === 'monitor_groups' && (
+            {tab === 'matches' && currentMatchesView === 'monitor_groups' && (
                 <MonitorGroupsTabLazy
+                    sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery} statusFilter={codesStatusFilter}
                     state={state}
                     getTeamName={getTeamName}
                     toggleMatchStatus={toggleMatchStatus}
@@ -5020,7 +4921,41 @@ while (guard < 5000) {
                 />
             )}
 
-            {tab === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} />}
+            {tab === 'closing' && (
+                <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+                    <h2 className="text-xl font-black text-slate-950">{t('admin_closing_title')}{state.tournament && !archiveReceipt && <> · {state.tournament.name}</>}</h2>
+                    {state.tournament && !archiveReceipt && (
+                        <LiveClosingSummary tournament={state.tournament} matches={state.tournamentMatches} onOpenReport={openReportFromCodes}
+                            onOpenMatches={code => {
+                                setMatchesQuery(code);
+                                setCodesStatusFilter('all');
+                                void openLiveTab('matches', 'codes');
+                            }} t={t} />
+                    )}
+                    {state.tournament || archiveReceipt ? (
+                        <MvpModal inline forArchive allPlayers={allPlayers} search={mvpSearch} setSearch={setMvpSearch}
+                            selectedIds={mvpSelectedIds} setSelectedIds={setMvpSelectedIds} searchPlaceholder={t('search')}
+                            t={t} onSave={requestTournamentArchive} saveLabel={t('complete_tournament')}
+                            assignU25Awards={archiveIncludeU25Awards} setAssignU25Awards={setArchiveIncludeU25Awards}
+                            archive={{
+                                awards: archiveReceipt?.awards || archiveAwardPreview, pendingFinalMatches,
+                                committed: !!archiveReceipt, busy: archiveBusy, done: archiveDone, error: archiveError,
+                                email: archiveDone ? archiveReceipt?.email : null,
+                            }} />
+                    ) : <p className="text-sm font-bold text-slate-700">{t('alert_no_live_active')}</p>}
+                    <ArchiveConfirmDialog
+                        open={archiveConfirmOpen && !!state.tournament && !archiveReceipt}
+                        tournamentName={state.tournament?.name || ''}
+                        champion={archiveAwardPreview.find(award => award.type === 'winner')?.teamName}
+                        mvpNames={allPlayers.filter(player => mvpSelectedIds.includes(player.id)).map(player => player.name)}
+                        unplayed={getUnplayedMatches(state.tournamentMatches || [])}
+                        onConfirm={() => { setArchiveConfirmOpen(false); void submitTournamentArchive(); }}
+                        onClose={closeArchiveConfirm}
+                        t={t}
+                    />
+                </div>
+            )}
+            {tab === 'matches' && currentMatchesView === 'monitor_bracket' && <MonitorBracketTabLazy {...monitorBracketTabProps} sharedQuery={matchesQuery} onSharedQueryChange={setMatchesQuery} statusFilter={codesStatusFilter} />}
             </React.Suspense>
 {adminLeaseInfo.status !== 'off' && adminLeaseInfo.status !== 'active' && (
     <div className="fixed inset-0 z-[300] flex items-start justify-center bg-slate-900/40 p-4">
@@ -5034,9 +4969,7 @@ while (guard < 5000) {
                     busy={leaseReclaimBusy}
                     onReclaim={async () => {
                         const missing = adminLeaseInfo.recovery?.missingOperations || 0;
-                        if (!window.confirm(`Riprendere il controllo dal sito?
-
-Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online andranno perse. Se il PC si può accendere, chiudi invece la modalità locale da lì.`)) return;
+                        if (!window.confirm(t('report_dialog_local_reclaim').replace('{count}', String(missing)))) return;
                         setLeaseReclaimBusy(true);
                         try { await reclaimCloudAcceptingMissingOperations(); } catch { /* il riquadro mostra l'esito al prossimo controllo */ }
                         if (isSupabaseAdminSessionExpired() || readAdminLeaseInfo().status === 'session-expired') {
@@ -5097,63 +5030,11 @@ Le ultime ${missing} modifiche salvate sul PC del torneo e non ancora online and
     />
 )}
 
-{archiveReceipt && archiveError && !mvpModalOpen && (
+{archiveReceipt && archiveError && tab !== 'closing' && (
     <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4">
         <p>{t('data_db_sync_error_title')}</p>
-        <button type="button" className="font-bold underline" onClick={() => { setMvpModalForArchive(true); setMvpModalOpen(true); }}>
-            {t('archive_retry')}
-        </button>
+        <button type="button" className="font-bold underline" onClick={() => { void openLiveTab('closing'); }}>{t('archive_retry')}</button>
     </div>
-)}
-
-{mvpModalOpen && (
-    <MvpModal
-        forArchive={mvpModalForArchive}
-        allPlayers={allPlayers}
-        search={mvpSearch}
-        setSearch={setMvpSearch}
-        selectedIds={mvpSelectedIds}
-        setSelectedIds={setMvpSelectedIds}
-        searchPlaceholder={t('search')}
-        t={t}
-        onClose={() => {
-            if (archiveBusy) return;
-            setMvpModalOpen(false);
-            if (archiveDone || !archiveReceipt) {
-                setArchiveReceipt(null);
-                setArchiveDone(false);
-                setArchiveError('');
-            }
-        }}
-        onArchiveWithoutMvp={() => void submitTournamentArchive(false)}
-        onSave={async () => {
-            if (mvpModalForArchive) {
-                await submitTournamentArchive(true);
-                return;
-            }
-            if (!state.tournament) return;
-            const next = applyMvpsToState(state, mvpSelectedIds);
-            try {
-                const confirmed = await commitAdminStateDurably(next, 'set-mvp');
-                setState(confirmed);
-                setMvpModalOpen(false);
-                alert(t('alert_mvp_set'));
-            } catch (error) {
-                alert(error instanceof Error ? error.message : String(error));
-            }
-        }}
-        saveLabel={mvpModalForArchive ? t('save_mvp_and_archive') : t('admin_set')}
-        assignU25Awards={archiveIncludeU25Awards}
-        setAssignU25Awards={mvpModalForArchive ? setArchiveIncludeU25Awards : undefined}
-        archive={mvpModalForArchive ? {
-            awards: archiveReceipt?.awards || archiveAwardPreview,
-            committed: !!archiveReceipt,
-            busy: archiveBusy,
-            done: archiveDone,
-            error: archiveError,
-            email: archiveDone ? archiveReceipt?.email : null,
-        } : undefined}
-    />
 )}
 
         </div>

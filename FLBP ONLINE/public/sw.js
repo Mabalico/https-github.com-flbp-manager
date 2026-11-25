@@ -17,6 +17,7 @@
 const SW_VERSION = 'step85';
 const ASSET_CACHE = `flbp-assets-${SW_VERSION}`;
 const DOC_CACHE = `flbp-docs-${SW_VERSION}`;
+const NAVIGATION_NETWORK_TIMEOUT_MS = 3000;
 
 // Vite BASE_URL deployments may live under a sub-path.
 // Compute a base pathname from the SW scope to match assets correctly.
@@ -103,8 +104,14 @@ async function staleWhileRevalidate(request, cacheName) {
 
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
+  const fallback = await cache.match(request)
+    || (isNavigationRequest(request) ? await cache.match(`${BASE_PATH || ''}/index.html`) : undefined);
+  const controller = new AbortController();
+  // A slow network is given up only when there is a page to show instead:
+  // without one the visitor is online and must keep waiting for it.
+  const timeout = fallback ? setTimeout(() => controller.abort(), NAVIGATION_NETWORK_TIMEOUT_MS) : undefined;
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { signal: controller.signal });
     if (response && response.ok) {
       cache.put(request, response.clone());
 
@@ -116,13 +123,10 @@ async function networkFirst(request, cacheName) {
     }
     return response;
   } catch {
-    const cached = await cache.match(request);
-    if (cached) return cached;
+    if (fallback) return fallback;
 
     // Minimal offline fallback for navigations.
     if (isNavigationRequest(request)) {
-      const cachedIndex = await cache.match(`${BASE_PATH || ''}/index.html`);
-      if (cachedIndex) return cachedIndex;
       return new Response(
         '<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Offline</title></head><body style="font-family: sans-serif; padding: 16px;">\n<h1>Offline</h1><p>Connessione assente. Riprova quando sei online.</p></body></html>',
         { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
@@ -130,6 +134,8 @@ async function networkFirst(request, cacheName) {
     }
 
     throw new Error('Network and cache both failed');
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

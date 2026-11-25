@@ -30,9 +30,10 @@ const server = await createServer({
           .replace('}, [accountId, sessionMode]);', '}, [session]);');
       }
       if (regression === '--prove-edition-regression' && file.endsWith('/admin/tabs/DataTab.tsx')) {
-        assert(source.includes('void requestDraftNavigation(() => setMainSection(section));'));
+        const guard = /void requestDraftNavigation\(\(\) => \{(\s+setMainSection\(section\);[\s\S]*?)\n        \}\);/g;
+        assert.equal([...source.matchAll(guard)].length, 1, 'exactly one guarded Data section transition');
         mutationApplied = true;
-        return source.replace('void requestDraftNavigation(() => setMainSection(section));', 'setMainSection(section);');
+        return source.replace(guard, 'void (() => {$1\n        })();');
       }
     },
   }] : [],
@@ -163,7 +164,7 @@ try {
   }
   const openEdition = async () => {
     await goto('mode=editions');
-    await page.getByRole('button', { name: 'Apri scheda', exact: true }).click();
+    await page.getByRole('button', { name: /Edizione demo/ }).click();
     await page.getByLabel('Nome edizione', { exact: true }).fill('Bozza incompleta');
   };
   await openEdition();
@@ -220,7 +221,7 @@ try {
     await page.evaluate(() => window.draftFixture.pendingCommit(true));
     pass('Edizioni ONLINE: pending durable save prevents exit; failure retains dirty draft');
   }
-  await page.getByRole('button', { name: 'Apri scheda', exact: true }).waitFor();
+  await page.getByRole('button', { name: /Bozza incompleta.*Titoli/ }).waitFor();
   await page.getByRole('button', { name: /Account/ }).click();
   await page.getByText('Destination accounts', { exact: true }).waitFor();
   assert.equal(await page.getByRole('dialog').count(), 0);

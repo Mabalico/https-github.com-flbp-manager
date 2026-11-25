@@ -4,10 +4,10 @@ import React, { useId, useMemo, useState } from 'react';
 import { Team, Match, HallOfFameEntry, PlayerStats, IntegrationScorerEntry } from '../types';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
-import { Trophy, Medal, Search, Baby, ChevronDown, ChevronUp, ArrowDown, ArrowUpDown, Wind } from 'lucide-react';
+import { Trophy, Medal, Search, Baby, ChevronDown, ChevronUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { isU25, getPlayerKey, resolvePlayerKey } from '../services/storageService';
 import { deriveYoBFromBirthDate, pickPlayerIdentityValue } from '../services/playerIdentity';
-import { PlasticCupIcon } from './icons/PlasticCupIcon';
+import { PlayerTitleBadge } from './PlayerTitleBadge';
 import { isEmbeddedNativeShell } from '../services/nativeShell';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { hasCountedPlayerStats } from '../services/matchUtils';
@@ -239,59 +239,11 @@ export const TournamentLeaderboard: React.FC<TournamentLeaderboardProps> = ({
 
         const hasTitle = (type: string) => playerAwards.some((award) => award.type === type);
 
-        if (hasTitle('mvp')) {
-            icons.push(
-                <span key="mvp" title={t('tournament_mvp')} className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                    ★
-                </span>
-            );
-        }
-        if (hasTitle('top_scorer')) {
-            icons.push(
-                <span
-                    key="top_scorer"
-                    title={t('top_scorer_single')}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-yellow-100 text-slate-700"
-                >
-                    <PlasticCupIcon className="w-3.5 h-3.5" />
-                </span>
-            );
-        }
-        if (hasTitle('defender')) {
-            icons.push(
-                <span
-                    key="defender"
-                    title={t('defender_single')}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-sky-100 text-sky-700"
-                >
-                    <Wind className="w-3.5 h-3.5" />
-                </span>
-            );
-        }
-        if (hasTitle('top_scorer_u25') && !hasTitle('top_scorer')) {
-            icons.push(
-                <span
-                    key="top_scorer_u25"
-                    title={t('tournament_top_scorer_u25')}
-                    className="inline-flex items-center gap-1 rounded-full bg-yellow-50 px-2 py-0.5 text-[10px] font-black text-slate-600"
-                >
-                    <PlasticCupIcon className="w-3 h-3" />
-                    U25
-                </span>
-            );
-        }
-        if (hasTitle('defender_u25') && !hasTitle('defender')) {
-            icons.push(
-                <span
-                    key="defender_u25"
-                    title={t('tournament_defender_u25')}
-                    className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-black text-slate-600"
-                >
-                    <Wind className="w-3 h-3" />
-                    U25
-                </span>
-            );
-        }
+        if (hasTitle('mvp')) icons.push(<PlayerTitleBadge key="mvp" type="mvp" />);
+        if (hasTitle('top_scorer')) icons.push(<PlayerTitleBadge key="top_scorer" type="top_scorer" />);
+        if (hasTitle('defender')) icons.push(<PlayerTitleBadge key="defender" type="defender" />);
+        if (hasTitle('top_scorer_u25') && !hasTitle('top_scorer')) icons.push(<PlayerTitleBadge key="top_scorer_u25" type="top_scorer_u25" />);
+        if (hasTitle('defender_u25') && !hasTitle('defender')) icons.push(<PlayerTitleBadge key="defender_u25" type="defender_u25" />);
         if ((player.u25 ?? isU25(player.birthDate, tournamentDate || ''))) {
             icons.push(
                 <span

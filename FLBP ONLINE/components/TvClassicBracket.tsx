@@ -5,6 +5,7 @@ import type { Match, Team, TournamentData } from '../types';
 import { isByeTeamId, isTbdTeamId } from '../services/matchUtils';
 import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 import { useTranslation } from '../App';
+import { localizeBracketRound } from '../services/i18nService';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
 
 type LayoutProfile = {
@@ -50,9 +51,18 @@ type LayoutData = {
   placements: Record<string, Placement>;
 };
 
-type DenseBracketPanel = 'sideA' | 'finals' | 'sideB';
+const MAX_DENSE_FIRST_ROUND_MATCHES = 8;
+const DENSE_ROUNDS_PER_PAGE = 4;
+export const getTvBracketPageCount = (bracketSize: number) => bracketSize >= 64
+  ? Math.ceil(bracketSize / (2 * MAX_DENSE_FIRST_ROUND_MATCHES)) + 1
+  : 1;
 
-const DENSE_BRACKET_PANELS: DenseBracketPanel[] = ['sideA', 'sideB', 'finals'];
+export const getTvBracketPageLabel = (index: number, pageCount: number, t: (key: string) => string) => {
+  if (index === pageCount - 1) return t('tv_final_rounds');
+  const pagesPerSide = (pageCount - 1) / 2;
+  const side = index < pagesPerSide ? 'A' : 'B';
+  return t('tv_bracket_side').replace('{side}', side) + ' · ' + (index % pagesPerSide + 1) + '/' + pagesPerSide;
+};
 const DENSE_BRACKET_PANEL_MS = 19000;
 
 const getDevicePixelRatioSafe = () => {
@@ -272,7 +282,7 @@ const buildLayoutData = ({
   const finalMatch = effectiveRounds[totalRounds - 1]?.[0];
   if (finalMatch) {
     placements[finalMatch.uid] = { x: finalX, y: finalCenterY - profile.matchHeight / 2, centerY: finalCenterY, side: 'center' };
-    labels.push({ key: `${labelPrefix}-final`, x: finalX + profile.matchWidth / 2, y: profile.labelY, text: finalLabel, side: 'center', roundIndex: finalMatch.roundIndex });
+    labels.push({ key: `${labelPrefix}-final`, x: finalX + profile.matchWidth / 2, y: Math.min(profile.labelY, finalCenterY - profile.matchHeight / 2 - 32), text: finalLabel, side: 'center', roundIndex: finalMatch.roundIndex });
   }
 
   const scale = quantizeScaleForTv(Math.min(1, availableWidth / stageWidth, availableHeight / stageHeight));
@@ -352,6 +362,7 @@ const isPlaceholderTeamName = (name: string) => {
 
 const TeamLine: React.FC<{
   name: string;
+  placeholderLabel: string;
   score: string | number;
   placementSide: Placement['side'];
   profile: LayoutProfile;
@@ -360,11 +371,11 @@ const TeamLine: React.FC<{
   championLabel?: string;
   pendingAriaLabel: string;
   scoreAriaLabel: string;
-}> = ({ name, score, placementSide, profile, compact, winner = false, championLabel, pendingAriaLabel, scoreAriaLabel }) => {
+}> = ({ name, placeholderLabel, score, placementSide, profile, compact, winner = false, championLabel, pendingAriaLabel, scoreAriaLabel }) => {
   const textFontSize = getTeamTextFontSize(name, profile.fontSize, compact);
   const scoreClass = scoreTextClass(profile, compact);
   const isPlaceholder = isPlaceholderTeamName(name);
-  const displayName = isPlaceholder ? name : String(name || '').trim().toUpperCase();
+  const displayName = isPlaceholder ? placeholderLabel : String(name || '').trim().toUpperCase();
   const isPendingScore = score === '-';
   const scoreNode = score === '' ? null : (
     <span
@@ -385,7 +396,8 @@ const TeamLine: React.FC<{
         wordBreak: isPlaceholder ? 'keep-all' : 'break-word',
         overflowWrap: 'anywhere',
       }}
-      title={name}
+      title={displayName}
+      dir="auto"
     >
       {displayName}
     </span>
@@ -536,26 +548,6 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     return winnerB ? 'W' : winnerA ? 'L' : '';
   }, [resultsOnlyBracket]);
 
-  const localizeRoundLabel = React.useCallback((text: string, compactMode = false) => {
-    const normalized = String(text || '').trim().toUpperCase();
-    if (!normalized) return compactMode ? 'R' : t('round_word');
-
-    if (normalized === 'FINALE' || normalized === 'FINAL') return t('finale');
-    const semifinalSide = normalized.match(/^SEMIFINALE ([AB])$/);
-    if (semifinalSide) return t('semi') + ' ' + semifinalSide[1];
-    if (normalized === 'SEMIFINALE' || normalized === 'SEMIFINALI' || normalized === 'SEMIFINAL' || normalized === 'SEMIFINALS') return t('semi');
-    if (normalized === 'QUARTI DI FINALE' || normalized === 'QUARTERFINAL' || normalized === 'QUARTERFINALS') return t('quarti');
-    if (normalized === 'OTTAVI DI FINALE' || normalized === 'ROUND OF 16') return t('ottavi');
-    if (normalized === 'SEDICESIMI DI FINALE' || normalized === 'ROUND OF 32') return '16simi';
-    if (normalized === 'TRENTADUESIMI DI FINALE' || normalized === 'ROUND OF 64') return '32simi';
-    if (normalized === 'SESSANTAQUATTRESIMI DI FINALE' || normalized === 'ROUND OF 128') return '64simi';
-    if (normalized === 'CENTOVENTOTTESIMI DI FINALE' || normalized === 'ROUND OF 256') return '128simi';
-
-    const roundMatch = normalized.match(/^(?:TURNO|ROUND)\s+(\d+)$/);
-    if (roundMatch) return compactMode ? `R${roundMatch[1]}` : `${t('round_word')} ${roundMatch[1]}`;
-
-    return normalized;
-  }, [t]);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
 
@@ -691,6 +683,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
   }, [resolvedRounds]);
 
   const isDensePagedBracket = minimalChrome && classicLayoutSupported && bracketSize >= 64;
+  const densePageCount = getTvBracketPageCount(bracketSize);
   const [localDensePanelIndex, setLocalDensePanelIndex] = React.useState(0);
   const densePanelIndex = propDensePanelIndex !== undefined ? propDensePanelIndex : localDensePanelIndex;
 
@@ -701,48 +694,38 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     }
     if (propDensePanelIndex !== undefined) return; // parent is controlling it
     const timer = window.setInterval(() => {
-      setLocalDensePanelIndex((prev) => (prev + 1) % DENSE_BRACKET_PANELS.length);
+      setLocalDensePanelIndex((prev) => (prev + 1) % densePageCount);
     }, DENSE_BRACKET_PANEL_MS);
     return () => window.clearInterval(timer);
-  }, [isDensePagedBracket, propDensePanelIndex]);
+  }, [densePageCount, isDensePagedBracket, propDensePanelIndex]);
 
-  const densePanel = DENSE_BRACKET_PANELS[densePanelIndex % DENSE_BRACKET_PANELS.length];
-  const finalsStartRound = Math.max(0, resolvedRounds.length - 4);
-
+  const densePage = densePanelIndex % densePageCount;
+  const isFinalsPage = densePage === densePageCount - 1;
   const densePanelRounds = React.useMemo<ResolvedStageMatch[][] | null>(() => {
     if (!isDensePagedBracket) return null;
-    if (densePanel === 'finals') {
-      return resolvedRounds.slice(finalsStartRound);
-    }
+    if (isFinalsPage) return resolvedRounds.slice(DENSE_ROUNDS_PER_PAGE - 1);
 
-    const branchSide = densePanel === 'sideA' ? 'left' : 'right';
-    return resolvedRounds
-      .slice(0, -1)
-      .map((round) => {
-        const mid = Math.floor(round.length / 2);
-        return branchSide === 'left' ? round.slice(0, mid) : round.slice(mid);
-      })
-      .filter((round) => round.length > 0);
-  }, [densePanel, finalsStartRound, isDensePagedBracket, resolvedRounds]);
+    const start = densePage * MAX_DENSE_FIRST_ROUND_MATCHES;
+    return resolvedRounds.slice(0, DENSE_ROUNDS_PER_PAGE).map((round, index) => {
+        const span = 2 ** index;
+        return round.slice(start / span, (start + MAX_DENSE_FIRST_ROUND_MATCHES) / span);
+    });
+  }, [densePage, isDensePagedBracket, isFinalsPage, resolvedRounds]);
 
   const densePanelLayout = React.useMemo<LayoutData | null>(() => {
     if (!isDensePagedBracket || !densePanelRounds?.length) return null;
     const firstRoundMatches = densePanelRounds[0]?.length || 1;
     const panelBracketSize = Math.max(2, firstRoundMatches * 2);
-    const finalLabel = densePanel === 'sideA'
-      ? 'SEMIFINALE A'
-      : densePanel === 'sideB'
-        ? 'SEMIFINALE B'
-        : 'FINALE';
+    const finalLabel = isFinalsPage ? 'FINALE' : roundLabelFromMatch(densePanelRounds.at(-1)?.[0]?.raw, 'Turno 4');
 
     return buildLayoutData({
       rounds: densePanelRounds,
       profile: getProfile(panelBracketSize, compact),
       viewportSize,
       finalLabel,
-      labelPrefix: `dense-${densePanel}`,
+      labelPrefix: `dense-${densePage}`,
     });
-  }, [compact, densePanel, densePanelRounds, isDensePagedBracket, viewportSize.height, viewportSize.width]);
+  }, [compact, densePage, densePanelRounds, isDensePagedBracket, isFinalsPage, viewportSize.height, viewportSize.width]);
 
   const displayLayout = densePanelLayout || layout;
 
@@ -785,14 +768,12 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
     return getStageRenderStyle(displayLayout);
   }, [displayLayout]);
 
-  const densePanelTitle = densePanel === 'finals'
-    ? t('tv_final_rounds')
-    : t('tv_bracket_side').replace('{side}', densePanel === 'sideA' ? 'A' : 'B');
+  const densePanelTitle = getTvBracketPageLabel(densePage, densePageCount, t);
 
-  if (!resolvedRounds.length) {
+  if (!resolvedRounds.length || (!visibleMatches.length && data?.config?.finalRoundRobin?.activated)) {
     return (
       <div className="h-full w-full flex items-center justify-center text-slate-400 font-black uppercase tracking-[0.24em] text-sm">
-        {t('no_bracket_available')}
+        {t(data?.config?.finalRoundRobin?.activated ? 'final_group_activated' : 'no_bracket_available')}
       </div>
     );
   }
@@ -918,16 +899,17 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               </svg>
 
               {renderedLabels.map((label) => {
-                const displayText = localizeRoundLabel(label.text, compact);
+                const displayText = localizeBracketRound(label.text, t);
                 const labelStyle = getLabelStyle(displayText, displayLayout.profile.labelSize, compact, label.side, displayLayout.profile);
                 const labelClassName = getLabelClassName(label.side, compact, displayLayout.profile);
 
                 return (
                   <div
                     key={label.key}
-                    className={`absolute -translate-x-1/2 rounded-full border py-1 text-center font-black tracking-[0.18em] ${labelClassName}`}
+                    className={`absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-full border py-1 text-center font-black tracking-wide ${labelClassName}`}
                     style={{ left: `${label.x}px`, top: `${label.y}px`, ...labelStyle }}
-                    title={label.text}
+                    dir="auto"
+                    title={displayText}
                   >
                     {displayText}
                   </div>
@@ -941,7 +923,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                 const panelFinalMatchUid = isDensePagedBracket && densePanelRounds?.length
                   ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
                   : null;
-                const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
+                const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && !isFinalsPage && match.uid === panelFinalMatchUid);
                 const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
 
                 const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
@@ -973,6 +955,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.top}
+                        placeholderLabel={t('tbd_label')}
                         score={getTeamOutcomeLabel(match.raw, 'A')}
                         placementSide={placement.side}
                         profile={displayLayout.profile}
@@ -987,6 +970,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                     <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                       <TeamLine
                         name={match.bottom}
+                        placeholderLabel={t('tbd_label')}
                         score={getTeamOutcomeLabel(match.raw, 'B')}
                         placementSide={placement.side}
                         profile={displayLayout.profile}
@@ -1009,10 +993,10 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               <div className="text-[12px] font-black uppercase tracking-[0.2em] text-cyan-100">{densePanelTitle}</div>
             </div>
             <div className="flex items-center gap-1.5">
-              {DENSE_BRACKET_PANELS.map((panel, index) => (
+              {Array.from({ length: densePageCount }, (_, index) => (
                 <span
-                  key={panel}
-                  className={`h-2 rounded-full transition-all ${index === densePanelIndex % DENSE_BRACKET_PANELS.length ? 'w-7 bg-cyan-300' : 'w-2 bg-white/28'}`}
+                  key={index}
+                  className={`h-2 rounded-full transition-all ${index === densePage ? 'w-7 bg-cyan-300' : 'w-2 bg-white/28'}`}
                 />
               ))}
             </div>
@@ -1079,7 +1063,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
         <div className="absolute bottom-4 right-4 z-10 flex flex-wrap justify-end gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-200">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-cyan-300" /> {t('bracket_word')}</div>
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-amber-300" /> {t('finale')}</div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-slate-400" /> TBD</div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/55 px-3 py-2 backdrop-blur-md"><span className="h-2 w-2 rounded-full bg-slate-400" /> {t('tbd_label')}</div>
         </div>
       )}
 
@@ -1094,16 +1078,17 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
             </svg>
 
             {renderedLabels.map((label) => {
-              const displayText = localizeRoundLabel(label.text, compact);
+              const displayText = localizeBracketRound(label.text, t);
               const labelStyle = getLabelStyle(displayText, displayLayout.profile.labelSize, compact, label.side, displayLayout.profile);
               const labelClassName = getLabelClassName(label.side, compact, displayLayout.profile);
 
               return (
                 <div
                   key={label.key}
-                  className={`absolute -translate-x-1/2 rounded-full border py-1 text-center font-black tracking-[0.18em] ${labelClassName}`}
+                  className={`absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-full border py-1 text-center font-black tracking-wide ${labelClassName}`}
                   style={{ left: `${label.x}px`, top: `${label.y}px`, ...labelStyle }}
-                  title={label.text}
+                  dir="auto"
+                    title={displayText}
                 >
                   {displayText}
                 </div>
@@ -1117,7 +1102,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
               const panelFinalMatchUid = isDensePagedBracket && densePanelRounds?.length
                 ? densePanelRounds[densePanelRounds.length - 1]?.[0]?.uid
                 : null;
-              const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && densePanel !== 'finals' && match.uid === panelFinalMatchUid);
+              const isDenseSidePanelFinal = Boolean(panelFinalMatchUid && !isFinalsPage && match.uid === panelFinalMatchUid);
               const isFinal = match.roundIndex === resolvedRounds.length - 1 || isDenseSidePanelFinal;
 
               const isSemifinal = match.roundIndex === resolvedRounds.length - 2;
@@ -1149,6 +1134,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 border-b border-white/10 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerA, isPlaceholder: topIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.top}
+                        placeholderLabel={t('tbd_label')}
                       score={getTeamOutcomeLabel(match.raw, 'A')}
                       placementSide={placement.side}
                       profile={displayLayout.profile}
@@ -1163,6 +1149,7 @@ export const TvClassicBracket: React.FC<TvClassicBracketProps> = ({ teams, match
                   <div className={`relative z-10 flex h-1/2 items-center gap-2 ${rowPaddingClass} ${placement.side === 'right' ? 'justify-end' : 'justify-between'} ${getMatchRowClass({ isWinner: isWinnerB, isPlaceholder: bottomIsPlaceholder, isFinal, isSemifinal })}`}>
                     <TeamLine
                       name={match.bottom}
+                        placeholderLabel={t('tbd_label')}
                       score={getTeamOutcomeLabel(match.raw, 'B')}
                       placementSide={placement.side}
                       profile={displayLayout.profile}

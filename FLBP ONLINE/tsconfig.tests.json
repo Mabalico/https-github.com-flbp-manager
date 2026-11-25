@@ -15,7 +15,6 @@
     "scripts/**/*.tsx",
     "vite*.ts",
     "_ssr*.tsx",
-    "testlocal.tsx",
     "vite-env.d.ts"
   ],
   "exclude": [

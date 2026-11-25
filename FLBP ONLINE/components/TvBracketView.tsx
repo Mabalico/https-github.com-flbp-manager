@@ -1,11 +1,13 @@
 import React from 'react';
 import { useTranslation } from '../App';
+import { localizeGroupName } from '../services/i18nService';
 import { Team, TournamentData, Match } from '../types';
 import { PublicTvShell } from './PublicTvShell';
 import { TvClassicBracket } from './TvClassicBracket';
 import { TvProjection } from '../types';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
+import { findTvFinalGroup, getTvMatchGroupName } from '../services/groupUtils';
 import { getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
 import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
 
@@ -23,21 +25,7 @@ interface TvBracketViewProps {
 export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, data, logo, onExit, mode }) => {
   const { t } = useTranslation();
 
-  // Detect an eventual "Girone Finale" in a backwards compatible way.
-  // - preferred: group.stage === 'final' (if present in persisted data)
-  // - fallback: group.name contains the word "final"/"finale" (case-insensitive)
-  const isFinalGroup = React.useCallback((g: any) => {
-    const stage = (g as any)?.stage;
-    if (stage === 'final') return true;
-    const name = String(g?.name || '');
-    // Use word boundaries to avoid false positives like "semifinale".
-    return /\bfinale?\b/i.test(name);
-  }, []);
-
-  const finalGroup = React.useMemo(() => {
-    const groups = (data?.groups || []) as any[];
-    return groups.find(isFinalGroup) || null;
-  }, [data?.groups, isFinalGroup]);
+  const finalGroup = React.useMemo(() => findTvFinalGroup(data?.groups || []), [data?.groups]);
 
   const displayedGroups = React.useMemo(() => {
     const groups = data?.groups || [];
@@ -61,18 +49,19 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   const pendingGroupTieBreaks = React.useMemo(() => {
     return (matches || [])
       .filter((m) => m.phase === 'groups' && m.isTieBreak && m.status !== 'finished' && !m.hidden && !m.isBye)
+      .filter((m) => !finalGroup || getTvMatchGroupName(m, finalGroup) !== finalGroup.name?.trim())
       .filter((m) => {
         const ids = getMatchParticipantIds(m);
         return !ids.includes('BYE');
       });
-  }, [matches]);
+  }, [matches, finalGroup]);
 
   const groupMatchesByName = React.useMemo(() => {
     const byGroup = new Map<string, Match[]>();
     for (const m of (matches || [])) {
       if (m.phase !== 'groups') continue;
       if (m.hidden || m.isBye) continue;
-      const k = (m.groupName || '');
+      const k = getTvMatchGroupName(m, finalGroup);
       const arr = byGroup.get(k);
       if (arr) arr.push(m);
       else byGroup.set(k, [m]);
@@ -81,7 +70,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
       arr.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
     }
     return byGroup;
-  }, [matches]);
+  }, [matches, finalGroup]);
 
   const teamNameById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -90,9 +79,9 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   }, [teams]);
 
   const getName = React.useCallback((id?: string) => {
-    if (!id) return 'TBD';
-    return teamNameById.get(id) || 'TBD';
-  }, [teamNameById]);
+    if (!id) return t('tbd_label');
+    return teamNameById.get(id) || t('tbd_label');
+  }, [teamNameById, t]);
 
   const visibleBracketTeamsCount = React.useMemo(() => visibleTeams(teams).length, [teams, visibleTeams]);
   const preferredBracketRounds = React.useMemo(() => getPreferredBracketRounds(data, matches), [data, matches]);
@@ -110,7 +99,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   // In split mode (Gironi + Tabellone), avoid scroll: paginate + auto-rotate like TV gironi.
   // If groups are "too large", show 1 per page; if small, allow 2 per page.
   const maxTeamsInGroup = Math.max(0, ...displayedGroups.map((g: any) => visibleTeams(g.teams || []).length));
-  const maxMatchesInGroup = Math.max(0, ...displayedGroups.map((g: any) => (groupMatchesByName.get(g.name) || []).length));
+  const maxMatchesInGroup = Math.max(0, ...displayedGroups.map(g => (groupMatchesByName.get(g.name?.trim() || '') || []).length));
   const groupsPerPage = !isSplit
     ? Math.max(1, displayedGroups.length)
     : (displayedGroups.length <= 1 ? 1 : (maxTeamsInGroup <= 4 && maxMatchesInGroup <= 6 ? 2 : 1));
@@ -139,7 +128,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
   }, [isSplit, displayedGroups, page, groupsPerPage]);
 
   const renderGroupCard = React.useCallback((g: any) => {
-    const rawMatches = groupMatchesByName.get(g.name) || [];
+    const rawMatches = groupMatchesByName.get(g.name?.trim() || '') || [];
     const groupMatches = rawMatches.filter((m) => !getMatchParticipantIds(m).includes('BYE'));
 
     const standings = computeGroupStandings({ teams: visibleTeams(g.teams || []), matches: groupMatches });
@@ -152,7 +141,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
     return (
       <div key={g.id} className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col min-h-0">
         <div className="bg-slate-900 text-white p-2 font-black uppercase text-center tracking-widest text-xs">
-          {g.name}
+          {localizeGroupName(g.name, t)}
         </div>
 
         <div className="flex-1 min-h-0 p-3 grid grid-cols-1 gap-3">
@@ -246,7 +235,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
 
         <div className="pointer-events-none absolute inset-x-[1.4%] top-[1.25%] z-20 flex items-start justify-between gap-4 text-white">
           <div className="min-w-0 text-[clamp(18px,1.7vw,30px)] font-black uppercase tracking-tight leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
-            {data?.name || t('tournament_name')}
+            {data ? data.name || t('tv_broadcast_title') : t('no_tournament')}
           </div>
           <div className="shrink-0 flex items-center gap-4 text-[clamp(10px,0.82vw,15px)] font-black uppercase tracking-[0.14em] text-slate-100/92 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
             {isSplit && pageCount > 1 && <span>{t('page')} {page + 1}/{pageCount}</span>}
@@ -272,7 +261,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <div className="rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-slate-200">
-                          {t('groups')} {displayedGroups.length}
+                          {t('tv_groups_count').replace('{count}', String(displayedGroups.length))}
                         </div>
                         {pageCount > 1 && (
                           <div className="rounded-full border border-blue-400/25 bg-blue-500/12 px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] text-blue-100">
@@ -294,7 +283,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
                           .map((m) => {
                             const ids = getMatchParticipantIds(m).filter((id) => id !== 'BYE');
                             const prefix = m.isTieBreak ? `${t('tiebreak_label')} • ` : '';
-                            return `${prefix}${ids.map((id) => getName(id)).join(' vs ')}${m.groupName ? ` (${m.groupName})` : ''}`;
+                            return `${prefix}${ids.map((id) => getName(id)).join(' vs ')}${m.groupName ? ` (${localizeGroupName(m.groupName, t)})` : ''}`;
                           })
                           .join(' • ')}
                         {pendingGroupTieBreaks.length > 4 ? ' • …' : ''}

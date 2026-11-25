@@ -393,6 +393,7 @@ export const FantaTeamBuilder: React.FC<Props> = ({ onBack, onOpenRules, onOpenP
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder={t('fanta_search_player')} className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition focus:ring-2 focus:ring-beer-500/20" />
             </div>
+            {registrationOpen && <p className="mt-2 text-xs font-medium leading-5 text-slate-500">{t('fanta_pool_note')}</p>}
 
             {activeTab === 'teams' ? (
               <div className="mt-4 space-y-4">

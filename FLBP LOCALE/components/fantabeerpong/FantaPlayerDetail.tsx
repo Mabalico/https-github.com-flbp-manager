@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, UserRound, Loader2, Trophy } from 'lucide-react';
-import { fetchFantaPlayerContributions, fetchFantaPlayerStandings } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fetchFantaPlayerContributions, fetchFantaPlayerStandings, splitFantaRealPlayerKey } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { useTranslation } from '../../App';
 import { MetricCard, panelClass } from './_shared';
@@ -24,9 +24,11 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       const standings = await fetchFantaPlayerStandings();
 
       const sortedStandings = [...standings].sort((a,b) => (b.total_points || 0) - (a.total_points || 0));
-      const rankIndex = sortedStandings.findIndex(s => s.player_key === playerId);
+      const { playerId: basePlayerId, realTeamId } = splitFantaRealPlayerKey(playerId);
+      const rankIndex = sortedStandings.findIndex(row => row.player_key === playerId
+        || (row.player_key === basePlayerId && row.real_team_id === realTeamId));
       const rank = rankIndex !== -1 ? rankIndex + 1 : '-';
-      const playerStanding = standings.find(s => s.player_key === playerId);
+      const playerStanding = rankIndex < 0 ? null : sortedStandings[rankIndex];
 
       const totalGoals = playerStanding?.points_from_goals || contributions.reduce((acc, c) => acc + (c.canestri || 0), 0);
       const totalBlows = playerStanding?.points_from_blows || contributions.reduce((acc, c) => acc + ((c.soffi || 0) * 2), 0);
@@ -35,7 +37,7 @@ export const FantaPlayerDetail: React.FC<Props> = ({ playerId, onBack, onOpenMyT
       const totalAwards = playerStanding?.points_from_awards || 0;
       const totalPoints = playerStanding?.total_points || 0;
 
-      const label = getPlayerKeyLabel(playerId);
+      const label = getPlayerKeyLabel(basePlayerId);
       
       const inGameLabel = t('fanta_status_live');
       const realTeamName = playerStanding?.real_team_name || contributions.find((c: any) => c.team_name)?.team_name || inGameLabel;

@@ -15,7 +15,6 @@
     "tests",
     "scripts",
     "vite*.ts",
-    "_ssr*.tsx",
-    "testlocal.tsx"
+    "_ssr*.tsx"
   ]
 }

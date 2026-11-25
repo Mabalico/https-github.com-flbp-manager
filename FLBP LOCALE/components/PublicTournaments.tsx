@@ -1,13 +1,15 @@
 import React from 'react';
 import { Match, Team, TournamentData } from '../types';
 import { useTranslation } from '../App';
+import { localizeBracketRound, localizeGroupName } from '../services/i18nService';
 import { formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds, isByeTeamId } from '../services/matchUtils';
-import { Activity, History, ArrowRight, MonitorPlay, Search, X, Users, CalendarDays, LayoutList } from 'lucide-react';
+import { Activity, ChevronRight, SlidersHorizontal, Trophy, ArrowRight, MonitorPlay, Search, X, Users, CalendarDays, LayoutList } from 'lucide-react';
 import { PublicBrandStack } from './PublicBrandStack';
 
 interface PublicTournamentsProps {
   liveTournament: TournamentData | null;
   history: TournamentData[];
+  winnersById: ReadonlyMap<string, string>;
   /** Optional: live bundle (local snapshot) to render "turni" without DB. */
   liveMatches?: Match[];
   liveTeams?: Team[];
@@ -15,7 +17,7 @@ interface PublicTournamentsProps {
   onEnterTv?: () => void;
 }
 
-export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTournament, history, liveMatches, liveTeams, onViewTournament, onEnterTv }) => {
+export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTournament, history, winnersById, liveMatches, liveTeams, onViewTournament, onEnterTv }) => {
   const { t } = useTranslation();
 
   const btnBaseDark = "inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none sm:w-auto sm:px-8 sm:py-4";
@@ -26,6 +28,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
   const badgeLiveDark = `${badgeBase} bg-beer-500 text-slate-900`;
   const badgeTopDark = "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black bg-beer-500/20 border border-beer-500/30 text-beer-200";
 
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
   const [typeFilter, setTypeFilter] = React.useState<string>('all');
@@ -139,6 +142,17 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
     });
   }, [history, query, yearFilter, typeFilter]);
 
+  const historyByYear = React.useMemo(() => {
+    const groups = new Map<string, TournamentData[]>();
+    for (const edition of filteredHistory) {
+      const timestamp = Date.parse(edition.startDate);
+      const year = Number.isFinite(timestamp) ? String(new Date(timestamp).getFullYear()) : '—';
+      if (!groups.has(year)) groups.set(year, []);
+      groups.get(year)!.push(edition);
+    }
+    return groups;
+  }, [filteredHistory]);
+
   const formatTournamentType = (type: TournamentData['type']) => {
     if (type === 'groups_elimination') return t('format_groups_elimination_short');
     if (type === 'round_robin') return t('format_round_robin');
@@ -150,8 +164,8 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
     return Number.isFinite(ts) ? new Date(ts).toLocaleDateString() : '—';
   };
 
-  const isStructurelessManualArchive = (t: TournamentData) =>
-    !!t.isManual && !(t.groups && t.groups.length) && !((t.matches && t.matches.length) || (t.rounds && t.rounds.flat().length));
+  const hasKnownFormat = (edition: TournamentData) =>
+    !edition.isManual || !!(edition.groups?.length || edition.matches?.length || edition.rounds?.some(round => round.length));
 
   const visibleTeamsCount = (t: TournamentData) =>
     (t.teams || []).filter((team) => {
@@ -265,7 +279,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
             <div className="text-sm font-black leading-tight text-white whitespace-normal break-words" title={label}>{label}</div>
             {(m.phase || m.groupName || m.roundName) && (
               <div className="text-[11px] font-bold leading-tight text-white/60 whitespace-normal break-words">
-                {m.groupName ? `${t('group_word')} ${m.groupName}` : (m.roundName || (m.phase === 'bracket' ? t('bracket_word') : ''))}
+                {m.groupName ? localizeGroupName(m.groupName, t) : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.phase === 'bracket' ? t('bracket_word') : ''))}
               </div>
             )}
           </div>
@@ -318,7 +332,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                   { key: 'live', label: t('live_label') },
                   { key: 'next', label: t('next_label') },
                   { key: 'played', label: t('played_label') },
-                  { key: 'tbd', label: 'TBD' },
+                  { key: 'tbd', label: t('tbd_label') },
                 ] as const).map((opt) => {
                   const active = turnsTab === opt.key;
                   const base = 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wide border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
@@ -372,7 +386,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                 : (pinAnyLive ? t('current_turn') : t('next_turn'));
 
               return (
-                <div className="sticky top-0 z-10 -mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
+                <div className="-mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -572,7 +586,7 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
                               onClick={() => onViewTournament(liveTournament, true)}
                               className={btnPrimaryDark}
                             >
-                                {t('follow_live')} <ArrowRight className="w-5 h-5" />
+                                {t('follow_live')} <ArrowRight className="w-5 h-5 rtl:-scale-x-100" />
                             </button>
                             <button
                               type="button"
@@ -602,119 +616,77 @@ export const PublicTournaments: React.FC<PublicTournamentsProps> = ({ liveTourna
             </div>
         )}
 
-        {/* History Section */}
-        <div>
-            <div className="bg-white rounded-[24px] border border-slate-200 p-4 md:p-6 mb-4 shadow-sm">
-                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-                    <div>
-                        <h3 className="text-xl font-black uppercase tracking-tight text-slate-800 flex items-center gap-2 leading-none">
-                            <History className="w-5 h-5 text-slate-400" /> {t('archived_tournaments')}
-                        </h3>
-                        <div className="text-sm text-slate-500 mt-1">
-                            {t('tournaments_count_summary').replace('{shown}', String(filteredHistory.length)).replace('{total}', String(history.length))}
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
-                            {t('quick_search')}
-                          </span>
-                          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
-                            {t('year_format_filters')}
-                          </span>
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3" role="toolbar" aria-label={t('archive_filters')}>
-                        <div className="relative">
-                            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden />
-                            <input
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                placeholder={t('search_tournament_year')}
-                                aria-label={t('search_tournament_year')}
-                                className="w-full sm:w-64 bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-9 py-2.5 text-sm font-medium text-slate-800 placeholder:text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                            />
-                            {query.trim().length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setQuery('')}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                                aria-label={t('clear_search')}
-                              >
-                                <X className="w-4 h-4" aria-hidden />
-                              </button>
-                            )}
-                        </div>
-
-                        <select
-                            value={yearFilter}
-                            onChange={(e) => setYearFilter(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                            aria-label={t('filter_by_year')}
-                        >
-                            <option value="all">{t('all_years')}</option>
-                            {years.map((y) => (
-                              <option key={y} value={y}>{y}</option>
-                            ))}
-                        </select>
-
-                        <select
-                            value={typeFilter}
-                            onChange={(e) => setTypeFilter(e.target.value)}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                            aria-label={t('filter_by_format')}
-                        >
-                            <option value="all">{t('all_formats')}</option>
-                            <option value="groups_elimination">{t('format_groups_elimination_short')}</option>
-                            <option value="elimination">{t('format_elimination')}</option>
-                            <option value="round_robin">{t('format_round_robin')}</option>
-                        </select>
-                    </div>
+        <section className="space-y-4">
+            <h2 className="text-xl font-black text-slate-900">{t('archived_tournaments')}</h2>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:flex" role="group" aria-label={t('archive_filters')}>
+                <div className="relative min-w-0 flex-1">
+                    <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+                    <input
+                        value={query}
+                        onChange={event => setQuery(event.target.value)}
+                        placeholder={t('search_tournament_year')}
+                        aria-label={t('search_tournament_year')}
+                        className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-slate-50 ps-9 pe-3 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-beer-600"
+                    />
+                </div>
+                <button type="button" className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-900 sm:hidden" onClick={() => setFiltersOpen(open => !open)} aria-expanded={filtersOpen} aria-controls="archive-filter-options">
+                    <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />{t('public_filter_toggle')}
+                </button>
+                <div id="archive-filter-options" className={`col-span-2 min-w-0 gap-2 sm:flex ${filtersOpen ? 'grid grid-cols-2' : 'hidden'}`}>
+                    <select value={yearFilter} onChange={event => setYearFilter(event.target.value)} aria-label={t('filter_by_year')} className="min-h-[44px] min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold">
+                        <option value="all">{t('all_years')}</option>
+                        {years.map(year => <option key={year} value={year}>{year}</option>)}
+                    </select>
+                    <select value={typeFilter} onChange={event => setTypeFilter(event.target.value)} aria-label={t('filter_by_format')} className="min-h-[44px] min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold">
+                        <option value="all">{t('all_formats')}</option>
+                        <option value="groups_elimination">{t('format_groups_elimination_short')}</option>
+                        <option value="elimination">{t('format_elimination')}</option>
+                        <option value="round_robin">{t('format_round_robin')}</option>
+                    </select>
                 </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredHistory.map((tournament) => (
-                    <button
-                      key={tournament.id}
-                      type="button"
-                      className="text-left bg-white p-6 rounded-[24px] shadow-sm border border-slate-200 hover:shadow-xl hover:-translate-y-0.5 transition cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                      onClick={() => onViewTournament(tournament, false)}
-                    >
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-black uppercase">
-                                {(() => {
-                                  const ts = Date.parse(tournament.startDate);
-                                  return Number.isFinite(ts) ? new Date(ts).getFullYear() : '—';
-                                })()}
-                            </div>
-                            {tournament.type === 'groups_elimination' && <span className="text-[10px] font-bold text-slate-400 uppercase border border-slate-100 px-2 py-1 rounded">{t('groups_label')}</span>}
-                        </div>
-                        <h4 className="font-black text-lg text-slate-800 mb-1 group-hover:text-beer-600 transition-colors">{tournament.name}</h4>
-                        <div className="text-sm text-slate-500 mb-4">{safeDateLabel(tournament.startDate)}</div>
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {isStructurelessManualArchive(tournament) ? null : (
-                            <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
-                              {formatTournamentType(tournament.type)}
-                            </span>
-                          )}
-                          <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-slate-600">
-                            <CalendarDays className="w-3.5 h-3.5" /> {safeDateLabel(tournament.startDate)}
-                          </span>
-                        </div>
-                        
-                        <div className="pt-4 border-t border-slate-50 flex justify-end">
-                             <span className="text-xs font-black uppercase text-slate-400 group-hover:text-beer-500 flex items-center gap-1 transition-colors">
-                                 {isStructurelessManualArchive(tournament) ? t('open_sheet') : t('see_results')} <ArrowRight className="w-3 h-3" />
-                             </span>
-                        </div>
-                    </button>
-                ))}
-                {filteredHistory.length === 0 && (
-                    <div className="col-span-full p-12 text-center text-slate-400 italic bg-white rounded-2xl border-2 border-dashed border-slate-200">
-                        {history.length === 0 ? t('no_archived_tournaments') : t('no_results_for_selected_filters')}
-                    </div>
-                )}
-            </div>
-        </div>
+            {(query.trim() || yearFilter !== 'all' || typeFilter !== 'all') && (
+                <div className="flex flex-wrap gap-2">
+                    {[
+                        { label: query.trim(), remove: () => setQuery('') },
+                        { label: yearFilter !== 'all' ? yearFilter : '', remove: () => setYearFilter('all') },
+                        { label: typeFilter !== 'all' ? formatTournamentType(typeFilter as TournamentData['type']) : '', remove: () => setTypeFilter('all') },
+                    ].map(({ label, remove }, index) => label && (
+                        <button key={index} type="button" className="inline-flex min-h-[36px] max-w-full items-center gap-2 rounded-full bg-blue-50 px-3 text-start text-sm font-bold text-blue-900 hover:bg-blue-100" onClick={remove} aria-label={t('public_remove_filter').replace('{filter}', label)}>
+                            <span className="break-all">{label}</span><X className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        </button>
+                    ))}
+                </div>
+            )}
+            {Array.from(historyByYear, ([year, editions]) => (
+                <section key={year}>
+                    <h3 className="sticky top-[var(--flbp-main-header-height,0px)] z-10 rounded-t-xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-black text-slate-800">
+                        {year} · {t(editions.length === 1 ? 'public_archive_count_one' : 'public_archive_count').replace('{count}', String(editions.length))}
+                    </h3>
+                    <ul className="divide-y divide-slate-200 rounded-b-xl border border-t-0 border-slate-200 bg-white">
+                        {editions.map(edition => (
+                            <li key={edition.id}>
+                                <button type="button" onClick={() => onViewTournament(edition, false)} className="flex min-h-[72px] w-full items-center gap-3 px-4 py-2 text-start hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-600">
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block break-words font-black text-slate-950">{edition.name}</span>
+                                        <span className="block text-sm text-slate-600">{safeDateLabel(edition.startDate)}</span>
+                                        {winnersById.has(edition.id) && <span className="flex items-center gap-1.5 text-sm font-bold text-slate-800"><Trophy className="h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden="true" />{winnersById.get(edition.id)}</span>}
+                                        {hasKnownFormat(edition) && <span className="mt-1 inline-block rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700 sm:hidden">{formatTournamentType(edition.type)}</span>}
+                                    </span>
+                                    {hasKnownFormat(edition) && <span className="hidden rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700 sm:block">{formatTournamentType(edition.type)}</span>}
+                                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 rtl:-scale-x-100" aria-hidden="true" />
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            ))}
+            {filteredHistory.length === 0 && (
+                <p className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">
+                    {history.length === 0 ? t('no_archived_tournaments') : t('no_results_for_selected_filters')}
+                </p>
+            )}
+        </section>
     </div>
   );
 };

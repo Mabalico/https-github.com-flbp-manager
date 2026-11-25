@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, ArrowRight, BarChart3, Shield, Target, Users, Wind, Trophy, Zap, Loader2, Star } from 'lucide-react';
-import { fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
+import { fantaRealPlayerKey, fetchFantaTeamDetail } from '../../services/fantabeerpong/fantaSupabaseService';
 import { getPlayerKeyLabel } from '../../services/playerIdentity';
 import { loadState } from '../../services/storageService';
 import { useTranslation } from '../../App';
@@ -69,7 +69,7 @@ export const FantaTeamDetail: React.FC<Props> = ({ teamId, onBack, onOpenPlayerD
              }
              return {
                  id: r.player_id,
-                 playerId: r.player_id,
+                 playerId: fantaRealPlayerKey(r.player_id, r.real_team_id),
                  playerName: r.player_name || label.name,
                  realTeamName,
                  roleLabel: r.role.toUpperCase(),

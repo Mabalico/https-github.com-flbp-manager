@@ -101,6 +101,9 @@ Per tornei live e' comunque possibile disabilitare rapidamente la registrazione 
 
 Hardening TV (R8.1):
 - Se `localStorage flbp_tv_mode` e' attivo (TV Mode), l'app **non registra** il service worker.
+- Se c’è una copia in cache, la navigazione prova la rete per tre secondi e poi usa la copia. Senza copia aspetta la rete: l’avviso Offline compare solo quando la connessione manca davvero. Le proiezioni TV riconosciute dall'URL escludono il service worker anche quando lo storage del browser è bloccato.
+- I font web vengono precaricati senza bloccare il primo disegno. I form dell'Area Giocatore espongono etichette associate e indicazioni di compilazione automatica per accesso, registrazione e recupero password.
+- I dialoghi di Admin e Arbitri seguono la lingua selezionata. Il motivo restituito dal server viene mostrato con il suo testo originale.
 - Quando si entra in TV Mode, l'app tenta in best-effort di **unregister SW** e **svuotare le cache** per ridurre il rischio di "build vecchie".
 - In Area Admin (header) sono presenti i pulsanti **CACHE ON/OFF** e **svuota cache** (cestino) per forzare un reload pulito.
 
@@ -233,7 +236,7 @@ Definito in `types.ts`.
 
 ### Albo d’oro / Integrazioni marcatori
 - `HallOfFameEntry` (titoli: winner/mvp/top_scorer/defender + U25)
-- In `components/HallOfFame.tsx` tab **Giocatori Titolati**: aggrega titoli per giocatore e mostra colonne Totale/Campione/Cannoniere/Difensore/MVP.
+- La scheda **Giocatori Titolati** dell’Albo d’oro aggrega i titoli per giocatore nelle colonne Totale, Campione, Cannoniere, Difensore, MVP e U25. I nomi rimangono interi su una riga e la tabella può scorrere in orizzontale.
   - Sorting: Totale → Campione(winner) → Cannoniere(top_scorer) → Difensore(defender) → MVP(mvp) → nome.
   - Titoli U25: **sempre visibili** come colonne dedicate `⚪(U25)` e `🌬️(U25)` (senza toggle). Nello sorting contano **solo come ultimo tie-break** (valgono meno di tutti gli altri titoli).
   - Badge torneo nei box pubblici: mostra la **data completa del torneo** quando disponibile (`startDate` da archivio / fallback da id storico); se il dato legacy manca del tutto, resta il fallback all'anno.
@@ -285,7 +288,7 @@ Note robuste emerse dalle ultime correzioni:
 
 ## 4) Area Admin (gestione)
 
-- **Completa e archivia** mostra i premi in anteprima. Dopo il salvataggio, il riepilogo offre il testo degli arbitraggi da copiare o aprire nel client email. Se la pubblicazione si interrompe, puoi riprovarla dal riepilogo.
+- **Completa e archivia** mostra i premi in anteprima e chiede conferma con torneo, vincitore e MVP. Se restano partite da giocare o manca il vincitore, la conferma elenca i codici e si attiva solo spuntando **Archivia lo stesso**. Dopo il salvataggio, il riepilogo offre il testo degli arbitraggi da copiare o aprire nel client email. Se la pubblicazione si interrompe, puoi riprovarla dal riepilogo.
 - Il sito pubblico mostra i premi pubblicati, compresi gli Under 25 e tutti i pari merito.
 
 Entry: `components/AdminDashboard.tsx`.
@@ -310,14 +313,22 @@ In `components/AdminDashboard.tsx`:
 - `adminSection: live | data`
 
 ### 4.2 Tabs Live
+
+Con il Girone Finale Top 4 o Top 8 attivo, le partite di eliminazione ancora da disputare dal turno sostituito in poi restano nello storico della struttura. Il calendario operativo passa alla prima partita del Girone Finale. Monitor Gironi ne mostra classifica e risultati anche nei tornei a eliminazione diretta. Il riepilogo di archiviazione elenca i codici ancora da giocare nel Girone Finale, compresi gli spareggi. Il titolo viene assegnato quando il girone ha un vincitore.
+
+Lista Codici e Referti seguono l’ordine di fase, girone e turno anche dopo un inserimento tardivo. In Monitor Tabellone la ricerca `TBD` trova le partite in attesa di una o di entrambe le squadre. I comandi di avvio e refertazione diventano disponibili quando i partecipanti sono definiti.
 - `components/admin/tabs/TeamsTab.tsx`
+  - Invio salva la scheda manuale e il campo Nome squadra torna attivo. L’import mostra prima le colonne richieste e il modello da scaricare.
   - inserimento squadre, import, simulatore pool
+  - la rinomina durante il live aggiorna partite, classifiche dei gironi e TV. Le edizioni archiviate conservano il nome originale.
   - lista iscritti: correzione inline profilo giocatore (nome + data nascita) con salvataggio via `services/playerProfileAdmin.ts::updatePlayerProfileIdentity()`
   - pre-save UX: impatto stimato su iscritti live / torneo live / storico / righe statistiche / titoli / alias, con messaggi espliciti per **merge** o **separate**
   - CSV: `services/adminCsvUtils.ts`
   - XLSX lazy: `services/lazyXlsx.ts`
   - Sim pool: `services/simPool.ts` + `services/simTeamNames200.ts`
 - `components/admin/tabs/StructureTab.tsx`
+  - La bozza mostra gironi, accoppiamenti e codici. La conferma di avvio raccoglie la password arbitri nella modale dell’app.
+  - Il numero di gironi proposto segue le squadre attive e punta a quattro squadre per girone. La modifica manuale vale fino ad **Azzera form**. L’anteprima segnala gironi piccoli e qualificazioni che farebbero passare tutte le squadre.
   - engine: `services/tournamentEngine.ts` (`generateTournamentStructure`, `syncBracketFromGroups`)
   - UX input numerici: quando un campo contiene solo `0`, il focus seleziona il valore per sovrascrittura immediata (niente delete/backspace preliminare)
   - Grafiche social (story 9:16): pannello `components/admin/SocialGraphicsPanel.tsx`
@@ -328,6 +339,9 @@ In `components/AdminDashboard.tsx`:
     - preliminari: ricavati da qualsiasi turno bracket incompleto con BYE (match real-vs-real), così l’aggiunta successiva di nuove squadre/preliminari aggiorna la story dedicata senza mescolare quei match negli slot normali
     - export PNG via Canvas API (senza dipendenze) + salvataggio config in localStorage (`flbp_social_graphics_v1`)
 - `components/admin/tabs/TournamentEditorTab.tsx`
+  - L’editor abilita gli slot del primo turno disponibile, incluso un eventuale preliminare. Nei tornei a gironi il tabellone si sblocca dopo le qualificazioni. Le vincitrici già avanzate restano bloccate.
+  - La verifica blocca l’applicazione se manca una squadra iscritta o un nuovo ramo vuoto lascia senza avversario il match successivo. In Gironi, **Rimuovi** riporta la squadra nel pool per poterla riassegnare. Il riepilogo conta le azioni registrate e segue Annulla e Ripristina.
+  - La rigenerazione di un torneo a eliminazione diretta riusa le priorità «Gioca il più tardi possibile» salvate con il torneo.
   - Editor strutturale live con bozza, Preview obbligatoria e Apply protetto.
   - Layout desktop organizzato in tre aree coordinate:
     - **Roster a sinistra**: ricerca, filtri, selezione delle squadre e creazione rapida di una nuova squadra nel catalogo/pool, pronta per essere collocata nella struttura.
@@ -341,9 +355,9 @@ In `components/AdminDashboard.tsx`:
     - i placeholder `TBD` non avanzano automaticamente e non vengono trattati come squadre reali;
     - se il Round 1 e' pieno e nessuna partita reale del bracket e' iniziata, l'editor puo' aggiungere un turno preliminare vuoto per accogliere nuove squadre;
     - la creazione rapida aggiunge la squadra al catalogo/pool, ma il suo inserimento nel tabellone resta un'operazione esplicita della bozza.
-  - Il roster del torneo viene sincronizzato con le squadre realmente referenziate da gironi e match; una squadra rimossa da uno slot non resta quindi come partecipante esclusa. La squadra rimane nel catalogo generale e può essere reinserita senza perdere storico o iscrizione.
-  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone sul roster corrente; serve anche a compattare un bracket dopo rimozioni, eliminando livelli BYE non più necessari.
+  - Prima del primo match reale, un torneo a eliminazione diretta può rigenerare dalla UI l’intero tabellone.
 - `components/admin/tabs/ReportsTab.tsx`
+  - Nell’inserimento manuale il codice apre la partita e Invio percorre canestri e soffi. Shift+Invio torna indietro. Il punteggio segue la digitazione. Su un pareggio positivo, Invio dall’ultimo campo riporta al primo. Dopo il salvataggio il referto si chiude, compare una conferma e il campo codice torna attivo. L’Area Arbitri segue lo stesso flusso per la compilazione manuale.
   - OCR: `services/imageProcessingService.ts` (`preprocessRefertoToAlignedCanvas`, `ocrTextFromAlignedCanvas`) + dip. `tesseract.js`
   - simulazione: `services/simulationService.ts` (`simulateMatchResult`)
   - UX input numerici: campi statistici manuali testuali con tastiera numerica, filtro delle sole cifre e `0` iniziale selezionabile/sovrascrivibile senza rischio di modifica tramite rotella
@@ -356,6 +370,7 @@ In `components/AdminDashboard.tsx`:
   - UX input numerici secondari (es. tavoli): `0` iniziale selezionato al focus per compilazione rapida
 - `components/admin/tabs/CodesTab.tsx`
 - `components/admin/tabs/MonitorGroupsTab.tsx`
+  - La classifica distingue la differenza canestri dalla differenza soffi e indica la zona qualificazione. Nelle partite giocate evidenzia punteggio e vincitrice.
   - monitor gironi live: filtro "tutti / singolo girone" + classifica stile campionato (P/V/S, canestri fatti/subiti/diff, soffi fatti/subiti/diff; Pt calcolati ma non mostrati)
   - calcolo classifica: `services/groupStandings.ts`
   - pre-check “integrità torneo”: segnala **squadre escluse** (nel roster ma non in match/gironi)
@@ -383,7 +398,10 @@ Supporto UI:
     - non sostituisce il billing ufficiale Supabase: è una telemetria applicativa coerente col traffico generato dal frontend
   - sub-tab data legacy: `archive | integrations` (stato in `AdminDashboard.tsx`)
   - sub-tab integrations: `tournaments | hof | scorers | aliases | fanta | players`
-  - `components/admin/tabs/data/IntegrationsTournaments.tsx` elenca live e storico, ordina correttamente anche le date italiane `gg/mm/aaaa` e offre ricerca e rinomina inline con feedback accessibile.
+  - In **Tornei passati** si cercano le edizioni per nome e anno. L’elenco mostra il vincitore e i conteggi dei titoli e dei marcatori. Le edizioni con lo stesso nome e la stessa data sono segnalate come possibili doppioni. La scheda raccoglie dati, titoli, marcatori e le conferme di modifica ed eliminazione.
+  - **Giocatori** mostra titoli, statistiche e nomi collegati. Gli identificativi sono nei dettagli tecnici. Da questa vista si gestiscono anche i collegamenti globali.
+  - **Statistiche extra** gestisce le righe senza torneo, con ricerca, import ed export, inserimento a mano e gruppi di 50 righe. Le statistiche legate a un’edizione si gestiscono nella sua scheda.
+  - **Manutenzione Fanta** si apre dagli strumenti di persistenza. Oltre ai dati senza torneo, **Fanta di tornei archiviati** permette di eliminare solo l’edizione Fanta di un torneo concluso, per esempio una prova: mostra squadre, giocatori e alcuni nomi e chiede di confermare il backup. Torneo, referti, Albo d’oro e statistiche restano; il torneo live e le rose del Pretorneo non compaiono mai.
   - `services/tournamentRename.ts` applica la rinomina per ID senza modificare squadre, match o struttura e propaga il nome ai riferimenti Hall of Fame e alle etichette dei marcatori collegati.
 - Modals:
   - Alias: `components/admin/modals/AliasModal.tsx`
@@ -392,6 +410,10 @@ Supporto UI:
 ---
 
 - Su schermi stretti i comandi e le schede Admin si dispongono su più righe. I menu rimangono accessibili anche con un torneo live.
+
+Quando apri una scheda torneo o giocatore, la vista parte dall'alto. Riaprire Classifica Storica dalla navigazione torna all'elenco. Nelle classifiche i titoli sono badge con il solo simbolo e il numero; il nome compare passando il mouse ed è letto dagli screen reader. I premi U25 usano lo stesso simbolo su fondo verde. Il filtro dell’anno, presente anche su telefono, elenca solo gli anni con statistiche. Su telefono compare anche il totale. Le fonti cumulative dei marcatori hanno un'etichetta leggibile e le schede dell'Albo d'oro mantengono le etichette anche su telefono.
+
+La pagina Admin mostra subito il caricamento e descrive l'accesso con i termini del modulo. I dettagli tecnici del database sono consultabili dagli strumenti Admin dopo l'accesso.
 
 ## 5) TV Mode (read-only)
 
@@ -409,6 +431,7 @@ Supporto UI:
 
 Note TV gironi:
 - In `TvSimpleView` e `TvBracketView` la sezione Gironi mostra una **classifica stile campionato** (layout compatto 16:9) tramite `components/GroupStandingsTable.tsx`.
+- La TV assegna lo spareggio al girone indicato dalla partita. Per i salvataggi precedenti in cui manca il nome del girone, il codice `FTB` identifica uno spareggio del Girone Finale se la fase è presente. Uno spareggio `FTB` assegnato al girone F resta nel girone F.
 - In `components/TvSimpleView.tsx` i gruppi vengono separati in **gironi di stage** e (se presente) **Girone Finale**:
   - rilevazione Girone Finale: `group.stage === 'final'` (se presente nei dati) oppure fallback `group.name` contiene "final"
   - il Girone Finale viene mostrato in **pagina dedicata** (full-width) come ultima pagina in rotazione.
@@ -576,6 +599,22 @@ Se la parità coinvolge posizioni che determinano i qualificati (`advancingPerGr
 - `components/AdminDashboard.tsx`: negli alert import multi-sheet gli “altri fogli controllati” escludono il foglio già letto, per evitare liste fuorvianti.
 
 
+### Navigazione del sito e lingue
+
+La vista si conserva nell’URL con `?view=`. Le schede torneo includono anche `flbp_tournament`, così si possono riaprire dopo un aggiornamento o da un collegamento condiviso. Indietro e Avanti rispettano la protezione delle bozze. Gli URL TV mantengono `flbp_tv` e la modalità in sola lettura.
+
+In arabo il menu si apre a destra e le frecce di navigazione si orientano con il testo. I nomi registrati dei turni del tabellone vengono tradotti al momento della visualizzazione.
+
+### Tabelloni con 128 squadre
+
+In Editor, Monitor e scheda pubblica il tabellone ha scorrimento interno. In Editor, **Adatta** mostra tutti i turni in larghezza. Dopo la selezione di uno slot del primo turno, i posti futuri vuoti restano neutri. Nella scheda pubblica la ricerca per squadra o codice porta alla partita. In TV le proiezioni dividono un tabellone classico da 128 squadre in otto sezioni iniziali e una pagina conclusiva.
+
+### Annullamento del live e convocazioni
+
+In modalità Ufficiale **Annulla torneo live** richiede il download del backup JSON e una seconda conferma. Se il torneo o le partite cambiano tra i due passaggi, serve un backup aggiornato. Al salvataggio vengono rimossi il torneo e il calendario live. Storico e Albo d’oro non cambiano. FantaBeerpong torna al Pretorneo e le rose passate al live tornano con lui; chi ne ha già salvata una nuova in Pretorneo conserva quella. Se questo passaggio non riesce, l’avviso **Riprova con il Fanta** resta in Area Admin anche dopo un ricaricamento. Serve la migration `20261124000200_fanta_return_cancelled_live.sql`.
+
+La Home mostra il nome del torneo quando il live è attivo. Se FantaBeerpong è attivo, compare l’avviso con il collegamento. Nel Pretorneo si vede appena ci sono almeno quattro giocatori iscritti, la stessa soglia che apre le squadre; con il live invita a creare la squadra fino alla prima partita, poi a seguire la classifica. Nei tornei solo risultati non compare. Una nota piccola, nella Home e sopra l’elenco dei giocatori del Fanta, ricorda che i giocatori si aggiungono man mano che vengono inserite le squadre e che le rose si chiudono con la prima partita. Nelle grafiche Social gli slot automatici coprono tutte le partite convocabili. L’ora inserita è quella della convocazione. L’inizio della partita viene calcolato un’ora dopo.
+
 ### Integrazioni — aggiornamento 7 settembre 2026
 
-La navigazione usa Edizioni, Marcatori e Giocatori. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).
+La navigazione usa Tornei passati, Giocatori e Statistiche extra. Sono supportate edizioni con un solo premio, identità distinte dei campioni e import attribuiti al torneo. U25 alla data del torneo; a parità di canestri o soffi prevalgono meno partite, con ex aequo se coincidono anche le partite. Procedura e compatibilità: [Integrazioni ed edizioni](INTEGRAZIONI_EDIZIONI.md).

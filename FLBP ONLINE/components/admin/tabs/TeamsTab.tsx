@@ -3,6 +3,8 @@ import { Users, Upload, Download, Trash2, Plus, MoreHorizontal, ChevronDown, Fil
 import type { Team } from '../../../types';
 import { isTesterMode } from '../../../config/appMode';
 import { BirthDateInput } from '../BirthDateInput';
+import { AdminDataConfirmModal } from './data/AdminDataConfirmModal';
+import { downloadBlob } from '../../../services/adminDownloadUtils';
 import { formatBirthDateDisplay, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from '../../../services/playerIdentity';
 import { substituteTeamSlotPlayer } from '../../../services/playerProfileAdmin';
 import { buildPlayerProfileSnapshot } from '../../../services/playerDataProvenance';
@@ -42,6 +44,7 @@ export interface TeamsTabProps {
 
     saveTeam: () => void;
     resetForm: () => void;
+    resetGroupSuggestion?: () => void;
 
     poolN: string;
     setPoolN: (v: string) => void;
@@ -87,6 +90,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     setP2IsReferee,
     saveTeam,
     resetForm,
+    resetGroupSuggestion,
     poolN,
     setPoolN,
     genPool,
@@ -104,6 +108,21 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     onFantaPretournamentTeamsChanged,
 }) => {
     const [query, setQuery] = React.useState('');
+    const [importHelpOpen, setImportHelpOpen] = React.useState(false);
+    const closeImportHelp = React.useCallback(() => setImportHelpOpen(false), []);
+    const teamFormRef = React.useRef<HTMLFormElement>(null);
+    const teamNameRef = React.useRef<HTMLInputElement>(null);
+    const previousTeamName = React.useRef(teamName);
+
+    React.useEffect(() => {
+        if (!editingId) return;
+        teamFormRef.current?.scrollIntoView?.({ block: 'center' });
+        teamNameRef.current?.focus({ preventScroll: true });
+    }, [editingId]);
+    React.useEffect(() => {
+        if (previousTeamName.current && !teamName) teamNameRef.current?.focus();
+        previousTeamName.current = teamName;
+    }, [teamName]);
     const [p1FirstName, setP1FirstName] = React.useState('');
     const [p1LastName, setP1LastName] = React.useState('');
     const [p2FirstName, setP2FirstName] = React.useState('');
@@ -518,11 +537,20 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         e.currentTarget.value = '';
                     }}/>
 
-                    <button type="button" onClick={() => fileRef.current?.click()} className={btnSuccess}>
+                    <button type="button" onClick={() => setImportHelpOpen(true)} className={btnSuccess}>
                         <Upload className="w-4 h-4"/> {t('import_excel_csv')}
                     </button>
+                    <AdminDataConfirmModal open={importHelpOpen} tone="info" title={t('import_excel_csv')}
+                        description={t('teams_import_template_help')} confirmLabel={t('teams_import_pick_file')} cancelLabel={t('cancel')}
+                        onClose={closeImportHelp} onConfirm={() => { closeImportHelp(); fileRef.current?.click(); }}>
+                        <code className="block break-words py-2 text-sm">Squadra, Nome1, Cognome1, DataNascita1, Nome2, Cognome2, DataNascita2</code>
+                        <button type="button" className={btnSecondary} onClick={() => downloadBlob(
+                            new Blob(['\uFEFFSquadra;Nome1;Cognome1;DataNascita1;Nome2;Cognome2;DataNascita2\r\n'], { type: 'text/csv;charset=utf-8' }),
+                            'modello_squadre.csv'
+                        )}><Download className="h-4 w-4" /> {t('teams_download_template')}</button>
+                    </AdminDataConfirmModal>
 
-                    <button type="button" onClick={resetForm} className={btnSecondary}>
+                    <button type="button" onClick={() => { resetForm(); resetGroupSuggestion?.(); }} className={btnSecondary}>
                         <Plus className="w-4 h-4"/> {t('reset_form')}
                     </button>
 
@@ -602,7 +630,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
         </div>
 
         {/* Manual Insert */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+        <form ref={teamFormRef} onSubmit={event => { event.preventDefault(); saveTeam(); }} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 scroll-mt-24">
             <div className="flex items-center justify-between gap-3 mb-3">
                 <div>
                     <h4 className="font-black">{editingId ? t('edit_team') : t('manual_entry')}</h4>
@@ -615,6 +643,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                 <div className="space-y-1">
                     <label className="block text-xs font-black uppercase tracking-wide text-slate-500">{t('team_name_label')}</label>
                     <input
+                        ref={teamNameRef}
                         value={teamName}
                         onChange={(e)=>setTeamName(e.target.value)}
                         placeholder={t('team_name_label')}
@@ -656,7 +685,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                     </div>
                     <div className="space-y-1 md:col-span-2">
                         <label className="block text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date_label_1')}</label>
-                        <BirthDateInput value={y1} onChange={setY1} placeholder="gg/mm/aaaa" className={inputBase} ariaLabel={t('birth_date_player_1_aria')} />
+                        <BirthDateInput value={y1} onChange={setY1} placeholder="gg/mm/aaaa" className={inputBase} ariaLabel={t('birth_date_player_1_aria')} calendarTabIndex={-1} />
                     </div>
                 </div>
 
@@ -694,12 +723,12 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                     </div>
                     <div className="space-y-1 md:col-span-2">
                         <label className="block text-xs font-black uppercase tracking-wide text-slate-500">{t('birth_date_label_2')}</label>
-                        <BirthDateInput value={y2} onChange={setY2} placeholder="gg/mm/aaaa" className={inputBase} ariaLabel={t('birth_date_player_2_aria')} />
+                        <BirthDateInput value={y2} onChange={setY2} placeholder="gg/mm/aaaa" className={inputBase} ariaLabel={t('birth_date_player_2_aria')} calendarTabIndex={-1} />
                     </div>
                 </div>
             </div>
             <div className="flbp-mobile-actions flex flex-wrap gap-2 mt-3">
-                <button type="button" onClick={saveTeam} className={btnPrimary}>
+                <button type="submit" className={btnPrimary}>
                     <Plus className="w-4 h-4"/> {editingId ? t('save_changes') : t('referees_add_confirm')}
                 </button>
                 {editingId && (
@@ -711,7 +740,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
             <p className="text-xs text-slate-500 mt-2">
                 {t('teams_birthdate_note')}
             </p>
-        </div>
+        </form>
 
         {/* Simulator (tester mode only) */}
         {isTesterMode ? (
@@ -975,10 +1004,10 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                         <thead className="bg-white sticky top-0 border-b border-slate-100">
                             <tr className="text-left text-slate-500">
                                 <th className="p-3"><SortHeader label={t('teams_registration_short')} column="registration" /></th>
-                                <th className="p-3"><SortHeader label={t('team_view')} column="team_name" /></th>
-                                <th className="p-3"><SortHeader label={t('teams_player1_short')} column="player1" /></th>
+                                <th className="min-w-[7rem] p-3 whitespace-nowrap"><SortHeader label={t('team_view')} column="team_name" /></th>
+                                <th className="p-3 whitespace-nowrap"><SortHeader label={t('player_1_label')} column="player1" /></th>
                                 <th className="p-3">{t('birth_date')}</th>
-                                <th className="p-3"><SortHeader label={t('teams_player2_short')} column="player2" /></th>
+                                <th className="p-3 whitespace-nowrap"><SortHeader label={t('player_2_label')} column="player2" /></th>
                                 <th className="p-3">{t('birth_date')}</th>
                                 <th className="p-3">{t('referee_short')}</th>
                                 <th className="p-3 text-right">{t('actions')}</th>

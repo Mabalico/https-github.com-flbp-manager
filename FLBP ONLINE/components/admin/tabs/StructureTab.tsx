@@ -5,7 +5,9 @@ import type { AppState } from '../../../services/storageService';
 import type { Match, TournamentData } from '../../../types';
 import { isTesterMode } from '../../../config/appMode';
 import { SocialGraphicsPanel } from '../SocialGraphicsPanel';
-import { isByeMatch } from '../../../services/matchUtils';
+import { isByeMatch, isTbdTeamId } from '../../../services/matchUtils';
+import { isResultsOnlyTournament } from '../../../services/tournamentModes';
+import { AdminDataConfirmModal } from './data/AdminDataConfirmModal';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../services/formInputUX';
 import { LateTeamSelector } from '../LateTeamSelector';
 
@@ -41,7 +43,7 @@ export interface StructureTabProps {
     setAdvancing: (v: number) => void;
 
     handleGenerate: () => void;
-    handleStartLive: () => void;
+    handleStartLive: (refereesPassword: string) => void;
     printBracket: () => void;
 }
 
@@ -71,10 +73,28 @@ export const StructureTab: React.FC<StructureTabProps> = ({
     printBracket,
 }) => {
     const { t, lang } = useTranslation();
+    const [startPreviewOpen, setStartPreviewOpen] = React.useState(false);
+    const [refereesPassword, setRefereesPassword] = React.useState('');
+    const closeStartPreview = React.useCallback(() => {
+        setStartPreviewOpen(false);
+        setRefereesPassword('');
+    }, []);
+    const passwordRequired = !!draft && !isResultsOnlyTournament(draft.t);
+    const confirmStart = () => {
+        if (!draft || (passwordRequired && !refereesPassword.trim())) return;
+        handleStartLive(refereesPassword);
+        closeStartPreview();
+    };
     const dateLocale = lang === 'it' ? 'it-IT' : lang;
     // NOTE: "Squadre arbitri" are still real teams for structure/brackets.
     // Exclude only BYE/hidden (backward-compatible with historical snapshots).
     const playableTeamsCount = (state.teams || []).filter(t => !t.hidden && !t.isBye).length;
+    const effectiveGroupCount = Math.max(1, Math.min(Math.floor(numGroups), playableTeamsCount));
+    const smallestGroup = Math.floor(playableTeamsCount / effectiveGroupCount);
+    const largestGroup = Math.ceil(playableTeamsCount / effectiveGroupCount);
+    const groupSizeHint = smallestGroup === largestGroup
+        ? t('structure_group_size_uniform').replace('{teams}', String(smallestGroup)).replace('{matches}', String(smallestGroup * (smallestGroup - 1) / 2))
+        : t('structure_group_size_mixed').replace('{smallest}', String(smallestGroup)).replace('{largest}', String(largestGroup));
     const finalToggleDisabled = playableTeamsCount < 4;
     const top8Disabled = playableTeamsCount < 8;
     const lateTeamCount = (state.teams || []).filter(team => (
@@ -96,7 +116,8 @@ export const StructureTab: React.FC<StructureTabProps> = ({
     const activeRefereesCount = (state.teams || []).filter(t => !t.hidden && !t.isBye && t.isReferee).length;
     const draftGroupsCount = draft?.t.groups?.length || 0;
     const draftRoundsCount = draft?.t.rounds?.length || 0;
-    const countableDraftMatches = draft?.m.filter(m => !isByeMatch(m)) || [];
+    const countableDraftMatches = draft?.m.filter(m => !m.hidden && !isByeMatch(m)) || [];
+    const draftTeamNames = new Map((draft?.t.teams || []).map(team => [team.id, team.name]));
     const draftMatchesCount = countableDraftMatches.length;
     const draftGroupsMatchesCount = countableDraftMatches.filter(m => m.phase === 'groups').length || 0;
     const draftBracketMatchesCount = countableDraftMatches.filter(m => m.phase === 'bracket').length || 0;
@@ -204,8 +225,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                             {tournMode === 'groups_elimination' && (
                                 <>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">{t('structure_groups_count_label')}</label>
+                                        <label htmlFor="structure-group-count" className="block text-sm font-bold text-slate-700 mb-1">{t('structure_groups_count_label')}</label>
                                         <input 
+                                            id="structure-group-count"
                                             type="number" 
                                             value={numGroups} 
                                             onChange={e => setNumGroups(Number(e.target.value))} 
@@ -215,10 +237,21 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                             onMouseUp={handleZeroValueMouseUp}
                                             onBlur={handleZeroValueBlur}
                                         />
+                                        {playableTeamsCount > 0 && (
+                                            <div className="mt-1 space-y-1 text-xs">
+                                                <p className="text-slate-600">{groupSizeHint}</p>
+                                                {smallestGroup < 3 && (
+                                                    <p className="font-bold text-amber-800">
+                                                        {t('structure_group_size_warning').replace('{groups}', String(effectiveGroupCount)).replace('{teams}', String(smallestGroup))}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">{t('structure_advancing_per_group')}</label>
+                                        <label htmlFor="structure-group-advancing" className="block text-sm font-bold text-slate-700 mb-1">{t('structure_advancing_per_group')}</label>
                                         <input 
+                                            id="structure-group-advancing"
                                             type="number" 
                                             value={advancing} 
                                             onChange={e => setAdvancing(Number(e.target.value))} 
@@ -228,6 +261,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                             onMouseUp={handleZeroValueMouseUp}
                                             onBlur={handleZeroValueBlur}
                                         />
+                                        {smallestGroup > 0 && advancing >= smallestGroup && (
+                                            <p className="mt-1 text-xs font-bold text-amber-800">{t('structure_group_all_advance_warning')}</p>
+                                        )}
                                     </div>
                                 </>
                             )}
@@ -239,7 +275,9 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                 selectedIds={lateTeamIds}
                                 onChange={setLateTeamIds}
                             />
-                        ) : null}
+                        ) : (
+                            <p className="text-sm text-slate-600">{t('late_team_elimination_only')}</p>
+                        )}
 
                         <label className={`block cursor-pointer rounded-2xl border p-4 transition ${resultsOnly ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}>
                             <div className="flex items-start gap-3">
@@ -393,12 +431,57 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                     </div>
                                 </div>
 
-                                <button type="button" 
-                                    onClick={handleStartLive}
+                                <div className="mb-4 grid gap-3 lg:grid-cols-2">
+                                    {!!draft.t.groups?.length && (
+                                        <section className="max-h-64 overflow-auto rounded-xl border border-blue-100 bg-white p-3">
+                                            <h5 className="mb-2 font-bold">{t('groups_label')}</h5>
+                                            {draft.t.groups.map(group => (
+                                                <div key={group.id} className="border-t border-slate-100 py-2 text-sm">
+                                                    <strong>{group.name}</strong>
+                                                    <p>{group.teams.filter(team => !team.hidden && !team.isBye).map(team => team.name).join(' · ')}</p>
+                                                </div>
+                                            ))}
+                                        </section>
+                                    )}
+                                    <section className="max-h-64 overflow-auto rounded-xl border border-blue-100 bg-white p-3">
+                                        <h5 className="mb-2 font-bold">{t('matches')}</h5>
+                                        <ul className="divide-y divide-slate-100">
+                                            {countableDraftMatches.map(match => {
+                                                const slots = match.teamIds?.length ? match.teamIds : [match.teamAId, match.teamBId];
+                                                const names = slots.map(id => !id || isTbdTeamId(id) ? t('tbd_label') : draftTeamNames.get(id) || id);
+                                                return (
+                                                    <li key={match.id} className="flex items-start gap-3 py-1.5 text-sm">
+                                                        <span className="shrink-0 font-mono font-bold">{match.code || '—'}</span>
+                                                        <span className="min-w-0 break-words">{names.join(' ' + t('versus_short') + ' ')}</span>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </section>
+                                </div>
+                                <button type="button"
+                                    onClick={() => setStartPreviewOpen(true)}
                                     className={`${btnPrimary} w-full py-4 text-xl uppercase shadow-lg`}
                                 >
-                                    <PlayCircle className="w-8 h-8" /> {t('structure_confirm_start_live')}
+                                    <PlayCircle className="w-8 h-8" /> {t('start_live')}
                                 </button>
+                                <AdminDataConfirmModal open={startPreviewOpen} tone={state.tournament ? 'warning' : 'info'}
+                                    title={t('structure_confirm_start_live')}
+                                    description={state.tournament ? t('admin_archive_active_before_start_confirm') : undefined}
+                                    confirmLabel={t('structure_confirm_start_live')} cancelLabel={t('cancel')}
+                                    confirmDisabled={passwordRequired && !refereesPassword.trim()}
+                                    onConfirm={confirmStart} onClose={closeStartPreview}>
+                                    {passwordRequired && (
+                                        <label className="block text-sm font-bold">
+                                            {t('referees_password_placeholder')}
+                                            <input type="password" autoComplete="new-password" value={refereesPassword}
+                                                onChange={event => setRefereesPassword(event.target.value)}
+                                                onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); confirmStart(); } }}
+                                                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2"
+                                            />
+                                        </label>
+                                    )}
+                                </AdminDataConfirmModal>
                                 <p className="text-center text-xs text-blue-600 mt-2">
                                     {t('structure_start_live_warning')}
                                 </p>

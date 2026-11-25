@@ -4,6 +4,11 @@ import { isFinalGroup } from './groupUtils';
 import { getMatchParticipantIds, isByeTeamId, isPlaceholderTeamId, isTbdTeamId } from './matchUtils';
 import type { CurrentPlacement, StructuralPhase, TournamentStructureSnapshot } from './tournamentStructureTypes';
 
+export const suggestGroupCount = (teamCount: number): number => {
+  const suggested = Math.max(1, Math.round(teamCount / 4));
+  return teamCount / suggested < 3 ? Math.max(1, Math.floor(teamCount / 3)) : suggested;
+};
+
 export const buildTournamentStructureSnapshot = (
   tournament: TournamentData,
   matches: Match[],
@@ -44,6 +49,7 @@ export const cloneTournamentData = (tournament: TournamentData): TournamentData 
     matches: cloneMatches(tournament.matches || []),
     config: {
       ...tournament.config,
+      ...(tournament.config?.lateTeamIds ? { lateTeamIds: [...tournament.config.lateTeamIds] } : {}),
       finalRoundRobin: tournament.config?.finalRoundRobin
         ? { ...tournament.config.finalRoundRobin }
         : undefined,
@@ -216,13 +222,14 @@ export const getMatchById = (snapshot: TournamentStructureSnapshot, matchId: str
 
 export const isLockedBracketMatchForStructureEdit = (match?: Match): boolean => {
   if (!match) return true;
+  if (match.replacedByFinalGroup) return true;
   if (match.phase !== 'bracket') return true;
   if (match.status === 'playing') return true;
   return !!match.played && !match.isBye && !match.hidden;
 };
 
 export const autoResolveBracketByeMatch = (match: Match): Match => {
-  if (!match || match.phase !== 'bracket') return match;
+  if (!match || match.phase !== 'bracket' || match.replacedByFinalGroup) return match;
   if (match.status === 'finished') return match;
   const a = String(match.teamAId || '').trim();
   const b = String(match.teamBId || '').trim();
@@ -682,10 +689,8 @@ export const syncTournamentRosterFromStructure = (
     }
   }
 
-  // The live roster must mirror the structure, while catalogTeams remains the
-  // complete registration catalog. Keeping an unassigned team in
-  // tournament.teams makes CLEAR_BRACKET_SLOT impossible to apply because the
-  // validator correctly reports that roster member as excluded.
+  // The draft roster mirrors the structure, while the catalog still offers
+  // teams that need to be reassigned before validation can allow publication.
   const keep = new Map<string, Team>();
   for (const team of next.tournament.teams || []) {
     const id = String(team.id || '').trim();

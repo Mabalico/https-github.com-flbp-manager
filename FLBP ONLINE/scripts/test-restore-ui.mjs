@@ -158,7 +158,8 @@ await check('an old Admin callback cannot overwrite the restored state after the
 const syncCase = () => {
   const timer = timers(); const push = deferred(); const writes = [];
   const imports = {
-    './supabaseRest': { getSupabaseConfig: () => ({}), pushLiveTournamentIncremental: async value => { writes.push(value); return push.promise; }, pushNormalizedFromState: async value => { writes.push(value); return push.promise; } },
+    './supabaseRest': { getRemoteBaseUpdatedAt: () => null, getSupabaseConfig: () => ({}), pushLiveTournamentIncremental: async value => { writes.push(value); return push.promise; }, pushNormalizedFromState: async value => { writes.push(value); return push.promise; } },
+    './stableStateSerialize': loadModule('services/stableStateSerialize.ts'),
     './dbDiagnostics': { markDbSyncConflict: noop, markDbSyncError: noop, markDbSyncOk: noop },
     './repository/getRepository': { getAppStateRepository: () => ({ refresh: async () => {} }) },
     './appStateMeaning': { hasMeaningfulAppState: () => true }, './repository/featureFlags': { isAutoStructuredSyncEnabled: () => true },

@@ -591,6 +591,80 @@ const assertNoPendingScenarioDrafts = async (mock: ReturnType<typeof createWorks
 };
 
 {
+  const pendingMatch = {
+    id: 'referee-concurrent-result', phase: 'groups', teamAId: 'A', teamBId: 'B',
+    scoreA: 0, scoreB: 0, played: false, status: 'scheduled',
+  } as const;
+  const base = coerceAppState({
+    ...conflictBaseState(),
+    tournamentMatches: [pendingMatch, { ...pendingMatch, id: 'admin-match' }],
+  });
+  const mock = createWorkspaceScenario(base);
+  const readbackRepository = new RemoteRepository({} as any, { backgroundSync: false });
+  await readbackRepository.refresh();
+  const stalePollEntered = deferred();
+  const releaseStalePoll = deferred();
+  mock.beforePullResponse = async (requestNumber) => {
+    if (requestNumber === 2) {
+      stalePollEntered.resolve();
+      await releaseStalePoll.promise;
+    }
+  };
+  const stalePoll = readbackRepository.refresh();
+  await waitForGate(stalePollEntered.promise, 'poll before the Admin patch');
+  const adminOnly = coerceAppState({
+    ...base,
+    tournamentMatches: [pendingMatch, { ...pendingMatch, id: 'admin-match', scoreA: 10, played: true, status: 'finished' }],
+  });
+  const committed = coerceAppState({
+    ...adminOnly,
+    tournamentMatches: [{ ...pendingMatch, scoreB: 10, played: true, status: 'finished' }, adminOnly.tournamentMatches[1]],
+  });
+  mock.publish(committed);
+  const adopted = deferred();
+  const unsubscribe = readbackRepository.subscribe(snapshot => {
+    if (snapshot.tournamentMatches[0].scoreB === 10) adopted.resolve();
+  });
+  readbackRepository.acknowledgeExternalCommit(adminOnly, {
+    updatedAt: '2026-09-10T12:00:41.000Z',
+    version: mock.version,
+    readBack: true,
+  });
+  releaseStalePoll.resolve();
+  await stalePoll;
+  await waitForGate(adopted.promise, 'authoritative readback after Admin patch');
+  const latest = await readbackRepository.flush();
+  if (!latest) throw new Error('an authoritative state must be available after the readback');
+  assert(latest.tournamentMatches[0].scoreB === 10, 'the readback must include the referee report committed with the Admin patch');
+  readbackRepository.save(withTitles(latest, 'title-after-report-readback'));
+  await readbackRepository.flush();
+  assert(mock.state.tournamentMatches[0].scoreB === 10, 'the next snapshot must retain the concurrent referee report');
+  assert(hasTitle(mock.state, 'title-after-report-readback'), 'the independent post-readback edit must be committed');
+  await assertNoPendingScenarioDrafts(mock, 'readback and subsequent autosave');
+  unsubscribe();
+}
+
+{
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const repository = new RemoteRepository({} as any, { backgroundSync: false });
+  await repository.refresh();
+  const debouncedEdit = withTitles(base, 'title-still-in-react-debounce');
+  const unsubscribe = repository.subscribe(() => {}, () => {
+    repository.save(debouncedEdit);
+    return true;
+  });
+  mock.publish(coerceAppState({ ...base, logo: 'remote-logo-during-debounce' }));
+  await repository.refresh();
+  assert(readRemoteDraftPointer()?.baseVersion === 40, 'the debounce can checkpoint before the pull advances its base');
+  unsubscribe();
+  await repository.flush();
+  assert(mock.state.logo === 'remote-logo-during-debounce', 'preserving the debounce must retain the independent remote state');
+  assert(hasTitle(mock.state, 'title-still-in-react-debounce'), 'a local edit awaiting the debounce must survive the pull');
+  await assertNoPendingScenarioDrafts(mock, 'debounced edit during readback');
+}
+
+{
   const base = conflictBaseState();
   const mock = createWorkspaceScenario(base);
   const mergingRepository = new RemoteRepository({} as any, { backgroundSync: false });

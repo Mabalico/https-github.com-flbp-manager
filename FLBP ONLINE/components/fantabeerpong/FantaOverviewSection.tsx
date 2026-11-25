@@ -205,7 +205,7 @@ export const FantaOverviewSection: React.FC<Props> = ({
           <div className={panelClass}>
             <div className="text-xl font-black tracking-tight text-slate-950">{t('fanta_team_state')}</div>
             <div className="mt-1 text-sm font-semibold text-slate-600">
-              {!hasActiveTournament ? t('fanta_waiting_desc') : resultsOnlyTournament ? t('fanta_results_only_desc') : isPreTournament && !userTeam ? 'Pretorneo attivo: scegli la tua rosa prima che venga generato il tabellone.' : userTeam ? t('fanta_roster_ready') : t('fanta_no_team_created')}
+              {!hasActiveTournament ? t('fanta_waiting_desc') : resultsOnlyTournament ? t('fanta_results_only_desc') : isPreTournament && !userTeam ? t('fanta_create_before_start') : userTeam ? t('fanta_roster_ready') : t('fanta_no_team_created')}
             </div>
             {userTeam ? (
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">

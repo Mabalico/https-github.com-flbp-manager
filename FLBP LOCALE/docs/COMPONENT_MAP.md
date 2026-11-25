@@ -118,7 +118,7 @@ Note (props UI aggiunte, backward-compatible):
 - `components/admin/tabs/DataTab.tsx`
   - sub-tab: `archive | integrations`
   - integrations sub-tab: `hof | scorers | aliases | players`
-  - `components/admin/tabs/data/IntegrationsHof.tsx`
+  - `components/admin/tabs/data/EditionEditor.tsx`
     - supporta sia il record manuale singolo sia il nuovo inserimento **torneo completo** (data + vincitori + fino a 2 MVP + capocannoniere + difensore + titoli U25) con generazione in blocco di record manuali modificabili singolarmente.
     - include anche un editor **torneo esistente** dentro Integrazioni: stessa struttura del bundle manuale, con campi sempre editabili per nome/data/MVP e lock automatico sui premi legati a partite già salvate; non reindirizza più alla gestione squadre.
     - i record manuali possono salvare anche `sourceTournamentDate` per ordinamento e badge data coerenti nell'Albo d'Oro pubblico.
@@ -223,7 +223,7 @@ Per riprendere in Codex i flussi Admin toccati negli step recenti, consulta anch
 
 Punti stabili nel repository:
 - `components/admin/SocialGraphicsPanel.tsx`: match reali, generatori slot, dispari, preliminari separati, picker manuale match, pruning assegnazioni stale.
-- `components/admin/tabs/data/IntegrationsHof.tsx`: bundle torneo completo + editor torneo in Integrazioni con lock e stato dirty.
+- `components/admin/tabs/data/EditionEditor.tsx` gestisce l'editor delle edizioni in Integrazioni, con i vincoli sui risultati registrati e la protezione delle modifiche in corso.
 - `components/AdminDashboard.tsx` + `services/teamImportProfile.ts`: profilo del primo XLSX, scelta foglio migliore nei workbook multi-sheet, mismatch più leggibili.
 - `services/storageService.ts`: le squadre arbitri restano squadre reali per standings/awards; escludere solo BYE/hidden.
 

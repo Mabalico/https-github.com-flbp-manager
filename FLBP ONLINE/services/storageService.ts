@@ -1,6 +1,6 @@
 import { Team, Match, TournamentData, TvProjection, TV_PROJECTIONS, HallOfFameEntry, IntegrationScorerEntry } from '../types';
 import { compareTeamsByTieBreak, computeGroupStandings } from './groupStandings';
-import { isFinalGroup } from './groupUtils';
+import { applyFinalGroupSchedule, isFinalGroup } from './groupUtils';
 import { deriveYoBFromBirthDate, getPlayerKey, getPlayerKeyLabel, isU25, resolvePlayerKey } from './playerIdentity';
 import { buildMetricAwardEntries } from './awardRules';
 import { normalizeNameLower } from './textUtils';
@@ -40,6 +40,51 @@ const normalizeTournamentDataName = (tournament: TournamentData | null): Tournam
         ...tournament,
         name: normalizeLegacyTournamentName(tournament.name),
     };
+};
+
+const syncLiveGroupTeamNames = (tournament: TournamentData): TournamentData => {
+    if (!Array.isArray(tournament.groups) || !tournament.groups.length) return tournament;
+    const roster = Array.isArray(tournament.teams) ? tournament.teams : [];
+    const namesById = new Map(roster.filter(Boolean).map(team => [team.id, team.name]));
+    let changed = false;
+    const groups = tournament.groups.map(group => {
+        if (!Array.isArray(group?.teams)) return group;
+        let groupChanged = false;
+        const teams = group.teams.map(team => {
+            const name = namesById.get(team?.id);
+            if (!name || name === team.name) return team;
+            groupChanged = true;
+            return { ...team, name };
+        });
+        if (!groupChanged) return group;
+        changed = true;
+        return { ...group, teams };
+    });
+    return changed ? { ...tournament, groups } : tournament;
+};
+
+/** Refresh the live roster and the copies shown in group tables and TV. */
+export const mergeIntoLiveTournamentTeams = (tournament: TournamentData | null, globalTeams: Team[]): TournamentData | null => {
+    if (!tournament) return tournament;
+    const roster = Array.isArray(tournament.teams) ? tournament.teams : [];
+    const byId = new Map(globalTeams.map(team => [team.id, team]));
+    const liveIds = new Set(roster.map(team => team.id));
+    let changed = false;
+    const teams = roster.map(team => {
+        const update = byId.get(team.id);
+        if (!update) return team;
+        const merged = { ...team, ...update };
+        if (team.name !== merged.name || team.player1 !== merged.player1 || team.player2 !== merged.player2
+            || team.player1YoB !== merged.player1YoB || team.player2YoB !== merged.player2YoB
+            || team.player1IsReferee !== merged.player1IsReferee || team.player2IsReferee !== merged.player2IsReferee
+            || team.isReferee !== merged.isReferee) changed = true;
+        return merged;
+    });
+    for (const [id, team] of byId) {
+        if (!liveIds.has(id)) teams.push(team);
+    }
+    const nextTournament = changed || teams.length !== roster.length ? { ...tournament, teams } : tournament;
+    return syncLiveGroupTeamNames(nextTournament);
 };
 
 const normalizeHallOfFameEntryName = (entry: HallOfFameEntry): HallOfFameEntry => ({
@@ -114,6 +159,7 @@ export const coerceAppState = (raw: any, options?: { publicSnapshot?: boolean })
     merged.matches = asArr<Match>(merged.matches);
     merged.tournamentMatches = asArr<Match>(merged.tournamentMatches);
     merged.tournamentHistory = asArr<TournamentData>(merged.tournamentHistory)
+        .map(t => t?.config?.finalRoundRobin?.activated ? applyFinalGroupSchedule(t, getTournamentMatchesForAwardsSync(t)) : t)
         .map((t) => normalizeTournamentDataName(t) as TournamentData);
     merged.hallOfFame = asArr<HallOfFameEntry>(merged.hallOfFame)
         .map(normalizeHallOfFameEntryName);
@@ -127,14 +173,15 @@ export const coerceAppState = (raw: any, options?: { publicSnapshot?: boolean })
     merged.tournament = normalizeTournamentDataName(
         merged.tournament && isObj(merged.tournament) ? (merged.tournament as TournamentData) : null
     );
+    if (merged.tournament) merged.tournament = syncLiveGroupTeamNames(merged.tournament);
 
     // Keep live matches mirrored in both state branches to avoid stale reads across views/sync layers.
     if (merged.tournament) {
         const tournamentMatches = asArr<Match>(merged.tournamentMatches);
         const embeddedMatches = asArr<Match>((merged.tournament as any).matches);
         const nextLiveMatches = tournamentMatches.length ? tournamentMatches : embeddedMatches;
-        merged.tournamentMatches = nextLiveMatches;
-        merged.tournament = { ...merged.tournament, matches: nextLiveMatches };
+        merged.tournament = applyFinalGroupSchedule(merged.tournament, nextLiveMatches);
+        merged.tournamentMatches = merged.tournament.matches;
     } else {
         merged.tournamentMatches = asArr<Match>(merged.tournamentMatches);
     }
@@ -254,7 +301,7 @@ export const buildTournamentAwards = (tournament: TournamentData, matches: Match
     }
 
     // Fallback: bracket final
-    if (!winnerTeamId) {
+    if (!winnerTeamId && !finalRrActivated) {
         const bracket = (matches || []).filter(m => m.phase === 'bracket');
         const maxRound = bracket.reduce((acc, m) => Math.max(acc, m.round || 0), 0);
         const finalMatch = bracket

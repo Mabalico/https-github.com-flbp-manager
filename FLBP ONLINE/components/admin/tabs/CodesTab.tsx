@@ -2,13 +2,16 @@ import React from 'react';
 import { CheckCircle2, FileText, ListChecks, LoaderCircle, PhoneCall, Play, Printer, RefreshCw, Search, ThumbsUp, X } from 'lucide-react';
 import type { AppState } from '../../../services/storageService';
 import type { Team } from '../../../types';
-import { getMatchParticipantIds, formatMatchScoreLabel } from '../../../services/matchUtils';
+import { canPlayMatch, getMatchParticipantIds, formatMatchScoreLabel, isByeMatch, isPlaceholderTeamId } from '../../../services/matchUtils';
+import { compareTournamentMatches, formatGroupName } from '../../../services/groupUtils';
 import { useTranslation } from '../../../App';
 import { useAdminTeamCalls } from '../useAdminTeamCalls';
 
 export type CodesStatusFilter = 'all' | 'scheduled' | 'playing' | 'finished';
 
 export interface CodesTabProps {
+    sharedQuery?: string;
+    onSharedQueryChange?: (query: string) => void;
     state: AppState;
     codesStatusFilter: CodesStatusFilter;
     setCodesStatusFilter: (v: CodesStatusFilter) => void;
@@ -20,6 +23,8 @@ export interface CodesTabProps {
 }
 
 export const CodesTab: React.FC<CodesTabProps> = ({
+    sharedQuery,
+    onSharedQueryChange,
     state,
     codesStatusFilter,
     setCodesStatusFilter,
@@ -29,16 +34,11 @@ export const CodesTab: React.FC<CodesTabProps> = ({
     reloadFromDb,
     isReloadingFromDb = false,
 }) => {
-    const [query, setQuery] = React.useState('');
+    const [localQuery, setLocalQuery] = React.useState('');
+    const query = sharedQuery ?? localQuery;
+    const setQuery = onSharedQueryChange ?? setLocalQuery;
     const { t } = useTranslation();
     const { getTeamCallMeta, triggerTeamCall } = useAdminTeamCalls(state);
-
-    const normalizeTeamId = (id: unknown) => (typeof id === 'string' ? id.trim().toUpperCase() : '');
-    const isByeTeamId = (id: unknown) => normalizeTeamId(id) === 'BYE';
-    const isPlaceholderTeamId = (id: unknown) => {
-        const up = normalizeTeamId(id);
-        return up === 'BYE' || up === 'TBD' || up.startsWith('TBD-');
-    };
 
     // Lightweight Admin UI tokens (local): aligns toolbar controls with other admin tabs.
     const inputBase =
@@ -53,11 +53,13 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         playing: { label: t('match_status_playing'), pill: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
         finished: { label: t('match_status_finished'), pill: 'border-rose-200 bg-rose-50 text-rose-800' },
     } as const), [t]);
-    const sourceMatches = React.useMemo(() => {
+    const schedule = React.useMemo(() => {
         const adminMatches = state.tournamentMatches || [];
         const tournamentMatches = state.tournament?.matches || [];
-        return adminMatches.length ? adminMatches : tournamentMatches;
-    }, [state.tournament?.matches, state.tournamentMatches]);
+        return (adminMatches.length ? adminMatches : tournamentMatches)
+            .filter(m => !m.hidden && !isByeMatch(m))
+            .sort(compareTournamentMatches(state.tournament));
+    }, [state.tournament, state.tournamentMatches]);
 
     const teamCatalog = React.useMemo(() => {
         const map = new Map<string, Team>();
@@ -80,7 +82,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 
         return (
             <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center">
-                {teams.map((team, index) => {
+                {teams.map(team => {
                     const meta = getTeamCallMeta(team, match);
                     const status = meta.status;
                     const icon = status === 'acknowledged'
@@ -102,6 +104,11 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                             : status === 'ringing'
                                 ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50';
+                    const caption = meta.disabled
+                        ? t('codes_no_account')
+                        : status === 'ringing'
+                            ? title
+                            : t('codes_call_named_team').replace('{team}', team.name || team.id);
 
                     return (
                         <button
@@ -118,9 +125,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                             }}
                             className={`inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${className}`}
                         >
-                            {icon}
-                            <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-black/5 px-1 text-[10px] font-black">
-                                {index + 1}
+                            <span className="shrink-0">{icon}</span>
+                            <span className="min-w-0 max-w-36 truncate">
+                                {caption}
                             </span>
                         </button>
                     );
@@ -143,6 +150,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
 
             <div className="flex flex-col gap-2 sm:items-end">
                 <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end" role="toolbar" aria-label={t('codes_toolbar_aria')}>
+                    {sharedQuery === undefined && <>
                     <div className="relative w-full sm:w-auto">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
@@ -176,6 +184,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                         <option value="playing">{t('match_status_playing')}</option>
                         <option value="finished">{t('match_status_finished_plural')}</option>
                     </select>
+                    </>}
 
                     {reloadFromDb && (
                         <button
@@ -190,21 +199,21 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                         </button>
                     )}
 
-                    <button type="button"
+                    {sharedQuery === undefined && <button type="button"
                         onClick={printCodes}
                         className={btnSecondary}
                         title={t('print_code_list')}
                     >
                         <Printer className="w-4 h-4" /> {t('print')}
-                    </button>
+                    </button>}
                 </div>
 
                 <div className="text-xs font-bold text-slate-500">
                     {(() => {
-                        const total = sourceMatches.length;
+                        const total = schedule.length;
                         const filtered = codesStatusFilter === 'all'
                             ? total
-                            : sourceMatches.filter(m => m.status === codesStatusFilter).length;
+                            : schedule.filter(m => m.status === codesStatusFilter).length;
                         return (
                             <>
                                 {t('codes_live_tournament_label')}: {state.tournament ? t('yes_short') : t('no_short')} • {t('matches_label')}: {filtered}/{total}
@@ -227,19 +236,11 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                     const teamMap = new Map<string, string>();
                     (state.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
                     (state.tournament?.teams || []).forEach(t => { if (t?.id) teamMap.set(t.id, t.name); });
-                    const ms = [...sourceMatches]
-                        .filter(m => !(m as any).hidden)
-                        .filter(m => {
-                            const ids = getMatchParticipantIds(m as any);
-                            return !ids.some(isByeTeamId);
-                        })
-                        .sort((a, b) => (a.orderIndex ?? Number.MAX_SAFE_INTEGER) - (b.orderIndex ?? Number.MAX_SAFE_INTEGER));
-
+                    const ms = schedule;
                     const statusFiltered = codesStatusFilter === 'all' ? ms : ms.filter(m => m.status === codesStatusFilter);
-                    const current =
-                        ms.find(m => m.status === 'playing') ||
-                        ms.find(m => m.status === 'scheduled') ||
-                        ms[ms.length - 1];
+                    const playable = ms.filter(canPlayMatch);
+                    const current = playable.find(m => m.status === 'playing') ||
+                        playable.find(m => m.status === 'scheduled') || playable[playable.length - 1];
                     const currentIdx = current ? (ms.findIndex(m => m.id === current.id) + 1) : 0;
                     const finishedCount = ms.filter(m => m.status === 'finished').length;
                     const playingCount = ms.filter(m => m.status === 'playing').length;
@@ -302,9 +303,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => current && openReportFromCodes(current.id)}
-                                                disabled={!current || getMatchParticipantIds(current as any).some(isPlaceholderTeamId)}
+                                                disabled={!current}
                                             className={`inline-flex min-h-[44px] items-center justify-center px-4 py-2.5 rounded-xl font-black text-sm border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
-                                                    current && !getMatchParticipantIds(current as any).some(isPlaceholderTeamId)
+                                                    current
                                                         ? 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'
                                                         : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                                                 }`}
@@ -315,9 +316,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => current && current.status !== 'finished' && toggleMatchStatus(current.id)}
-                                                disabled={!current || current.status === 'finished' || getMatchParticipantIds(current as any).some(isPlaceholderTeamId)}
+                                                disabled={!current || current.status === 'finished'}
                                                 className={`inline-flex min-h-[44px] items-center justify-center px-4 py-2.5 rounded-xl font-black text-sm border focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${
-                                                    current && current.status !== 'finished' && !getMatchParticipantIds(current as any).some(isPlaceholderTeamId)
+                                                    current && current.status !== 'finished'
                                                         ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
                                                         : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                                                 }`}
@@ -329,8 +330,9 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                     </div>
                                 </div>
 
-                                <details className="rounded-xl border border-slate-200 bg-white p-3">
-                                    <summary className="cursor-pointer list-none text-[11px] font-black uppercase tracking-wide text-slate-500">
+                                <details className="group rounded-xl border border-slate-200 bg-white p-3">
+                                    <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
+                                        <span aria-hidden="true" className="transition-transform group-open:rotate-90">▸</span>
                                         {t('codes_operational_notes')}
                                     </summary>
                                     <div className="mt-2 text-[11px] font-bold text-slate-500">
@@ -344,7 +346,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                     const isCurrent = current && m.id === current.id;
                                     const ids = getMatchParticipantIds(m as any);
                                     const isMulti = ids.length >= 3;
-                                    const hasPlaceholder = ids.length < 2 || ids.some(isPlaceholderTeamId);
+                                    const hasPlaceholder = !canPlayMatch(m);
                                     const labelNames = getLabelNames(m);
                                     const code = m.code || '-';
                                     const score = m.status === 'finished' ? formatMatchScoreLabel(m as any) : '—';
@@ -393,7 +395,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 </div>
                                                 <div className="text-xs font-bold text-slate-500 mt-1">
                                                     {m.phase === 'groups'
-                                                        ? (m.groupName ? `${t('codes_group_single')} ${m.groupName}` : t('codes_groups'))
+                                                        ? (m.groupName ? formatGroupName(m.groupName, t) : t('codes_groups'))
                                                         : (m.roundName || t('codes_bracket'))}
                                                 </div>
                                             </div>
@@ -416,7 +418,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                     title={hasPlaceholder ? t('codes_report_unavailable_tbd') : t('open_report')}
                                                     aria-label={hasPlaceholder ? t('codes_report_unavailable_tbd') : t('open_report')}
                                                 >
-                                                    <FileText className="w-4 h-4" /> <span className="hidden sm:inline">{t('reports')}</span>
+                                                    <FileText className="w-4 h-4" /> <span>{t('report_label')}</span>
                                                 </button>
 
                                                 {m.status !== 'finished' && (

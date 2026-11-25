@@ -5,3 +5,5 @@ UI e repository usano la stessa decisione in `getDataPersistenceMode()` (`servic
 Un vecchio `flbp_remote_repo=0` non può più attivare il repository locale mentre la UI indica la modalità remota obbligatoria. La correzione non cancella dati o bozze del browser.
 
 `npm run test:persistence` verifica i resolver effettivi attraverso una matrice di configurazioni, includendo storage indisponibile e aggiornamento delle preferenze senza cancellare lo stato applicativo. La documentazione estesa si trova anche nella copia ONLINE, `docs/PERSISTENCE_MODE.md`.
+
+Le modifiche in attesa del salvataggio vengono registrate sulla loro base prima di applicare un nuovo snapshot remoto. La sincronizzazione strutturata parte dallo stato confermato dal repository. Il canale Realtime si apre nell'area Admin con sessione Supabase. TV, sito pubblico e arbitri mantengono le letture dedicate.

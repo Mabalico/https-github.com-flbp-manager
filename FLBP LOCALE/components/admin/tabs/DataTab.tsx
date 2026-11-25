@@ -1,10 +1,12 @@
 import React from 'react';
 import { requestDraftNavigation } from '../../../services/draftNavigationGuard';
-import { Activity, Archive, BarChart3, Database, Link2, PlusCircle, Settings, Trash2, Users } from 'lucide-react';
+import { Archive, ChevronDown, Database, Settings, Users } from 'lucide-react';
 import type { Team, Match } from '../../../types';
 import type { AppState } from '../../../services/storageService';
 import { isRemotePersistenceLocked } from '../../../services/repository/featureFlags';
-import { AccountsSubTab, ArchiveSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
+import { DbMigrationWizard } from './data/DbMigrationWizard';
+import { IntegrationsFantaCleanup } from './data/IntegrationsFantaCleanup';
+import { AccountsSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
 
 export interface DataTabProps {
     state: AppState;
@@ -145,302 +147,117 @@ export interface DataTabProps {
     autoFixBracketFromResults: (matches: Match[]) => Match[];
 }
 
+type DataSection = 'integrations' | 'accounts' | 'persistence' | 'views' | 'traffic' | 'sync' | 'migration' | 'fanta';
+
+const SECTION_KEY = 'flbp_admin_data_main_section';
+const technicalSections: { id: DataSection; label: string }[] = [
+    { id: 'views', label: 'data_views_title' },
+    { id: 'traffic', label: 'data_traffic_title' },
+    { id: 'sync', label: 'data_section_sync' },
+    { id: 'migration', label: 'data_section_migration' },
+    { id: 'fanta', label: 'edition_fanta_maintenance' },
+];
+
+const restoreSection = (): DataSection => {
+    try {
+        const saved = window.sessionStorage.getItem(SECTION_KEY);
+        if (saved === 'accounts' || saved === 'persistence') return saved;
+        return technicalSections.find(section => section.id === saved)?.id || 'integrations';
+    } catch { return 'integrations'; }
+};
+
 export const DataTab: React.FC<DataTabProps> = (props) => {
-    const { dataSubTab, setDataSubTab, t } = props;
-    const safeSessionGet = (key: string): string | null => {
-        try { return window.sessionStorage.getItem(key); } catch { return null; }
-    };
-    const safeSessionSet = (key: string, value: string) => {
-        try { window.sessionStorage.setItem(key, value); } catch {}
-    };
-    const [mainSection, setMainSection] = React.useState<'integrations' | 'views' | 'traffic' | 'persistence' | 'accounts' | null>(() => {
-        const raw = safeSessionGet('flbp_admin_data_main_section');
-        return raw === 'integrations' || raw === 'views' || raw === 'traffic' || raw === 'persistence' || raw === 'accounts' ? raw : null;
-    });
-    const embedded = !!props.embedded;
-    const navigateSection = React.useCallback((section: typeof mainSection) => {
-        void requestDraftNavigation(() => setMainSection(section));
-    }, []);
-
-    const archiveCount = (props.state.tournamentHistory || []).length;
-    const hofCount = (props.state.hallOfFame || []).length;
-    const scorersCount = (props.state.integrationsScorers || []).length;
-    const aliasesCount = Object.keys(props.state.playerAliases || {}).length;
-    const activeSectionLabel = dataSubTab === 'archive' ? t('data_active_edit') : t('data_active_add');
-    const remotePersistenceLocked = isRemotePersistenceLocked();
-
-    const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2';
-    const tabBtnBase = `px-3 py-2.5 rounded-xl font-black border text-sm inline-flex items-center gap-2 ${ring}`;
-    const tabBtnActive = 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800';
-    const tabBtnInactive = 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50';
-    const entryBtnBase = `group relative overflow-hidden text-left rounded-2xl border p-3 sm:p-4 transition-all duration-200 flex flex-col justify-between h-full ${ring}`;
-
-    const entryBtnClass = (section: 'integrations' | 'views' | 'traffic' | 'persistence' | 'accounts') => {
-        const isActive = mainSection === section;
-        if (section === 'integrations') {
-            return `${entryBtnBase} ${
-                isActive
-                    ? 'border-blue-300 bg-gradient-to-br from-blue-50 via-indigo-50 to-white shadow-md shadow-blue-100'
-                    : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-sm'
-            }`;
-        }
-        if (section === 'views') {
-            return `${entryBtnBase} ${
-                isActive
-                    ? 'border-sky-300 bg-gradient-to-br from-sky-50 via-blue-50 to-white shadow-md shadow-sky-100'
-                    : 'border-slate-200 bg-white hover:border-sky-200 hover:bg-sky-50/40 hover:shadow-sm'
-            }`;
-        }
-        if (section === 'traffic') {
-            return `${entryBtnBase} ${
-                isActive
-                    ? 'border-violet-300 bg-gradient-to-br from-violet-50 via-fuchsia-50 to-white shadow-md shadow-violet-100'
-                    : 'border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-sm'
-            }`;
-        }
-        if (section === 'accounts') {
-            return `${entryBtnBase} ${
-                isActive
-                    ? 'border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-white shadow-md shadow-amber-100'
-                    : 'border-slate-200 bg-white hover:border-amber-200 hover:bg-amber-50/40 hover:shadow-sm'
-            }`;
-        }
-        return `${entryBtnBase} ${
-            isActive
-                ? 'border-emerald-300 bg-gradient-to-br from-emerald-50 via-cyan-50 to-white shadow-md shadow-emerald-100'
-                : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-sm'
-        }`;
-    };
-
-    const pill = (label: string) => (
-        <span className="px-2 py-1 rounded-full text-[11px] font-black border border-slate-200 bg-slate-50 text-slate-700">
-            {label}
-        </span>
-    );
-
-    React.useEffect(() => {
-        if (!mainSection) {
-            try { window.sessionStorage.removeItem('flbp_admin_data_main_section'); } catch {}
-            return;
-        }
-        safeSessionSet('flbp_admin_data_main_section', mainSection);
+    const { t, state, embedded } = props;
+    const [forceOverwrite, setForceOverwrite] = React.useState(false);
+    const [mainSection, setMainSection] = React.useState(restoreSection);
+    const [technicalOpen, setTechnicalOpen] = React.useState(() => technicalSections.some(section => section.id === mainSection));
+    const navigateSection = React.useCallback((section: DataSection) => {
+        if (section === mainSection) return;
+        void requestDraftNavigation(() => {
+            setMainSection(section);
+            if (technicalSections.some(item => item.id === section)) setTechnicalOpen(true);
+        });
     }, [mainSection]);
 
     React.useEffect(() => {
-        const onOpenPersistence = () => navigateSection('persistence');
-        const onOpenViews = () => navigateSection('views');
-        const onOpenTraffic = () => navigateSection('traffic');
-        window.addEventListener('flbp:open-data-persistence', onOpenPersistence as EventListener);
-        window.addEventListener('flbp:open-data-views', onOpenViews as EventListener);
-        window.addEventListener('flbp:open-data-traffic', onOpenTraffic as EventListener);
+        try { window.sessionStorage.setItem(SECTION_KEY, mainSection); } catch {}
+    }, [mainSection]);
+
+    React.useEffect(() => {
+        const openPersistence = () => navigateSection('sync');
+        const openViews = () => navigateSection('views');
+        const openTraffic = () => navigateSection('traffic');
+        window.addEventListener('flbp:open-data-persistence', openPersistence);
+        window.addEventListener('flbp:open-data-views', openViews);
+        window.addEventListener('flbp:open-data-traffic', openTraffic);
         return () => {
-            window.removeEventListener('flbp:open-data-persistence', onOpenPersistence as EventListener);
-            window.removeEventListener('flbp:open-data-views', onOpenViews as EventListener);
-            window.removeEventListener('flbp:open-data-traffic', onOpenTraffic as EventListener);
+            window.removeEventListener('flbp:open-data-persistence', openPersistence);
+            window.removeEventListener('flbp:open-data-views', openViews);
+            window.removeEventListener('flbp:open-data-traffic', openTraffic);
         };
-    }, []);
+    }, [navigateSection]);
+
+    const archiveCount = state.tournamentHistory.length;
+    const renderEntry = (id: DataSection, label: string, icon?: React.ReactNode, detail?: string) => (
+        <button key={id} type="button" aria-current={mainSection === id ? 'page' : undefined} onClick={() => navigateSection(id)}
+            className={`flex min-h-[44px] items-center gap-2 rounded-xl border px-3 py-2 text-start text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-beer-600 ${mainSection === id ? 'border-blue-300 bg-blue-50 text-blue-950' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}>
+            {icon}
+            <span className="min-w-0">
+                <span className="block">{label}</span>
+                {detail && <span className="block text-xs font-medium text-slate-600">{detail}</span>}
+            </span>
+        </button>
+    );
 
     return (
-        <div className={embedded ? 'space-y-6' : 'bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6'}>
-            {!embedded ? (
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div>
-                        <h3 className="text-xl font-black flex items-center gap-2">
-                            <Settings className="w-5 h-5" />
-                            {t('data_management')}
-                        </h3>
-                        {remotePersistenceLocked ? (
-                            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-emerald-900">
-                                {t('data_public_deploy_persistence')}
-                            </div>
-                        ) : null}
-                        <div className="text-xs text-slate-600 font-bold mt-1">
-                            {t('data_management_intro')}
-                        </div>
+        <div className={embedded ? 'space-y-4' : 'space-y-4 rounded-xl border border-slate-200 bg-white p-3 sm:p-5'}>
+            {!embedded && (
+                <header className="flex flex-wrap items-center gap-2">
+                    <h3 className="flex items-center gap-2 text-xl font-black"><Settings className="h-5 w-5" aria-hidden="true" />{t('data_management')}</h3>
+                    {isRemotePersistenceLocked() && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-900">{t('data_public_deploy_persistence')}</span>}
+                </header>
+            )}
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(12rem,14rem)_minmax(0,1fr)]">
+                <nav aria-label={t('data_management')} className="flex flex-wrap items-start gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 lg:grid">
+                    {renderEntry('integrations', t('data_section_archive_players'), <Archive className="h-4 w-4 shrink-0" aria-hidden="true" />, t(archiveCount === 1 ? 'data_archive_one' : 'data_archive_count').replace('{count}', String(archiveCount)))}
+                    {renderEntry('accounts', t('data_accounts_title'), <Users className="h-4 w-4 shrink-0" aria-hidden="true" />)}
+                    {renderEntry('persistence', t('data_section_backup'), <Database className="h-4 w-4 shrink-0" aria-hidden="true" />)}
+                    <button type="button" aria-expanded={technicalOpen} aria-controls="data-technical-nav" onClick={() => setTechnicalOpen(open => !open)} className="flex min-h-[44px] items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-start text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-beer-600">
+                        {t('data_section_technical')} <ChevronDown className={`h-4 w-4 ${technicalOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </button>
+                    <div id="data-technical-nav" hidden={!technicalOpen} className={technicalOpen ? 'flex w-full flex-wrap gap-2 border-t border-slate-200 pt-2 lg:grid' : undefined}>
+                        {technicalSections.map(({ id, label }) => renderEntry(id, t(label)))}
                     </div>
+                </nav>
+                <div className="min-w-0">
+                    {mainSection === 'integrations' && <IntegrationsSubTab {...props} />}
+                    {mainSection === 'accounts' && <AccountsSubTab state={state} setState={props.setState} t={t} />}
+                    {mainSection === 'views' && <ViewsSubTab onBack={() => navigateSection('integrations')} t={t} />}
+                    {mainSection === 'traffic' && <TrafficSubTab onBack={() => navigateSection('integrations')} t={t} />}
+                    {mainSection === 'persistence' && (
+                        <BackupSyncPanel
+                            exportBackupJson={props.exportBackupJson}
+                            restoreBackupJson={props.restoreBackupJson}
+                            mergeBackupJson={props.mergeBackupJson}
+                            exportFullDatabaseBackup={props.exportFullDatabaseBackupJson}
+                            restoreFullDatabaseBackup={props.restoreFullDatabaseBackupJson}
+                        />
+                    )}
+                    {mainSection === 'sync' && <DbSyncPanel state={state} setState={props.setState} />}
+                    {mainSection === 'migration' && (
+                        <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                            <h3 className="font-black text-slate-900">{t('db_migration_first_setup')}</h3>
+                            <p className="text-sm text-slate-600">{t('db_migration_full_path')}</p>
+                            <label className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                                <input type="checkbox" checked={forceOverwrite} onChange={event => setForceOverwrite(event.target.checked)} />
+                                {t('db_force_overwrite')}
+                            </label>
+                            <DbMigrationWizard state={state} forceOverwrite={forceOverwrite} />
+                        </section>
+                    )}
+                    {mainSection === 'fanta' && <IntegrationsFantaCleanup {...props} />}
                 </div>
-            ) : null}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-                <button
-                    type="button"
-                    onClick={() => navigateSection('integrations')}
-                    className={`${entryBtnClass('integrations')} min-h-[112px] sm:min-h-[140px]`}
-                >
-                    <div className="flex items-start justify-between gap-3 w-full">
-                        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-200 shrink-0">
-                            <Link2 className="w-5 h-5" />
-                        </div>
-                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
-                            {pill(t('data_pill_history').replace('{count}', String(archiveCount)))}
-                            {pill(t('data_pill_hof').replace('{count}', String(hofCount)))}
-                            {pill(t('data_pill_scorers').replace('{count}', String(scorersCount)))}
-                            {pill(t('data_pill_aliases').replace('{count}', String(aliasesCount)))}
-                        </div>
-                    </div>
-                    <div className="mt-3">
-                        <div className="text-lg leading-tight font-black text-slate-950">
-                            {t('data_integrations_title')}
-                        </div>
-                    </div>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => navigateSection('views')}
-                    className={`${entryBtnClass('views')} min-h-[112px] sm:min-h-[140px]`}
-                >
-                    <div className="flex items-start justify-between gap-3 w-full">
-                        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-sky-500 text-white shadow-sm shadow-sky-200 shrink-0">
-                            <BarChart3 className="w-5 h-5" />
-                        </div>
-                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
-                            {pill(t('data_pill_counter'))}
-                            {pill(t('data_pill_chart'))}
-                            {pill(t('data_pill_range'))}
-                        </div>
-                    </div>
-                    <div className="mt-3">
-                        <div className="text-lg leading-tight font-black text-slate-950">
-                            {t('data_views_title')}
-                        </div>
-                    </div>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => navigateSection('traffic')}
-                    className={`${entryBtnClass('traffic')} min-h-[112px] sm:min-h-[140px]`}
-                >
-                    <div className="flex items-start justify-between gap-3 w-full">
-                        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500 text-white shadow-sm shadow-violet-200 shrink-0">
-                            <Activity className="w-5 h-5" />
-                        </div>
-                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
-                            {pill(t('data_pill_bytes'))}
-                            {pill(t('data_pill_requests'))}
-                            {pill(t('data_pill_range'))}
-                        </div>
-                    </div>
-                    <div className="mt-3">
-                        <div className="text-lg leading-tight font-black text-slate-950">
-                            {t('data_traffic_title')}
-                        </div>
-                    </div>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => navigateSection('persistence')}
-                    className={`${entryBtnClass('persistence')} min-h-[112px] sm:min-h-[140px]`}
-                >
-                    <div className="flex items-start justify-between gap-3 w-full">
-                        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-200 shrink-0">
-                            <Database className="w-5 h-5" />
-                        </div>
-                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
-                            {pill(t('data_pill_backup_file'))}
-                            {pill(t('data_pill_sync_online'))}
-                        </div>
-                    </div>
-                    <div className="mt-3">
-                        <div className="text-lg leading-tight font-black text-slate-950">
-                            {t('data_persistence_title')}
-                        </div>
-                    </div>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => navigateSection('accounts')}
-                    className={`${entryBtnClass('accounts')} min-h-[112px] sm:min-h-[140px]`}
-                >
-                    <div className="flex items-start justify-between gap-3 w-full">
-                        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-600 text-white shadow-sm shadow-amber-200 shrink-0">
-                            <Users className="w-5 h-5" />
-                        </div>
-                        <div className="hidden sm:flex flex-wrap justify-end gap-1.5 opacity-85 group-hover:opacity-100 transition-opacity">
-                            {pill(t('data_pill_auth_account'))}
-                            {pill(t('data_pill_player_profile'))}
-                        </div>
-                    </div>
-                    <div className="mt-3">
-                        <div className="text-lg leading-tight font-black text-slate-950">
-                            {t('data_accounts_title')}
-                        </div>
-                    </div>
-                </button>
             </div>
-
-            {mainSection ? <div className="border-t border-slate-200 pt-5" /> : null}
-
-            {mainSection === 'integrations' ? (
-                <div className="space-y-4">
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div>
-                            <div className="text-sm font-black text-slate-900 flex items-center gap-2">
-                                <Link2 className="w-4 h-4" />
-                                {t('data_integrations_title')}
-                            </div>
-                            <div className="text-xs text-slate-600 font-bold mt-1">
-                                {t('data_integrations_helper')}
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap text-xs font-bold">
-                            {pill(t('data_pill_history').replace('{count}', String(archiveCount)))}
-                            {pill(t('data_pill_hof').replace('{count}', String(hofCount)))}
-                            {pill(t('data_pill_scorers').replace('{count}', String(scorersCount)))}
-                            {pill(t('data_pill_aliases').replace('{count}', String(aliasesCount)))}
-                            <span className="px-2 py-1 rounded-full text-[11px] font-black border border-blue-200 bg-blue-50 text-blue-800">
-                                {activeSectionLabel}
-                            </span>
-                        </div>
-                    </div>
-
-                    <IntegrationsSubTab {...props} />
-                </div>
-            ) : null}
-
-            {mainSection === 'views' ? (
-                <ViewsSubTab onBack={() => setMainSection(null)} t={t} />
-            ) : null}
-
-            {mainSection === 'traffic' ? (
-                <TrafficSubTab onBack={() => setMainSection(null)} t={t} />
-            ) : null}
-
-            {mainSection === 'persistence' ? (
-                <div className="grid grid-cols-1 gap-4">
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div>
-                            <div className="text-sm font-black text-slate-900 flex items-center gap-2">
-                                <Database className="w-4 h-4" />
-                                {t('data_persistence_title')}
-                            </div>
-                            <div className="text-xs text-slate-600 font-bold mt-1">
-                                {t('data_persistence_helper')}
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap text-xs font-bold">
-                            {pill(t('data_pill_backup_file'))}
-                            {pill(t('data_pill_sync_online'))}
-                        </div>
-                    </div>
-
-                    <BackupSyncPanel
-                        exportBackupJson={props.exportBackupJson}
-                        restoreBackupJson={props.restoreBackupJson}
-                        mergeBackupJson={props.mergeBackupJson}
-                        exportFullDatabaseBackup={props.exportFullDatabaseBackupJson}
-                        restoreFullDatabaseBackup={props.restoreFullDatabaseBackupJson}
-                    />
-                    <DbSyncPanel state={props.state} setState={props.setState} />
-                </div>
-            ) : null}
-
-            {mainSection === 'accounts' ? (
-                <AccountsSubTab state={props.state} setState={props.setState} t={t} />
-            ) : null}
         </div>
     );
 };

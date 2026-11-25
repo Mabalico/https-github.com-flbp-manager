@@ -5,6 +5,7 @@ import type { HallOfFameEntry } from '../../../types';
 export type MvpPlayerOption = { id: string; name: string; label: string };
 
 interface MvpModalProps {
+    inline?: boolean;
     forArchive: boolean;
     allPlayers: MvpPlayerOption[];
     search: string;
@@ -12,7 +13,7 @@ interface MvpModalProps {
     selectedIds: string[];
     setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>;
     searchPlaceholder: string;
-    onClose: () => void;
+    onClose?: () => void;
     onArchiveWithoutMvp?: () => void;
     onSave: () => void;
     saveLabel: string;
@@ -20,6 +21,7 @@ interface MvpModalProps {
     setAssignU25Awards?: (value: boolean) => void;
     archive?: {
         awards: HallOfFameEntry[];
+        pendingFinalMatches?: string[];
         committed: boolean;
         busy: boolean;
         done: boolean;
@@ -30,6 +32,7 @@ interface MvpModalProps {
 }
 
 export const MvpModal: React.FC<MvpModalProps> = ({
+    inline = false,
     forArchive,
     allPlayers,
     search,
@@ -50,33 +53,38 @@ export const MvpModal: React.FC<MvpModalProps> = ({
     const tt = (key: string, fallback: string) => t?.(key) || fallback;
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
-            <div role="dialog" aria-modal="true" aria-labelledby="archive-mvp-title" className="w-full max-w-3xl max-h-[90dvh] overflow-y-auto bg-white rounded-2xl shadow-xl">
+        <div className={inline ? undefined : "fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4"}>
+            <div role={inline ? "region" : "dialog"} aria-modal={inline ? undefined : true} aria-labelledby="archive-mvp-title" className={inline ? "overflow-hidden rounded-xl border border-slate-200 bg-white" : "w-full max-w-3xl max-h-[90dvh] overflow-y-auto bg-white rounded-2xl shadow-xl"}>
                 <div className="bg-slate-900 text-white px-4 py-3 font-black flex items-center justify-between">
                     <span id="archive-mvp-title" className="flex items-center gap-2">
                         <Star className="h-4 w-4 text-amber-300" aria-hidden />
-                        {forArchive ? tt('mvp_before_archive', 'MVP (before archiving)') : 'MVP'}
+                        {forArchive && !inline ? tt('mvp_before_archive', 'MVP (before archiving)') : tt('mvp_plural', 'MVP')}
                     </span>
-                    <button
+                    {!inline && <button
                         type="button"
                         disabled={archive?.busy}
                         onClick={onClose}
                         className="px-3 py-2 rounded-lg font-black bg-white/10 hover:bg-white/20 text-xs"
                     >
                         {tt('close', 'Close')}
-                    </button>
+                    </button>}
                 </div>
 
                 <div className="p-4 space-y-4">
                     {archive && (
                         <section aria-label={tt('archive_awards_summary', 'Awards summary')} className="rounded-xl border border-slate-200 p-3">
                             <h3 className="mb-2 font-black">{tt('archive_awards_summary', 'Awards summary')}</h3>
+                            {!!archive.pendingFinalMatches?.length && (
+                                <p role="status" className="mb-3 rounded-lg bg-amber-50 p-2 text-sm font-bold text-amber-900">
+                                    {tt('archive_final_group_pending', 'Final group matches still to play')} · {archive.pendingFinalMatches.join(', ')}
+                                </p>
+                            )}
                             {archive.awards.length ? (
                                 <dl className="space-y-1 text-sm">
                                     {archive.awards.map(award => (
                                         <div key={award.id} className="flex flex-wrap justify-between gap-x-3">
                                             <dt className="font-bold">{tt('edition_award_' + award.type, award.type)}</dt>
-                                            <dd>{award.type === 'winner' ? award.teamName : award.playerNames?.join(', ') || award.teamName}</dd>
+                                            <dd>{award.type === 'winner' ? award.teamName : award.playerNames?.join(', ') || award.teamName}{typeof award.value === 'number' && <> · {award.value}</>}</dd>
                                         </div>
                                     ))}
                                 </dl>
@@ -137,7 +145,8 @@ export const MvpModal: React.FC<MvpModalProps> = ({
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder={searchPlaceholder}
-                            className="flex-1 border border-slate-200 rounded-lg px-3 py-2 font-bold"
+                            aria-label={searchPlaceholder}
+                            className="min-w-0 flex-1 border border-slate-200 rounded-lg px-3 py-2 font-bold"
                         />
                         <button
                             onClick={() => setSelectedIds([])}
@@ -193,7 +202,7 @@ export const MvpModal: React.FC<MvpModalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {forArchive && !archive?.committed && (
+                        {forArchive && onArchiveWithoutMvp && !archive?.committed && (
                             <button
                                 type="button"
                                 disabled={archive?.busy}

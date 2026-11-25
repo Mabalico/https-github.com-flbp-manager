@@ -295,11 +295,13 @@ const buildParticipationRows = (profile: PlayerProfileSnapshot, t: (key: string)
 
   profile.contributions.forEach((row) => {
     const tournamentId = cleanDisplayValue(row.tournamentId);
+    const tournamentName = row.tournamentName || '';
+    const importedTotals = row.sourceType === 'manual_integration' && (!tournamentId || /\.(xlsx?|csv|ods)$/i.test(tournamentName.trim()));
 
     const item = ensureRow({
       id: tournamentId || 'integrated-history',
       openTournamentId: tournamentId,
-      name: row.tournamentName || (tournamentId ? null : t('player_area_integrated_history')),
+      name: importedTotals ? t('player_area_integrated_history') : tournamentName || null,
       year: row.tournamentYear || null,
       team: row.teamName || null,
     });
@@ -405,9 +407,9 @@ export const PublicPlayerDetail: React.FC<PublicPlayerDetailProps> = ({
               {participations.map((row) => {
                 const subtitle = formatMetaLine(row.year, row.team);
                 const stats = formatMetaLine(
-                  row.games ? `${row.games} ${t('games').toLowerCase()}` : null,
-                  row.points ? `${row.points} ${t('points').toLowerCase()}` : null,
-                  row.soffi ? `${row.soffi} ${t('soffi').toLowerCase()}` : null
+                  row.games ? `${row.games} ${t(row.games === 1 ? 'game_singular' : 'games').toLocaleLowerCase()}` : null,
+                  row.points ? `${row.points} ${t(row.points === 1 ? 'basket_singular' : 'points_baskets').toLocaleLowerCase()}` : null,
+                  row.soffi ? `${row.soffi} ${t(row.soffi === 1 ? 'blow_singular' : 'soffi').toLocaleLowerCase()}` : null
                 );
                 const body = (
                   <>

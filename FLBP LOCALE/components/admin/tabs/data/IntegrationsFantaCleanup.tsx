@@ -8,9 +8,9 @@ import {
     fetchFantaTournamentDataSummaries,
     type FantaTournamentDataSummary,
 } from '../../../../services/supabaseRest';
+import { splitFantaCleanupRows } from '../../../../services/fantabeerpong/fantaCleanup';
 import { FANTA_APP_CHANGE_EVENT } from '../../../../services/playerAppService';
-
-const PRE_TOURNAMENT_ID = '__pre_tournament__';
+import { FantaArchivedEditions } from './FantaArchivedEditions';
 
 export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state, t }) => {
     const { ask, feedbackUI } = useIntegrationFeedback(t);
@@ -19,31 +19,22 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state, t }) =
     const [deletingId, setDeletingId] = React.useState<string | null>(null);
     const [feedback, setFeedback] = React.useState<null | { tone: 'success' | 'error'; message: string }>(null);
 
-    const knownTournamentIds = React.useMemo(() => {
-        const ids = new Set<string>();
-        const liveId = String((state.tournament as any)?.id || '').trim();
-        if (liveId) ids.add(liveId);
-        (state.tournamentHistory || []).forEach((tournament: any) => {
-            const id = String(tournament?.id || '').trim();
-            if (id) ids.add(id);
-        });
-        return ids;
-    }, [state.tournament, state.tournamentHistory]);
-
-    const cleanupRows = React.useMemo(() => rows.filter((row) =>
-        row.tournamentId !== PRE_TOURNAMENT_ID
-        && !knownTournamentIds.has(row.tournamentId)
-    ), [knownTournamentIds, rows]);
+    const { orphans: cleanupRows, archived: archivedRows } = React.useMemo(
+        () => splitFantaCleanupRows(rows, state),
+        [rows, state.tournament, state.tournamentHistory],
+    );
     const strictOrphanRows = React.useMemo(() => cleanupRows.filter((row) => !row.publicTournamentExists), [cleanupRows]);
 
-    const load = React.useCallback(async () => {
+    const load = React.useCallback(async (): Promise<FantaTournamentDataSummary[]> => {
         setLoading(true);
         setFeedback(null);
         try {
             const nextRows = await fetchFantaTournamentDataSummaries();
             setRows(nextRows);
+            return nextRows;
         } catch (error: any) {
             setFeedback({ tone: 'error', message: error?.message || 'Non sono riuscito a leggere i dati Fanta.' });
+            return [];
         } finally {
             setLoading(false);
         }
@@ -75,13 +66,34 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state, t }) =
         try {
             const result = await deleteFantaTournamentData(row.tournamentId);
             window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+            await load();
             setFeedback({
                 tone: 'success',
                 message: `Fanta orfano eliminato: ${result.removed.archivedEditions} edizioni archivio e ${result.removed.fantaTeams} squadre rimosse.`,
             });
-            await load();
         } catch (error: any) {
             setFeedback({ tone: 'error', message: error?.message || 'Eliminazione Fanta non riuscita.' });
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    const deleteArchived = async (row: FantaTournamentDataSummary) => {
+        setDeletingId(row.tournamentId);
+        setFeedback(null);
+        try {
+            const { removed } = await deleteFantaTournamentData(row.tournamentId);
+            window.dispatchEvent(new CustomEvent(FANTA_APP_CHANGE_EVENT));
+            const left = (await load()).some(next => next.tournamentId === row.tournamentId) || (row.fantaTeams > 0 && !removed.fantaTeams);
+            setFeedback({
+                tone: left ? 'error' : 'success',
+                message: left
+                    ? t('fanta_archived_incomplete')
+                    : t('fanta_archived_deleted').replace('{name}', () => row.tournamentName).replace('{teams}', String(removed.fantaTeams)),
+            });
+        } catch (error: any) {
+            await load();
+            setFeedback({ tone: 'error', message: error?.message || t('fanta_archived_incomplete') });
         } finally {
             setDeletingId(null);
         }
@@ -188,6 +200,8 @@ export const IntegrationsFantaCleanup: React.FC<DataTabProps> = ({ state, t }) =
                     </div>
                 )}
             </div>
+
+            <FantaArchivedEditions rows={archivedRows} busyId={deletingId} formatDate={formatDate} onDelete={row => void deleteArchived(row)} t={t} />
         </div>
     );
 };

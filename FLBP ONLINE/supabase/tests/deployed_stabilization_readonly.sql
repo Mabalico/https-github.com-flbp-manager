@@ -98,6 +98,13 @@ begin
     if not has_table_privilege('anon', v_table, 'SELECT')
     then raise exception 'Fanta roster table is no longer publicly readable: %', v_table; end if;
   end loop;
+  foreach v_table in array array['public.fanta_roster_live_rows'::regclass, 'public.fanta_player_standings'::regclass] loop
+    if not has_table_privilege('anon', v_table, 'SELECT')
+      or not has_table_privilege('authenticated', v_table, 'SELECT')
+      or has_table_privilege('anon', v_table, 'INSERT, UPDATE, DELETE')
+      or has_table_privilege('authenticated', v_table, 'INSERT, UPDATE, DELETE')
+    then raise exception 'Fanta scoring view permissions changed: %', v_table; end if;
+  end loop;
   v_signature := 'public.flbp_referee_auth_is_locked(text,text)'::regprocedure;
   if has_function_privilege('anon', v_signature, 'EXECUTE')
     or has_function_privilege('authenticated', v_signature, 'EXECUTE')
@@ -154,6 +161,14 @@ begin
     or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
     or strpos(pg_get_functiondef(v_signature), '12 hours') = 0
   then raise exception 'Data-plane reclaim RPC lacks its Admin gate or grace period'; end if;
+  -- Cancelled live: only an Admin session can hand Fanta back.
+  v_signature := 'public.fanta_return_cancelled_live(text,text)'::regprocedure;
+  if has_function_privilege('anon', v_signature, 'EXECUTE')
+    or not has_function_privilege('authenticated', v_signature, 'EXECUTE')
+    or not (select prosecdef from pg_proc where oid = v_signature)
+    or strpos(pg_get_functiondef(v_signature), 'flbp_is_admin()') = 0
+    or strpos(pg_get_functiondef(v_signature), 'FLBP_TOURNAMENT_STILL_LIVE') = 0
+  then raise exception 'Cancelled-live Fanta RPC lacks its Admin gate or live guard'; end if;
   -- Report saves may create the tie-break they make necessary: one server-only
   -- rule, used by both the Admin and the referee entrypoints.
   foreach v_signature in array array[

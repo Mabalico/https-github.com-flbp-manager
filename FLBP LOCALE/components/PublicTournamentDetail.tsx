@@ -3,13 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { Team, TournamentData, Match, HallOfFameEntry } from '../types';
 import type { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
+import { localizeBracketRound, localizeGroupName } from '../services/i18nService';
 import { TournamentBracket } from './TournamentBracket';
+import { getPreferredBracketRounds } from '../services/tournamentStructureSelectors';
+import { normalizeNameLower } from '../services/textUtils';
 import { TournamentLeaderboard } from './TournamentLeaderboard';
 import { PublicPlayerDetail } from './PublicPlayerDetail';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
-import { getMatchParticipantIds, formatMatchScoreLabel, formatMatchTeamsLabel, isByeTeamId } from '../services/matchUtils';
-import { Trophy, LayoutList, Clock, Medal, X, GitBranch, Star, Wind, UserRound, Users, CalendarDays, Archive, ArrowLeft } from 'lucide-react';
+import { getMatchParticipantIds, getMatchScoreForTeam, formatMatchScoreLabel, formatMatchTeamsLabel, isByeTeamId } from '../services/matchUtils';
+import { compareTournamentMatches } from '../services/groupUtils';
+import { Trophy, LayoutList, Clock, Medal, X, GitBranch, Star, Wind, UserRound, Users, CalendarDays, Archive, ArrowLeft, Search } from 'lucide-react';
 import { PlasticCupIcon } from './icons/PlasticCupIcon';
 import { PublicBrandStack } from './PublicBrandStack';
 import { isResultsOnlyTournament } from '../services/tournamentModes';
@@ -38,6 +42,9 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   publicState,
 }) => {
   const { t } = useTranslation();
+  const [bracketSearch, setBracketSearch] = useState('');
+  const [highlightedMatchId, setHighlightedMatchId] = useState('');
+  const bracketRef = React.useRef<HTMLDivElement>(null);
 
   const btnBaseDark = "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl font-black uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50 disabled:pointer-events-none";
   const btnGhostDark = `${btnBaseDark} text-white bg-white/10 hover:bg-white/20 border border-white/10 px-4 py-2 text-xs`;
@@ -73,8 +80,8 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   }, [teams]);
 
   const getTeamName = (id?: string) => {
-    if (!id) return 'TBD';
-    return teamNameById.get(id) || 'TBD';
+    if (!id) return t('tbd_label');
+    return teamNameById.get(id) || t('tbd_label');
   };
 
   const openTeamPlayerProfile = (name?: string | null, birthDate?: string | null) => {
@@ -84,6 +91,25 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
   };
 
   const dataResultsOnly = isResultsOnlyTournament(data);
+  const bracketSearchMatches = React.useMemo(() => {
+    const query = normalizeNameLower(bracketSearch);
+    if (!query) return [];
+    return getPreferredBracketRounds(data, matches).flat()
+      .filter(match => !match.hidden && !match.isBye && !isByeTeamId(match.teamAId) && !isByeTeamId(match.teamBId))
+      .map(match => ({
+        id: match.id,
+        label: [match.code, ...getMatchParticipantIds(match).map(id => teamNameById.get(id) || t('tbd_label'))].filter(Boolean).join(' · '),
+      }))
+      .filter(match => normalizeNameLower(match.label).includes(query)).slice(0, 12);
+  }, [bracketSearch, data, matches, teamNameById, t]);
+
+  const revealBracketMatch = (id: string) => {
+    setHighlightedMatchId(id);
+    setBracketSearch('');
+    bracketRef.current?.querySelector(`[data-bracket-match-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  };
+
   const tournamentAwards = hallOfFame
     .filter((h) => h.tournamentId === data.id)
     .filter((h) => !dataResultsOnly || h.type === 'winner' || h.type === 'mvp');
@@ -182,8 +208,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
 
     const msAll = (matches || [])
       .filter((m) => !isByeOrHidden(m))
-      .slice()
-      .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+      .sort(compareTournamentMatches(data));
 
     const isDoneMatch = (m: Match) => (m.status === 'finished') || !!(m as any).played;
 
@@ -235,7 +260,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
             <div className="text-sm font-black leading-tight text-white whitespace-normal break-words" title={label}>{label}</div>
             {(m.phase || m.groupName || m.roundName) && (
               <div className="text-[11px] font-bold leading-tight text-white/60 whitespace-normal break-words">
-                {m.groupName ? `${t('group_word')} ${m.groupName}` : (m.roundName || (m.phase === 'bracket' ? t('bracket_word') : ''))}
+                {m.groupName ? localizeGroupName(m.groupName, t) : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.phase === 'bracket' ? t('bracket_word') : ''))}
               </div>
             )}
           </div>
@@ -317,7 +342,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
                 { key: 'live', label: t('live_label') },
                 { key: 'next', label: t('next_label') },
                 { key: 'played', label: t('played_label') },
-                { key: 'tbd', label: 'TBD' },
+                { key: 'tbd', label: t('tbd_label') },
               ] as const).map((opt) => {
                 const active = turnsTab === opt.key;
                 const base = 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wide border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500/60';
@@ -360,7 +385,7 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
                 : (pinAnyLive ? t('current_turn') : t('next_turn'));
 
               return (
-                <div className="sticky top-0 z-10 -mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
+                <div className="-mx-5 px-5 pt-0 pb-4 bg-slate-950/90 backdrop-blur border-b border-white/10">
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -546,38 +571,18 @@ export const PublicTournamentDetail: React.FC<PublicTournamentDetailProps> = ({
     }
   }, [availableViews, view]);
 
-  const currentViewMeta = availableViews.find((item) => item.key === view) || availableViews[0] || {
-    key: 'overview' as const,
-    label: t('history_label'),
-    icon: Archive,
-  };
-  const CurrentViewIcon = currentViewMeta.icon;
-
-  const renderViewTabs = (tone: 'dark' | 'light') => {
-    if (availableViews.length <= 1) return null;
-
-    const containerClass = tone === 'dark'
-      ? 'flex max-w-full flex-nowrap overflow-x-auto bg-white/10 p-1 rounded-xl border border-white/10'
-      : 'flex max-w-full flex-nowrap overflow-x-auto bg-white p-1 rounded-xl border border-slate-200';
-    const activeClass = tone === 'dark'
-      ? 'bg-white shadow text-slate-900'
-      : 'bg-slate-900 shadow text-white';
-    const inactiveClass = tone === 'dark'
-      ? 'text-white/70 hover:text-white hover:bg-white/10'
-      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100';
-    const focusClass = tone === 'dark'
-      ? 'focus-visible:ring-beer-500/60 focus-visible:ring-offset-slate-900'
-      : 'focus-visible:ring-beer-400 focus-visible:ring-offset-slate-50';
+  const renderViewTabs = () => {
+    if (availableViews.length <= 1 && isStructurelessManualArchive) return null;
 
     return (
-      <div className={containerClass} role="toolbar" aria-label={t('tournament_view')}>
+      <div className="flex max-w-full flex-nowrap overflow-x-auto rounded-xl border border-slate-200 bg-white p-1" role="toolbar" aria-label={t('tournament_view')}>
         {availableViews.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setView(key)}
             aria-pressed={view === key}
-            className={`shrink-0 px-4 py-2 rounded-lg font-black uppercase text-xs transition flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${focusClass} ${
-              view === key ? activeClass : inactiveClass
+            className={`shrink-0 px-4 py-2 rounded-lg font-black uppercase text-xs transition flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2 ${
+              view === key ? 'bg-slate-900 shadow text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Icon className="w-4 h-4" /> {label}
@@ -646,6 +651,7 @@ const visibleTeamsCount = React.useMemo(() => {
     color: string;
   }) => {
     const entries = tournamentAwards.filter((award) => award.type === type);
+    if (!entries.length) return null;
     return (
       <div className="flex items-center justify-between gap-3 p-3 bg-white rounded-2xl border border-slate-200">
         <div className="flex items-center gap-3">
@@ -653,7 +659,6 @@ const visibleTeamsCount = React.useMemo(() => {
           <span className="font-black text-sm text-slate-700 uppercase tracking-wide">{label}</span>
         </div>
         <div className="min-w-0 break-words font-black text-slate-900 text-right">
-          {entries.length === 0 && <span className="text-slate-400 italic">ND</span>}
           {entries.map((entry) => {
             const names = entry.playerNames || [];
             const isWinner = type === 'winner';
@@ -661,7 +666,7 @@ const visibleTeamsCount = React.useMemo(() => {
             const secondary = isWinner ? (entry.teamName && names.join(' & ')) : entry.teamName;
             return (
               <div key={entry.id}>
-                <div>{primary || 'ND'}</div>
+                <div>{primary || '—'}{typeof entry.value === 'number' && <span className="ms-2 tabular-nums text-amber-800">{entry.value}</span>}</div>
                 {secondary && <div className="text-[10px] text-slate-400 font-bold">{secondary}</div>}
               </div>
             );
@@ -670,6 +675,21 @@ const visibleTeamsCount = React.useMemo(() => {
       </div>
     );
   };
+
+  const renderAwards = () => tournamentAwards.length ? (
+    <div className="grid gap-3">
+      <AwardRow label={t('tournament_winner')} type="winner" icon={<Trophy className="w-5 h-5" />} color="bg-yellow-500" />
+      <AwardRow label={t('tournament_mvp')} type="mvp" icon={<Star className="w-5 h-5" />} color="bg-orange-500" />
+      {!dataResultsOnly && (
+        <>
+          <AwardRow label={t('tournament_top_scorer')} type="top_scorer" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-600" />
+          <AwardRow label={t('tournament_defender')} type="defender" icon={<Wind className="w-5 h-5" />} color="bg-blue-600" />
+          <AwardRow label={t('tournament_top_scorer_u25')} type="top_scorer_u25" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-500" />
+          <AwardRow label={t('tournament_defender_u25')} type="defender_u25" icon={<UserRound className="w-5 h-5" />} color="bg-blue-400" />
+        </>
+      )}
+    </div>
+  ) : <p className="text-sm text-slate-600">{t('archive_no_awards')}</p>;
 
   return (
     <div className="space-y-6 animate-fade-in min-h-screen pb-12">
@@ -684,13 +704,13 @@ const visibleTeamsCount = React.useMemo(() => {
 
         <div className="relative z-10 flex flex-col gap-4">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-            <div className="flex items-start gap-4 min-w-0">
+            <div className="flex min-w-0 flex-col items-start gap-4 sm:flex-row">
               <button
                 onClick={onBack}
                 aria-label={t('back')}
-                className={btnGhostDark}
+                className={`${btnGhostDark} w-auto self-start`}
               >
-                &larr; {t('back')}
+                <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" aria-hidden /> {t('back')}
               </button>
 
               <div className="min-w-0">
@@ -733,7 +753,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
                   {isStructurelessManualArchive ? null : (
                     <span className="inline-flex items-center gap-2 bg-white/10 border border-white/10 px-3 py-1.5 rounded-full text-xs font-bold text-white/90">
-                      <Users className="w-4 h-4 text-beer-500" /> {visibleTeamsCount} squadre
+                      <Users className="w-4 h-4 text-beer-500" /> {visibleTeamsCount} {t(visibleTeamsCount === 1 ? 'team_label' : 'teams').toLocaleLowerCase()}
                     </span>
                   )}
 
@@ -763,44 +783,36 @@ const visibleTeamsCount = React.useMemo(() => {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end" role="toolbar" aria-label="Azioni torneo">
-              {isLive && (
-                <button
-                  type="button"
-                  onClick={openTurns}
-                  className={btnGhostDark}
-                >
-                  <LayoutList className="w-4 h-4" aria-hidden /> {t('turns_label')}
-                  {turnsLiveBadgeCount > 0 && (
-                    <span className="inline-flex items-center justify-center rounded-full px-2 py-1 text-[11px] font-black bg-emerald-400/20 text-emerald-200 border border-emerald-400/30 tabular-nums">
-                      {turnsLiveBadgeCount}
-                    </span>
-                  )}
-                </button>
-              )}
-              {!isLive && (
-                <button
-                  onClick={() => setShowAwards(true)}
-                  className={`${btnPrimaryDark} flex items-center justify-center`}
-                >
-                  <Medal className="w-4 h-4" /> <span>{t('awards_label')}</span>
-                </button>
-              )}
 
-              {renderViewTabs('dark')}
-            </div>
 	        </div>
 	      </div>
 	    </div>
 
-	    {hasGroups && pendingGroupTieBreaks.length > 0 && (
+	    {(isLive || !isStructurelessManualArchive || availableViews.length > 1) && (
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-sm md:sticky md:top-[var(--flbp-main-header-height,0px)] md:z-10">
+        {isLive && (
+          <button type="button" onClick={openTurns} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-900 hover:bg-slate-100">
+            <LayoutList className="h-4 w-4" aria-hidden="true" />{t('turns_label')}
+            {turnsLiveBadgeCount > 0 && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">{turnsLiveBadgeCount}</span>}
+          </button>
+        )}
+        {renderViewTabs()}
+        {!isLive && !isStructurelessManualArchive && (
+          <button type="button" onClick={() => setShowAwards(true)} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-900 hover:bg-slate-100">
+            <Medal className="h-4 w-4" aria-hidden="true" />{t('awards_label')}
+          </button>
+        )}
+      </div>
+    )}
+
+        {hasGroups && pendingGroupTieBreaks.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
           <div>
             <div className="font-black uppercase text-amber-900 text-sm">{t('qualification_blocked_tiebreak')}</div>
             <div className="text-xs font-bold text-amber-800">
               {t('waiting_label')} {pendingGroupTieBreaks
                 .slice(0, 6)
-                .map((m) => `${m.code || ''}${m.groupName ? ` (${m.groupName})` : ''}`)
+                .map((m) => `${m.code || ''}${m.groupName ? ` (${localizeGroupName(m.groupName, t)})` : ''}`)
                 .join(', ')}
               {pendingGroupTieBreaks.length > 6 ? ' …' : ''}
             </div>
@@ -817,62 +829,13 @@ const visibleTeamsCount = React.useMemo(() => {
           <div className="bg-white rounded-[24px] shadow-sm border border-slate-200 overflow-hidden">
 
             
-            <div className="bg-gradient-to-r from-slate-50 to-white px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <CurrentViewIcon className="w-4 h-4 text-slate-600" />
-
-                <h3 className="font-black uppercase tracking-tight text-sm text-slate-700">
-                  {currentViewMeta.label}
-                </h3>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" /> {t('go_back')}
-                </button>
-
-                {view === 'groups' && hasGroups && typeof advancingPerGroup === 'number' && (
-                  <span className={badgeTopLight}>{t('top_count').replace('{count}', String(advancingPerGroup))}</span>
-                )}
-
-                {renderViewTabs('light')}
-              </div>
-            </div>
-
-
             <div className="p-4">
 
               {view === 'overview' && (
-                <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-5 sm:p-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="max-w-2xl">
-                      <h4 className="mt-4 text-lg font-black text-slate-900">{t('manual_archive_without_structure_title')}</h4>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                        {t('manual_archive_without_structure_desc')}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowAwards(true)}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-900 bg-slate-900 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                    >
-                      <Medal className="h-4 w-4" /> {t('open_awards')}
-                    </button>
-                  </div>
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={onBack}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-400 focus-visible:ring-offset-2"
-                    >
-                      <ArrowLeft className="h-4 w-4" /> {t('back_to_archive')}
-                    </button>
-                  </div>
-                </div>
+                <section className="space-y-3">
+                  <h3 className="text-lg font-black text-slate-900">{t('awards_label')}</h3>
+                  {renderAwards()}
+                </section>
               )}
 
               {view === 'groups' && hasGroups && (
@@ -895,7 +858,7 @@ const visibleTeamsCount = React.useMemo(() => {
 
                         <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 font-black uppercase text-slate-700 flex justify-between">
 
-                          <span>{g.name}</span>
+                          <span>{localizeGroupName(g.name, t)}</span>
 
                           {typeof advancingPerGroup === 'number' && (
 
@@ -951,7 +914,11 @@ const visibleTeamsCount = React.useMemo(() => {
 
                                 const label = names.join(' vs ');
 
-                                const score = m.status === 'finished' ? formatMatchScoreLabel(m) : '—';
+                                const finished = m.status === 'finished';
+                                const scores = finished ? ids.map(id => getMatchScoreForTeam(m, id)) : [];
+                                const bestScore = Math.max(...scores);
+                                const winningIndex = scores.filter(score => score === bestScore).length === 1 ? scores.indexOf(bestScore) : -1;
+                                const nameClass = (index: number) => index === winningIndex ? 'font-black text-slate-950' : 'font-semibold text-slate-600';
 
                                 const a11yLabel = `${t('view')} ${((m.code || '').trim() || t('match_detail'))}: ${label}`;
 
@@ -977,10 +944,10 @@ const visibleTeamsCount = React.useMemo(() => {
                                           if (isTwoTeams) {
                                             return (
                                               <div className="text-[13px] font-black leading-tight">
-                                                <div className="text-slate-900 whitespace-normal break-words">{names[0]}</div>
+                                                <div className={`whitespace-normal break-words ${nameClass(0)}`}>{names[0]}</div>
                                                 <div className="flex items-center gap-2">
                                                   <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">vs</span>
-                                                  <span className="text-slate-700 whitespace-normal break-words">{names[1]}</span>
+                                                  <span className={`whitespace-normal break-words ${nameClass(1)}`}>{names[1]}</span>
                                                 </div>
                                               </div>
                                             );
@@ -1017,7 +984,11 @@ const visibleTeamsCount = React.useMemo(() => {
                                     </div>
 
                                     <div className="shrink-0 text-right">
-                                      <div className="text-xs font-black text-slate-700">{score}</div>
+                                      <div className="text-sm tabular-nums text-slate-700">{finished ? scores.map((score, index) => (
+                                        <React.Fragment key={ids[index]}>
+                                          {index > 0 && '–'}<span className={index === winningIndex ? 'font-black text-slate-950' : 'font-semibold'}>{score}</span>
+                                        </React.Fragment>
+                                      )) : '—'}</div>
                                     </div>
                                   </button>
 
@@ -1079,15 +1050,29 @@ const visibleTeamsCount = React.useMemo(() => {
                       </div>
                       <div className="text-[11px] font-black uppercase tracking-wide text-white/50">{t('scroll_bracket')}</div>
                     </div>
+                    <label className="relative mt-3 block max-w-sm">
+                      <span className="sr-only">{t('bracket_search_placeholder')}</span>
+                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" aria-hidden="true" />
+                      <input type="search" value={bracketSearch} onChange={event => setBracketSearch(event.target.value)}
+                        placeholder={t('bracket_search_placeholder')} className="w-full rounded-xl border border-white/15 bg-slate-950/50 py-2 pe-3 ps-9 text-sm text-white placeholder:text-white/60" />
+                    </label>
+                    {!!bracketSearch.trim() && <div className="mt-2 grid max-h-40 max-w-lg gap-1 overflow-auto">
+                      {bracketSearchMatches.map(match => (
+                        <button key={match.id} type="button" className="rounded-lg px-3 py-2 text-start text-sm font-bold text-white hover:bg-white/10" onClick={() => revealBracketMatch(match.id)}>{match.label}</button>
+                      ))}
+                      {!bracketSearchMatches.length && <p className="text-sm text-white/70">{t('no_matches_for_selected_filter')}</p>}
+                    </div>}
                   </div>
 
-                  <div className="relative bg-[linear-gradient(180deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.88)_100%)]">
+                  <div ref={bracketRef} className="relative bg-[linear-gradient(180deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.88)_100%)]">
                     <TournamentBracket
                       teams={teams}
                       data={data}
                       matches={matches}
                       readOnly={true}
                       showConnectors={true}
+                      boundedScroll
+                      highlightedMatchId={highlightedMatchId}
                       wrapTeamNames={true}
                       onTeamClick={(team) => setSelectedTeam(team)}
                     />
@@ -1230,18 +1215,7 @@ const visibleTeamsCount = React.useMemo(() => {
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="p-6 space-y-3">
-              <AwardRow label={t('tournament_winner')} type="winner" icon={<Trophy className="w-5 h-5" />} color="bg-yellow-500" />
-              <AwardRow label={t('tournament_mvp')} type="mvp" icon={<Star className="w-5 h-5" />} color="bg-orange-500" />
-              {!dataResultsOnly && (
-                <>
-                  <AwardRow label={t('tournament_top_scorer')} type="top_scorer" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-600" />
-                  <AwardRow label={t('tournament_defender')} type="defender" icon={<Wind className="w-5 h-5" />} color="bg-blue-600" />
-                  <AwardRow label={t('tournament_top_scorer_u25')} type="top_scorer_u25" icon={<PlasticCupIcon className="w-4 h-4" />} color="bg-yellow-500" />
-                  <AwardRow label={t('tournament_defender_u25')} type="defender_u25" icon={<UserRound className="w-5 h-5" />} color="bg-blue-400" />
-                </>
-              )}
-            </div>
+            <div className="p-6">{renderAwards()}</div>
           </div>
         </div>
       )}

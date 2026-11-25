@@ -4,6 +4,7 @@ import { Match, Team, TournamentData } from '../types';
 import { PublicTvShell } from './PublicTvShell';
 import { computeGroupStandings } from '../services/groupStandings';
 import { GroupStandingsTable } from './GroupStandingsTable';
+import { findTvFinalGroup, getTvMatchGroupName } from '../services/groupUtils';
 import { formatMatchScoreLabel, getMatchParticipantIds, getMatchScoreForTeam } from '../services/matchUtils';
 
 interface TvSimpleViewProps {
@@ -41,13 +42,6 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
   const { t } = useTranslation();
   const groups = data?.groups || [];
 
-  const isFinalGroup = React.useCallback((g: any) => {
-    const stage = String((g as any)?.stage || '').toLowerCase();
-    if (stage === 'final') return true;
-    const name = String(g?.name || '').toLowerCase();
-    return /\bfinale?\b/i.test(name);
-  }, []);
-
   const isByeTeam = React.useCallback((t: any) => {
     if (!t) return false;
     if (String(t.id || '') === 'BYE') return true;
@@ -62,8 +56,8 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
     return (arr || []).filter((t) => !isByeTeam(t));
   }, [isByeTeam]);
 
-  const finalGroup = React.useMemo(() => groups.find(isFinalGroup) || null, [groups, isFinalGroup]);
-  const stageGroups = React.useMemo(() => groups.filter((g) => !isFinalGroup(g)), [groups, isFinalGroup]);
+  const finalGroup = React.useMemo(() => findTvFinalGroup(groups), [groups]);
+  const stageGroups = React.useMemo(() => groups.filter(g => g !== finalGroup), [groups, finalGroup]);
 
   const teamNameById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -87,7 +81,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
       if (m.hidden || m.isBye) continue;
       const ids = getMatchParticipantIds(m);
       if (ids.includes('BYE')) continue;
-      const groupName = m.groupName || '';
+      const groupName = getTvMatchGroupName(m, finalGroup);
       const current = byGroup.get(groupName);
       if (current) current.push(m);
       else byGroup.set(groupName, [m]);
@@ -100,13 +94,12 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
       });
     }
     return byGroup;
-  }, [matches]);
+  }, [matches, finalGroup]);
 
-  const isFinalMatch = React.useCallback((m: Match) => {
-    const group = String(m.groupName || '').trim();
-    if (group) return finalGroup ? group === finalGroup.name : /\bfinale?\b/i.test(group);
-    return /^FTB/i.test(String(m.code || '').trim());
-  }, [finalGroup]);
+  const isFinalMatch = React.useCallback(
+    (match: Match) => !!finalGroup && getTvMatchGroupName(match, finalGroup) === finalGroup.name?.trim(),
+    [finalGroup]
+  );
 
   const pendingGroupTieBreaks = React.useMemo(() => {
     return (matches || [])
@@ -125,7 +118,7 @@ export const TvSimpleView: React.FC<TvSimpleViewProps> = ({ teams, data, matches
 
   const pages = React.useMemo<GroupTvPage[]>(() => {
     const buildPagesForGroup = (group: TournamentData['groups'][number], isFinal: boolean): GroupTvPage[] => {
-      const groupMatches = groupMatchesByName.get(group.name) || [];
+      const groupMatches = groupMatchesByName.get(group.name?.trim() || '') || [];
       const standings = computeGroupStandings({
         teams: visibleTeams(group.teams || []),
         matches: groupMatches,

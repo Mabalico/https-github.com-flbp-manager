@@ -52,6 +52,7 @@ import {
   canSwapBracketSlots,
   canSwapTeams,
   getTeamEligibility,
+  isEditableBracketMatch,
 } from '../../../services/tournamentStructureEligibility';
 import { prepareTournamentStructureApply } from '../../../services/tournamentStructureApply';
 import { preflightTournamentStructureConflict, reloadRemoteTournamentStructureState } from '../../../services/tournamentStructureConflict';
@@ -70,7 +71,11 @@ import { isFinalGroup } from '../../../services/groupUtils';
 import { TournamentBracket } from '../../TournamentBracket';
 import { TeamPickerCombobox, type TeamPickerOption } from '../editor/TeamPickerCombobox';
 import { uuid } from '../../../services/id';
+import { BirthDateInput } from '../BirthDateInput';
+import { deriveYoBFromBirthDate, normalizeBirthDateInput } from '../../../services/playerIdentity';
+import { buildCanonicalPlayerNameFromParts } from '../../../services/textUtils';
 import { useTranslation } from '../../../App';
+import { localizeBracketRound } from '../../../services/i18nService';
 
 interface TournamentEditorTabProps {
   state: AppState;
@@ -81,6 +86,7 @@ interface TournamentEditorTabProps {
 
 type EditorView = 'groups' | 'bracket';
 type BracketWorkspaceMode = 'graph' | 'list';
+const emptyPlayer = { firstName: '', lastName: '', birthDate: '' };
 type PoolFilter = 'all' | 'eligible' | 'ineligible' | 'assigned' | 'eliminated' | 'locked';
 type SnackbarTone = 'success' | 'error' | 'info';
 
@@ -403,8 +409,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const [poolQuery, setPoolQuery] = React.useState('');
   const [newTeamOpen, setNewTeamOpen] = React.useState(false);
   const [newTeamName, setNewTeamName] = React.useState('');
-  const [newTeamPlayer1, setNewTeamPlayer1] = React.useState('');
-  const [newTeamPlayer2, setNewTeamPlayer2] = React.useState('');
+  const [newTeamPlayer1, setNewTeamPlayer1] = React.useState(emptyPlayer);
+  const [newTeamPlayer2, setNewTeamPlayer2] = React.useState(emptyPlayer);
   const [selection, setSelection] = React.useState<EditorSelection>(null);
   const [dragSource, setDragSource] = React.useState<EditorSelection>(null);
   const [hoverSlotKey, setHoverSlotKey] = React.useState('');
@@ -753,24 +759,32 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
   const handleAddNewTeamToPool = React.useCallback(() => {
     const name = newTeamName.trim();
-    const player1 = newTeamPlayer1.trim();
-    const player2 = newTeamPlayer2.trim();
-    if (!name || !player1 || !player2) {
+    if (!name || [newTeamPlayer1, newTeamPlayer2].some(player => !player.firstName.trim() || !player.lastName.trim())) {
       setSnackbar({ tone: 'error', message: t('editor_new_team_requires_fields') });
+      return;
+    }
+    const player1BirthDate = normalizeBirthDateInput(newTeamPlayer1.birthDate);
+    const player2BirthDate = normalizeBirthDateInput(newTeamPlayer2.birthDate);
+    if ((newTeamPlayer1.birthDate.trim() && !player1BirthDate) || (newTeamPlayer2.birthDate.trim() && !player2BirthDate)) {
+      setSnackbar({ tone: 'error', message: t('birthdate_invalid') });
       return;
     }
     const nextTeam: Team = {
       id: uuid(),
       name,
-      player1,
-      player2,
+      player1: buildCanonicalPlayerNameFromParts(newTeamPlayer1.firstName, newTeamPlayer1.lastName),
+      player2: buildCanonicalPlayerNameFromParts(newTeamPlayer2.firstName, newTeamPlayer2.lastName),
+      player1BirthDate,
+      player2BirthDate,
+      player1YoB: deriveYoBFromBirthDate(player1BirthDate),
+      player2YoB: deriveYoBFromBirthDate(player2BirthDate),
       createdAt: Date.now(),
     };
     const ok = applyOperation({ type: 'ADD_CATALOG_TEAM', team: nextTeam }, 'success');
     if (!ok) return;
     setNewTeamName('');
-    setNewTeamPlayer1('');
-    setNewTeamPlayer2('');
+    setNewTeamPlayer1(emptyPlayer);
+    setNewTeamPlayer2(emptyPlayer);
     setNewTeamOpen(false);
     setPoolQuery(name);
     setSelection({ kind: 'pool-team', teamId: nextTeam.id });
@@ -914,15 +928,20 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     [applyOperation, clearInteraction, dragSource, draft.state.present, selection]
   );
 
+  const activeBracketSource = dragSource || selection;
+  const activeBracketTeamId = activeBracketSource?.kind === 'pool-team' ? activeBracketSource.teamId : '';
+  const activeBracketTeamEligibility = React.useMemo(() => activeBracketTeamId
+    ? getTeamEligibility(draft.state.present, activeBracketTeamId, 'bracket')
+    : undefined, [activeBracketTeamId, draft.state.present]);
   const bracketTargetCheck = React.useCallback(
     (slotKey: string): StructuralTargetCheck | null => {
-      const activeSource = dragSource || selection;
+      const activeSource = activeBracketSource;
       if (!activeSource) return null;
       if (activeSource.kind === 'pool-team') {
         const currentValue = getSlotValue(draft.state.present, slotKey);
         return currentValue && !isPlaceholderTeamId(currentValue)
-          ? canReplaceBracketSlot(draft.state.present, slotKey, activeSource.teamId)
-          : canInsertTeamIntoBracketSlot(draft.state.present, activeSource.teamId, slotKey);
+          ? canReplaceBracketSlot(draft.state.present, slotKey, activeSource.teamId, activeBracketTeamEligibility)
+          : canInsertTeamIntoBracketSlot(draft.state.present, activeSource.teamId, slotKey, activeBracketTeamEligibility);
       }
       if (activeSource.kind === 'bracket-slot') {
         const targetValue = getSlotValue(draft.state.present, slotKey);
@@ -932,7 +951,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       }
       return null;
     },
-    [dragSource, draft.state.present, selection]
+    [activeBracketSource, activeBracketTeamEligibility, draft.state.present]
   );
 
   const round1Matches = React.useMemo(() => getRound1Matches(draft.state.present), [draft.state.present]);
@@ -995,7 +1014,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       slotLabel: slotDisplayLabel(slotKey),
       removeSlotKey,
       removeSlotLabel: slotDisplayLabel(removeSlotKey),
-      locked: isLockedBracketMatchForStructureEdit(match),
+      locked: !isEditableBracketMatch(draft.state.present, match),
       clearCheck,
     };
   }, [selection, draft.state.present, slotDisplayLabel]);
@@ -1008,17 +1027,17 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const slotPickerOptions = React.useMemo<TeamPickerOption[]>(() => {
     if (!selectedBracketSlot || !slotPickerOpen) return [];
     return poolEntries.map((entry) => {
-      const check = selectedBracketSlot.isFree
+      const check = entry.disabled ? null : selectedBracketSlot.isFree
         ? canInsertTeamIntoBracketSlot(draft.state.present, entry.team.id, selectedBracketSlot.slotKey)
         : canReplaceBracketSlot(draft.state.present, selectedBracketSlot.slotKey, entry.team.id);
-      const disabled = entry.disabled || !check.allowed;
+      const disabled = !check?.allowed;
       return {
         id: entry.team.id,
         name: entry.team.name,
         disabled,
         badge: entry.badgeLabel,
         placement: entry.placementLabel,
-        reason: disabled ? (entry.disabled ? entry.humanMessage : check.humanMessage) : undefined,
+        reason: disabled ? (entry.disabled ? entry.humanMessage : check?.humanMessage) : undefined,
       };
     });
   }, [selectedBracketSlot, slotPickerOpen, poolEntries, draft.state.present]);
@@ -1076,7 +1095,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
   const changeBracketScale = React.useCallback((delta: number) => {
     setBracketFitToWidth(false);
-    setBracketScale((current) => Math.min(1.2, Math.max(0.6, Math.round((current + delta) * 100) / 100)));
+    setBracketScale((current) => Math.min(1.2, Math.max(0.2, Math.round((current + delta) * 100) / 100)));
   }, []);
 
   const fitBracketToWidth = React.useCallback(() => {
@@ -1087,33 +1106,32 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const bracketActiveCheckMap = React.useMemo(() => {
     const valid = new Set<string>();
     const invalid = new Set<string>();
+    if (!activeBracketSource) return { valid, invalid };
+    const sourceIsRound1 = activeBracketSource.kind === 'bracket-slot' && round1SlotKeys.includes(activeBracketSource.slotKey);
     for (const slotKey of allBracketSlotKeys) {
+      if (sourceIsRound1 && !round1SlotKeys.includes(slotKey)) {
+        const value = getSlotValue(draft.state.present, slotKey);
+        if (!value || isPlaceholderTeamId(value)) continue;
+      }
       const check = bracketTargetCheck(slotKey);
       if (!check) continue;
       if (check.allowed) valid.add(slotKey);
       else invalid.add(slotKey);
     }
     return { valid, invalid };
-  }, [allBracketSlotKeys, bracketTargetCheck]);
+  }, [activeBracketSource, allBracketSlotKeys, bracketTargetCheck, draft.state.present, round1SlotKeys]);
   const interactiveByeSlots = React.useMemo(() => {
     const activeSource = dragSource || selection;
     return activeSource?.kind === 'pool-team' || activeSource?.kind === 'bracket-slot';
   }, [dragSource, selection]);
 
-  const highlightedBracketSlots = React.useMemo(() => {
-    const active = new Set<string>(Array.from(bracketActiveCheckMap.valid));
-    if (hoverSlotKey && bracketActiveCheckMap.valid.has(hoverSlotKey)) active.add(hoverSlotKey);
-    return Array.from(active);
-  }, [bracketActiveCheckMap.valid, hoverSlotKey]);
+  const highlightedBracketSlots = React.useMemo(() => [...bracketActiveCheckMap.valid], [bracketActiveCheckMap.valid]);
 
   const invalidBracketSlots = React.useMemo(() => {
     const invalid = new Set<string>(Array.from(bracketActiveCheckMap.invalid));
     if (selection?.kind === 'bracket-slot') invalid.delete(selection.slotKey);
-    if (hoverSlotKey && bracketActiveCheckMap.invalid.has(hoverSlotKey) && !(selection?.kind === 'bracket-slot' && selection.slotKey === hoverSlotKey)) {
-      invalid.add(hoverSlotKey);
-    }
     return Array.from(invalid);
-  }, [bracketActiveCheckMap.invalid, hoverSlotKey, selection]);
+  }, [bracketActiveCheckMap.invalid, selection]);
 
   const changedBracketSlots = React.useMemo(
     () => Array.from(new Set([...draft.diff.bracketChanges.map((change) => change.slotKey), ...draft.diff.futureBracketChanges.map((change) => change.slotKey)])),
@@ -1123,9 +1141,9 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
   const lockedBracketSlots = React.useMemo(
     () =>
       allBracketMatches.flatMap((match) =>
-        isLockedBracketMatchForStructureEdit(match) ? [`${match.id}|A`, `${match.id}|B`] : []
+        isEditableBracketMatch(draft.state.present, match) ? [] : [`${match.id}|A`, `${match.id}|B`]
       ),
-    [allBracketMatches]
+    [allBracketMatches, draft.state.present]
   );
 
   const applyPreparedSnapshot = React.useCallback(
@@ -1383,7 +1401,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
     const check = bracketTargetCheck(slotKey);
     const selected = selection?.kind === 'bracket-slot' && selection.slotKey === slotKey;
     const changed = changedBracketSlots.includes(slotKey);
-    const locked = isLockedBracketMatchForStructureEdit(match);
+    const locked = !isEditableBracketMatch(draft.state.present, match);
     const canDragSlot = !!value && !isPlaceholder && !locked;
     const slotTone = check
       ? check.allowed
@@ -1556,7 +1574,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 type="button"
                 onClick={() => { setSlotPickerOpen((open) => !open); setSlotPickerQuery(''); }}
                 disabled={selectedBracketSlot.locked}
-                title={selectedBracketSlot.locked ? t('editor_bracket_slot_locked_started') : undefined}
+                title={selectedBracketSlot.locked ? t('editor_status_locked') : undefined}
                 className={`${editorOutlineButtonClass} w-full`}
               >
                 <Users className="h-4 w-4" />
@@ -1566,7 +1584,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 <button
                   type="button"
                   onClick={handleRemoveSelectedSlotTeam}
-                  disabled={!!selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed}
+                  disabled={selectedBracketSlot.locked || (!!selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed)}
                   title={selectedBracketSlot.clearCheck && !selectedBracketSlot.clearCheck.allowed ? selectedBracketSlot.clearCheck.humanMessage : undefined}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -1641,7 +1659,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-xl bg-slate-100 px-2 py-2.5">
-          <div className="text-base font-bold text-slate-950">{draft.diff.operationsCount}</div>
+          <div className="text-base font-bold text-slate-950">{draft.state.log.length}</div>
           <div className="text-[10px] font-semibold text-slate-500">Operazioni</div>
         </div>
         <div className="rounded-xl bg-amber-50 px-2 py-2.5">
@@ -1669,7 +1687,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
   return (
     <div className="mx-auto max-w-[1760px] space-y-4 text-[var(--editor-text-primary)]" style={editorThemeVars}>
-      <header className={`${editorPanelClass} sticky top-2 z-40 bg-white/95 px-3 py-2.5 backdrop-blur md:px-4`}>
+      <header className={`${editorPanelClass} relative z-10 bg-white/95 px-3 py-2.5 backdrop-blur md:px-4`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
@@ -1747,7 +1765,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
       <div className={`grid grid-cols-1 items-start gap-4 xl:gap-4 ${
         view === 'bracket'
-          ? 'lg:grid-cols-[230px_minmax(0,1fr)_250px] xl:grid-cols-[260px_minmax(0,1fr)_280px] 2xl:grid-cols-[300px_minmax(0,1fr)_320px]'
+          ? 'lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]'
           : 'lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)]'
       }`}>
         <aside className={`${editorPanelClass} self-start space-y-4 p-4 lg:sticky lg:top-[5.5rem] lg:max-h-[calc(100dvh-6.5rem)] lg:overflow-y-auto`}>
@@ -1805,20 +1823,32 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] px-3 text-sm font-medium text-[var(--editor-text-primary)] placeholder:text-[var(--editor-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
                 />
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <input
-                    value={newTeamPlayer1}
-                    onChange={(event) => setNewTeamPlayer1(event.target.value)}
-                    placeholder={t('editor_player1_placeholder')}
-                    aria-label={t('editor_player1_placeholder')}
-                    className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] px-3 text-sm font-medium text-[var(--editor-text-primary)] placeholder:text-[var(--editor-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
-                  />
-                  <input
-                    value={newTeamPlayer2}
-                    onChange={(event) => setNewTeamPlayer2(event.target.value)}
-                    placeholder={t('editor_player2_placeholder')}
-                    aria-label={t('editor_player2_placeholder')}
-                    className="h-11 w-full rounded-[14px] border border-[color:var(--editor-border-default)] bg-[var(--editor-bg-surface)] px-3 text-sm font-medium text-[var(--editor-text-primary)] placeholder:text-[var(--editor-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--editor-brand-500)] focus-visible:ring-offset-2"
-                  />
+                  {([
+                    { player: newTeamPlayer1, setPlayer: setNewTeamPlayer1, label: 'player_1_label', dateLabel: 'birth_date_player_1_aria' },
+                    { player: newTeamPlayer2, setPlayer: setNewTeamPlayer2, label: 'player_2_label', dateLabel: 'birth_date_player_2_aria' },
+                  ]).map(({ player, setPlayer, label, dateLabel }) => (
+                    <fieldset key={label} className="min-w-0 space-y-2">
+                      <legend className="text-xs font-bold">{t(label)}</legend>
+                      {(['firstName', 'lastName'] as const).map(field => {
+                        const nameLabel = t(field === 'firstName' ? 'name_label' : 'player_area_last_name');
+                        return (
+                          <input key={field}
+                            value={player[field]}
+                            onChange={event => setPlayer({ ...player, [field]: event.target.value })}
+                            placeholder={nameLabel}
+                            aria-label={`${t(label)} · ${nameLabel}`}
+                            className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"
+                          />
+                        );
+                      })}
+                      <BirthDateInput value={player.birthDate}
+                        onChange={birthDate => setPlayer({ ...player, birthDate })}
+                        placeholder={t('players_birth_date_placeholder')}
+                        ariaLabel={t(dateLabel)}
+                        className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"
+                      />
+                    </fieldset>
+                  ))}
                 </div>
                 <div className="rounded-[14px] border border-dashed border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-soft)] px-3 py-2 text-[11px] font-medium text-[var(--editor-text-muted)]">
                   {t('editor_new_team_hint_prefix')} <span className="font-semibold text-[var(--editor-text-primary)]">{t('editor_add_preliminary_round')}</span>{t('editor_new_team_hint_suffix')}
@@ -1829,8 +1859,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     onClick={() => {
                       setNewTeamOpen(false);
                       setNewTeamName('');
-                      setNewTeamPlayer1('');
-                      setNewTeamPlayer2('');
+                      setNewTeamPlayer1(emptyPlayer);
+                      setNewTeamPlayer2(emptyPlayer);
                     }}
                     className={editorGhostButtonClass}
                   >
@@ -2082,13 +2112,14 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                         <div className="mt-3 space-y-2">
                           {(group.teams || []).map((team) => {
                             const rowCheck = groupRowCheck(group.id, team.id);
+                            const removeCheck = canRemoveTeamFromGroup(draft.state.present, team.id, group.id);
                             const locked = findTeamStartedInPhase(draft.state.present, team.id, 'groups');
                             const rowChanged = changedGroupTeamIds.has(team.id);
                             const isSelected =
                               selection?.kind === 'group-team' && selection.teamId === team.id && selection.groupId === group.id;
                             return (
+                              <div key={`${group.id}:${team.id}`} className="flex items-start gap-2">
                               <button
-                                key={`${group.id}:${team.id}`}
                                 type="button"
                                 draggable={!locked && !hasRealBracketStarted(draft.state.present)}
                                 onDragStart={() => {
@@ -2147,6 +2178,18 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                                   </div>
                                 ) : null}
                               </button>
+                              <button type="button"
+                                disabled={!removeCheck.allowed}
+                                title={removeCheck.allowed ? undefined : removeCheck.humanMessage}
+                                aria-label={`${t('remove')} ${team.name}`}
+                                onClick={() => {
+                                  if (applyOperation({ type: 'REMOVE_GROUP_TEAM', teamId: team.id, groupId: group.id }, 'success')) clearInteraction();
+                                }}
+                                className={editorGhostButtonClass}
+                              >
+                                {t('remove')}
+                              </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -2220,7 +2263,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
               </div>
 
               {bracketWorkspaceMode === 'list' ? (
-              <div role="tabpanel" aria-label="Vista elenco del tabellone" className="rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
+              <div role="tabpanel" aria-label="Vista elenco del tabellone" className="max-h-[min(70dvh,48rem)] overflow-auto rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface-muted)] p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <div className="text-base font-black text-[var(--editor-text-primary)]">{t('editor_match_pair_view_title')}</div>
@@ -2235,11 +2278,11 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
                 <div className="mt-4 space-y-4">
                   {bracketPairRounds.map((round, roundIndex) => {
-                    const roundName = round[0]?.roundName || t('round_n').replace('{n}', String(roundIndex + 1));
+                    const roundName = round[0]?.roundName ? localizeBracketRound(round[0].roundName, t) : t('round_n').replace('{n}', String(roundIndex + 1));
                     return (
                       <div key={`${roundName}:${roundIndex}`} className="space-y-3">
                         <div className="text-xs font-black uppercase tracking-wide text-[var(--editor-text-muted)]">{roundName}</div>
-                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,21rem),1fr))] gap-3">
                           {round.map((match) => renderBracketPairCard(match))}
                         </div>
                       </div>
@@ -2254,7 +2297,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 role="tabpanel"
                 aria-label="Vista grafica del tabellone"
                 className={`rounded-[18px] border border-[color:var(--editor-border-subtle)] bg-[var(--editor-bg-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
-                  isBracketFullscreen ? 'h-screen overflow-hidden p-3' : 'h-[calc(100dvh-12rem)] min-h-[460px] max-h-[820px] overflow-auto p-2.5 lg:p-3'
+                  isBracketFullscreen ? 'h-screen overflow-hidden p-3' : 'max-h-[calc(100dvh-5rem)] overflow-auto p-2.5 lg:p-3'
                 }`}
               >
                 {isBracketFullscreen ? (
@@ -2285,8 +2328,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     </div>
                   </div>
                 ) : null}
-                <div className={isBracketFullscreen ? 'grid h-[calc(100dvh-5.5rem)] min-h-0 grid-cols-[minmax(0,1fr)_320px] gap-3' : 'h-full min-h-0'}>
-                  <div className="h-full min-w-0 overflow-auto rounded-xl bg-white">
+                <div className={isBracketFullscreen ? 'grid h-[calc(100dvh-5.5rem)] min-h-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-3' : 'h-full min-h-0'}>
+                  <div className="min-h-0 min-w-0 rounded-xl bg-white">
                 <TournamentBracket
                   teams={draft.state.present.catalogTeams}
                   matches={draft.state.present.matches}
@@ -2298,12 +2341,13 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                   participantSelectionMode
                   scale={bracketScale}
                   fitToWidth={bracketFitToWidth}
+                  boundedScroll
                   selectedSlotKeys={selection?.kind === 'bracket-slot' ? [selection.slotKey] : []}
                   validSlotKeys={highlightedBracketSlots}
                   invalidSlotKeys={invalidBracketSlots}
                   changedSlotKeys={changedBracketSlots}
                   lockedSlotKeys={lockedBracketSlots}
-                  interactiveByeSlots={interactiveByeSlots}
+                  interactiveByeSlots
                   draggingSlotKey={dragSource?.kind === 'bracket-slot' ? dragSource.slotKey : undefined}
                   dropTargetSlotKey={hoverSlotKey || undefined}
                   onParticipantClick={(args) => handleBracketSlotAction(`${args.matchId}|${args.side}`)}
@@ -2312,8 +2356,8 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                     const teamId = getSlotValue(draft.state.present, slotKey) || undefined;
                     if (!teamId) return;
                     const match = getMatchById(draft.state.present, args.matchId);
-                    if (match && isLockedBracketMatchForStructureEdit(match)) {
-                      setInteractionMessage(t('editor_bracket_slot_locked_started'));
+                    if (!match || !isEditableBracketMatch(draft.state.present, match)) {
+                      setInteractionMessage(t('editor_status_locked'));
 
                       return;
                     }
@@ -2361,7 +2405,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
         </section>
 
         {view === 'bracket' ? (
-          <aside className={`${editorPanelClass} self-start space-y-4 p-4 lg:sticky lg:top-[5.5rem] lg:max-h-[calc(100dvh-6.5rem)] lg:overflow-y-auto`}>
+          <aside className={`${editorPanelClass} self-start space-y-4 p-4 lg:col-start-2`}>
             {bracketInspectorContent}
           </aside>
         ) : null}
@@ -2413,7 +2457,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-[16px] bg-white/80 px-2 py-3">
-                  <div className="text-lg font-bold text-[var(--editor-text-primary)]">{draft.diff.operationsCount}</div>
+                  <div className="text-lg font-bold text-[var(--editor-text-primary)]">{draft.state.log.length}</div>
                   <div className="text-[11px] font-medium text-[var(--editor-text-muted)]">{t('editor_operations_label')}</div>
                 </div>
                 <div className="rounded-[16px] bg-white/80 px-2 py-3">
@@ -2726,7 +2770,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
                 <div className="text-sm font-black text-slate-900">{t('editor_draft_ready_to_apply')}</div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-xl bg-white px-2 py-2">
-                    <div className="text-lg font-black text-slate-900">{pendingApplyLocal.diff.operationsCount}</div>
+                    <div className="text-lg font-black text-slate-900">{draft.state.log.length}</div>
                     <div className="text-[11px] font-bold text-slate-500">{t('editor_operations_label')}</div>
                   </div>
                   <div className="rounded-xl bg-white px-2 py-2">
@@ -2801,7 +2845,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <div className="text-xl font-black text-slate-900">{pendingLiveApply.diff.operationsCount}</div>
+                <div className="text-xl font-black text-slate-900">{draft.state.log.length}</div>
                 <div className="text-[11px] font-black uppercase tracking-wide text-slate-500">{t('editor_operations_label')}</div>
               </div>
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">

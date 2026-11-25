@@ -1,4 +1,5 @@
 import { countedIntegrations, listEditions } from './editionData';
+import { stableStateSerialize } from './stableStateSerialize';
 import { coerceAppState, type AppState } from './storageService';
 import { hasCountedPlayerStats } from './matchUtils';
 import { deriveYoBFromBirthDate, isU25, getPlayerKey, normalizeBirthDateInput, pickPlayerIdentityValue, resolvePlayerKey } from './playerIdentity';
@@ -2984,6 +2985,8 @@ const coerceTournamentConfig = (cfg: any): TournamentConfig => {
     return {
         // NOTE: "round_robin" can legitimately store 0 (no qualifiers).
         advancingPerGroup: Number.isFinite(v) && v >= 0 ? v : 2,
+        ...(cfg?.groupSeeding === 'opposite_halves' ? { groupSeeding: 'opposite_halves' as const } : {}),
+        ...(Array.isArray(cfg?.lateTeamIds) ? { lateTeamIds: cfg.lateTeamIds.filter((id: unknown) => typeof id === 'string') } : {}),
         ...(resultsOnly ? { resultsOnly: true } : {}),
         ...(finalRoundRobin ? { finalRoundRobin } : {}),
         ...(refTables ? { refTables } : {})
@@ -3329,6 +3332,38 @@ export const resetFantaConfigToPretournament = async (): Promise<void> => {
     if (!res.ok) throw new Error(await readErrorBody(res));
 };
 
+// Removes a cancelled live tournament from the public Fanta and returns the
+// rosters promoted at its start to the pre-tournament. The database refuses a
+// tournament that is still live or archived, so it can be repeated safely.
+export const returnCancelledFantaLive = async (tournamentId: string): Promise<{ returned: number; kept: number }> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) throw new Error('Supabase non configurato');
+    const resolvedTournamentId = String(tournamentId || '').trim();
+    if (!resolvedTournamentId) throw new Error('ID torneo annullato mancante.');
+    for (let attempt = 1; ; attempt += 1) {
+        const session = await requireSupabaseWriteSession();
+        const res = await fetchWithTimeout(
+            rpcUrl(cfg, 'fanta_return_cancelled_live'),
+            {
+                method: 'POST',
+                headers: buildHeaders(cfg, session.accessToken),
+                body: JSON.stringify({ p_workspace_id: cfg.workspaceId, p_tournament_id: resolvedTournamentId }),
+            },
+            8000,
+            { source: 'returnCancelledFantaLive', kind: 'sync' }
+        );
+        if (res.ok) {
+            const result = await res.json();
+            if (result?.ok !== true) throw new Error('Riallineamento Fanta non confermato.');
+            return { returned: Number(result.returned) || 0, kept: Number(result.kept) || 0 };
+        }
+        const body = await readErrorBody(res);
+        // In local mode the public projection follows the confirmed commit by about a second.
+        if (attempt >= 4 || !body.includes('FLBP_TOURNAMENT_STILL_LIVE')) throw new Error(body);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+};
+
 export const hasFantaPretournamentTeams = async (): Promise<boolean> => {
     const cfg = getSupabaseConfig();
     if (!cfg) return false;
@@ -3395,6 +3430,7 @@ export type DeleteFantaTournamentDataResult = {
         archivedStandings: number;
         archivedEditions: number;
         fantaTeams: number;
+        fantaRosters?: number;
     };
 };
 
@@ -3406,6 +3442,8 @@ export type FantaTournamentDataSummary = {
     archivedStandings: number;
     archivedPlayers: number;
     fantaTeams: number;
+    /** A few team names, to tell a trial edition from a real one. */
+    sampleTeamNames: string[];
     publicTournamentExists: boolean;
     totalRows: number;
 };
@@ -3479,6 +3517,7 @@ export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTourname
             archivedStandings: 0,
             archivedPlayers: 0,
             fantaTeams: 0,
+            sampleTeamNames: [],
             publicTournamentExists: publicIds.has(tournamentId),
             totalRows: 0,
         };
@@ -3513,6 +3552,8 @@ export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTourname
         if (!item) return;
         item.fantaTeams += 1;
         item.totalRows += 1;
+        const name = String(row.name || '').trim();
+        if (name && item.sampleTeamNames.length < 3) item.sampleTeamNames.push(name);
     });
 
     return Array.from(byId.values())
@@ -3559,6 +3600,8 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
     const tournament = encodeURIComponent(resolvedTournamentId);
     const baseFilter = `workspace_id=eq.${workspace}&tournament_id=eq.${tournament}`;
 
+    // Archived snapshots (admin can delete these directly): remove first so the
+    // reported counts are accurate.
     const archivedPlayers = await deleteFantaRows(
         cfg,
         session.accessToken,
@@ -3577,12 +3620,48 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
         `fanta_archived_editions?${baseFilter}`,
         'deleteFantaArchivedEditions'
     );
-    const fantaTeams = await deleteFantaRows(
-        cfg,
-        session.accessToken,
-        `fanta_teams?${baseFilter}`,
-        'deleteFantaTeams'
-    );
+
+    // fanta_teams / fanta_rosters are RLS "Owner CRUD": the admin cannot delete
+    // them via REST (the DELETE matches 0 rows). Use the admin-gated security
+    // definer RPC that removes teams + rosters (+ any leftover archived rows).
+    // Fall back to the direct REST delete only if the RPC is unavailable (e.g.
+    // an older database without the migration), preserving prior behaviour.
+    let fantaTeams = 0;
+    let fantaRosters = 0;
+    let rpcOk = false;
+    try {
+        const rpcRes = await fetchWithTimeout(
+            rpcUrl(cfg, 'flbp_admin_delete_fanta_tournament_data'),
+            {
+                method: 'POST',
+                headers: buildHeaders(cfg, session.accessToken),
+                body: JSON.stringify({
+                    p_workspace_id: cfg.workspaceId,
+                    p_tournament_id: resolvedTournamentId,
+                }),
+            },
+            8000,
+            { source: 'deleteFantaTournamentData.rpc', kind: 'sync' }
+        );
+        if (rpcRes.ok) {
+            const out = await rpcRes.json().catch(() => null);
+            fantaTeams = Number(out?.deleted_teams || 0);
+            fantaRosters = Number(out?.deleted_rosters || 0);
+            rpcOk = true;
+        } else {
+            console.warn('RPC delete dati Fanta non disponibile, uso il percorso REST', await readErrorBody(rpcRes));
+        }
+    } catch (error) {
+        console.warn('RPC delete dati Fanta fallita, uso il percorso REST', error);
+    }
+    if (!rpcOk) {
+        fantaTeams = await deleteFantaRows(
+            cfg,
+            session.accessToken,
+            `fanta_teams?${baseFilter}`,
+            'deleteFantaTeams'
+        );
+    }
 
     // If fanta_config still references the deleted tournament, point it back at
     // the Pretorneo container: otherwise the public Fanta stays stuck on
@@ -3611,7 +3690,7 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
         ok: true,
         tournamentId: resolvedTournamentId,
         configReset,
-        removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams },
+        removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams, fantaRosters },
     };
 };
 
@@ -3815,7 +3894,7 @@ const makeConflictError = (message: string, meta?: { remoteUpdatedAt?: string | 
     return e;
 };
 
-export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+const writeWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
     await requireSupabaseWriteSession();
@@ -3853,6 +3932,18 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
         const conflict = normalizeRpcConflictError(body, conflictUpdatedAt || null);
         if (conflict) {
             let remoteUpdatedAt = conflictUpdatedAt || null;
+            try {
+                const remote = await pullWorkspaceState({ source: 'pushWorkspaceState.verifyConflict', kind: 'admin' });
+                if (remote?.updated_at) {
+                    remoteUpdatedAt = remote.updated_at;
+                    if (stableStateSerialize(remote.state) === stableStateSerialize(state)) {
+                        setRemoteBaseUpdatedAt(remote.updated_at);
+                        return remote;
+                    }
+                }
+            } catch {
+                // Preserve the original conflict when verification is unavailable.
+            }
             if (!remoteUpdatedAt) {
                 try {
                     remoteUpdatedAt = await pullWorkspaceStateUpdatedAt({ source: 'pushWorkspaceState.conflictUpdatedAt', kind: 'admin' });
@@ -3881,6 +3972,37 @@ export const pushWorkspaceState = async (state: AppState, opts?: { force?: boole
     };
     setRemoteBaseUpdatedAt(out.updated_at || payload.updated_at);
     return out;
+};
+
+type SnapshotWriteKey = { scope: string; fingerprint: string };
+let confirmedSnapshotWrite: (SnapshotWriteKey & { row: SupabaseWorkspaceStateRow }) | undefined;
+let activeSnapshotWrite: (SnapshotWriteKey & { base: string | null; result: Promise<SupabaseWorkspaceStateRow> }) | undefined;
+
+export const pushWorkspaceState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }, perf?: RequestPerfHint): Promise<SupabaseWorkspaceStateRow> => {
+    const cfg = getSupabaseConfig();
+    if (!cfg) return writeWorkspaceState(state, opts, perf);
+    const scope = [cfg.url, cfg.workspaceId, getSupabaseSession()?.userId || ''].join('|');
+    const fingerprint = stableStateSerialize(state);
+    const base = opts?.baseUpdatedAt === undefined ? getRemoteBaseUpdatedAt() : opts.baseUpdatedAt;
+    const canReuse = !opts?.force && opts?.baseUpdatedAt === undefined;
+    if (canReuse && hasSupabaseWriteSession()) {
+        const matches = (entry?: SnapshotWriteKey) => entry?.scope === scope && entry.fingerprint === fingerprint;
+        const active = activeSnapshotWrite;
+        if (active && matches(active) && active.base === base) return active.result;
+        const confirmed = confirmedSnapshotWrite;
+        if (!active && confirmed && matches(confirmed) && confirmed.row.updated_at === base) return confirmed.row;
+    }
+
+    const result = writeWorkspaceState(state, opts, perf);
+    const active = { scope, fingerprint, base, result };
+    activeSnapshotWrite = active;
+    try {
+        const row = await result;
+        if (activeSnapshotWrite === active) confirmedSnapshotWrite = { scope, fingerprint, row };
+        return row;
+    } finally {
+        if (activeSnapshotWrite === active) activeSnapshotWrite = undefined;
+    }
 };
 
 // -----------------------------
@@ -4105,6 +4227,7 @@ export interface NormalizedExportSummary {
     integrationsScorers: number;
     aliases: number;
     publicCareerPlayers: number;
+    workspaceUpdatedAt?: string | null;
 }
 
 export interface SimPoolSeedSummary {
@@ -4456,12 +4579,12 @@ const emptyNormalizedExportSummary = (): NormalizedExportSummary => ({
     publicCareerPlayers: 0,
 });
 
-export const pushLiveTournamentIncremental = async (state: AppState, opts?: { force?: boolean }): Promise<NormalizedExportSummary> => {
+export const pushLiveTournamentIncremental = async (state: AppState, opts?: { force?: boolean; strictPublicMirror?: boolean }): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg || !state.tournament) return emptyNormalizedExportSummary();
 
     // Keep the canonical snapshot atomic/light; normalized tables below are the live mirror.
-    await pushWorkspaceState(state, opts);
+    const workspaceRow = await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
     const tournamentId = String(state.tournament.id || '').trim();
@@ -4489,8 +4612,8 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
         await restUpsertRows(cfg, 'public_tournament_matches', rows.publicMatchRows, 'workspace_id,tournament_id,id');
         await restUpsertRows(cfg, 'public_tournament_match_stats', rows.publicStatRows, 'workspace_id,tournament_id,match_id,team_id,player_name', 800);
         await deleteStalePublicTournamentRows(cfg, tournamentId, rows);
-    } catch {
-        // ignore: public mirror tables might not exist yet or may be temporarily unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) throw error;
     }
 
     return {
@@ -4501,16 +4624,17 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: { fo
         groupTeams: rows.groupTeamRows.length,
         matches: rows.matchRows.length,
         matchStats: rows.statRows.length,
+        workspaceUpdatedAt: workspaceRow.updated_at || null,
     };
 };
 
 // NOTE: This is an explicit admin action. It overwrites normalized tables for the workspace.
-export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null }): Promise<NormalizedExportSummary> => {
+export const pushNormalizedFromState = async (state: AppState, opts?: { force?: boolean; baseUpdatedAt?: string | null; strictPublicMirror?: boolean }): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
     if (!cfg) throw new Error('Supabase non configurato');
 
     // Safety: keep snapshot updated too.
-    await pushWorkspaceState(state, opts);
+    const workspaceRow = await pushWorkspaceState(state, opts);
     await ensureWorkspace(cfg);
 
     // 1) Clear normalized workspace data.
@@ -4679,8 +4803,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
 
         // Public Hall of Fame (sanitized)
         await restUpsertRows(cfg, 'public_hall_of_fame_entries', publicHofRows, 'workspace_id,id');
-    } catch {
-        // ignore: tables missing or unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) throw error;
     }
 
     // 4) Public career leaderboard (safe aggregated stats, no full YoB)
@@ -4689,8 +4813,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         const publicRows = await buildPublicCareerLeaderboardRows(cfg, state);
         publicCareerPlayers = publicRows.length;
         await restUpsertRows(cfg, 'public_career_leaderboard', publicRows, 'workspace_id,id', 800);
-    } catch {
-        // ignore: table missing or unauthorized
+    } catch (error) {
+        if (opts?.strictPublicMirror) throw error;
         publicCareerPlayers = 0;
     }
 
@@ -4704,7 +4828,8 @@ export const pushNormalizedFromState = async (state: AppState, opts?: { force?: 
         hallOfFame: hofRows.length,
         integrationsScorers: scorersRows.length,
         aliases: aliasesRows.length,
-        publicCareerPlayers
+        publicCareerPlayers,
+        workspaceUpdatedAt: workspaceRow.updated_at || null,
     };
 };
 

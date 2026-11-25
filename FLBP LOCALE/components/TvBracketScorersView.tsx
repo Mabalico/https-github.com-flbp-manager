@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '../App';
 import { Match, Team, TournamentData, HallOfFameEntry } from '../types';
 import { PublicTvShell } from './PublicTvShell';
-import { TvClassicBracket } from './TvClassicBracket';
+import { getTvBracketPageCount, getTvBracketPageLabel, TvClassicBracket } from './TvClassicBracket';
 import { getPlayerKey, resolvePlayerKey } from '../services/storageService';
 import { isU25, normalizeBirthDateInput } from '../services/playerIdentity';
 import { Star } from 'lucide-react';
@@ -202,6 +202,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
 
   const bracketSize = Math.max(2, 2 ** preferredBracketRounds.length);
   const isDensePagedBracket = classicLayoutSupported && bracketSize >= 64;
+  const bracketPageCount = getTvBracketPageCount(bracketSize);
 
   // Consecutive Loop Timer
   useEffect(() => {
@@ -210,8 +211,8 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
         if (prev <= 1) {
           if (activeScreen === 'bracket') {
             if (isDensePagedBracket) {
-              let nextPanel = bracketPanelIndex + 1;
-              if (nextPanel < 3) {
+              const nextPanel = bracketPanelIndex + 1;
+              if (nextPanel < bracketPageCount) {
                 setBracketPanelIndex(nextPanel);
                 return BRACKET_DURATION_SEC;
               } else {
@@ -250,7 +251,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [activeScreen, page, totalPages, sortMode, bracketPanelIndex, isDensePagedBracket]);
+  }, [activeScreen, page, totalPages, sortMode, bracketPageCount, bracketPanelIndex, isDensePagedBracket]);
 
   // Keep page within bounds when data changes
   useEffect(() => {
@@ -271,13 +272,13 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
 
           <div className="pointer-events-none absolute inset-x-[1.4%] top-[1.25%] z-20 flex items-start justify-between gap-4 text-white">
             <div className="min-w-0 text-[clamp(18px,1.7vw,30px)] font-black uppercase tracking-tight leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
-              {data?.name || t('tournament_name')}
+              {data ? data.name || t('tv_broadcast_title') : t('no_tournament')}
             </div>
             <div className="shrink-0 flex items-center gap-4 text-[clamp(10px,0.82vw,15px)] font-black uppercase tracking-[0.14em] text-slate-100/92 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
               <span>{t('teams')} {visibleBracketTeamsCount}</span>
               <span>{t('turns_label')} {bracketRoundCount}</span>
               <span className="bg-blue-600/30 px-2 py-0.5 rounded border border-blue-400/20">
-                {t('admin_tv_bracket')}{isDensePagedBracket ? ` - ${bracketPanelIndex === 2 ? t('tv_final_rounds') : t('tv_bracket_side').replace('{side}', bracketPanelIndex === 0 ? 'A' : 'B')}` : ''}
+                {t('admin_tv_bracket')}{isDensePagedBracket ? ` - ${getTvBracketPageLabel(bracketPanelIndex, bracketPageCount, t)}` : ''}
               </span>
               <span className="font-mono font-black">{timeLeft}s</span>
             </div>
@@ -306,7 +307,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
             <div className="flex items-center justify-between gap-4 px-5 py-3 bg-slate-900 text-white border-b border-white/10 shrink-0">
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-300">
-                  {data?.name || t('tournament_name')}
+                  {data ? data.name || t('tv_broadcast_title') : t('no_tournament')}
                 </div>
                 <div
                   className="mt-0.5 text-[26px] font-black uppercase tracking-[0.04em] text-white leading-tight break-words"

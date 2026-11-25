@@ -92,10 +92,26 @@ const sampleBackupState = loadBackupState('docs/sample_backup.json');
 const livePublicState = coerceAppState(sanitizeAppStateForPublic(liveState) as any);
 const sampleBackupPublicState = coerceAppState(sanitizeAppStateForPublic(sampleBackupState) as any);
 
+const tieBreakState: AppState = {
+  ...liveState,
+  tournament: {
+    ...liveState.tournament!,
+    groups: [
+      { id: 'group-f', name: 'Girone F', stage: 'groups', teams: liveState.teams.slice(0, 2) },
+      { id: 'final-stage', name: 'Super Stage', stage: 'final', teams: liveState.teams.slice(2, 4) },
+    ],
+  },
+  tournamentMatches: [
+    { ...liveState.tournamentMatches[2], code: 'FTB1', groupName: 'Girone F' },
+    { ...liveState.tournamentMatches[2], id: 'final-legacy', code: 'FTB2', groupName: undefined, teamAId: 'C', teamBId: 'D' },
+  ],
+};
+
 const scenarios = [
   { name: 'empty-shell', state: base, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
   { name: 'live-populated', state: liveState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
   { name: 'live-public-sanitized', state: livePublicState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
+  { name: 'group-f-and-legacy-final-tiebreaks', state: tieBreakState, modes: ['groups', 'groups_bracket'] as const },
   { name: 'sample-backup-coerced', state: sampleBackupState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
   { name: 'sample-backup-public-sanitized', state: sampleBackupPublicState, modes: ['groups', 'groups_bracket', 'bracket', 'scorers', 'bracket_scorers'] as const },
 ];
@@ -125,6 +141,14 @@ for (const scenario of scenarios) {
       }
       if (html.includes('>BYE<')) {
         throw new Error(`unexpected BYE token rendered in ${scenario.name}/${mode}`);
+      }
+      if (scenario.name === 'group-f-and-legacy-final-tiebreaks') {
+        const groupFixture = html.indexOf('Lupi Rossi vs Orsi Blu (Girone F)');
+        const finalFixture = html.indexOf('Falchi vs Leoni');
+        const finalSection = html.indexOf(mode === 'groups' ? 'Titolo bloccato da spareggio finale' : 'Super Stage');
+        if (groupFixture < 0 || finalSection <= groupFixture || finalFixture <= finalSection) {
+          throw new Error('an explicitly assigned group F tie-break must be separate from a legacy unnamed final tie-break');
+        }
       }
       console.log('TV SSR OK', scenario.name, mode, html.length);
     } catch (e: any) {

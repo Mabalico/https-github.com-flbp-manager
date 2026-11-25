@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from '../services/storageService';
 import { useTranslation } from '../App';
+import { focusReportField, handleReportFieldEnter, reportTieState } from '../services/reportEntry';
+import { ReportScoreCards, useReportSaveFeedback } from './admin/ReportEntryFeedback';
 import { cloneMatchesForResultSync, collectChangedMatchResults, formatMatchScoreLabel, formatMatchTeamsLabel, getMatchParticipantIds } from '../services/matchUtils';
 import { loadImageProcessingService, type RefertoStructuredOcrResult } from '../services/lazyImageProcessing';
 import { syncBracketFromGroups, ensureFinalTieBreakIfNeeded } from '../services/tournamentEngine';
 import type { Match, MatchStats, Team } from '../types';
 import { Gavel, ArrowLeft, LogOut, Repeat2, Eye, EyeOff } from 'lucide-react';
-import { isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
+import { canPlayMatch, hasUndeterminedParticipants, isByeTeamId, isTbdTeamId, pickMatchForCode } from '../services/matchUtils';
+import { compareTournamentMatches } from '../services/groupUtils';
 import { normalizeNamePreserveCase } from '../services/textUtils';
 import { cancelActivePlayerAppCallsForMatch, ensureFreshPlayerSupabaseSession, getMatchResultRejectionReason, getPlayerSupabaseSession, getRemoteBaseUpdatedAt, getSupabaseAccessToken, getSupabaseConfig, isMatchResultRpcMissingError, pullPlayerAppProfile, pullRefereeLiveState, pushRefereeLiveState, pushRefereeMatchResults, verifyRefereePassword } from '../services/supabaseRest';
 import { clearDbSyncCurrentIssue, markDbSyncConflict, markDbSyncError, markDbSyncOk } from '../services/dbDiagnostics';
@@ -73,13 +76,11 @@ const isRefereeRateLimited = (value: unknown): boolean => {
 
 // The server refused the report itself (for example a tie-break it cannot
 // accept): sending it again cannot help, so the referee warns the Admin.
-const refereeRejectedReportMessage = (reason: string) => [
-    'Il server ha rifiutato il referto.',
-    '',
-    `Motivo: ${reason}`,
-    '',
-    'Il referto resta salvato su questo dispositivo: avvisa l\'Admin, che può inserire il risultato dall\'area Admin.',
-].join('\n');
+const refereeRejectedReportMessage = (reason: string, t: (key: string) => string) => [
+    t('report_dialog_rejected').replace('{reason}', () => reason),
+    t('report_dialog_referee_queued'),
+    t('report_dialog_referee_contact_admin'),
+].join('\n\n');
 
 // Since migration 20261119000100 flbp_referee_pull_live_state returns only the
 // referee view of the live tournament (teams, groups, config, roster, matches):
@@ -222,6 +223,14 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
     const [reportStatsForm, setReportStatsForm] = useState<StatsForm>({});
     const [saveBusy, setSaveBusy] = useState(false);
+    const reportCodeRef = useRef<HTMLInputElement>(null);
+    const manualFieldsRef = useRef<HTMLDivElement>(null);
+    const reportSaveFeedback = useReportSaveFeedback(t('close'));
+
+    useEffect(() => {
+        if (page === 'match') reportCodeRef.current?.focus();
+        if (page === 'report' && entryMode === 'manual') focusReportField(manualFieldsRef.current);
+    }, [page, entryMode, foundMatchId]);
 
     // OCR support (stored after confirmation, shown alongside manual input)
     const [supportImageUrl, setSupportImageUrl] = useState<string>('');
@@ -402,8 +411,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         return [...ms]
             .filter(m => !(m as any)?.hidden)
             .filter(m => !(m as any)?.isBye)
-            .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
-    }, [state.tournamentMatches]);
+            .sort(compareTournamentMatches(state.tournament));
+    }, [state.tournament, state.tournamentMatches]);
 
     const isRefertable = (m: Match) => {
         if (!m) return false;
@@ -426,13 +435,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
     const pendingMatches = useMemo(() => {
         const ms = tournamentMatchesSorted.filter(isRefertable);
-        // Playing first, then scheduled, then orderIndex
-        return ms.sort((a, b) => {
-            const sa = a.status === 'playing' ? 0 : 1;
-            const sb = b.status === 'playing' ? 0 : 1;
-            if (sa !== sb) return sa - sb;
-            return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
-        });
+        // Keep the schedule order within each status.
+        return ms.sort((a, b) => Number(b.status === 'playing') - Number(a.status === 'playing'));
     }, [tournamentMatchesSorted]);
 
     const foundMatch: Match | undefined = useMemo(() => {
@@ -600,7 +604,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             setLoginError(null);
             const replayed = await replayPendingReports(entered);
             if (replayed > 0) {
-                alert(`${replayed} refert${replayed === 1 ? 'o pendente sincronizzato' : 'i pendenti sincronizzati'}.`);
+                alert(t('report_dialog_referee_replayed').replace('{count}', String(replayed)));
             }
         } catch (e: any) {
             const msg = String(e?.message || e || '');
@@ -956,15 +960,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        const isValidRefMatch = (m: Match) => {
-            const ids = getMatchParticipantIds(m);
-            if (!ids.length) return false;
-            if (ids.some(x => isByeTeamId(x))) return false;
-            if (ids.some(x => isTbdTeamId(x))) return false;
-            return true;
-        };
-
-        const hits = hitsAll.filter(isValidRefMatch);
+        // A knockout match can have only one team while the other is still to be decided.
+        const hits = hitsAll.filter(canPlayMatch);
         if (!hits.length) {
             // Keep legacy behavior: show the first match-specific error.
             const candidate = hitsAll[0];
@@ -979,7 +976,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 setReportCodeError(t('referees_err_is_bye') || 'Questo codice corrisponde a un BYE. Nessun referto richiesto.');
                 return;
             }
-            if (ids.some(x => isTbdTeamId(x))) {
+            if (hasUndeterminedParticipants(candidate)) {
                 setFoundMatchId('');
                 setReportCodeError(t('referees_err_has_tbd') || 'Questo match contiene TBD: non è ancora pronto per il referto.');
                 return;
@@ -1130,15 +1127,15 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         return out;
     }, [foundMatch, participantsForForm, reportStatsForm]);
 
-    const tieNotAllowed = useMemo(() => {
-        const vals = Object.values(derivedScoresByTeam) as number[];
-        if (!vals.length) return false;
-        const max = Math.max(...vals);
-        const leaders = Object.keys(derivedScoresByTeam).filter(id => (derivedScoresByTeam[id] || 0) === max);
-        // if max is 0 and all zero, don't block UI yet (but save will still block)
-        if (max === 0) return false;
-        return leaders.length !== 1;
-    }, [derivedScoresByTeam]);
+    const manualScores = participantsForForm.map(team => ({
+        id: team.id,
+        name: teamNameById.get(team.id) || team.name || team.id,
+        score: derivedScoresByTeam[team.id] ?? 0,
+    }));
+    const { tied: tieNotAllowed } = reportTieState(manualScores.map(team => team.score));
+    const fieldIndexByPlayer = new Map(participantsForForm.flatMap(team =>
+        [team.player1, team.player2].filter(Boolean).map(player => team.id + '||' + player)
+    ).map((key, index) => [key, index * 2]));
 
     // ===== Save report =====
     const closeLiveCallsForMatch = async (match: Match, tournamentId: string, refereePassword?: string) => {
@@ -1166,6 +1163,12 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
     };
 
+    const finishManualReport = (updated: Match) => {
+        reportSaveFeedback.show(t('report_saved_summary')
+            .replace('{code}', updated.code || '—').replace('{score}', formatMatchScoreLabel(updated).replaceAll('-', '–')));
+        backToMatchStep();
+    };
+
     const saveReport = async () => {
         if (!state.tournament) {
             alert(t('alert_no_live_active'));
@@ -1177,7 +1180,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
         }
 
         if (foundMatch.status === 'finished') {
-            const ok = confirm(t('referees_overwrite_confirm') || 'Match già finito. Vuoi sovrascrivere il referto?');
+            const ok = confirm(t('referees_overwrite_confirm'));
             if (!ok) return;
         }
 
@@ -1211,14 +1214,19 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 return;
             }
             const base = matches[idx];
+            if (!canPlayMatch(base)) {
+                if (workingState !== state) applyRefereeState(workingState);
+                alert(t('alert_select_match'));
+                return;
+            }
             if (workingState !== state) {
                 if (getMatchParticipantIds(base).join('|') !== getMatchParticipantIds(foundMatch).join('|')) {
                     applyRefereeState(workingState);
-                    alert('La partita è cambiata nel torneo live. Ho ricaricato i dati: controlla il referto prima di salvare di nuovo.');
+                    alert(t('report_dialog_referee_fixture_changed'));
                     return;
                 }
                 if (base.status === 'finished' && foundMatch.status !== 'finished') {
-                    const ok = confirm(t('referees_overwrite_confirm') || 'Match già finito. Vuoi sovrascrivere il referto?');
+                    const ok = confirm(t('referees_overwrite_confirm'));
                     if (!ok) {
                         applyRefereeState(workingState);
                         return;
@@ -1245,7 +1253,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             const max = vals.length ? Math.max(...vals) : 0;
             const leaders = Object.keys(scoresByTeam).filter(id => (scoresByTeam[id] || 0) === max);
             if (leaders.length !== 1) {
-                alert(t('alert_tie_not_allowed') || 'Pareggio non ammesso: inserisci lo spareggio nei canestri dei giocatori.');
+                alert(t('alert_tie_not_allowed'));
                 return;
             }
 
@@ -1291,8 +1299,8 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 alert([
                     t('editor_winner_cannot_advance'),
                     '',
-                    `Con questo risultato cambia il vincitore, ma la partita successiva${lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''} è già giocata o in corso.`,
-                    'Il referto non è stato salvato: chiedi all\'Admin di correggere il tabellone.',
+                    t('report_dialog_locked_successor').replace('{code}', () => lockedSuccessor.code ? ` (${lockedSuccessor.code})` : ''),
+                    t('report_dialog_referee_locked_advice'),
                 ].join('\n'));
                 return;
             }
@@ -1324,7 +1332,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
             if (shouldUseRefereeRemotePush) {
                 if (!refereePassword) {
-                    alert(t('referees_session_expired_relogin') || 'Sessione arbitro scaduta su questo dispositivo. Per sicurezza la password arbitri non viene salvata nel browser: effettua di nuovo il login arbitri.');
+                    alert(t('referees_session_expired_relogin'));
                     return;
                 }
                 let useSnapshotFallback = false;
@@ -1354,20 +1362,20 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         applyRefereeState(nextState);
-                        alert('Conflitto DB: il referto è conservato nella coda locale e non verrà perso. Verifica la versione remota prima di riprovare.');
+                        alert(t('report_dialog_referee_queue_conflict'));
                         return;
                     } else if (rejectionReason) {
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncError(e?.message || String(e), 'snapshot');
-                        alert(refereeRejectedReportMessage(rejectionReason));
+                        alert(refereeRejectedReportMessage(rejectionReason, t));
                         return;
                     } else {
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);
                         markDbSyncError(e?.message || String(e), 'snapshot');
                         applyRefereeState(nextState);
                         alert(isRefereeRateLimited(e)
-                            ? `${t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.'}\n\nIl referto è salvato sul dispositivo e verrà riprovato dopo il nuovo accesso arbitri.`
-                            : 'Connessione non disponibile: il referto è salvato sul dispositivo e verrà riprovato dopo il nuovo accesso arbitri.');
+                            ? `${t('referees_rate_limited')}\n\n${t('report_dialog_referee_queue_relogin')}`
+                            : `${t('db_connection_unavailable')}\n\n${t('report_dialog_referee_queue_relogin')}`);
                         return;
                     }
                 }
@@ -1404,7 +1412,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                         clearDbSyncCurrentIssue();
                                         markDbSyncOk('snapshot');
                                         applyRefereeState(mergeResult.state);
-                                        alert(t('alert_report_saved'));
+                                        finishManualReport(updated);
                                         void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
                                         return;
                                     }
@@ -1415,18 +1423,18 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                             markDbSyncConflict(e?.message || 'Conflitto DB');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
                             applyRefereeState(nextState);
-                            alert('Conflitto DB: il referto resta conservato nella coda locale.');
+                            alert(t('report_dialog_referee_queue_conflict'));
                         } else if (getMatchResultRejectionReason(e)) {
                             markDbSyncError(e?.message || String(e), 'snapshot');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
-                            alert(refereeRejectedReportMessage(getMatchResultRejectionReason(e) || ''));
+                            alert(refereeRejectedReportMessage(getMatchResultRejectionReason(e) || '', t));
                         } else {
                             markDbSyncError(e?.message || String(e), 'snapshot');
                             markRefereeReportAttemptFailed(queuedReport.operationId, e);
                             applyRefereeState(nextState);
                             alert(isRefereeRateLimited(e)
-                                ? `${t('referees_rate_limited') || 'Accesso arbitri temporaneamente bloccato: troppi tentativi con password errata. Riprova tra qualche minuto.'}\n\nIl referto resta conservato nella coda locale.`
-                                : 'Salvataggio remoto non riuscito: il referto resta conservato nella coda locale.');
+                                ? `${t('referees_rate_limited')}\n\n${t('report_dialog_referee_queued')}`
+                                : `${t('referees_db_save_failed')}\n\n${t('report_dialog_referee_queued')}`);
                         }
                         return;
                     }
@@ -1434,7 +1442,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             }
 
             applyRefereeState(nextState);
-            alert(t('alert_report_saved'));
+            finishManualReport(updated);
             void closeLiveCallsForMatch(updated, state.tournament.id, refereePassword);
         } finally {
             setSaveBusy(false);
@@ -1492,13 +1500,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             return;
         }
 
-        const hits = hitsAll.filter(m => {
-            const ids = getMatchParticipantIds(m);
-            if (!ids.length) return false;
-            if (ids.some(x => isByeTeamId(x))) return false;
-            if (ids.some(x => isTbdTeamId(x))) return false;
-            return true;
-        });
+        const hits = hitsAll.filter(canPlayMatch);
         if (!hits.length) {
             // Fall back to legacy single-hit validation on the first candidate.
             const candidate = hitsAll[0];
@@ -1511,7 +1513,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 setOcrModalError(t('referees_err_is_bye') || 'Questo codice corrisponde a un BYE.');
                 return;
             }
-            if (ids.some(x => isTbdTeamId(x))) {
+            if (hasUndeterminedParticipants(candidate)) {
                 setOcrModalError(t('referees_err_has_tbd') || 'Questo match contiene TBD: non è pronto per il referto.');
                 return;
             }
@@ -1592,7 +1594,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
             if (ocrUnavailable && !text) setOcrModalError(t('referees_ocr_unavailable'));
         } catch (e) {
             console.error(e);
-            alert(t('referees_ocr_failed') || "Errore durante l'OCR. Prova un'altra foto.");
+                alert(t('referees_ocr_failed'));
         } finally {
             setOcrBusy(false);
         }
@@ -2005,6 +2007,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                 </div>
             ) : (
                 <div className="mt-6 grid gap-4 xl:grid-cols-12">
+                    {reportSaveFeedback.notice && <div className="xl:col-span-12">{reportSaveFeedback.notice}</div>}
                     {page === 'match' && (
                         <div className="grid gap-4 xl:col-span-12 xl:max-w-5xl">
                             <div className="rounded-3xl border border-slate-200 bg-white p-5">
@@ -2020,9 +2023,11 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                 </div>
 
                                 <div className="mt-4">
-                                    <label className="text-xs font-black text-slate-700">{t('referees_report_code_label')}</label>
+                                    <label htmlFor="referee-report-code" className="text-xs font-black text-slate-700">{t('referees_report_code_label')}</label>
                                     <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                                         <input
+                                            id="referee-report-code"
+                                            ref={reportCodeRef}
                                             value={reportCode}
                                             onChange={(e) => persistReportCode(e.target.value)}
                                             onKeyDown={(e) => {
@@ -2391,26 +2396,16 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                     </div>
                                 )}
 
-{/* Scoreboard */}
-                                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                    <div className="text-xs font-black text-slate-700">{t('referees_derived_score')}</div>
-                                    <div className="mt-2 space-y-1">
-                                        {participantsForForm.map(tt => (
-                                            <div key={tt.id} className="flex items-center justify-between">
-                                                <div className="text-sm font-black text-slate-800">{teamNameById.get(tt.id) || tt.name || tt.id}</div>
-                                                <div className="text-sm font-black text-slate-900">{derivedScoresByTeam[tt.id] ?? 0}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {tieNotAllowed && (
-                                        <div className="mt-3 text-xs font-black text-amber-900">
-                                            {t('alert_tie_not_allowed') || 'Pareggio non ammesso: inserisci uno spareggio nei canestri.'}
-                                        </div>
-                                    )}
-                                </div>
+                                <ReportScoreCards scores={manualScores} tieMessage={t('alert_tie_not_allowed')} />
 
                                 {/* Manual form */}
-                                <div className="mt-4 space-y-3">
+                                <div ref={manualFieldsRef}
+                                    onKeyDown={event => handleReportFieldEnter(event, {
+                                        tied: tieNotAllowed,
+                                        canSave: !saveBusy && !tieNotAllowed,
+                                        save: () => { void saveReport(); },
+                                    })}
+                                    className="mt-4 space-y-3">
                                     {participantsForForm.map(tt => {
                                         const teamLabel = teamNameById.get(tt.id) || tt.name || tt.id;
                                         const players = [tt.player1, tt.player2].filter(Boolean) as string[];
@@ -2429,12 +2424,15 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                                     {players.map(p => {
                                                         const key = `${tt.id}||${p}`;
                                                         const f = reportStatsForm[key] || { canestri: '0', soffi: '0' };
+                                                        const fieldIndex = fieldIndexByPlayer.get(key) ?? 0;
                                                         return (
                                                             <div key={key} className="grid grid-cols-2 gap-2 items-center rounded-2xl bg-slate-50/70 p-2 sm:grid-cols-12 sm:bg-transparent sm:p-0">
                                                                 <div className="col-span-2 text-sm font-black text-slate-800 sm:col-span-6">{p}</div>
                                                                 <div className="col-span-1 sm:col-span-3">
-                                                                    <label className="text-[10px] font-black text-slate-500">PT</label>
+                                                                    <label className="text-[10px] font-black text-slate-500">{t('points')}</label>
                                                                     <input
+                                                                        aria-label={`${p} · ${t('points')}`}
+                                                                        data-report-field-index={fieldIndex}
                                                                         value={f.canestri}
                                                                         onChange={(e) => {
                                                                             const v = e.target.value;
@@ -2448,8 +2446,10 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                                                                     />
                                                                 </div>
                                                                 <div className="col-span-1 sm:col-span-3">
-                                                                    <label className="text-[10px] font-black text-slate-500">SF</label>
+                                                                    <label className="text-[10px] font-black text-slate-500">{t('soffi')}</label>
                                                                     <input
+                                                                        aria-label={`${p} · ${t('soffi')}`}
+                                                                        data-report-field-index={fieldIndex + 1}
                                                                         value={f.soffi}
                                                                         onChange={(e) => {
                                                                             const v = e.target.value;
@@ -2504,7 +2504,7 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
                                 <button
                                     onClick={() => { void saveReport(); }}
-                                    disabled={saveBusy || !foundMatch}
+                                    disabled={saveBusy || !foundMatch || tieNotAllowed}
                                     className={`sticky bottom-3 z-10 mt-4 w-full rounded-2xl font-black py-3 transition sm:static ${saveBusy ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                                 >
                                     {saveBusy ? (t('referees_save_busy') || 'Salvataggio…') : (t('referees_save_report') || 'Salva referto')}

@@ -43,6 +43,8 @@ export interface Match {
     /** Slot in the successor match where this match winner must advance. */
     nextSlot?: 'A' | 'B' | null;
     hidden?: boolean;
+    /** Unplayed bracket fixture replaced by the activated final round robin. */
+    replacedByFinalGroup?: boolean;
     /** True when the match exists only to represent a BYE auto-advance. */
     isBye?: boolean;
     /** True for extra playoff matches used to resolve group ties. */
@@ -97,6 +99,10 @@ export interface FinalRoundRobinConfig {
 
 export interface TournamentConfig {
     advancingPerGroup: number;
+    /** Seeding for newly generated group brackets. Missing on legacy tournaments. */
+    groupSeeding?: 'opposite_halves';
+    /** Teams given priority for BYEs and later first-round slots in elimination draws. */
+    lateTeamIds?: string[];
     /**
      * Optional lightweight tournament mode: only winners/losers are tracked.
      * Match reports do not collect player stats and scorer/defender awards are skipped.
