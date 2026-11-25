@@ -6,7 +6,7 @@ interface HomeProps {
   onNavigate: (view: 'tournament' | 'leaderboard' | 'hof' | 'fantabeerpong') => void;
   onOpenTournament: (id: string) => void;
   liveTournament?: { id: string; name: string; date: string; teamsCount: number; formatLabel: string };
-  /** Set while FantaBeerpong is active for the live tournament. */
+  /** Set while FantaBeerpong is active, before and during a tournament. */
   fanta?: { locked: boolean };
   lastChampion?: { teamName?: string; players: string[]; tournamentName: string; date: string };
   recentTournaments: { id: string; name: string; date: string; winnerTeamName?: string }[];
@@ -51,10 +51,12 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, onOpenTournament, liveTo
               <button type="button" className={button + ' bg-white text-slate-950 hover:bg-slate-100'} onClick={() => onNavigate('leaderboard')}>{t('historical')} <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" /></button>
             </div>
           </div>
-          {liveTournament && fanta && (
+          {(fanta || (!liveTournament && lastChampion)) && <div className="space-y-3">
+          {fanta && (
             <section className="rounded-2xl border border-white/15 bg-white/10 p-4 sm:p-5">
               <h2 className="flex items-center gap-2 text-lg font-black"><Shield className="h-5 w-5 shrink-0 text-beer-200" aria-hidden="true" />{t('home_fanta_active')}</h2>
               <p className="mt-2 text-sm text-slate-200">{t(fanta.locked ? 'home_fanta_locked' : 'home_fanta_open')}</p>
+              {!fanta.locked && <p className="mt-1 text-xs leading-5 text-slate-300">{t('fanta_pool_note')}</p>}
               <button type="button" className={button + ' mt-3 bg-white text-slate-950 hover:bg-slate-100'} onClick={() => onNavigate('fantabeerpong')}>{t('home_fanta_action')} <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" /></button>
             </section>
           )}
@@ -67,6 +69,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, onOpenTournament, liveTo
               <button type="button" className={button + ' mt-3 bg-white/10 hover:bg-white/20'} onClick={() => onNavigate('hof')}>{t('hof')} <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" /></button>
             </section>
           )}
+          </div>}
         </div>
       </section>
 

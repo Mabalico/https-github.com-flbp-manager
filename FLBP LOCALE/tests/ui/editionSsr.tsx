@@ -5,6 +5,7 @@ import { IntegrationsSubTab } from '../../components/admin/tabs/data/Integration
 import { TournamentLeaderboard } from '../../components/TournamentLeaderboard';
 import { Leaderboard } from '../../components/Leaderboard';
 import { Home } from '../../components/Home';
+import { getFantaHomeNotice } from '../../services/fantabeerpong/homeNotice';
 import { dictionary } from '../../services/i18n/it';
 import type { AppState } from '../../services/storageService';
 import type { DataTabProps } from '../../components/admin/tabs/DataTab';
@@ -51,11 +52,26 @@ if (badgeClass('edition_award_top_scorer') === badgeClass('edition_award_top_sco
 if (!standings.includes('<option value="2022">') || standings.includes('<option value="2021">')) throw new Error('SSR year filter must list only years with player statistics');
 console.log('PASS SSR title badges and year filter');
 
-// Home points to FantaBeerpong only while it is active for the live tournament.
+// Home points to FantaBeerpong while it is active, before and during a tournament.
 const homeMarkup = (fanta?: { locked: boolean }, withLive = true) => renderToString(<Home onNavigate={() => {}} onOpenTournament={() => {}} recentTournaments={[]} fanta={fanta}
     liveTournament={withLive ? { id: 'live', name: 'Torneo Live', date: '2026-11-25', teamsCount: 16, formatLabel: 'Gironi' } : undefined} />);
 const has = (html: string, key: string) => [dictionary[key], key].some(text => html.includes(text));
-if (!has(homeMarkup({ locked: false }), 'home_fanta_open') || !has(homeMarkup({ locked: false }), 'home_fanta_action')) throw new Error('SSR Home must invite to FantaBeerpong before the first match');
-if (!has(homeMarkup({ locked: true }), 'home_fanta_locked') || has(homeMarkup({ locked: true }), 'home_fanta_open')) throw new Error('SSR Home must say that Fanta teams are locked');
-if (has(homeMarkup(), 'home_fanta_active') || has(homeMarkup({ locked: false }, false), 'home_fanta_active')) throw new Error('SSR Home must not mention FantaBeerpong when it is off or there is no live tournament');
+if (!has(homeMarkup({ locked: false }), 'home_fanta_open') || !has(homeMarkup({ locked: false }), 'home_fanta_action') || !has(homeMarkup({ locked: false }), 'fanta_pool_note')) throw new Error('SSR Home must invite to FantaBeerpong before the first match');
+if (!has(homeMarkup({ locked: true }), 'home_fanta_locked') || has(homeMarkup({ locked: true }), 'home_fanta_open') || has(homeMarkup({ locked: true }), 'fanta_pool_note')) throw new Error('SSR Home must say that Fanta teams are locked');
+if (!has(homeMarkup({ locked: false }, false), 'home_fanta_open')) throw new Error('SSR Home must invite to FantaBeerpong before the tournament too');
+if (has(homeMarkup(), 'home_fanta_active') || has(homeMarkup(undefined, false), 'home_fanta_active')) throw new Error('SSR Home must not mention FantaBeerpong when it is off');
+const fantaTeams = [{ id: 'a', name: 'Alfa', player1: 'A Uno', player2: 'A Due', createdAt: 1 }, { id: 'b', name: 'Beta', player1: 'B Uno', player2: 'B Due', createdAt: 2 }];
+const fantaMatch = { id: 'm1', scoreA: 0, scoreB: 0, played: false, status: 'scheduled' as const, phase: 'bracket' as const, teamAId: 'a', teamBId: 'b' };
+const fantaLive = { id: 'live', name: 'Live', startDate: '2026-11-25', type: 'elimination' as const, config: { advancingPerGroup: 0 }, teams: fantaTeams };
+const notice = (patch: Partial<AppState>) => JSON.stringify(getFantaHomeNotice({ ...state, teams: fantaTeams, fantaSettings: { enabled: true }, ...patch }));
+for (const [label, actual, expected] of [
+    ['pre-tournament with players', notice({}), '{"locked":false}'],
+    ['pre-tournament without enough players', notice({ teams: fantaTeams.slice(0, 1) }), undefined],
+    ['pre-tournament with hidden teams only', notice({ teams: fantaTeams.map(team => ({ ...team, hidden: true })) }), undefined],
+    ['Fanta off', notice({ fantaSettings: { enabled: false } }), undefined],
+    ['live before the first match', notice({ tournament: fantaLive, tournamentMatches: [fantaMatch] }), '{"locked":false}'],
+    ['live after the first match', notice({ tournament: fantaLive, tournamentMatches: [{ ...fantaMatch, status: 'playing' }] }), '{"locked":true}'],
+    ['live with a bye only', notice({ tournament: fantaLive, tournamentMatches: [{ ...fantaMatch, isBye: true, status: 'finished', played: true }] }), '{"locked":false}'],
+    ['results-only live', notice({ tournament: { ...fantaLive, config: { advancingPerGroup: 0, resultsOnly: true } }, tournamentMatches: [fantaMatch] }), undefined],
+] as const) if (actual !== expected) throw new Error('Fanta Home notice: ' + label + ' -> ' + actual);
 console.log('PASS SSR Home FantaBeerpong notice');
