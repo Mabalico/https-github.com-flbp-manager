@@ -101,7 +101,7 @@ Per tornei live e' comunque possibile disabilitare rapidamente la registrazione 
 
 Hardening TV (R8.1):
 - Se `localStorage flbp_tv_mode` e' attivo (TV Mode), l'app **non registra** il service worker.
-- La navigazione prova la rete per tre secondi e poi usa la copia in cache, se presente. Le proiezioni TV riconosciute dall'URL escludono il service worker anche quando lo storage del browser è bloccato.
+- Se c’è una copia in cache, la navigazione prova la rete per tre secondi e poi usa la copia. Senza copia aspetta la rete: l’avviso Offline compare solo quando la connessione manca davvero. Le proiezioni TV riconosciute dall'URL escludono il service worker anche quando lo storage del browser è bloccato.
 - I font web vengono precaricati senza bloccare il primo disegno. I form dell'Area Giocatore espongono etichette associate e indicazioni di compilazione automatica per accesso, registrazione e recupero password.
 - I dialoghi di Admin e Arbitri seguono la lingua selezionata. Il motivo restituito dal server viene mostrato con il suo testo originale.
 - Quando si entra in TV Mode, l'app tenta in best-effort di **unregister SW** e **svuotare le cache** per ridurre il rischio di "build vecchie".
@@ -411,7 +411,7 @@ Supporto UI:
 
 - Su schermi stretti i comandi e le schede Admin si dispongono su più righe. I menu rimangono accessibili anche con un torneo live.
 
-Quando apri una scheda torneo o giocatore, la vista parte dall'alto. Riaprire Classifica Storica dalla navigazione torna all'elenco. I badge di Campione, Cannoniere, Difensore, MVP e U25 mostrano il numero di titoli per categoria. Su telefono compare anche il totale. Le fonti cumulative dei marcatori hanno un'etichetta leggibile e le schede dell'Albo d'oro mantengono le etichette anche su telefono.
+Quando apri una scheda torneo o giocatore, la vista parte dall'alto. Riaprire Classifica Storica dalla navigazione torna all'elenco. Nelle classifiche i titoli sono badge con il solo simbolo e il numero; il nome compare passando il mouse ed è letto dagli screen reader. I premi U25 usano lo stesso simbolo su fondo verde. Il filtro dell’anno, presente anche su telefono, elenca solo gli anni con statistiche. Su telefono compare anche il totale. Le fonti cumulative dei marcatori hanno un'etichetta leggibile e le schede dell'Albo d'oro mantengono le etichette anche su telefono.
 
 La pagina Admin mostra subito il caricamento e descrive l'accesso con i termini del modulo. I dettagli tecnici del database sono consultabili dagli strumenti Admin dopo l'accesso.
 
@@ -613,7 +613,7 @@ In Editor, Monitor e scheda pubblica il tabellone ha scorrimento interno. In Edi
 
 In modalità Ufficiale **Annulla torneo live** richiede il download del backup JSON e una seconda conferma. Se il torneo o le partite cambiano tra i due passaggi, serve un backup aggiornato. Al salvataggio vengono rimossi il torneo e il calendario live. Storico e Albo d’oro non cambiano. FantaBeerpong torna al Pretorneo e le rose passate al live tornano con lui; chi ne ha già salvata una nuova in Pretorneo conserva quella. Se questo passaggio non riesce, l’avviso **Riprova con il Fanta** resta in Area Admin anche dopo un ricaricamento. Serve la migration `20261124000200_fanta_return_cancelled_live.sql`.
 
-La Home mostra il nome del torneo quando il live è attivo. Nelle grafiche Social gli slot automatici coprono tutte le partite convocabili. L’ora inserita è quella della convocazione. L’inizio della partita viene calcolato un’ora dopo.
+La Home mostra il nome del torneo quando il live è attivo. Se FantaBeerpong è attivo per quel torneo, accanto compare l’avviso con il collegamento: prima della prima partita invita a creare la squadra, poi a seguire la classifica. Nei tornei solo risultati non compare. Nelle grafiche Social gli slot automatici coprono tutte le partite convocabili. L’ora inserita è quella della convocazione. L’inizio della partita viene calcolato un’ora dopo.
 
 ### Integrazioni — aggiornamento 7 settembre 2026
 

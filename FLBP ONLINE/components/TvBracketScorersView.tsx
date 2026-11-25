@@ -272,7 +272,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
 
           <div className="pointer-events-none absolute inset-x-[1.4%] top-[1.25%] z-20 flex items-start justify-between gap-4 text-white">
             <div className="min-w-0 text-[clamp(18px,1.7vw,30px)] font-black uppercase tracking-tight leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
-              {data?.name || t('tournament_name')}
+              {data ? data.name || t('tv_broadcast_title') : t('no_tournament')}
             </div>
             <div className="shrink-0 flex items-center gap-4 text-[clamp(10px,0.82vw,15px)] font-black uppercase tracking-[0.14em] text-slate-100/92 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
               <span>{t('teams')} {visibleBracketTeamsCount}</span>
@@ -307,7 +307,7 @@ export const TvBracketScorersView: React.FC<TvBracketScorersViewProps> = ({
             <div className="flex items-center justify-between gap-4 px-5 py-3 bg-slate-900 text-white border-b border-white/10 shrink-0">
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-300">
-                  {data?.name || t('tournament_name')}
+                  {data ? data.name || t('tv_broadcast_title') : t('no_tournament')}
                 </div>
                 <div
                   className="mt-0.5 text-[26px] font-black uppercase tracking-[0.04em] text-white leading-tight break-words"

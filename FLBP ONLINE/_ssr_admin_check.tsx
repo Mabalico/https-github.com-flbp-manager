@@ -141,6 +141,7 @@ if (requestedTab && !(requestedTab in tabMarkers)) throw new Error(`Unsupported 
 const tabs: Tab[] = requestedTab ? [requestedTab as Tab] : ['teams', 'data', 'reports'];
 const loginHtml = await render('teams', false);
 assert(loginHtml.includes('type="password"'), 'Unauthenticated fixture must render the real login gate.');
+for (const id of ['admin-access-email', 'admin-access-password']) assert(loginHtml.includes(`for="${id}"`), `Login field without a label: ${id}`);
 for (const tab of Object.keys(tabMarkers) as Tab[]) {
   assert.throws(() => assertTab(loginHtml, tab), /login gate/, `${tab}: regression must reject the old login-only false positive`);
 }

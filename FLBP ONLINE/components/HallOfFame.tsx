@@ -323,6 +323,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_top_scorer_u25')}
                     >
                       <PlasticCupIcon className="w-4 h-4" />
+                      <span className="text-[10px] font-black sm:hidden">U25</span>
                       <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_top_scorer_u25')}</span>
                     </button>
                   </th>
@@ -334,6 +335,7 @@ export const HallOfFame: React.FC<HallOfFameProps> = ({ stateOverride }) => {
                       aria-label={t('tournament_defender_u25')}
                     >
                       <Wind className="w-4 h-4" aria-hidden />
+                      <span className="text-[10px] font-black sm:hidden">U25</span>
                       <span className="hidden max-w-full break-words leading-tight sm:block">{t('tournament_defender_u25')}</span>
                     </button>
                   </th>

@@ -1,13 +1,13 @@
 import { scoringRankIndex } from '../services/awardRules';
 import { countedIntegrations, listEditions, editionMatches } from '../services/editionData';
 import { buildTitledHallOfFameRows } from '../services/hallOfFameView';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppState, loadState, getPlayerKey, resolvePlayerKey, isU25 } from '../services/storageService';
 import { deriveYoBFromBirthDate, formatPlayerBirthIdentityLabel, getPlayerKeyLabel, pickPlayerIdentityValue } from '../services/playerIdentity';
 import { HallOfFameEntry, PlayerStats, Match, Team } from '../types';
 import { useTranslation } from '../App';
-import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, X, CalendarDays, Star, Wind } from 'lucide-react';
-import { PlasticCupIcon } from './icons/PlasticCupIcon';
+import { Trophy, Medal, Search, Filter, ArrowUpDown, ArrowDown, X, CalendarDays } from 'lucide-react';
+import { PLAYER_TITLE_TYPES, PlayerTitleBadge } from './PlayerTitleBadge';
 import { getSupabaseConfig, pullPublicCareerLeaderboard, pullPublicHallOfFameEntries } from '../services/supabasePublic';
 import { isLocalOnlyMode, isRemoteRepositoryEnabled } from '../services/repository/featureFlags';
 import { normalizeNameLower } from '../services/textUtils';
@@ -34,15 +34,6 @@ type LeaderboardProps = {
 
 const PUBLIC_DB_READ_LS_KEY = 'flbp_public_db_read';
 type PlayerTitles = { total: number; byType: Partial<Record<HallOfFameEntry['type'], number>> };
-
-const playerTitleBadges = [
-    { type: 'winner', label: 'edition_award_winner', Icon: Trophy, color: 'border-amber-200 bg-amber-50 text-amber-900' },
-    { type: 'top_scorer', label: 'edition_award_top_scorer', Icon: PlasticCupIcon, color: 'border-orange-200 bg-orange-50 text-orange-900' },
-    { type: 'defender', label: 'edition_award_defender', Icon: Wind, color: 'border-sky-200 bg-sky-50 text-sky-900' },
-    { type: 'mvp', label: 'edition_award_mvp', Icon: Star, color: 'border-violet-200 bg-violet-50 text-violet-900' },
-    { type: 'top_scorer_u25', label: 'edition_award_top_scorer_u25', Icon: PlasticCupIcon, color: 'border-orange-200 bg-orange-50 text-orange-900' },
-    { type: 'defender_u25', label: 'edition_award_defender_u25', Icon: Wind, color: 'border-sky-200 bg-sky-50 text-sky-900' },
-] as const;
 
 const publicDbReadEnabled = (): boolean => {
     if (isLocalOnlyMode()) return false;
@@ -115,8 +106,22 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride, returnT
         setSelectedPlayer(null);
     }, [returnToListRequest]);
 
-    useEffect(() => {
-        if (selectedPlayer) window.scrollTo({ top: 0, behavior: 'instant' });
+    const tableScrollRef = useRef<HTMLDivElement>(null);
+    const listScrollRef = useRef<{ page: number; table: number } | null>(null);
+    const openPlayer = (player: PlayerStats) => {
+        listScrollRef.current = { page: window.scrollY, table: tableScrollRef.current?.scrollTop || 0 };
+        setSelectedPlayer(player);
+    };
+    useLayoutEffect(() => {
+        if (selectedPlayer) {
+            window.scrollTo({ top: 0, behavior: 'instant' });
+            return;
+        }
+        if (!listScrollRef.current) return;
+        // Back from a player: the list reopens on the same row.
+        if (tableScrollRef.current) tableScrollRef.current.scrollTop = listScrollRef.current.table;
+        window.scrollTo({ top: listScrollRef.current.page, behavior: 'instant' });
+        listScrollRef.current = null;
     }, [selectedPlayer]);
 
     const [dbStats, setDbStats] = useState<PlayerStats[] | null>(null);
@@ -129,8 +134,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ stateOverride, returnT
             if (!Number.isFinite(ts)) return;
             years.add(String(new Date(ts).getFullYear()));
         };
-        listEditions(state).forEach(row => pushYear(row.date || row.year));
-        if (state.tournament?.startDate) pushYear(state.tournament.startDate);
+        // Editions with titles alone have no player statistics: their year would be empty.
+        const editions = new Map(listEditions(state).map(row => [row.id, row]));
+        editions.forEach(row => {
+            if (row.tournament?.config?.resultsOnly) return;
+            if (editionMatches(state, row.id).some(match => hasCountedPlayerStats(match) && !!match.stats?.length)) pushYear(row.date || row.year);
+        });
+        countedIntegrations(state).forEach(entry => {
+            const row = entry.sourceTournamentId ? editions.get(entry.sourceTournamentId) : undefined;
+            pushYear(row?.date || row?.year || entry.sourceTournamentDate);
+        });
         return Array.from(years).sort((a, b) => Number(b) - Number(a));
     }, [state]);
 
@@ -367,7 +380,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
             const id = playerIds.has(row.key) ? row.key : !hasKnownIdentity && candidates.length === 1 ? candidates[0] : null;
             if (!id) continue;
             const playerTitles: PlayerTitles = titles.get(id) || { total: 0, byType: {} };
-            for (const { type } of playerTitleBadges) {
+            for (const type of PLAYER_TITLE_TYPES) {
                 const count = row.breakdown[type];
                 if (count) playerTitles.byType[type] = (playerTitles.byType[type] || 0) + count;
             }
@@ -421,16 +434,9 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
         if (!titles?.total) return null;
         return (
             <span id={id} className="mt-1 flex flex-wrap gap-1">
-                {playerTitleBadges.map(({ type, label, Icon, color }) => {
+                {PLAYER_TITLE_TYPES.map(type => {
                     const count = titles.byType[type];
-                    if (!count) return null;
-                    return (
-                        <span key={type} className={`inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-bold leading-tight ${color}`}>
-                            <span className="inline-flex shrink-0" aria-hidden="true"><Icon className="h-3 w-3" /></span>
-                            <span>{t(label)}</span>
-                            <span className="shrink-0 tabular-nums">×{count}</span>
-                        </span>
-                    );
+                    return count ? <PlayerTitleBadge key={type} type={type} count={count} /> : null;
                 })}
             </span>
         );
@@ -518,14 +524,14 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                         </button>
                     )}
                 </div>
-                <div className="flex w-full items-center gap-2 sm:flex-wrap sm:justify-end md:w-auto">
-                    <div className="relative hidden w-full sm:block sm:w-auto sm:min-w-[180px]">
-                        <CalendarDays className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" aria-hidden />
+                <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap sm:justify-end md:w-auto">
+                    <div className="relative min-w-0 sm:min-w-[180px]">
+                        <CalendarDays className="absolute start-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-slate-400 sm:block" aria-hidden />
                         <select
                             value={yearFilter}
                             onChange={(e) => setYearFilter(e.target.value)}
                             aria-label={t('filter_by_year')}
-                            className="w-full ps-9 pe-4 py-2 border border-slate-200 rounded-lg bg-white font-bold text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
+                            className="w-full ps-3 pe-2 py-2 sm:ps-9 sm:pe-4 border border-slate-200 rounded-lg bg-white font-bold text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
                         >
                             <option value="all">{t('all_years')}</option>
                             {availableYears.map((y) => (
@@ -533,13 +539,13 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                             ))}
                         </select>
                     </div>
-                    <div className="relative min-w-0 flex-1 sm:w-auto sm:min-w-[185px] sm:flex-none">
-                        <ArrowUpDown className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" aria-hidden />
+                    <div className="relative min-w-0 sm:min-w-[185px]">
+                        <ArrowUpDown className="absolute start-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-slate-400 sm:block" aria-hidden />
                         <select
                             value={sortField}
                             onChange={(e) => setSortField(e.target.value as any)}
                             aria-label={t('sort_by')}
-                            className="w-full ps-9 pe-4 py-2 border border-slate-200 rounded-lg bg-white font-bold text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
+                            className="w-full ps-3 pe-2 py-2 sm:ps-9 sm:pe-4 border border-slate-200 rounded-lg bg-white font-bold text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
                         >
                             <option value="points">{t('points')}</option>
                             <option value="soffi">{t('soffi')}</option>
@@ -553,7 +559,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                     <button 
                         onClick={() => setOnlyPro(!onlyPro)}
                         aria-pressed={onlyPro}
-                        className={`inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl px-2.5 py-2 text-sm font-black transition shadow-sm sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyPro ? 'bg-beer-500 text-white ring-1 ring-beer-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                        className={`inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl px-2.5 py-2 text-sm font-black transition shadow-sm sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2 ${onlyPro ? 'bg-beer-500 text-slate-950 ring-1 ring-beer-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                         title={t('pro_mode')}
                         aria-label={t('pro_mode')}
                     >
@@ -580,7 +586,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                         : sortField === 'gamesPlayed' ? t('games').toLocaleLowerCase() : '';
                     return (
                         <li key={player.id}>
-                            <button type="button" className="flex min-h-[58px] w-full items-center gap-2 px-3 py-2 text-start hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-600" onClick={() => setSelectedPlayer(player)}>
+                            <button type="button" className="flex min-h-[58px] w-full items-center gap-2 px-3 py-2 text-start hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-600" onClick={() => openPlayer(player)}>
                                 <span className="w-6 shrink-0 text-center text-sm font-black tabular-nums text-slate-600">{rankIndex(index) + 1}</span>
                                 <span className="min-w-0 flex-1">
                                     <span className="block break-words text-sm font-black text-slate-950">{player.name}</span>
@@ -604,7 +610,7 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
             </ul>
 
             <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:block">
-                <div className={tableScrollClass}>
+                <div ref={tableScrollRef} className={tableScrollClass}>
                     <table className="w-full min-w-[820px] text-left text-[13px] sm:min-w-[1020px] sm:text-sm">
                         <thead className="bg-slate-50 text-slate-500 text-xs font-black uppercase tracking-wider">
                             <tr>
@@ -623,11 +629,11 @@ const processMatch = (m: Match, teamsSource: Team[]) => {
                                 <tr
                                     key={p.id}
                                     className="cursor-pointer hover:bg-slate-50 transition focus-within:bg-slate-50"
-                                    onClick={() => setSelectedPlayer(p)}
+                                    onClick={() => openPlayer(p)}
                                     onKeyDown={(event) => {
                                         if (event.key === 'Enter' || event.key === ' ') {
                                             event.preventDefault();
-                                            setSelectedPlayer(p);
+                                            openPlayer(p);
                                         }
                                     }}
                                     role="button"

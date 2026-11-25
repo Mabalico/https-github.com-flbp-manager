@@ -17,6 +17,7 @@
     "test:fanta-save-retry": "node ./node_modules/vite/bin/vite.js build --config vite.fanta-save-retry-tests.config.ts && node ./.tmp-fanta-save-retry-tests/fantaSaveRetry.test.js",
     "test:persistence": "node --test tests/repository/persistenceMode.test.mjs",
     "test:local-storage": "node --test tests/repository/localStorageFailure.test.mjs",
+    "test:service-worker": "node --test tests/repository/serviceWorker.test.mjs",
     "test:restore-ui": "node scripts/test-restore-ui.mjs",
     "test:referee-save": "node scripts/test-referee-report-save.mjs",
     "test:fanta-rules": "node scripts/test-fanta-archived-rules.mjs",

@@ -474,7 +474,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                     style={monitorStructuredLayout ? { minHeight: `${structuredColumnHeight}px`, height: `${structuredColumnHeight}px` } : undefined}
                 >
                     {spectatorLayout ? (
-                        <div className={`mb-4 flex justify-center ${boundedScroll ? `sticky top-0 z-20 py-1 ${editorStructuredLayout ? 'bg-white/95' : 'bg-slate-950/95'}` : ''}`}>
+                        <div className={`mb-4 flex justify-center ${boundedScroll ? `sticky top-0 z-20 py-1 ${editorStructuredLayout ? 'bg-white' : 'bg-slate-950'}` : ''}`}>
                             <span
                                 className={`inline-flex items-center rounded-full border px-3 py-1 text-center text-[11px] font-black uppercase tracking-wide ${
                                     rIdx === rounds.length - 1
@@ -490,7 +490,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                             </span>
                         </div>
                     ) : (
-                        <div className={`mb-2 text-center text-xs font-black uppercase text-slate-500 ${boundedScroll ? 'sticky top-0 z-20 bg-white/95 py-1' : ''}`}>
+                        <div className={`mb-2 text-center text-xs font-black uppercase text-slate-500 ${boundedScroll ? 'sticky top-0 z-20 bg-white py-1' : ''}`}>
                             {rIdx === rounds.length - 1 ? t('bracket_final_upper') : `${t('round')} ${rIdx + 1}`}
                         </div>
                     )}

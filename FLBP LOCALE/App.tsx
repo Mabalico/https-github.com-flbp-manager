@@ -1857,6 +1857,10 @@ const App: React.FC = () => {
     const renderHome = () => {
         const live = publicLiveTournament;
         const teams = live?.teams?.length ? live.teams : stateForPublicViews.teams;
+        // Results-only tournaments have no FantaBeerpong; the first match locks the rosters.
+        const fanta = live && stateForPublicViews.fantaSettings?.enabled === true && !live.config?.resultsOnly ? {
+            locked: (stateForPublicViews.tournamentMatches || []).some(match => !match.hidden && !match.isBye && (match.played || match.status !== 'scheduled')),
+        } : undefined;
         return (
             <Home
                 onNavigate={nextView => { void navigateToView(nextView); }}
@@ -1871,6 +1875,7 @@ const App: React.FC = () => {
                     teamsCount: teams.filter(team => !team.hidden && !team.isBye && !['BYE', 'TBD'].includes(String(team.name || '').trim().toUpperCase())).length,
                     formatLabel: t(live.type === 'groups_elimination' ? 'format_groups_elimination_short' : live.type === 'round_robin' ? 'format_round_robin' : 'format_elimination'),
                 } : undefined}
+                fanta={fanta}
                 lastChampion={publicWinners.lastChampion}
                 recentTournaments={publicHistory.slice(0, 3).map(edition => ({
                     id: edition.id,

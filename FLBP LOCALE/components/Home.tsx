@@ -1,11 +1,13 @@
 import React from 'react';
-import { ChevronRight, Trophy } from 'lucide-react';
+import { ChevronRight, Shield, Trophy } from 'lucide-react';
 import { useTranslation } from '../App';
 
 interface HomeProps {
-  onNavigate: (view: 'tournament' | 'leaderboard' | 'hof') => void;
+  onNavigate: (view: 'tournament' | 'leaderboard' | 'hof' | 'fantabeerpong') => void;
   onOpenTournament: (id: string) => void;
   liveTournament?: { id: string; name: string; date: string; teamsCount: number; formatLabel: string };
+  /** Set while FantaBeerpong is active for the live tournament. */
+  fanta?: { locked: boolean };
   lastChampion?: { teamName?: string; players: string[]; tournamentName: string; date: string };
   recentTournaments: { id: string; name: string; date: string; winnerTeamName?: string }[];
 }
@@ -16,7 +18,7 @@ const dateLabel = (date: string) => {
   return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : date;
 };
 
-export const Home: React.FC<HomeProps> = ({ onNavigate, onOpenTournament, liveTournament, lastChampion, recentTournaments }) => {
+export const Home: React.FC<HomeProps> = ({ onNavigate, onOpenTournament, liveTournament, fanta, lastChampion, recentTournaments }) => {
   const { t } = useTranslation();
   const button = 'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-beer-400';
 
@@ -49,6 +51,13 @@ export const Home: React.FC<HomeProps> = ({ onNavigate, onOpenTournament, liveTo
               <button type="button" className={button + ' bg-white text-slate-950 hover:bg-slate-100'} onClick={() => onNavigate('leaderboard')}>{t('historical')} <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" /></button>
             </div>
           </div>
+          {liveTournament && fanta && (
+            <section className="rounded-2xl border border-white/15 bg-white/10 p-4 sm:p-5">
+              <h2 className="flex items-center gap-2 text-lg font-black"><Shield className="h-5 w-5 shrink-0 text-beer-200" aria-hidden="true" />{t('home_fanta_active')}</h2>
+              <p className="mt-2 text-sm text-slate-200">{t(fanta.locked ? 'home_fanta_locked' : 'home_fanta_open')}</p>
+              <button type="button" className={button + ' mt-3 bg-white text-slate-950 hover:bg-slate-100'} onClick={() => onNavigate('fantabeerpong')}>{t('home_fanta_action')} <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" /></button>
+            </section>
+          )}
           {!liveTournament && lastChampion && (
             <section className="rounded-2xl border border-white/15 bg-white/10 p-4 sm:p-5">
               <h2 className="flex items-center gap-2 text-sm font-black text-beer-200"><Trophy className="h-4 w-4" aria-hidden="true" />{t('home_last_champion')}</h2>

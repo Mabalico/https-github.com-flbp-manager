@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const common = [
-  'typecheck', 'test:data', 'test:editor', 'test:persistence', 'test:local-storage',
+  'typecheck', 'test:data', 'test:editor', 'test:persistence', 'test:local-storage', 'test:service-worker',
   'test:referee-save', 'test:restore-ui', 'test:spreadsheet-compat',
   'test:fanta-save-retry', 'test:draft-navigation', 'test:tv-route', 'check:ssr-admin', 'check:ssr-editions',
   'check:ssr-tv', 'check:tv-readonly', 'check:i18n', 'build',

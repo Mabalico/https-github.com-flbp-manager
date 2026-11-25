@@ -4085,11 +4085,11 @@ while (guard < 5000) {
                                 ) : null}
 
                                 <div className="grid grid-cols-1 gap-2">
-                                    <label className="text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-email">
-                                        {t('player_area_email')}
-                                    </label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
-                                        <div>
+                                    <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                                        <div className="space-y-2">
+                                            <label className="block text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-email">
+                                                {t('player_area_email')}
+                                            </label>
                                             <input
                                                 id="admin-access-email"
                                                 type="email"
@@ -4103,7 +4103,10 @@ while (guard < 5000) {
                                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-800 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 focus-visible:ring-offset-2"
                                             />
                                         </div>
-                                        <div>
+                                        <div className="space-y-2">
+                                            <label className="block text-xs font-black uppercase tracking-wider text-slate-500" htmlFor="admin-access-password">
+                                                {t('admin_password_placeholder')}
+                                            </label>
                                             <input
                                                 id="admin-access-password"
                                                 autoFocus={reauthenticating}

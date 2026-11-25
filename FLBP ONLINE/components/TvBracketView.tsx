@@ -235,7 +235,7 @@ export const TvBracketView: React.FC<TvBracketViewProps> = ({ teams, matches, da
 
         <div className="pointer-events-none absolute inset-x-[1.4%] top-[1.25%] z-20 flex items-start justify-between gap-4 text-white">
           <div className="min-w-0 text-[clamp(18px,1.7vw,30px)] font-black uppercase tracking-tight leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
-            {data?.name || t('tournament_name')}
+            {data ? data.name || t('tv_broadcast_title') : t('no_tournament')}
           </div>
           <div className="shrink-0 flex items-center gap-4 text-[clamp(10px,0.82vw,15px)] font-black uppercase tracking-[0.14em] text-slate-100/92 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
             {isSplit && pageCount > 1 && <span>{t('page')} {page + 1}/{pageCount}</span>}
