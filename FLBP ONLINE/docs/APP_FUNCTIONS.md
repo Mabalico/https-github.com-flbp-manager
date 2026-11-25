@@ -401,7 +401,7 @@ Supporto UI:
   - In **Tornei passati** si cercano le edizioni per nome e anno. L’elenco mostra il vincitore e i conteggi dei titoli e dei marcatori. Le edizioni con lo stesso nome e la stessa data sono segnalate come possibili doppioni. La scheda raccoglie dati, titoli, marcatori e le conferme di modifica ed eliminazione.
   - **Giocatori** mostra titoli, statistiche e nomi collegati. Gli identificativi sono nei dettagli tecnici. Da questa vista si gestiscono anche i collegamenti globali.
   - **Statistiche extra** gestisce le righe senza torneo, con ricerca, import ed export, inserimento a mano e gruppi di 50 righe. Le statistiche legate a un’edizione si gestiscono nella sua scheda.
-  - **Manutenzione Fanta** si apre dagli strumenti di persistenza.
+  - **Manutenzione Fanta** si apre dagli strumenti di persistenza. Oltre ai dati senza torneo, **Fanta di tornei archiviati** permette di eliminare solo l’edizione Fanta di un torneo concluso, per esempio una prova: mostra squadre, giocatori e alcuni nomi e chiede di confermare il backup. Torneo, referti, Albo d’oro e statistiche restano; il torneo live e le rose del Pretorneo non compaiono mai.
   - `services/tournamentRename.ts` applica la rinomina per ID senza modificare squadre, match o struttura e propaga il nome ai riferimenti Hall of Fame e alle etichette dei marcatori collegati.
 - Modals:
   - Alias: `components/admin/modals/AliasModal.tsx`

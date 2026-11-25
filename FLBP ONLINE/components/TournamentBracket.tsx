@@ -115,6 +115,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
     const compactPublicFit = spectatorLayout && fitToWidth;
     const minStructuredFitScale = compactPublicFit && !editorStructuredLayout ? 0.72 : 0;
     const finalScale = ((fitToWidth || fitToBox) ? fitScale : 1) * userScale;
+    // A scaled ancestor shifts sticky elements over the matches: labels stick at 100% only.
+    const roundLabelBandClass = boundedScroll ? `${finalScale === 1 ? 'sticky top-0 z-20 ' : ''}pb-1.5 pt-3` : '';
 
     const padClass = tvMode ? 'p-3' : 'p-4';
     const containerSizeClass = fitToBox ? 'w-full h-full' : 'w-full';
@@ -426,9 +428,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
     const containerOverflowClass = boundedScroll ? 'isolate max-h-[min(70dvh,48rem)] overflow-auto overscroll-contain' : (fitToWidth || fitToBox)
         ? ((compactPublicFit && !fitToBox) ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden')
         : (spectatorLayout ? 'overflow-x-auto overflow-y-hidden overscroll-x-contain' : 'overflow-x-auto');
-    const containerPadClass = editorStructuredLayout
-        ? 'px-3 py-4 sm:px-4 sm:py-5'
-        : spectatorLayout ? 'px-5 py-6 sm:px-6 sm:py-7' : padClass;
+    // A bounded bracket has no padding above: the round labels stick to the very
+    // top edge and carry that space themselves, so nothing shows over them.
+    const containerPadClass = boundedScroll
+        ? (editorStructuredLayout ? 'px-3 pb-4 sm:px-4 sm:pb-5' : spectatorLayout ? 'px-5 pb-6 sm:px-6 sm:pb-7' : 'px-4 pb-4')
+        : editorStructuredLayout
+            ? 'px-3 py-4 sm:px-4 sm:py-5'
+            : spectatorLayout ? 'px-5 py-6 sm:px-6 sm:py-7' : padClass;
 
     return (
         <div ref={containerRef} dir="ltr" data-bracket-scroll={boundedScroll || undefined} className={`${containerPadClass} ${containerSizeClass} ${containerOverflowClass}`}>
@@ -474,7 +480,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                     style={monitorStructuredLayout ? { minHeight: `${structuredColumnHeight}px`, height: `${structuredColumnHeight}px` } : undefined}
                 >
                     {spectatorLayout ? (
-                        <div className={`mb-4 flex justify-center ${boundedScroll ? `sticky top-0 z-20 py-1 ${editorStructuredLayout ? 'bg-white' : 'bg-slate-950'}` : ''}`}>
+                        <div className={`mb-4 flex justify-center ${boundedScroll ? `${roundLabelBandClass} ${editorStructuredLayout ? 'bg-white' : 'bg-slate-950'}` : ''}`}>
                             <span
                                 className={`inline-flex items-center rounded-full border px-3 py-1 text-center text-[11px] font-black uppercase tracking-wide ${
                                     rIdx === rounds.length - 1
@@ -490,7 +496,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ teams, mat
                             </span>
                         </div>
                     ) : (
-                        <div className={`mb-2 text-center text-xs font-black uppercase text-slate-500 ${boundedScroll ? 'sticky top-0 z-20 bg-white py-1' : ''}`}>
+                        <div className={`mb-2 text-center text-xs font-black uppercase text-slate-500 ${boundedScroll ? `${roundLabelBandClass} bg-white` : ''}`}>
                             {rIdx === rounds.length - 1 ? t('bracket_final_upper') : `${t('round')} ${rIdx + 1}`}
                         </div>
                     )}

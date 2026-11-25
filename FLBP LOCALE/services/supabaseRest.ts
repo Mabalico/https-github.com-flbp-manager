@@ -3430,6 +3430,7 @@ export type DeleteFantaTournamentDataResult = {
         archivedStandings: number;
         archivedEditions: number;
         fantaTeams: number;
+        fantaRosters?: number;
     };
 };
 
@@ -3441,6 +3442,8 @@ export type FantaTournamentDataSummary = {
     archivedStandings: number;
     archivedPlayers: number;
     fantaTeams: number;
+    /** A few team names, to tell a trial edition from a real one. */
+    sampleTeamNames: string[];
     publicTournamentExists: boolean;
     totalRows: number;
 };
@@ -3514,6 +3517,7 @@ export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTourname
             archivedStandings: 0,
             archivedPlayers: 0,
             fantaTeams: 0,
+            sampleTeamNames: [],
             publicTournamentExists: publicIds.has(tournamentId),
             totalRows: 0,
         };
@@ -3548,6 +3552,8 @@ export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTourname
         if (!item) return;
         item.fantaTeams += 1;
         item.totalRows += 1;
+        const name = String(row.name || '').trim();
+        if (name && item.sampleTeamNames.length < 3) item.sampleTeamNames.push(name);
     });
 
     return Array.from(byId.values())
@@ -3594,6 +3600,8 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
     const tournament = encodeURIComponent(resolvedTournamentId);
     const baseFilter = `workspace_id=eq.${workspace}&tournament_id=eq.${tournament}`;
 
+    // Archived snapshots (admin can delete these directly): remove first so the
+    // reported counts are accurate.
     const archivedPlayers = await deleteFantaRows(
         cfg,
         session.accessToken,
@@ -3612,12 +3620,48 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
         `fanta_archived_editions?${baseFilter}`,
         'deleteFantaArchivedEditions'
     );
-    const fantaTeams = await deleteFantaRows(
-        cfg,
-        session.accessToken,
-        `fanta_teams?${baseFilter}`,
-        'deleteFantaTeams'
-    );
+
+    // fanta_teams / fanta_rosters are RLS "Owner CRUD": the admin cannot delete
+    // them via REST (the DELETE matches 0 rows). Use the admin-gated security
+    // definer RPC that removes teams + rosters (+ any leftover archived rows).
+    // Fall back to the direct REST delete only if the RPC is unavailable (e.g.
+    // an older database without the migration), preserving prior behaviour.
+    let fantaTeams = 0;
+    let fantaRosters = 0;
+    let rpcOk = false;
+    try {
+        const rpcRes = await fetchWithTimeout(
+            rpcUrl(cfg, 'flbp_admin_delete_fanta_tournament_data'),
+            {
+                method: 'POST',
+                headers: buildHeaders(cfg, session.accessToken),
+                body: JSON.stringify({
+                    p_workspace_id: cfg.workspaceId,
+                    p_tournament_id: resolvedTournamentId,
+                }),
+            },
+            8000,
+            { source: 'deleteFantaTournamentData.rpc', kind: 'sync' }
+        );
+        if (rpcRes.ok) {
+            const out = await rpcRes.json().catch(() => null);
+            fantaTeams = Number(out?.deleted_teams || 0);
+            fantaRosters = Number(out?.deleted_rosters || 0);
+            rpcOk = true;
+        } else {
+            console.warn('RPC delete dati Fanta non disponibile, uso il percorso REST', await readErrorBody(rpcRes));
+        }
+    } catch (error) {
+        console.warn('RPC delete dati Fanta fallita, uso il percorso REST', error);
+    }
+    if (!rpcOk) {
+        fantaTeams = await deleteFantaRows(
+            cfg,
+            session.accessToken,
+            `fanta_teams?${baseFilter}`,
+            'deleteFantaTeams'
+        );
+    }
 
     // If fanta_config still references the deleted tournament, point it back at
     // the Pretorneo container: otherwise the public Fanta stays stuck on
@@ -3646,7 +3690,7 @@ export const deleteFantaTournamentData = async (tournamentId: string): Promise<D
         ok: true,
         tournamentId: resolvedTournamentId,
         configReset,
-        removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams },
+        removed: { archivedPlayers, archivedStandings, archivedEditions, fantaTeams, fantaRosters },
     };
 };
 

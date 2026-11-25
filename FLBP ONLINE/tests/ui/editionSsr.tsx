@@ -6,6 +6,9 @@ import { TournamentLeaderboard } from '../../components/TournamentLeaderboard';
 import { Leaderboard } from '../../components/Leaderboard';
 import { Home } from '../../components/Home';
 import { getFantaHomeNotice } from '../../services/fantabeerpong/homeNotice';
+import { splitFantaCleanupRows } from '../../services/fantabeerpong/fantaCleanup';
+import { FantaArchivedEditions } from '../../components/admin/tabs/data/FantaArchivedEditions';
+import { TournamentBracket } from '../../components/TournamentBracket';
 import { dictionary } from '../../services/i18n/it';
 import type { AppState } from '../../services/storageService';
 import type { DataTabProps } from '../../components/admin/tabs/DataTab';
@@ -76,3 +79,24 @@ for (const [label, actual, expected] of [
     ['results-only live', notice({ tournament: { ...fantaLive, config: { advancingPerGroup: 0, resultsOnly: true } }, tournamentMatches: [fantaMatch] }), undefined],
 ] as const) if (actual !== expected) throw new Error('Fanta Home notice: ' + label + ' -> ' + actual);
 console.log('PASS SSR Home FantaBeerpong notice');
+
+// Fanta maintenance: only finished tournaments and orphans can be cleaned.
+const fantaRow = (tournamentId: string) => ({ tournamentId, tournamentName: 'Torneo ' + tournamentId, startDate: null, archivedEditions: 1, archivedStandings: 2, archivedPlayers: 6, fantaTeams: 2, sampleTeamNames: ['Squadra di prova'], publicTournamentExists: true, totalRows: 11 });
+const cleanup = splitFantaCleanupRows(['past', 'live', 'gone', '__pre_tournament__'].map(fantaRow), { tournament: fantaLive, tournamentHistory: [{ ...fantaLive, id: 'past' }, fantaLive] });
+const ids = (rows: Array<{ tournamentId: string }>) => rows.map(row => row.tournamentId).join();
+if (splitFantaCleanupRows([{ ...fantaRow('past'), archivedEditions: 0 }], { tournament: null, tournamentHistory: [{ ...fantaLive, id: 'past' }] }).archived[0]?.tournamentName !== 'Live') throw new Error('Fanta cleanup must name leftover data after its tournament');
+if (ids(cleanup.archived) !== 'past' || ids(cleanup.orphans) !== 'gone') throw new Error('Fanta cleanup must never offer the live tournament or the Pretorneo: ' + ids(cleanup.archived) + ' / ' + ids(cleanup.orphans));
+const cleanupMarkup = renderToString(<FantaArchivedEditions rows={cleanup.archived} busyId={null} formatDate={() => 'data'} onDelete={() => {}} t={t} />);
+if (!cleanupMarkup.includes('Torneo past') || !cleanupMarkup.includes('Squadra di prova') || !has(cleanupMarkup, 'fanta_archived_delete')) throw new Error('SSR Fanta cleanup must identify the edition to delete');
+if (renderToString(<FantaArchivedEditions rows={[]} busyId={null} formatDate={() => ''} onDelete={() => {}} t={t} />)) throw new Error('SSR Fanta cleanup must stay hidden without editions');
+console.log('PASS SSR Fanta maintenance');
+
+// Round labels stick to the top edge of a scrolling bracket: a top padding would show matches above them.
+for (const readOnly of [true, false]) {
+    const zoomed = renderToString(<TournamentBracket teams={fantaTeams} data={{ ...fantaLive, rounds: [[fantaMatch]] }} matches={[fantaMatch]} readOnly={readOnly} showConnectors boundedScroll scale={1.3} />);
+    if (zoomed.includes('sticky top-0')) throw new Error('SSR zoomed bracket must not stick its round labels over the matches');
+    const bracket = renderToString(<TournamentBracket teams={fantaTeams} data={{ ...fantaLive, rounds: [[fantaMatch]] }} matches={[fantaMatch]} readOnly={readOnly} showConnectors boundedScroll />);
+    const container = bracket.match(new RegExp('data-bracket-scroll="true" class="([^"]+)"'))?.[1] || '';
+    if (!container.includes('overflow-auto') || new RegExp('(^|[ :])p[ty]?-').test(container) || !bracket.includes('sticky top-0')) throw new Error('SSR scrolling bracket must have no top padding: ' + container);
+}
+console.log('PASS SSR scrolling bracket');

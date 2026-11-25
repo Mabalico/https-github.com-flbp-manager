@@ -3514,6 +3514,8 @@ export type FantaTournamentDataSummary = {
     archivedStandings: number;
     archivedPlayers: number;
     fantaTeams: number;
+    /** A few team names, to tell a trial edition from a real one. */
+    sampleTeamNames: string[];
     publicTournamentExists: boolean;
     totalRows: number;
 };
@@ -3587,6 +3589,7 @@ export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTourname
             archivedStandings: 0,
             archivedPlayers: 0,
             fantaTeams: 0,
+            sampleTeamNames: [],
             publicTournamentExists: publicIds.has(tournamentId),
             totalRows: 0,
         };
@@ -3621,6 +3624,8 @@ export const fetchFantaTournamentDataSummaries = async (): Promise<FantaTourname
         if (!item) return;
         item.fantaTeams += 1;
         item.totalRows += 1;
+        const name = String(row.name || '').trim();
+        if (name && item.sampleTeamNames.length < 3) item.sampleTeamNames.push(name);
     });
 
     return Array.from(byId.values())
