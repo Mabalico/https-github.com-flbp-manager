@@ -5081,6 +5081,23 @@ export const pushLiveTournamentIncremental = async (state: AppState, opts?: Live
     };
 };
 
+// A tournament removed from the history keeps an empty private row: the rebuild
+// clears its children and never writes it again. Remove those rows, keeping the
+// rebuilt tournaments and the Fanta pre-tournament container.
+const deleteTournamentRowsOutsideState = async (cfg: SupabaseConfig, keptRows: RestRow[]): Promise<number> => {
+    const kept = new Set(keptRows.map((row) => String(row?.id || '')).filter(Boolean));
+    kept.add('__pre_tournament__');
+    const existing = await restSelectRows<RestRow[]>(cfg, `tournaments?workspace_id=eq.${encodeURIComponent(cfg.workspaceId)}&select=id`);
+    let removed = 0;
+    for (const row of existing || []) {
+        const id = String(row?.id || '');
+        if (!id || kept.has(id)) continue;
+        await restDeleteWhere(cfg, 'tournaments', [eqFilter('workspace_id', cfg.workspaceId), eqFilter('id', id)].join('&'));
+        removed += 1;
+    }
+    return removed;
+};
+
 // NOTE: This is an explicit admin action. It overwrites normalized tables for the workspace.
 export const pushNormalizedFromState = async (state: AppState, opts?: LiveTournamentProjectionOptions): Promise<NormalizedExportSummary> => {
     const cfg = getSupabaseConfig();
@@ -5244,6 +5261,7 @@ export const pushNormalizedFromState = async (state: AppState, opts?: LiveTourna
     await restUpsertRows(cfg, 'tournament_group_teams', groupTeamRows, 'workspace_id,tournament_id,group_id,team_id');
     await restUpsertRows(cfg, 'tournament_matches', matchRows, 'workspace_id,tournament_id,id');
     await restUpsertRows(cfg, 'tournament_match_stats', statRows, 'workspace_id,tournament_id,match_id,team_id,player_name', 800);
+    await deleteTournamentRowsOutsideState(cfg, tournamentRows);
 
     // 3b) Public tournaments (sanitized) - best effort
     try {

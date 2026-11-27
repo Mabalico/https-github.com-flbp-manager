@@ -228,4 +228,25 @@ await check('Failed live-start commit retains the draft and never snapshots/prom
   assert.ok(f.events.some(event=>event[1]?.tone==='error'));
   assert.equal(f.context.liveStartPendingRef.current,false);
 });
+for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
+  const source=parse(path.resolve(root,'..',edition,'services/supabaseRest.ts'));
+  const statement=source.statements.find(s=>ts.isVariableStatement(s)&&s.declarationList.declarations.some(d=>d.name.text==='deleteTournamentRowsOutsideState'));
+  assert.ok(statement,edition+': row pruning helper');
+  const rebuild=source.statements.find(s=>ts.isVariableStatement(s)&&s.declarationList.declarations.some(d=>d.name.text==='pushNormalizedFromState')).getText(source);
+  const deletes=[];
+  const context={exports:{},
+    restSelectRows:async(_cfg,query)=>{assert.ok(query.startsWith('tournaments?workspace_id=eq.fixture&select=id'));return [{id:'kept'},{id:'live-1'},{id:'__pre_tournament__'},{id:'deleted-edition'},{id:''}];},
+    restDeleteWhere:async(_cfg,table,where)=>{deletes.push([table,where]);},
+    eqFilter:(column,value)=>column+'=eq.'+encodeURIComponent(String(value)),
+  };
+  compile(statement.getText(source).replace('const deleteTournamentRowsOutsideState','exports.deleteTournamentRowsOutsideState'),context);
+  await check(edition+': the rebuild removes only private rows of tournaments that left the state',async()=>{
+    const removed=await context.exports.deleteTournamentRowsOutsideState({workspaceId:'fixture'},[{id:'kept'},{id:'live-1'}]);
+    assert.equal(removed,1);
+    assert.deepEqual(deletes,[['tournaments','workspace_id=eq.fixture&id=eq.deleted-edition']]);
+    assert.ok(rebuild.indexOf('deleteTournamentRowsOutsideState(cfg, tournamentRows)')>rebuild.indexOf("restUpsertRows(cfg, 'tournaments', tournamentRows"),
+      'the pruning must run after the kept tournaments are written');
+  });
+}
+
 console.log(`${passed} real publication-service/Admin-handler regression cases passed; IO only was replaced.`);

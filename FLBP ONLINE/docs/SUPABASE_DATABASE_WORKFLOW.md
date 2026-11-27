@@ -16,7 +16,7 @@ Non vengono eseguiti repair, retry che cambiano la storia o `--include-all` impl
 
 ## Pulizia delle righe di tornei non usate
 
-`20261127000100_cleanup_orphan_tournament_rows.sql` elimina una volta le righe private di `tournaments` lasciate da tornei annullati o eliminati. Tocca solo righe che non sono il torneo live né nello storico di `workspace_state`, non sono pubblicate, non hanno squadre, gironi, partite o squadre Fanta e non cambiano da almeno un giorno. La funzione `flbp_cleanup_orphan_tournament_rows` non è richiamabile dal sito.
+`20261127000100_cleanup_orphan_tournament_rows.sql` elimina una volta le righe private di `tournaments` lasciate da tornei annullati o eliminati. Tocca solo righe che non sono il torneo live né nello storico di `workspace_state`, non sono pubblicate, non hanno squadre, gironi, partite o squadre Fanta e non cambiano da almeno un giorno. La funzione `flbp_cleanup_orphan_tournament_rows` non è richiamabile dal sito. Da quella versione, quando l'Admin ricostruisce le tabelle senza un torneo live (dopo ogni modifica salvata), elimina anche le righe dei tornei tolti dallo storico: eliminare un torneo archiviato non lascia più la sua riga.
 
 ## Riparazione della sola storia
 
