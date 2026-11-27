@@ -1935,6 +1935,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "وجدته",
   "admin_import_sheet_read": "ملاءة سرير",
   "admin_import_columns_read": "قراءة الأعمدة",
+  "admin_import_columns_expected": "الأعمدة المتوقعة",
   "admin_import_other_sheets_checked": "تم فحص الأوراق الأخرى",
   "admin_import_no_valid_team_in_sheet": "لم يتم العثور على فرق صالحة في ورقة {sheet}.",
   "admin_delete_live_tournament_fallback_name": "البطولة الحية",

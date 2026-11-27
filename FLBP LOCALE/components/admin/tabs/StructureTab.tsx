@@ -209,7 +209,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                     className={inputBase}
                                 />
                             </div>
-                            <div>
+                            <div className="md:col-span-2">
                                 <label className="block text-sm font-bold text-slate-700 mb-1">{t('archive_mode')}</label>
                                 <select 
                                     value={tournMode} 
@@ -431,7 +431,7 @@ export const StructureTab: React.FC<StructureTabProps> = ({
                                     </div>
                                 </div>
 
-                                <div className="mb-4 grid gap-3 lg:grid-cols-2">
+                                <div className="mb-4 grid gap-3">
                                     {!!draft.t.groups?.length && (
                                         <section className="max-h-64 overflow-auto rounded-xl border border-blue-100 bg-white p-3">
                                             <h5 className="mb-2 font-bold">{t('groups_label')}</h5>

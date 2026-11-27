@@ -1935,6 +1935,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "Onu buldum",
   "admin_import_sheet_read": "Çarşaf",
   "admin_import_columns_read": "Sütunlar okundu",
+  "admin_import_columns_expected": "Beklenen sütunlar",
   "admin_import_other_sheets_checked": "Diğer sayfalar kontrol edildi",
   "admin_import_no_valid_team_in_sheet": "{sheet} sayfasında geçerli bir takım bulunamadı.",
   "admin_delete_live_tournament_fallback_name": "canlı turnuva",

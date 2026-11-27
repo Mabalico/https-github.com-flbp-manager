@@ -1935,6 +1935,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "找到了",
   "admin_import_sheet_read": "床单",
   "admin_import_columns_read": "列读",
+  "admin_import_columns_expected": "预期列",
   "admin_import_other_sheets_checked": "检查其他表",
   "admin_import_no_valid_team_in_sheet": "{sheet} 表中未找到有效团队。",
   "admin_delete_live_tournament_fallback_name": "现场锦标赛",

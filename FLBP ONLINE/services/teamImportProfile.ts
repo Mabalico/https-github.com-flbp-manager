@@ -102,7 +102,9 @@ export const isTeamImportCoherentWithProfile = (
   detectedLayout: TeamImportLayout | null,
 ): boolean => {
   if (!profile) return true;
-  if (detectedLayout && detectedLayout !== profile.layout) return false;
+  // A recognised layout is read by column name: a file with the same layout
+  // but other header spellings (Team / Squadra, Player 1 / Giocatore1) is fine.
+  if (detectedLayout) return detectedLayout === profile.layout;
   if (!Array.isArray(profile.headersNormalized) || profile.headersNormalized.length === 0) return true;
   const overlap = getTeamImportHeaderOverlap(profile.headersNormalized, incomingHeaders);
   return overlap >= 0.34;

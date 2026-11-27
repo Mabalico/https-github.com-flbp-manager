@@ -333,6 +333,10 @@ const preloadAdminContentChunk = (target: AdminChunkTarget) => {
 
 
 // A reload must not hide that Fanta is still attached to a cancelled tournament.
+// In local mode the archive appears on Supabase only after the PC sends its
+// journal batch: wait up to a minute, checking every few seconds.
+const LOCAL_ARCHIVE_PUBLICATION_WAIT_MS = 60_000;
+const LOCAL_ARCHIVE_PUBLICATION_POLL_MS = 4_000;
 const CANCELLED_LIVE_PENDING_KEY = 'flbp_admin_cancelled_live_pending';
 const readPendingCancelledLive = (): { id: string; name: string } | null => {
     try {
@@ -2657,6 +2661,7 @@ const confirmAliasModal = () => {
         const sheetLabel = candidate?.sheetName ? `
 ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const headerPreview = (candidate?.parsed?.headersNormalized || []).slice(0, 8).join(', ');
+        const expectedHeaders = (importProfile?.headersNormalized || []).slice(0, 8).join(', ');
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
@@ -2666,7 +2671,8 @@ ${t('admin_import_other_sheets_checked')}:
 
 ${t('admin_import_profile_mismatch')}
 ${t('admin_import_expected_label')}: ${expectedLayout}
-${t('admin_import_found_label')}: ${foundLayout}${sheetLabel}${headerPreview ? `
+${t('admin_import_found_label')}: ${foundLayout}${sheetLabel}${expectedHeaders ? `
+${t('admin_import_columns_expected')}: ${expectedHeaders}` : ''}${headerPreview ? `
 ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
     };
     const parseSheetToTeams = (
@@ -3244,13 +3250,24 @@ ${t('admin_import_no_valid_team_in_sheet').replace('{sheet}', selectedSheetName)
         if (route.mode === 'local') {
             // The local server owns publication. Wait for its cloud mirror before
             // computing the Fanta snapshot from normalized results and awards.
-            const published = await pullPublicTournamentsList();
-            if (!published.history.some(tournament => tournament.id === tournamentId)
-                || (awards.some(award => ['winner', 'mvp', 'top_scorer', 'defender'].includes(award.type))
-                    && !await hasPublicHallOfFameFinalAwards(tournamentId))) {
-                throw new Error(t('archive_publication_pending'));
+            // Its journal reaches Supabase in batches of about 15 seconds, so a
+            // check right after the commit almost always failed: keep checking
+            // for a while before asking for a retry.
+            const needsFinalAwards = awards.some(award => ['winner', 'mvp', 'top_scorer', 'defender'].includes(award.type));
+            const deadline = Date.now() + LOCAL_ARCHIVE_PUBLICATION_WAIT_MS;
+            for (;;) {
+                try {
+                    const published = await pullPublicTournamentsList();
+                    if (published.history.some(tournament => tournament.id === tournamentId)
+                        && (!needsFinalAwards || await hasPublicHallOfFameFinalAwards(tournamentId))) {
+                        return !!published.liveTournament;
+                    }
+                } catch (error) {
+                    if (Date.now() >= deadline) throw error;
+                }
+                if (Date.now() >= deadline) throw new Error(t('archive_publication_pending'));
+                await new Promise(resolve => window.setTimeout(resolve, LOCAL_ARCHIVE_PUBLICATION_POLL_MS));
             }
-            return !!published.liveTournament;
         }
         if (route.mode === 'recovery') throw new Error(t('archive_publication_pending'));
         const row = await pullWorkspaceState({ source: 'AdminDashboard.archive', kind: 'admin' });

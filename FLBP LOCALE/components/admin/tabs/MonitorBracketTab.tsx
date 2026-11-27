@@ -20,6 +20,7 @@ import {
 import { applyStructuralOperation } from '../../../services/tournamentStructureOperations';
 import { buildTournamentStructureIntegritySummary } from '../../../services/tournamentStructureIntegrity';
 import { useTranslation } from '../../../App';
+import { localizeBracketRound } from '../../../services/i18nService';
 
 export interface MonitorBracketTabProps {
     sharedQuery?: string;
@@ -2058,7 +2059,7 @@ const handleSwapSlots = React.useCallback(() => {
                                     const teamsLabel = isMulti ? names.join(' vs ') : `${names[0] || t('tbd_label')} vs ${names[1] || t('tbd_label')}`;
                                     const where = m.phase === 'groups'
                                         ? (m.groupName ? formatGroupName(m.groupName, t) : t('groups_label'))
-                                        : (m.roundName || (m.round ? t('round_n').replace('{n}', String(m.round)) : t('editor_target_bracket')));
+                                        : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.round ? t('round_n').replace('{n}', String(m.round)) : t('editor_target_bracket')));
                                     const canToggle = m.status !== 'finished';
                                     const toggleDisabled = hasPlaceholder;
                                     const canReport = !hasPlaceholder;

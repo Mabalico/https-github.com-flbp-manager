@@ -5,6 +5,7 @@ import type { Team } from '../../../types';
 import { canPlayMatch, getMatchParticipantIds, formatMatchScoreLabel, isByeMatch, isPlaceholderTeamId } from '../../../services/matchUtils';
 import { compareTournamentMatches, formatGroupName } from '../../../services/groupUtils';
 import { useTranslation } from '../../../App';
+import { localizeBracketRound } from '../../../services/i18nService';
 import { useAdminTeamCalls } from '../useAdminTeamCalls';
 
 export type CodesStatusFilter = 'all' | 'scheduled' | 'playing' | 'finished';
@@ -396,7 +397,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                                 <div className="text-xs font-bold text-slate-500 mt-1">
                                                     {m.phase === 'groups'
                                                         ? (m.groupName ? formatGroupName(m.groupName, t) : t('codes_groups'))
-                                                        : (m.roundName || t('codes_bracket'))}
+                                                        : (m.roundName ? localizeBracketRound(m.roundName, t) : t('codes_bracket'))}
                                                 </div>
                                             </div>
                                             <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:gap-3 sm:shrink-0">
