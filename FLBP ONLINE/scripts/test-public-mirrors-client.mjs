@@ -249,4 +249,38 @@ for(const edition of ['FLBP ONLINE','FLBP LOCALE']){
   });
 }
 
+{
+  // In local mode the archive reaches Supabase with the PC's next journal batch.
+  const source=parse(path.join(root,'components/AdminDashboard.tsx'));
+  let declaration='';
+  const find=node=>{if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)&&node.name.text==='publishArchive')declaration=node.getText(source);ts.forEachChild(node,find);};
+  find(source);assert.ok(declaration,'publishArchive');
+  const archiveFixture=publishedOnCall=>{
+    const f={calls:0,waits:[],now:0};
+    f.context={exports:{},
+      LOCAL_ARCHIVE_PUBLICATION_WAIT_MS:60000,LOCAL_ARCHIVE_PUBLICATION_POLL_MS:4000,
+      Date:{now:()=>f.now},
+      window:{setTimeout:(resolve,ms)=>{f.waits.push(ms);f.now+=ms;resolve();return 0;}},
+      resolveDataPlane:async()=>({mode:'local'}),
+      pullPublicTournamentsList:async()=>{f.calls++;return {liveTournament:null,history:f.calls>=publishedOnCall?[{id:'archived'}]:[]};},
+      hasPublicHallOfFameFinalAwards:async()=>true,
+      pullWorkspaceState:async()=>{throw Error('local mode must not read the cloud workspace');},
+      pushNormalizedFromState:async()=>{throw Error('local mode must not rebuild the cloud tables');},
+      t:key=>key,
+    };
+    compile('const '+declaration+';'+String.fromCharCode(10)+'exports.publish=publishArchive;',f.context);
+    return f;
+  };
+  await check('ONLINE: a local archive waits for the PC to publish it before the Fanta snapshot',async()=>{
+    const f=archiveFixture(4);
+    assert.equal(await f.context.exports.publish('archived',[{type:'winner'}]),false);
+    assert.equal(f.calls,4);assert.deepEqual(f.waits,[4000,4000,4000]);
+  });
+  await check('ONLINE: a local archive still unpublished after a minute asks for a retry',async()=>{
+    const f=archiveFixture(Infinity);
+    await assert.rejects(f.context.exports.publish('archived',[]),/archive_publication_pending/);
+    assert.equal(f.calls,16);
+  });
+}
+
 console.log(`${passed} real publication-service/Admin-handler regression cases passed; IO only was replaced.`);

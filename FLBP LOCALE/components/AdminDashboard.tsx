@@ -2542,6 +2542,7 @@ const confirmAliasModal = () => {
         const sheetLabel = candidate?.sheetName ? `
 ${t('admin_import_sheet_read')}: ${candidate.sheetName}` : '';
         const headerPreview = (candidate?.parsed?.headersNormalized || []).slice(0, 8).join(', ');
+        const expectedHeaders = (importProfile?.headersNormalized || []).slice(0, 8).join(', ');
         const alternativesText = alternatives.length
             ? `
 ${t('admin_import_other_sheets_checked')}:
@@ -2551,7 +2552,8 @@ ${t('admin_import_other_sheets_checked')}:
 
 ${t('admin_import_profile_mismatch')}
 ${t('admin_import_expected_label')}: ${expectedLayout}
-${t('admin_import_found_label')}: ${foundLayout}${sheetLabel}${headerPreview ? `
+${t('admin_import_found_label')}: ${foundLayout}${sheetLabel}${expectedHeaders ? `
+${t('admin_import_columns_expected')}: ${expectedHeaders}` : ''}${headerPreview ? `
 ${t('admin_import_columns_read')}: ${headerPreview}` : ''}${alternativesText}`;
     };
     const parseSheetToTeams = (

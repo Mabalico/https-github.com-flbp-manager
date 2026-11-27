@@ -1935,6 +1935,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "Нашел это",
   "admin_import_sheet_read": "Простыня",
   "admin_import_columns_read": "Столбцы прочитаны",
+  "admin_import_columns_expected": "Ожидаемые столбцы",
   "admin_import_other_sheets_checked": "Другие листы проверены",
   "admin_import_no_valid_team_in_sheet": "На листе {sheet} не найдено действительных команд.",
   "admin_delete_live_tournament_fallback_name": "живой турнир",

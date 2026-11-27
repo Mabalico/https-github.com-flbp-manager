@@ -16,6 +16,7 @@ import { formatBirthDateDisplay } from '../../../../services/playerIdentity';
 import { handleZeroValueBlur, handleZeroValueFocus, handleZeroValueMouseUp } from '../../../../services/formInputUX';
 import { deleteFantaTournamentData } from '../../../../services/supabaseRest';
 import { FANTA_APP_CHANGE_EVENT } from '../../../../services/playerAppService';
+import { localizeBracketRound } from '../../../../services/i18nService';
 import { LateTeamSelector } from '../../LateTeamSelector';
 
 export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string) => void }> = ({
@@ -689,7 +690,7 @@ export const ArchiveSubTab: React.FC<DataTabProps & { onEditAwards?: (id: string
                                                 const scoreLabel = formatMatchScoreLabel(m as any);
                                                 const where = m.phase === 'groups'
                                                     ? (m.groupName ? `${t('groups_label')} ${m.groupName}` : t('groups_label'))
-                                                    : (m.roundName || (m.round ? `${t('round')} ${m.round}` : t('monitor_bracket')));
+                                                    : (m.roundName ? localizeBracketRound(m.roundName, t) : (m.round ? `${t('round')} ${m.round}` : t('monitor_bracket')));
                                                 const isSel = dataSelectedMatchId === m.id;
                                                 const badge = m.status === 'finished' ? 'bg-red-50 text-red-700 border-red-200' : (m.status === 'playing' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-700 border-slate-200');
                                                 return (

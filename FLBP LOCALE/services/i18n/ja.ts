@@ -1935,6 +1935,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "見つけました",
   "admin_import_sheet_read": "ベッドシーツ",
   "admin_import_columns_read": "読み取られた列",
+  "admin_import_columns_expected": "想定される列",
   "admin_import_other_sheets_checked": "他のシートもチェック済み",
   "admin_import_no_valid_team_in_sheet": "{sheet} シートに有効なチームが見つかりません。",
   "admin_delete_live_tournament_fallback_name": "ライブトーナメント",

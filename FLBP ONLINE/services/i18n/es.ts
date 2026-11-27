@@ -1935,6 +1935,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "lo encontré",
   "admin_import_sheet_read": "Sábana",
   "admin_import_columns_read": "Columnas leídas",
+  "admin_import_columns_expected": "Columnas esperadas",
   "admin_import_other_sheets_checked": "Otras hojas revisadas",
   "admin_import_no_valid_team_in_sheet": "No se encontraron equipos válidos en la hoja {sheet}.",
   "admin_delete_live_tournament_fallback_name": "torneo en vivo",

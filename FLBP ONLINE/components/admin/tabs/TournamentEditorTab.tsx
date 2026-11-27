@@ -542,7 +542,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       if (!matchId || (side !== 'A' && side !== 'B')) return t('editor_target_bracket');
       const match = getMatchById(draft.state.present, matchId);
       if (!match) return t('editor_target_bracket');
-      const roundLabel = match.roundName || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('editor_target_bracket'));
+      const roundLabel = match.roundName ? localizeBracketRound(match.roundName, t) : (match.round ? t('round_n').replace('{n}', String(match.round)) : t('editor_target_bracket'));
       const codeLabel = match.code ? ` · ${match.code}` : '';
       return `${roundLabel}${codeLabel} · lato ${side}`;
     },
@@ -1288,7 +1288,7 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
         if (targetValue === winner) return null;
         const successorSide = successor.slot === 'teamAId' ? 'A' : 'B';
         return {
-          sourceLabel: match.code || match.roundName || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('bracket_word')),
+          sourceLabel: match.code || (match.roundName ? localizeBracketRound(match.roundName, t) : null) || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('bracket_word')),
           winnerLabel: teamLabel(winner),
           targetLabel: slotDisplayLabel(`${successor.match.id}|${successorSide}`),
         };
@@ -1487,9 +1487,9 @@ export const TournamentEditorTab: React.FC<TournamentEditorTabProps> = ({
       !String(match.teamBId || '').trim() ||
       isPlaceholderTeamId(match.teamAId) ||
       isPlaceholderTeamId(match.teamBId);
-    const matchLabel = match.roundName || (match.round ? t('round_n').replace('{n}', String(match.round)) : t('bracket_word'));
+    const matchLabel = match.roundName ? localizeBracketRound(match.roundName, t) : (match.round ? t('round_n').replace('{n}', String(match.round)) : t('bracket_word'));
     const successorLabel = successor
-      ? `${successor.match.roundName || (successor.match.round ? t('round_n').replace('{n}', String(successor.match.round)) : t('bracket_word'))} · ${t('editor_slot_short')} ${successorSide}`
+      ? `${successor.match.roundName ? localizeBracketRound(successor.match.roundName, t) : (successor.match.round ? t('round_n').replace('{n}', String(successor.match.round)) : t('bracket_word'))} · ${t('editor_slot_short')} ${successorSide}`
       : t('editor_no_successor_final');
 
     return (

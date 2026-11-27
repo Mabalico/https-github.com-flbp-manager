@@ -2170,6 +2170,7 @@ export const dictionary: TranslationDictionary = {
   "admin_import_found_label": "Found it",
   "admin_import_sheet_read": "Bed sheet",
   "admin_import_columns_read": "Columns read",
+  "admin_import_columns_expected": "Expected columns",
   "admin_import_other_sheets_checked": "Other sheets checked",
   "admin_import_no_valid_team_in_sheet": "No valid teams found in the {sheet} sheet.",
   "admin_delete_live_tournament_fallback_name": "live tournament",
