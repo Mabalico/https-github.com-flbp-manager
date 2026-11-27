@@ -1147,6 +1147,8 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
         [draft?.m, state.tournamentMatches]
     );
     const prelims = React.useMemo(() => getBracketPrelims(matches, teamsById), [matches, teamsById]);
+    // Preliminaries exist only in an elimination bracket: a round robin has none to announce.
+    const hasBracket = React.useMemo(() => matches.some(match => match.phase === 'bracket'), [matches]);
     const callableMatches = React.useMemo(() => getCallableSocialMatches(matches, teamsById), [matches, teamsById]);
 
     const initialCfg = React.useMemo(() => loadSocialGraphicsConfig(), []);
@@ -1636,6 +1638,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-4">
+                    {hasBracket && (
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                         <div className="font-black text-slate-900">{t('social_prelims_panel_title')}</div>
                         <div className="grid grid-cols-2 gap-3">
@@ -1669,6 +1672,7 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                             </div>
                         )}
                     </div>
+                    )}
 
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                         <div className="font-black text-slate-900">{t('social_calls_panel_title')}</div>
@@ -1779,10 +1783,12 @@ export function SocialGraphicsPanel({ state, draft }: { state: AppState; draft: 
                                     <div className="text-[11px] font-bold text-slate-500">{t('social_assigned_matches_label')}</div>
                                     <div className="text-lg font-black text-slate-900">{slotSummary.assignedMatchCount}</div>
                                 </div>
+                                {hasBracket && (
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                                     <div className="text-[11px] font-bold text-slate-500">{t('social_preliminary_matches_label')}</div>
                                     <div className="text-lg font-black text-slate-900">{prelims.length}</div>
                                 </div>
+                                )}
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                                     <div className="text-[11px] font-bold text-slate-500">{t('social_manual_slots_label')}</div>
                                     <div className="text-lg font-black text-slate-900">{slotSummary.manualSlots}</div>

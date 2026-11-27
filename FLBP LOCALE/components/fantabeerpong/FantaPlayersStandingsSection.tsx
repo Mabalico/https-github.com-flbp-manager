@@ -56,12 +56,16 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
   }, []);
 
   React.useEffect(() => {
+    // A failed read must end the spinner, and an older reload must not overwrite a newer one.
+    let cancelled = false;
     async function load() {
       setLoading(true);
       const [rawRows, userTeam] = await Promise.all([
         fetchFantaPlayerStandings(),
-        session?.accountId ? fetchUserFantaTeam(session.accountId) : Promise.resolve(null)
+        // The player's own team only marks rows: without it the standings still show.
+        session?.accountId ? fetchUserFantaTeam(session.accountId).catch(() => null) : Promise.resolve(null)
       ]);
+      if (cancelled) return;
 
       const myRoster = userTeam?.roster || [];
 
@@ -92,9 +96,14 @@ export const FantaPlayersStandingsSection: React.FC<Props> = ({ onOpenMyTeam, on
           || (r.player_key === player.player_id && (!r.real_team_id || !player.real_team_id || r.real_team_id === player.real_team_id)))
       }));
       setRows(mapped);
-      setLoading(false);
     }
-    load();
+    load()
+      .catch((error) => {
+        console.warn('Classifica giocatori Fanta non disponibile', error);
+        if (!cancelled) setRows([]);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [session, reloadKey]);
 
   const featuredPlayer = rows.length > 0 ? sortCopy(rows, (a,b) => b.fantasyPoints - a.fantasyPoints)[0] : null;

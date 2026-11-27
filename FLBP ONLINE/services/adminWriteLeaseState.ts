@@ -24,7 +24,9 @@ export type AdminLeaseRecoveryReason =
   | 'local_active'
   | 'epoch_changed'
   | 'manual_recovery_required'
-  | 'unavailable';
+  | 'unavailable'
+  // The coordinator did not answer: nobody can tell which node holds the data.
+  | 'unreachable';
 
 export type AdminLeaseRecovery = {
   reason: AdminLeaseRecoveryReason;

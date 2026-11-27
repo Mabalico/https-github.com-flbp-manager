@@ -9,6 +9,7 @@ import { readAdminLeaseInfo, setAdminLeaseInfo, type AdminLeaseRecovery } from '
 import {
   acquireLocalAdminWriteLease,
   DATA_PLANE_CHANGE_LS_KEY,
+  DISCOVERY_FAILED_REASON,
   heartbeatLocalAdminWriteLease,
   releaseLocalAdminWriteLease,
   resolveDataPlane,
@@ -194,6 +195,11 @@ const notifyDataPlaneReclaimed = () => {
 // back: it agrees only after the grace period, and only with the operations
 // already in the cloud snapshot unless the Admin explicitly accepts the loss.
 const tryReclaimCloud = async (route: DataPlaneRoute, acceptMissing: boolean): Promise<boolean> => {
+  if (route.reason === DISCOVERY_FAILED_REASON) {
+    // No answer at all: the PC is not involved, the check is retried on the next tick.
+    setAdminLeaseInfo({ recovery: { reason: 'unreachable', epoch: route.epoch ?? null } });
+    return false;
+  }
   if (route.reason !== 'local_lease_expired' || route.epoch == null) {
     setAdminLeaseInfo({ recovery: { reason: 'unavailable', epoch: route.epoch ?? null } });
     return false;

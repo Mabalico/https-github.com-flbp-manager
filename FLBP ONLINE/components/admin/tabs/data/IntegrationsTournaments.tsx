@@ -50,7 +50,8 @@ export const IntegrationsTournaments: React.FC<Pick<DataTabProps, 'state' | 't' 
     }).sort((a, b) => Number(b.isLive) - Number(a.isLive)
         || (b.date || b.year).localeCompare(a.date || a.year) || a.name.localeCompare(b.name)), [state]);
     const years = [...new Set(rows.map(row => row.year).filter(value => /^\d{4}$/.test(value)))].sort().reverse();
-    const duplicateKey = (row: TournamentRenameRow) => row.name.trim().toLocaleLowerCase() + '|' + row.date;
+    // Two editions with the same name and day but different winners are two tournaments.
+    const duplicateKey = (row: TournamentRenameRow) => [row.name.trim().toLocaleLowerCase(), row.date, row.winner.trim().toLocaleLowerCase()].join('|');
     const duplicateCounts = new Map<string, number>();
     for (const row of rows) {
         if (!row.isLive && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) {

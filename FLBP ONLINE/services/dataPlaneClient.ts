@@ -106,7 +106,14 @@ const probeSameOriginLocalServer = async (): Promise<DataPlaneRoute | null> => {
   }
 };
 
-const resolveFromSupabase = async (): Promise<DataPlaneRoute> => {
+// The coordinator answer is cheap, but it shares the database with heavy Admin
+// writes: a slow answer is retried once with more time before the site locks.
+const DISCOVERY_TIMEOUT_MS = 2500;
+const DISCOVERY_RETRY_TIMEOUT_MS = 8000;
+/** Reason of a client-side recovery route: nobody could tell which node holds the data. */
+export const DISCOVERY_FAILED_REASON = 'discovery_failed';
+
+const resolveFromSupabase = async (timeoutMs = DISCOVERY_TIMEOUT_MS): Promise<DataPlaneRoute> => {
   const url = (readViteSupabaseUrl() || '').trim().replace(/\/$/, '');
   const anonKey = (readViteSupabaseAnonKey() || '').trim();
   if (!url || !anonKey) return normalizeRoute({ mode: 'cloud' });
@@ -120,7 +127,7 @@ const resolveFromSupabase = async (): Promise<DataPlaneRoute> => {
       Accept: 'application/json',
     },
     body: JSON.stringify({ p_workspace_id: workspaceId() }),
-  }, 2500);
+  }, timeoutMs);
   if (!response.ok) {
     const text = await response.text();
     // Backward-compatible deployment before the coordinator migration.
@@ -144,7 +151,12 @@ export const resolveDataPlane = async (opts?: { force?: boolean }): Promise<Data
       return sameOrigin;
     }
     try {
-      const route = await resolveFromSupabase();
+      let route: DataPlaneRoute;
+      try {
+        route = await resolveFromSupabase();
+      } catch {
+        route = await resolveFromSupabase(DISCOVERY_RETRY_TIMEOUT_MS);
+      }
       rememberRoute(route);
       return route;
     } catch (error) {
@@ -155,7 +167,8 @@ export const resolveDataPlane = async (opts?: { force?: boolean }): Promise<Data
       // Discovery failure is not authority to make cloud writable. Reads may
       // continue from the last cloud snapshot, while server-side fencing and
       // the durable browser draft protect writes.
-      const recovery = normalizeRoute({ mode: 'recovery', reason: (error as Error)?.message || 'discovery_failed' });
+      console.warn('FLBP data plane discovery failed', error);
+      const recovery = normalizeRoute({ mode: 'recovery', reason: DISCOVERY_FAILED_REASON });
       rememberRoute(recovery);
       return recovery;
     } finally {

@@ -14,6 +14,10 @@ Dopo la convergenza viene eseguito `supabase/tests/deployed_stabilization_readon
 
 Non vengono eseguiti repair, retry che cambiano la storia o `--include-all` impliciti. Se il deploy fallisce, verificare l'errore e lo schema reale prima di correggere la storia o ripetere l'applicazione.
 
+## Pulizia delle righe di tornei non usate
+
+`20261127000100_cleanup_orphan_tournament_rows.sql` elimina una volta le righe private di `tournaments` lasciate da tornei annullati o eliminati. Tocca solo righe che non sono il torneo live né nello storico di `workspace_state`, non sono pubblicate, non hanno squadre, gironi, partite o squadre Fanta e non cambiano da almeno un giorno. La funzione `flbp_cleanup_orphan_tournament_rows` non è richiamabile dal sito.
+
 ## Riparazione della sola storia
 
 È una run manuale distinta: `mode=repair-history`, `confirm=REPAIR`, `repair_versions` con le versioni di 14 cifre separate da un singolo spazio, `repair_status=applied` oppure `reverted`. `RUN` non autorizza questa modalità. Il workflow mostra la storia prima e dopo la riparazione e **non applica migration SQL**.

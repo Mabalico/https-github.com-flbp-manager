@@ -43,6 +43,7 @@ La scheda **Gestione dati → Persistenza e backup** separa le operazioni quotid
 Se il PC del torneo viene spento senza **Chiudi modalità locale**, la lease scade e il coordinatore espone `recovery`: ogni finestra Admin online resta in sola lettura. Per non dipendere dal ricordo dell'operatore:
 
 - il server locale copia lo stato completo su Supabase dopo 5 minuti senza modifiche e chiude da solo la modalità locale dopo 6 ore senza modifiche;
+- Se il coordinatore non risponde, il client riprova una volta con più tempo prima di mettere la finestra in sola lettura. In quel caso l'avviso dice che il database non ha risposto, senza dare la colpa al PC del torneo, e il controllo si ripete da solo.
 - `public.flbp_admin_reclaim_cloud_data_plane(...)` riporta l'autorità al cloud quando la lease è scaduta da almeno 12 ore. Il client Admin la chiama da solo quando trova `recovery` con motivo `local_lease_expired`;
 - se il journal remoto contiene operazioni più recenti dello snapshot cloud, il ritorno richiede `p_accept_missing = true`: la finestra **Sola lettura** mostra quante operazioni mancano e chiede conferma. Le operazioni non vengono riprodotte;
 - l'epoch avanza come nel failover d'emergenza: il PC, se si riaccende, riceve il rifiuto dell'heartbeat e passa in standby;

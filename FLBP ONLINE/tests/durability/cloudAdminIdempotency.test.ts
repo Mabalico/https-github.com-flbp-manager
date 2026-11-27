@@ -27,6 +27,8 @@ let rejectWorkspaceConflict = false;
 // Data-plane reclaim section: coordinator route and scripted reclaim answers.
 let resolvedRoute: any = { mode: 'cloud', epoch: 4 };
 let resolveFails = false;
+// Number of next discovery calls that fail before the coordinator answers again.
+let resolveFailures = 0;
 let reclaimReplies: any[] = [];
 
 Object.assign(globalThis, {
@@ -59,6 +61,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes('/auth/v1/logout')) return new Response(null, { status: 204 });
   if (url.endsWith('/api/v1/discovery')) return Response.json({ error: 'not local' }, { status: 404 });
   if (url.endsWith('/rpc/flbp_resolve_data_plane')) {
+    if (resolveFailures > 0) {
+      resolveFailures -= 1;
+      return Response.json({ message: 'coordinator slow' }, { status: 503 });
+    }
     if (resolveFails) return Response.json({ message: 'coordinator unreachable' }, { status: 503 });
     return Response.json(resolvedRoute);
   }
@@ -430,11 +436,22 @@ const reclaimCountBeforeOutage = reclaimCalls().length;
 resolveFails = true;
 await initAdminWriteLease();
 leaseInfo = readAdminLeaseInfo();
-assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'unavailable'
+assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'unreachable'
   && reclaimCalls().length === reclaimCountBeforeOutage,
-  'a coordinator outage is never treated as an expired local lease');
+  'a coordinator outage is never treated as an expired local lease, nor blamed on the tournament PC');
 await releaseAdminWriteLease();
 resolveFails = false;
+
+// One slow answer from the coordinator is retried before the window locks.
+resolvedRoute = { mode: 'cloud', epoch: 9 };
+resolveFailures = 1;
+const discoveryCallsBeforeRetry = calls.filter((call) => call.url.endsWith('/rpc/flbp_resolve_data_plane')).length;
+await initAdminWriteLease();
+assert(readAdminLeaseInfo().status === 'active' && !readAdminLeaseInfo().recovery,
+  'a single failed discovery must be retried instead of locking the Admin');
+assert(calls.filter((call) => call.url.endsWith('/rpc/flbp_resolve_data_plane')).length - discoveryCallsBeforeRetry >= 2,
+  'the retry must ask the coordinator again');
+await releaseAdminWriteLease();
 
 const authSession = (accessToken: string, expiresIn = 3600) => ({
   accessToken,
