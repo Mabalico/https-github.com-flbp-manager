@@ -373,7 +373,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ state, setState,
         const playable = visible.filter(canPlayMatch);
         const playing = playable.find(m => m.status === 'playing');
         const scheduled = playable.find(m => m.status === 'scheduled');
-        const current = playing || scheduled || playable[0] || null;
+        // With nothing left to play there is no guide match: the bar shows a dash.
+        const current = playing || scheduled || null;
         return {
             total: visible.length,
             playingCount: visible.filter(m => m.status === 'playing').length,
@@ -1699,6 +1700,8 @@ const mergeImportedTeamsIntoState = (baseState: AppState, importedTeams: Team[])
     }, [archiveDone, archiveReceipt?.tournamentId, closingTournamentId, tab]);
     // Whoever confirms must be looking at this tournament's closing page.
     useEffect(() => setArchiveConfirmOpen(false), [closingTournamentId, tab]);
+    // The cancellation receipt belongs to the tournament it closed, not to the next one.
+    useEffect(() => { if (state.tournament?.id) setCancelLiveFeedback(''); }, [state.tournament?.id]);
 
     const applyMvpsToState = (base: AppState, selectedIds: string[]) => {
         if (!base.tournament) return base;

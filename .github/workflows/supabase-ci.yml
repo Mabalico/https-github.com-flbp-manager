@@ -120,6 +120,9 @@ jobs:
       - name: Verify that deleting a Fanta edition touches nothing else
         run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -X -v ON_ERROR_STOP=1 -f supabase/tests/fanta_admin_delete_tournament.sql
 
+      - name: Verify that the cleanup removes only unused tournament rows
+        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -X -v ON_ERROR_STOP=1 -f supabase/tests/cleanup_orphan_tournament_rows.sql
+
       - name: Verify HTTP rejections preserve audit and older client queues
         env:
           PGRST_DB_URI: postgresql://postgres:postgres@127.0.0.1:54322/postgres

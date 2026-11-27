@@ -17,6 +17,7 @@ import { getSupabaseConfig, pushWorkspaceState, setSupabaseSession } from '../..
 import { acknowledgeRefereeReport, enqueueRefereeReport, readPendingRefereeReports } from '../../services/repository/refereeReportOutbox';
 import { acknowledgeRemoteDraftCache, discardRemoteDraftOperation, ensureRemoteDraftCacheDurable, readRemoteDraftCache, readRemoteDraftPointer, REMOTE_DRAFT_CACHE_LS_KEY, REMOTE_DRAFT_CACHE_V2_PREFIX, writeRemoteDraftCache } from '../../services/repository/remoteDraftCache';
 import { setAdminLeaseInfo } from '../../services/adminWriteLeaseState';
+import { readAdminSyncState } from '../../services/adminSyncState';
 import { readAdminLeaseInfo } from '../../services/adminWriteLeaseState';
 import { initAdminWriteLease, releaseAdminWriteLease } from '../../services/adminWriteLease';
 import { normalizeWorkspaceVersion } from '../../services/workspaceVersion';
@@ -545,6 +546,8 @@ const createWorkspaceScenario = (base: AppState) => {
     commits: [] as any[],
     beforePullResponse: null as ((requestNumber: number) => Promise<void>) | null,
     beforeCommitResponse: null as ((body: any, requestNumber: number) => Promise<void>) | null,
+    // The commit is stored, then the answer is lost as if the gateway timed out.
+    failAfterCommit: null as ((requestNumber: number) => boolean) | null,
     publish(state: AppState) {
       mock.state = structuredClone(state);
       mock.version += 1;
@@ -569,6 +572,7 @@ const createWorkspaceScenario = (base: AppState) => {
       }
       await mock.beforeCommitResponse?.(body, mock.commits.length);
       mock.publish(coerceAppState(body.state));
+      if (mock.failAfterCommit?.(mock.commits.length)) return Response.json({ error: 'upstream timeout' }, { status: 500 });
       return Response.json({
         ok: true,
         workspace_id: 'default',
@@ -912,6 +916,41 @@ for (const responseKind of ['equivalent', 'mergeable'] as const) {
   await assertNoPendingScenarioDrafts(mock, 'reviewed recovery');
   assert((await readDurableStateCheckpoint('reviewed-stale-draft'))?.status === 'discarded', 'the original draft is closed after the replacement is durable');
   assert(!readRemoteDraftPointer(), 'reviewed recovery must clear the conflict draft');
+}
+
+{
+  // The server stores a commit but its answer is lost (HTTP 500) while the
+  // next edit of the same field is already waiting. The next commit must
+  // replace that state instead of ending in a conflict.
+  const base = conflictBaseState();
+  const mock = createWorkspaceScenario(base);
+  const repository = new RemoteRepository({} as any, { backgroundSync: false });
+  let uiState = base;
+  const unsubscribe = repository.subscribe((state) => { uiState = state; });
+  await repository.refresh();
+  const firstCommitEntered = deferred();
+  const releaseFirstCommit = deferred();
+  mock.beforeCommitResponse = async (_body, requestNumber) => {
+    if (requestNumber === 1) {
+      firstCommitEntered.resolve();
+      await releaseFirstCommit.promise;
+    }
+  };
+  mock.failAfterCommit = (requestNumber) => requestNumber === 1;
+  uiState = coerceAppState({ ...uiState, logo: 'logo-stored-without-answer' });
+  repository.save(uiState);
+  const flush = repository.flush();
+  await waitForGate(firstCommitEntered.promise, 'commit with a lost answer');
+  uiState = coerceAppState({ ...uiState, logo: 'logo-after-lost-answer' });
+  repository.save(uiState);
+  releaseFirstCommit.resolve();
+  await waitForGate(flush.then(() => undefined), 'flush after a lost answer');
+  assert(mock.state.logo === 'logo-after-lost-answer', 'the edit after a lost answer must reach the database');
+  assert(readAdminSyncState().phase !== 'conflict', 'a write that committed without an answer must not become a conflict');
+  assert(mock.commits.at(-1)?.baseVersion === 41, 'the follow-up commit must build on the stored state');
+  await assertNoPendingScenarioDrafts(mock, 'lost commit answer');
+  assert(!readRemoteDraftPointer(), 'no draft may remain after the lost answer is recovered');
+  unsubscribe();
 }
 
 workspaceScenario = null;

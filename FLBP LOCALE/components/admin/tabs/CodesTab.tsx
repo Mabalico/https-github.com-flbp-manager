@@ -81,7 +81,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
         if (!teams.length) return null;
 
         return (
-            <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center">
+            <div className="col-span-2 grid w-full grid-cols-2 gap-1.5 sm:col-span-1 sm:flex sm:w-auto sm:items-center">
                 {teams.map(team => {
                     const meta = getTeamCallMeta(team, match);
                     const status = meta.status;
@@ -126,7 +126,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                             className={`inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-beer-500 ${className}`}
                         >
                             <span className="shrink-0">{icon}</span>
-                            <span className="min-w-0 max-w-36 truncate">
+                            <span className="min-w-0 whitespace-normal break-words text-center leading-tight sm:max-w-36 sm:truncate">
                                 {caption}
                             </span>
                         </button>
@@ -293,7 +293,7 @@ export const CodesTab: React.FC<CodesTabProps> = ({
                                     </div>
 
                                     <div className="w-full max-w-md space-y-3">
-                                        {current && (
+                                        {current && current.status !== 'finished' && (
                                             <div className="text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1 inline-flex">
                                                 {t('codes_guide_match')}: <span className="ml-1 font-mono">{current.code || '-'}</span>
                                             </div>

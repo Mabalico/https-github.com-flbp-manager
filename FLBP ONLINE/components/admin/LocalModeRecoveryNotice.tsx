@@ -66,6 +66,14 @@ export const LocalModeRecoveryNotice: React.FC<{
         );
     }
 
+    if (recovery.reason === 'unreachable') {
+        return (
+            <p className="text-sm font-semibold text-slate-700">
+                Il database non ha risposto in tempo e non so ancora chi controlla i dati. Per sicurezza le modifiche restano ferme: riprovo da solo tra pochi secondi, oppure premi Aggiorna.
+            </p>
+        );
+    }
+
     if (recovery.reason === 'local_active') {
         return (
             <p className="text-sm font-semibold text-slate-700">

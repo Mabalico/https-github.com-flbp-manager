@@ -9,6 +9,7 @@ import { getFantaHomeNotice } from '../../services/fantabeerpong/homeNotice';
 import { splitFantaCleanupRows } from '../../services/fantabeerpong/fantaCleanup';
 import { FantaArchivedEditions } from '../../components/admin/tabs/data/FantaArchivedEditions';
 import { TournamentBracket } from '../../components/TournamentBracket';
+import { IntegrationsTournaments } from '../../components/admin/tabs/data/IntegrationsTournaments';
 import { dictionary } from '../../services/i18n/it';
 import type { AppState } from '../../services/storageService';
 import type { DataTabProps } from '../../components/admin/tabs/DataTab';
@@ -99,3 +100,11 @@ for (const readOnly of [true, false]) {
     if (!container.includes('overflow-auto') || new RegExp('(^|[ :])p[ty]?-').test(container) || !bracket.includes('sticky top-0')) throw new Error('SSR scrolling bracket must have no top padding: ' + container);
 }
 console.log('PASS SSR scrolling bracket');
+
+// Same name and day are a possible duplicate only with the same winner.
+const socio = (id: string, team: string) => ({ ...fantaLive, id, name: 'Torneo Soci', startDate: '2025-11-15', teams: [] });
+const winnerOf = (id: string, team: string) => ({ ...award(id + '-w', 'winner', '2025'), tournamentId: id, tournamentName: 'Torneo Soci', teamName: team, sourceTournamentDate: '2025-11-15' });
+const duplicateMarkup = (teams: [string, string]) => renderToString(<IntegrationsTournaments state={{ ...state, tournamentHistory: [socio('soci-1', teams[0]), socio('soci-2', teams[1])], hallOfFame: [winnerOf('soci-1', teams[0]), winnerOf('soci-2', teams[1])] }} t={t} renameTournamentEdition={async () => {}} onOpen={() => {}} onAdd={() => {}} />);
+if (has(duplicateMarkup(['Squadra Uno', 'Squadra Due']), 'edition_possible_duplicate')) throw new Error('SSR two tournaments with different winners are not duplicates');
+if (!has(duplicateMarkup(['Squadra Uno', 'Squadra Uno']), 'edition_possible_duplicate')) throw new Error('SSR same name, day and winner must be flagged');
+console.log('PASS SSR possible duplicates');

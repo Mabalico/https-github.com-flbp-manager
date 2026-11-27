@@ -53,6 +53,9 @@ export class RemoteRepository implements AppStateRepository {
   private lastStateFingerprint = '';
   private conflictedDraftFingerprint: string | null = null;
   private conflictMergeAttempts = 0;
+  // States sent without a confirmation (timeout, HTTP 5xx, lost connection). If
+  // the server later holds exactly one of them, that write did commit.
+  private unconfirmedWriteFingerprints: string[] = [];
   private lastRemoteState: AppState | null = null;
   private flushFailureCount = 0;
   private flushCooldownUntil = 0;
@@ -467,9 +470,15 @@ export class RemoteRepository implements AppStateRepository {
 
       const remoteState = coerceAppState(row.state);
       const remoteFingerprint = this.fingerprint(remoteState);
+      // The server holds a state this window sent without getting the answer:
+      // the local draft was built on top of it, so it replaces it as it is.
+      const ownUnconfirmedWrite = this.unconfirmedWriteFingerprints.includes(remoteFingerprint);
+      if (ownUnconfirmedWrite) this.unconfirmedWriteFingerprints = [];
       const mergeResult = this.fingerprint(localState) === remoteFingerprint
         ? { ok: true as const, state: remoteState }
-        : tryMergeRemoteStateConflict({ baseState, localState, remoteState });
+        : ownUnconfirmedWrite
+          ? { ok: true as const, state: localState }
+          : tryMergeRemoteStateConflict({ baseState, localState, remoteState });
       if (mergeResult.ok === false) return false;
 
       if (this.fingerprint(mergeResult.state) === remoteFingerprint) {
@@ -1020,6 +1029,7 @@ export class RemoteRepository implements AppStateRepository {
       this.rememberRemoteState(state, row.updated_at || null, { broadcast: true, version: row.version ?? null });
       this.clearFlushBackoff();
       this.conflictMergeAttempts = 0;
+      this.unconfirmedWriteFingerprints = [];
       acknowledgeRemoteDraftCache(row.updated_at || null, operationId);
       clearDbSyncCurrentIssue();
       markDbSyncOk('snapshot');
@@ -1040,6 +1050,9 @@ export class RemoteRepository implements AppStateRepository {
       }
     } catch (e: any) {
       const failedLatestDraft = isStillCurrent();
+      if (e?.code !== 'FLBP_DB_CONFLICT' && e?.code !== 'FLBP_OPERATION_COLLISION') {
+        this.unconfirmedWriteFingerprints = [...this.unconfirmedWriteFingerprints.filter(value => value !== fingerprint), fingerprint].slice(-8);
+      }
       if (e?.code === 'FLBP_OPERATION_COLLISION' && failedLatestDraft) {
         // The server has already bound this idempotency key to another
         // payload (typically an interrupted older browser draft). Reusing it

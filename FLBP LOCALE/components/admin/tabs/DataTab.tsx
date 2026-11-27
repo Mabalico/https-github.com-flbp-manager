@@ -6,6 +6,7 @@ import type { AppState } from '../../../services/storageService';
 import { isRemotePersistenceLocked } from '../../../services/repository/featureFlags';
 import { DbMigrationWizard } from './data/DbMigrationWizard';
 import { IntegrationsFantaCleanup } from './data/IntegrationsFantaCleanup';
+import { listEditions } from '../../../services/editionData';
 import { AccountsSubTab, BackupSyncPanel, DbSyncPanel, IntegrationsSubTab, TrafficSubTab, ViewsSubTab } from './data';
 
 export interface DataTabProps {
@@ -197,7 +198,8 @@ export const DataTab: React.FC<DataTabProps> = (props) => {
         };
     }, [navigateSection]);
 
-    const archiveCount = state.tournamentHistory.length;
+    // Same count as "Tornei passati": title-only editions are past tournaments too.
+    const archiveCount = React.useMemo(() => listEditions(state).filter(edition => !edition.live).length, [state]);
     const renderEntry = (id: DataSection, label: string, icon?: React.ReactNode, detail?: string) => (
         <button key={id} type="button" aria-current={mainSection === id ? 'page' : undefined} onClick={() => navigateSection(id)}
             className={`flex min-h-[44px] items-center gap-2 rounded-xl border px-3 py-2 text-start text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-beer-600 ${mainSection === id ? 'border-blue-300 bg-blue-50 text-blue-950' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}>

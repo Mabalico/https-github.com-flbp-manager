@@ -16,6 +16,10 @@ L’esportazione resta disponibile per conservare una copia. Il recupero seletti
 
 Non occorre chiudere la modalità locale per confrontare la bozza con SQLite. In modalità **Scritture sospese** il confronto operativo e il recupero restano bloccati fino alla risoluzione della transizione dal pannello server.
 
+## Risposta persa
+
+Se un salvataggio arriva al database ma la risposta si perde (timeout, HTTP 5xx, connessione caduta), la finestra ricorda lo stato inviato. Se poi il database contiene esattamente quello stato, la bozza successiva viene salvata sopra di esso senza aprire un conflitto, perché è stata costruita a partire da lì.
+
 ## Protezioni del recupero
 
 L’anteprima conserva database di destinazione, epoch, versione e identità della bozza. Se cambia la destinazione o la bozza, si deve ripetere il confronto. Il recupero selettivo costruisce una nuova bozza dalla versione attuale del database e passa da `RemoteRepository.reconcileDraft`: registra un nuovo checkpoint durevole e usa i normali controlli di versione e di accesso Admin. Se nel frattempo arriva una modifica indipendente, il normale confronto a tre versioni la conserva; se interessa gli stessi dati, il salvataggio si ferma senza forzare la scrittura. La bozza precedente viene chiusa solo quando la sostituzione è durevole.

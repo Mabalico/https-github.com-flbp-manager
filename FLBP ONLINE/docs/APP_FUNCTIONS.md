@@ -398,9 +398,11 @@ Supporto UI:
     - non sostituisce il billing ufficiale Supabase: è una telemetria applicativa coerente col traffico generato dal frontend
   - sub-tab data legacy: `archive | integrations` (stato in `AdminDashboard.tsx`)
   - sub-tab integrations: `tournaments | hof | scorers | aliases | fanta | players`
-  - In **Tornei passati** si cercano le edizioni per nome e anno. L’elenco mostra il vincitore e i conteggi dei titoli e dei marcatori. Le edizioni con lo stesso nome e la stessa data sono segnalate come possibili doppioni. La scheda raccoglie dati, titoli, marcatori e le conferme di modifica ed eliminazione.
+  - In **Tornei passati** si cercano le edizioni per nome e anno. L’elenco mostra il vincitore e i conteggi dei titoli e dei marcatori. Le edizioni con lo stesso nome, la stessa data e lo stesso vincitore sono segnalate come possibili doppioni: con vincitori diversi sono due tornei. Il numero accanto ad **Archivio e giocatori** conta le stesse edizioni di **Tornei passati**, comprese quelle con i soli titoli. La scheda raccoglie dati, titoli, marcatori e le conferme di modifica ed eliminazione.
   - **Giocatori** mostra titoli, statistiche e nomi collegati. Gli identificativi sono nei dettagli tecnici. Da questa vista si gestiscono anche i collegamenti globali.
   - **Statistiche extra** gestisce le righe senza torneo, con ricerca, import ed export, inserimento a mano e gruppi di 50 righe. Le statistiche legate a un’edizione si gestiscono nella sua scheda.
+  - In **Partite**, sui telefoni i pulsanti di chiamata delle squadre vanno su una riga propria e il testo, per esempio «Nessun account», va a capo invece di essere tagliato. Quando non resta nessuna partita da giocare, **Match guida** mostra un trattino e la panoramica indica solo l’ultimo match.
+  - Nelle **Grafiche Social**, la scheda **Preliminari** compare solo quando il torneo ha un tabellone a eliminazione.
   - **Manutenzione Fanta** si apre dagli strumenti di persistenza. Oltre ai dati senza torneo, **Fanta di tornei archiviati** permette di eliminare solo l’edizione Fanta di un torneo concluso, per esempio una prova: mostra squadre, giocatori e alcuni nomi e chiede di confermare il backup. Torneo, referti, Albo d’oro e statistiche restano; il torneo live e le rose del Pretorneo non compaiono mai.
   - `services/tournamentRename.ts` applica la rinomina per ID senza modificare squadre, match o struttura e propaga il nome ai riferimenti Hall of Fame e alle etichette dei marcatori collegati.
 - Modals:
