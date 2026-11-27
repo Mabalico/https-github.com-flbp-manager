@@ -1303,7 +1303,10 @@ const App: React.FC = () => {
             if (cancelled) return;
             // TV e viste pubbliche aperte dal server del PC seguono SQLite quasi
             // in tempo reale. Il sito Internet legge invece il mirror Supabase
-            // con un jitter che distribuisce le richieste dei visitatori.
+            // con un jitter che distribuisce le richieste dei visitatori: con le
+            // letture dal mirror il coordinatore risponde mode=cloud anche in
+            // modalità locale, quindi resta l'intervallo di 2 minuti scelto per
+            // il piano gratuito di Supabase.
             const readsDirectlyFromLocal = route.mode === 'local'
                 && route.publicReadMode !== 'cloud'
                 && !!route.baseUrl;

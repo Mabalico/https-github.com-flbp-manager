@@ -442,6 +442,23 @@ assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'unreachab
 await releaseAdminWriteLease();
 resolveFails = false;
 
+// Local mode with Internet reads from the mirror: the coordinator answers
+// mode=cloud, authority=local. The online Admin stays read-only and never asks
+// for the cloud lease, then writes again once the PC closes local mode.
+const acquireCallsBeforeLocal = calls.filter((call) => call.url.endsWith('/rpc/flbp_admin_acquire_write_lease')).length;
+resolvedRoute = { mode: 'cloud', authority: 'local', public_read_mode: 'cloud', epoch: 16, lease_expires_at: '2099-01-01T00:00:00.000Z' };
+await initAdminWriteLease();
+leaseInfo = readAdminLeaseInfo();
+assert(leaseInfo.status === 'error' && leaseInfo.recovery?.reason === 'local_active' && !leaseInfo.lastError,
+  'while the tournament PC writes, the online Admin is read-only with the local mode notice');
+assert(calls.filter((call) => call.url.endsWith('/rpc/flbp_admin_acquire_write_lease')).length === acquireCallsBeforeLocal,
+  'the online Admin must not acquire the cloud lease while the PC holds authority');
+resolvedRoute = { mode: 'cloud', authority: 'cloud', epoch: 17 };
+await takeoverAdminWriteLease();
+assert(readAdminLeaseInfo().status === 'active' && !readAdminLeaseInfo().recovery,
+  'after Chiudi modalità locale the online Admin writes again');
+await releaseAdminWriteLease();
+
 // One slow answer from the coordinator is retried before the window locks.
 resolvedRoute = { mode: 'cloud', epoch: 9 };
 resolveFailures = 1;
