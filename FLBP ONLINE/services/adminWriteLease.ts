@@ -164,6 +164,11 @@ const acquireOnce = async (takeover: boolean): Promise<{ acquired: boolean; out:
 
 const RECOVERY_MESSAGE = 'Data plane in recovery: impossibile acquisire il controllo Admin.';
 
+// The tournament PC writes while Internet readers use the Supabase mirror: the
+// coordinator answers mode=cloud with authority=local. The database rejects
+// writes from this window, so it must not look writable.
+class LocalAuthorityActiveError extends Error {}
+
 const toRecovery = (out: any, fallbackEpoch: number | null): AdminLeaseRecovery => {
   const reason = String(out?.reason || '');
   const known = ['grace', 'missing_operations', 'local_active', 'epoch_changed', 'manual_recovery_required'];
@@ -235,6 +240,10 @@ const acquireForCurrentPlane = async (takeover: boolean): Promise<{ acquired: bo
     route = await resolveDataPlane({ force: true });
     if (route.mode === 'recovery') throw new Error(RECOVERY_MESSAGE);
   }
+  if (route.mode === 'cloud' && route.authority === 'local') {
+    setAdminLeaseInfo({ recovery: { reason: 'local_active', epoch: route.epoch ?? null } });
+    throw new LocalAuthorityActiveError('Il PC del torneo ha la modalità locale attiva.');
+  }
   if (readAdminLeaseInfo().recovery) setAdminLeaseInfo({ recovery: null });
   if (route.mode === 'local') {
     if (!holderId) throw new Error('Identità finestra Admin mancante.');
@@ -286,6 +295,12 @@ const tick = async (takeover = false): Promise<void> => {
     if (!isCurrent()) return;
     if (e instanceof AdminLeaseSessionExpiredError) {
       setAdminLeaseInfo({ status: 'session-expired', lastError: null, recovery: null, otherLabel: null, otherSince: null });
+      return;
+    }
+    if (e instanceof LocalAuthorityActiveError) {
+      // Read-only with the notice of the tournament PC, even if another online
+      // window held the cloud lease before local mode started.
+      setAdminLeaseInfo({ status: 'error', lastError: null, otherLabel: null, otherSince: null });
       return;
     }
     const message = String(e?.message || e || '');

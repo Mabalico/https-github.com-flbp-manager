@@ -95,7 +95,10 @@ if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
       body: JSON.stringify({ p_workspace_id: config.workspaceId }),
     });
     const body = response.ok ? await response.json() : null;
-    const authority = body?.mode === 'local' ? 'SQLite locale' : body?.mode === 'cloud' ? 'Supabase' : 'nessuna (recovery)';
+    // With Internet reads from the mirror the coordinator answers mode=cloud
+    // (where to read) and authority=local (who writes): report the writer.
+    const writer = body?.mode === 'recovery' ? 'recovery' : (body?.authority || body?.mode);
+    const authority = writer === 'local' ? 'SQLite locale' : writer === 'cloud' ? 'Supabase' : 'nessuna (recovery)';
     const publicReads = body?.public_read_mode === 'local' ? 'nodo locale' : 'mirror Supabase';
     add('RPC coordinatore', response.ok && ['cloud', 'local', 'recovery'].includes(body?.mode), response.ok
       ? `autorità=${authority}, letture pubbliche=${publicReads}, epoch=${body?.epoch ?? 0}, lease=${body?.lease_expires_at || '—'}`
