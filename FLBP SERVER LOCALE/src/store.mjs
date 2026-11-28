@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { applyMatchResultPatch } from './statePatch.mjs';
-import { sanitizeAppStateForPublic } from './publicSanitizer.mjs';
+import { PUBLIC_LIVE_STATE_KEYS, sanitizeAppStateForPublic } from './publicSanitizer.mjs';
 import { buildStatePatch } from './stateDelta.mjs';
 
 export class VersionConflictError extends Error {
@@ -36,6 +36,11 @@ const semanticChecksum = (state, publicState) => crypto.createHash('sha256')
 const operationChecksum = (kind, payload) => crypto.createHash('sha256').update(String(kind || '')).update('\n').update(json(payload)).digest('hex');
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PATCH_OPERATIONS = 5_000;
+const PUBLIC_LIVE_KEYS = new Set(PUBLIC_LIVE_STATE_KEYS);
+// A patch path starts with the top-level field; an empty path replaces the
+// whole state and therefore changes the archive too.
+const patchChangesPublicArchive = (operations) => (operations || [])
+  .some((operation) => !PUBLIC_LIVE_KEYS.has(String(operation?.path?.[0] ?? '')));
 
 export class LocalStore {
   constructor({ dataDir, workspaceId, filename = 'flbp-local.sqlite' }) {
@@ -532,7 +537,7 @@ export class LocalStore {
     const usePatch = !!patchPayload
       && patchPayload.statePatch.length + patchPayload.publicStatePatch.length <= MAX_PATCH_OPERATIONS
       && Buffer.byteLength(patchJson, 'utf8') <= MAX_PATCH_BYTES;
-    return this.#commit({
+    const committed = this.#commit({
       state,
       publicState: normalizedPublicState,
       operationId,
@@ -544,6 +549,13 @@ export class LocalStore {
       idempotencyKind: 'workspace-snapshot',
       idempotencyPayload: { state, publicState: normalizedPublicState },
     });
+    // Tells the server whether the commit changed public data outside the live
+    // row (for example an archive), which needs a full public snapshot.
+    return {
+      ...committed,
+      changesPublicArchive: !committed.idempotent
+        && (!patchPayload || patchChangesPublicArchive(patchPayload.publicStatePatch)),
+    };
   }
 
   commitMatchPatch({ tournamentId, matchId, matches, operationId, source = 'referee' }) {

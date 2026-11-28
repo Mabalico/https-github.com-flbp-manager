@@ -1530,6 +1530,7 @@ export const dictionary: TranslationDictionary = {
   "referees_password_required_input": "Geben Sie das Schiedsrichterpasswort ein.",
   "referees_password_wrong": "Falsches Passwort.",
   "referees_rate_limited": "Schiedsrichterzugriff vorübergehend gesperrt: zu viele Versuche mit falschem Passwort. Versuche es in ein paar Minuten erneut.",
+  "referees_local_mode_active": "Das Turnier wird vom Turnier-PC aus geführt: Berichte können auf dieser Seite nicht gespeichert werden. Verbinde dich mit dem WLAN des Turniers und öffne den Schiedsrichter-Link des PCs.",
   "referees_access_not_configured": "Der Schiedsrichterzugriff ist für dieses Turnier nicht konfiguriert.",
   "referees_remote_sync_not_enabled": "Die Remote-Schiedsrichtersynchronisierung ist in der Datenbank noch nicht aktiviert. Führen Sie die dedizierte Migration aus.",
   "referees_password_check_failed": "Die Passwortüberprüfung ist fehlgeschlagen.",

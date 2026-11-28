@@ -1765,6 +1765,7 @@ export const dictionary: TranslationDictionary = {
   "referees_password_required_input": "Enter the referees password.",
   "referees_password_wrong": "Incorrect password.",
   "referees_rate_limited": "Referee access temporarily blocked: too many attempts with a wrong password. Try again in a few minutes.",
+  "referees_local_mode_active": "The tournament is run from the tournament PC: reports cannot be saved from this site. Connect to the tournament Wi-Fi and open the PC's referee link.",
   "referees_access_not_configured": "Referee access not configured for this tournament.",
   "referees_remote_sync_not_enabled": "Remote referee sync not yet activated on the database. Run the dedicated migration.",
   "referees_password_check_failed": "Password verification failed.",

@@ -1164,6 +1164,8 @@ const App: React.FC = () => {
         // made every useMemo (TV bracket included) recompute for hours.
         let lastLiveRow: unknown = null;
         let lastLiveSignature: string | null = null;
+        // Set by every live read: the Home stops polling once a tournament is live.
+        let liveTournamentSeen = false;
         const liveRowSignature = (row: any): string | null => {
             const updatedAt = typeof row?.updated_at === 'string' ? row.updated_at : '';
             if (!updatedAt) return null;
@@ -1239,6 +1241,7 @@ const App: React.FC = () => {
                     const row = await ops.pullPublicWorkspaceLive({ kind: 'polling', source: 'App.publicWorkspaceLivePoll' });
                     if (cancelled) return;
                     if (!row?.state) return;
+                    liveTournamentSeen = !!(row.state as any).tournament;
                     await hydratePublicLiveRow(row);
                     return;
                 } catch (liveError) {
@@ -1250,6 +1253,7 @@ const App: React.FC = () => {
                 const row = await ops.pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll.fallback' });
                 if (cancelled) return;
                 if (!row?.state) return;
+                liveTournamentSeen = !!(row.state as any).tournament;
                 writeCachedPublicWorkspaceState(row);
                 await hydratePublicRow(row);
             } catch {
@@ -1260,14 +1264,21 @@ const App: React.FC = () => {
         // The compact live row is the authoritative overlay for the current
         // tournament, including the meaningful "no live tournament" state
         // after an archive. Always apply it once after the full public
-        // snapshot; otherwise non-polling routes (Home and Albo d'Oro) can
-        // keep showing the last tournament from an older 30-minute backup.
+        // snapshot; otherwise non-polling routes (Albo d'Oro, and the Home once
+        // it saw a live tournament) can keep showing the last tournament from
+        // an older 30-minute backup.
         void (async () => {
             await pullFullSnapshot();
             if (!cancelled) await pullLiveSnapshot();
         })();
 
+        // La Home lasciata aperta prima dell'avvio deve mostrare «LIVE ORA»:
+        // controlla la riga live, piccola finché non parte un torneo, e smette
+        // appena lo vede. I dettagli si aggiornano nella pagina del torneo.
+        const isHomeView = tvMode == null && view === 'home';
+        const homeSawLive = () => isHomeView && liveTournamentSeen;
         const shouldKeepPolling = tvMode != null
+            || isHomeView
             || view === 'tournament'
             || (view === 'tournament_detail' && !!selectedTournament?.isLive);
 
@@ -1278,7 +1289,7 @@ const App: React.FC = () => {
         }
 
         const onVisiblePollLive = () => {
-            if (!shouldPollNow()) return;
+            if (!shouldPollNow() || homeSawLive()) return;
             void pullLiveSnapshot();
         };
         document.addEventListener('visibilitychange', onVisiblePollLive);
@@ -1291,7 +1302,7 @@ const App: React.FC = () => {
         const onUserActivity = () => {
             const wasIdle = isCurrentlyIdle();
             lastActivityAt = Date.now();
-            if (wasIdle) void pullLiveSnapshot();
+            if (wasIdle && !homeSawLive()) void pullLiveSnapshot();
         };
         const activityEvents: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
         if (!isTvMode) {
@@ -1318,8 +1329,9 @@ const App: React.FC = () => {
             pollTimer = window.setTimeout(runPollLoop, delayMs);
         };
         const runPollLoop = async () => {
+            if (homeSawLive()) return;
             if (!isCurrentlyIdle()) await pullLiveSnapshot();
-            if (!cancelled) void scheduleNextPoll();
+            if (!cancelled && !homeSawLive()) void scheduleNextPoll();
         };
         void scheduleNextPoll();
         return () => {

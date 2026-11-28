@@ -14,7 +14,7 @@ const source = readFileSync(componentPath, 'utf8');
 // IO is injected; unrelated tournament transitions are held stable in this
 // fixture. No browser, real credentials, network or filesystem writes are used.
 const ast = ts.createSourceFile(componentPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['isRefereeRateLimited', 'refereeRejectedReportMessage', 'closeLiveCallsForMatch', 'backToMatchStep', 'finishManualReport', 'saveReport', 'doLogin',
+const names = ['isRefereeRateLimited', 'isTournamentPcRefusal', 'refereeRejectedReportMessage', 'closeLiveCallsForMatch', 'backToMatchStep', 'finishManualReport', 'saveReport', 'doLogin',
   'PRIVATE_APP_STATE_KEYS', 'hasPrivateAppData', 'REFEREE_VIEW_MATCH_KEYS', 'mergeRefereeLiveState', 'applyRefereeState',
   'lookupMatchByCode', 'confirmOcrModal',
   ...(usesOutbox ? ['replayPendingReports'] : [])];
@@ -180,6 +180,10 @@ const createCase = (options = {}) => {
     setPassword: () => {},
     sessionStorage: { setItem: () => {}, removeItem: () => {} },
     replayPendingReports: async () => 0,
+    resolveDataPlane: async () => {
+      if (options.routeError) throw options.routeError;
+      return options.route || { mode: 'cloud', authority: 'cloud' };
+    },
     readDurablePendingRefereeReports: async () => options.pending || [],
     verifyRefereePassword: async (tournamentId, secret) => {
       calls.verifies.push({ tournamentId, secret });
@@ -402,6 +406,13 @@ await check('P-29: a report the server refuses shows the reason instead of a con
     : createCase({ secret: 'ref-secret', snapshotError: refusedBody('FLBP_LOCAL_PRIMARY: il server locale è attivo') });
   await moved.saveReport();
   assert(!moved.calls.alerts[0].startsWith('Il server ha rifiutato'), 'temporary FLBP_* states keep their message');
+  if (usesOutbox) {
+    assert.deepEqual(moved.calls.alerts, ['referees_local_mode_active'], 'the referee is sent to the tournament PC');
+    assert.equal(moved.calls.states.length, 0, 'a report refused by the tournament PC is not shown as played');
+    assert.equal(moved.calls.queued.length, 1, 'it stays in the device queue');
+    assert.equal(moved.calls.failed.length, 1);
+    assert.equal(moved.calls.acknowledged.length, 0);
+  }
 });
 await check('B6: referee login tells a lock apart from a wrong password', async () => {
   const lockedCheck = createCase({ verifyResult: { ok: false, reason: 'rate_limited' } });
@@ -434,6 +445,20 @@ await check('B6: referee login tells a lock apart from a wrong password', async 
   assert.deepEqual(accepted.calls.authed, [true]);
   assert.deepEqual(accepted.calls.loginErrors, [null]);
   assert.equal(accepted.calls.states.length, 1, 'the live state read at login is applied');
+
+  const tournamentPc = createCase({ route: { mode: 'cloud', authority: 'local' } });
+  await tournamentPc.doLogin();
+  assert.deepEqual(tournamentPc.calls.loginErrors, ['referees_local_mode_active'], 'the Internet site sends the referee to the tournament PC');
+  assert.deepEqual(tournamentPc.calls.authed, []);
+  assert.equal(tournamentPc.calls.verifies.length, 0, 'no password check against the cloud copy');
+
+  const viaPc = createCase({ route: { mode: 'local', authority: 'local', baseUrl: 'http://192.168.1.28:8787' } });
+  await viaPc.doLogin();
+  assert.deepEqual(viaPc.calls.authed, [true], 'the PC referee link keeps working');
+
+  const unknownRoute = createCase({ routeError: new Error('coordinatore non raggiungibile') });
+  await unknownRoute.doLogin();
+  assert.deepEqual(unknownRoute.calls.authed, [true], 'an unreachable coordinator does not block the login');
 });
 // B6 #1: the referee RPC now returns only the live tournament (no password,
 // birth dates, archives or aliases). A device holding the complete Admin copy

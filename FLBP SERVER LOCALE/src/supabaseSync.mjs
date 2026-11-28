@@ -102,6 +102,7 @@ export class SupabaseSync {
     store.setMeta('node_id', this.nodeId);
     this.epoch = storedEpoch(store);
     this.syncInFlight = null;
+    this.backupChain = Promise.resolve();
     this.syncRequested = false;
     this.syncTimer = null;
     this.outboxFailures = 0;
@@ -453,7 +454,16 @@ export class SupabaseSync {
     return { ...result, version: current.version };
   }
 
-  async backupSnapshot() {
+  // One full backup at a time. The periodic, idle, archive and manual backups
+  // can start together; a second concurrent RPC with an older version would be
+  // refused by Supabase as a conflict.
+  backupSnapshot() {
+    const run = this.backupChain.then(() => this.backupSnapshotOnce());
+    this.backupChain = run.catch(() => {});
+    return run;
+  }
+
+  async backupSnapshotOnce() {
     if (!this.isConfigured()) return { backedUp: false, reason: 'not-configured' };
     const current = this.store.getCurrent();
     if (!current) return { backedUp: false, reason: 'empty' };

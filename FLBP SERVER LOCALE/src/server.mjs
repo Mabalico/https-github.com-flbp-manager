@@ -311,6 +311,73 @@ export const createLocalServer = (overrides = {}) => {
     return current;
   };
 
+  // Tornei passati, Albo d'oro e Classifica Storica del sito Internet leggono
+  // lo snapshot pubblico completo, che in modalità locale arriva a Supabase
+  // solo con il backup completo. Una modifica fuori dalla riga live (di solito
+  // l'archiviazione) lo anticipa a pochi secondi, al massimo una volta per
+  // intervallo; i referti non lo fanno partire.
+  let archiveBackupTimer = null;
+  let archiveBackupRun = null;
+  let archiveBackupTarget = 0;
+  let archiveBackupAttempts = 0;
+  let lastArchiveBackupAt = 0;
+  let serverClosed = false;
+  const backedUpVersion = () => Number(store.getMeta('last_backup_version', '0')) || 0;
+  const resetArchiveBackup = () => {
+    archiveBackupTarget = 0;
+    archiveBackupAttempts = 0;
+  };
+
+  const runArchiveBackup = async () => {
+    try {
+      if (serverClosed || !store.isActive() || backedUpVersion() >= archiveBackupTarget) {
+        resetArchiveBackup();
+        return;
+      }
+      lastArchiveBackupAt = Date.now();
+      // During a transition the close itself sends the whole state.
+      if (store.getTransitionState() !== 'idle') return;
+      // The journal rebuilds the normalized tournament tables, and a verified
+      // backup marks the journal as sent: send the journal first.
+      await sync.flushOutboxNow();
+      if (store.pendingOutboxCount() === 0) {
+        try {
+          await sync.backupSnapshot();
+        } catch (error) {
+          console.error('[archive-backup]', error?.message || String(error));
+        }
+      }
+      if (serverClosed || backedUpVersion() >= archiveBackupTarget) {
+        resetArchiveBackup();
+        return;
+      }
+      archiveBackupAttempts += 1;
+      if (archiveBackupAttempts >= config.archiveBackupMaxAttempts) {
+        console.error(`[archive-backup] archivio non ancora sul sito dopo ${archiveBackupAttempts} tentativi: lo porterà il prossimo backup completo.`);
+        resetArchiveBackup();
+      }
+    } catch (error) {
+      console.error('[archive-backup]', error?.message || String(error));
+      resetArchiveBackup();
+    }
+  };
+
+  const scheduleArchiveBackup = (version) => {
+    if (serverClosed || !sync.isConfigured()) return;
+    archiveBackupTarget = Math.max(archiveBackupTarget, Number(version) || 0);
+    if (archiveBackupTimer || archiveBackupRun) return;
+    const waitMs = Math.max(config.archiveBackupDelayMs, lastArchiveBackupAt + config.archiveBackupMinIntervalMs - Date.now());
+    archiveBackupTimer = setTimeout(() => {
+      archiveBackupTimer = null;
+      archiveBackupRun = runArchiveBackup().finally(() => {
+        archiveBackupRun = null;
+        // A commit during the run, or a failed attempt, waits for the next slot.
+        if (archiveBackupTarget > 0) scheduleArchiveBackup(archiveBackupTarget);
+      });
+    }, waitMs);
+    archiveBackupTimer.unref?.();
+  };
+
   const deactivateLocalMode = async () => {
     const currentTransition = store.getTransitionState();
     if (!store.isActive() && currentTransition === 'idle') return { alreadyInactive: true };
@@ -555,6 +622,7 @@ export const createLocalServer = (overrides = {}) => {
           const result = store.commitSnapshot({ state: body.state, publicState: body.publicState, operationId: operationId(body), baseVersion: body.baseVersion, force: false, source: 'admin' });
           void sync.scheduleOutboxSync();
           sync.scheduleLivePublish();
+          if (result.changesPublicArchive) scheduleArchiveBackup(result.version);
           await replicateAfterWrite(result.version);
           return result;
         });
@@ -591,6 +659,7 @@ export const createLocalServer = (overrides = {}) => {
           });
           void sync.scheduleOutboxSync();
           sync.scheduleLivePublish();
+          if (result.changesPublicArchive) scheduleArchiveBackup(result.version);
           await replicateAfterWrite(result.version);
           return { result, preservedMatchIds: protectedRecovery.preservedMatchIds };
         });
@@ -787,10 +856,13 @@ export const createLocalServer = (overrides = {}) => {
       if (secondaryBackupTimer) clearInterval(secondaryBackupTimer);
       if (maintenanceTimer) clearInterval(maintenanceTimer);
       if (idleTimer) clearInterval(idleTimer);
+      serverClosed = true;
+      if (archiveBackupTimer) clearTimeout(archiveBackupTimer);
+      archiveBackupTimer = null;
       sync.cancelScheduledOutboxSync();
       sync.cancelScheduledLivePublish();
       server.close(() => {
-        void durableWriteChain.finally(() => {
+        void Promise.allSettled([durableWriteChain, archiveBackupRun]).then(() => {
           store.close();
           resolve();
         });

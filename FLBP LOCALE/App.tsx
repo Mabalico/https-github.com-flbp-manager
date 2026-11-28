@@ -1215,12 +1215,15 @@ const App: React.FC = () => {
                 const row = await ops.pullPublicWorkspaceState({ kind: 'polling', source: 'App.publicWorkspacePoll' });
                 if (cancelled) return;
                 if (!row?.state) return;
+                liveTournamentSeen = !!(row.state as any).tournament;
                 writeCachedPublicWorkspaceState(row);
                 await hydratePublicRow(row);
             } catch {
                 // silent fallback to local state
             }
         };
+        // Set by every read: the Home stops polling once a tournament is live.
+        let liveTournamentSeen = false;
 
         void pullOnce();
         const onVisible = () => {
@@ -1230,7 +1233,13 @@ const App: React.FC = () => {
         document.addEventListener('visibilitychange', onVisible);
         window.addEventListener('focus', onVisible);
 
+        // La Home lasciata aperta prima dell'avvio deve mostrare «LIVE ORA»:
+        // controlla solo la data dell'ultimo aggiornamento e smette appena
+        // vede il torneo live. I dettagli si aggiornano nella pagina del torneo.
+        const isHomeView = tvMode == null && view === 'home';
+        const homeSawLive = () => isHomeView && liveTournamentSeen;
         const shouldKeepPolling = tvMode != null
+            || isHomeView
             || view === 'tournament'
             || (view === 'tournament_detail' && !!selectedTournament?.isLive);
 
@@ -1242,7 +1251,7 @@ const App: React.FC = () => {
             };
         }
 
-        const intervalMs = tvMode != null ? 90000 : (view === 'tournament_detail' ? 15000 : 60000);
+        const intervalMs = tvMode != null ? 90000 : (view === 'tournament_detail' ? 15000 : isHomeView ? 120000 : 60000);
         const isTvMode = tvMode != null;
         const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
         let lastActivityAt = Date.now();
@@ -1250,15 +1259,19 @@ const App: React.FC = () => {
         const onUserActivity = () => {
             const wasIdle = isCurrentlyIdle();
             lastActivityAt = Date.now();
-            if (wasIdle) void pullOnce();
+            if (wasIdle && !homeSawLive()) void pullOnce({ checkUpdatedAtOnly: isHomeView });
         };
         const activityEvents: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
         if (!isTvMode) {
             activityEvents.forEach((ev) => window.addEventListener(ev, onUserActivity, { passive: true }));
         }
         const id = window.setInterval(() => {
+            if (homeSawLive()) {
+                window.clearInterval(id);
+                return;
+            }
             if (isCurrentlyIdle()) return;
-            void pullOnce({ checkUpdatedAtOnly: isTvMode });
+            void pullOnce({ checkUpdatedAtOnly: isTvMode || isHomeView });
         }, intervalMs);
         return () => {
             cancelled = true;
