@@ -61,6 +61,11 @@ export const sanitizeAppStateForPublic = (state) => {
   return safe;
 };
 
+// Fields carried by the compact live row. Any other public field (archive,
+// Hall of Fame, scorers) reaches the public site only through the full public
+// snapshot.
+export const PUBLIC_LIVE_STATE_KEYS = Object.freeze(['__schemaVersion', 'teams', 'tournament', 'tournamentMatches', 'fantaSettings']);
+
 export const buildPublicWorkspaceLiveState = (publicState) => {
   const safe = publicState && typeof publicState === 'object' && !Array.isArray(publicState) ? publicState : {};
   const live = {

@@ -26,6 +26,10 @@ import {
     resolveWinnerTeamId as resolveBracketWinnerTeamId,
 } from '../services/tournamentStructureSelectors';
 import { acknowledgeRefereeReport, enqueueRefereeReport, markRefereeReportAttemptFailed, readDurablePendingRefereeReports } from '../services/repository/refereeReportOutbox';
+import { resolveDataPlane } from '../services/dataPlaneClient';
+
+// Supabase refuses the report because the tournament PC holds local mode.
+const isTournamentPcRefusal = (error: unknown) => String((error as any)?.message ?? error ?? '').includes('FLBP_LOCAL_PRIMARY');
 
 interface RefereesAreaProps {
     state: AppState;
@@ -553,6 +557,15 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
 
         setLoginBusy(true);
         try {
+            // In modalità locale senza tunnel il sito Internet legge una copia
+            // e non può salvare referti: l'arbitro usa il link del PC sul Wi-Fi.
+            if (!isLocalOnlyMode() && getSupabaseConfig()) {
+                const route = await resolveDataPlane({ force: true }).catch(() => null);
+                if (route?.mode === 'cloud' && route.authority === 'local') {
+                    setLoginError(t('referees_local_mode_active'));
+                    return;
+                }
+            }
             let verifiedAuthVersion = String((live as any).refereesAuthVersion || '').trim();
             const expected = (live as any).refereesPassword;
             if (expected) {
@@ -1363,6 +1376,12 @@ export const RefereesArea: React.FC<RefereesAreaProps> = ({ state, setState, onB
                         markDbSyncConflict(e?.message || 'Conflitto DB');
                         applyRefereeState(nextState);
                         alert(t('report_dialog_referee_queue_conflict'));
+                        return;
+                    } else if (isTournamentPcRefusal(e)) {
+                        // Not saved anywhere: the result is not shown as played.
+                        markRefereeReportAttemptFailed(queuedReport.operationId, e);
+                        markDbSyncError(e?.message || String(e), 'snapshot');
+                        alert(t('referees_local_mode_active'));
                         return;
                     } else if (rejectionReason) {
                         markRefereeReportAttemptFailed(queuedReport.operationId, e);

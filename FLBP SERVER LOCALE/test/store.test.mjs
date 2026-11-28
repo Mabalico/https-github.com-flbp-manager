@@ -483,6 +483,60 @@ test('a full cloud backup clears the outbox only after checksum verification', (
   assert.equal(store.pendingOutboxCount(), 0);
 }));
 
+test('a commit says whether it changed public data outside the live row', () => withStore((store) => {
+  const initial = fixture();
+  store.importCloudSnapshot({ ...initial, version: 1, operationId: 'cloud-v1' });
+
+  const scored = structuredClone(initial.state);
+  scored.tournamentMatches[0].scoreA = 6;
+  scored.tournament.matches[0].scoreA = 6;
+  const live = store.commitSnapshot({ state: scored, publicState: scored, operationId: 'live-score', baseVersion: 1 });
+  assert.equal(live.changesPublicArchive, false, 'a live result travels in the live row only');
+
+  const archived = { ...structuredClone(scored), tournament: null, tournamentMatches: [], tournamentHistory: [{ id: 't1', name: 'Archiviato' }], hallOfFame: [{ id: 'h1', tournamentId: 't1', type: 'winner' }] };
+  const archive = store.commitSnapshot({ state: archived, publicState: archived, operationId: 'archive-t1', baseVersion: 2 });
+  assert.equal(archive.changesPublicArchive, true, 'an archive needs the full public snapshot');
+
+  const repeated = store.commitSnapshot({ state: archived, publicState: archived, operationId: 'archive-t1', baseVersion: 2 });
+  assert.equal(repeated.idempotent, true);
+  assert.equal(repeated.changesPublicArchive, false, 'a repeated operation changes nothing');
+
+  const settings = { ...structuredClone(archived), fantaSettings: { enabled: true } };
+  assert.equal(store.commitSnapshot({ state: settings, publicState: settings, operationId: 'fanta-on', baseVersion: 3 }).changesPublicArchive, false);
+}));
+
+test('concurrent full backups reach Supabase one at a time', () => withStore(async (store) => {
+  const initial = fixture();
+  store.importCloudSnapshot({ ...initial, version: 1, operationId: 'cloud-v1' });
+  store.setActive(true, 4);
+  const sync = new SupabaseSync({
+    nodeId: 'node-serial-backup',
+    publicUrl: '',
+    supabaseUrl: 'https://project.supabase.co',
+    supabaseServiceRoleKey: 'service-role-test',
+    workspaceId: 'default',
+  }, store);
+  let running = 0;
+  let maxRunning = 0;
+  let calls = 0;
+  sync.rpc = async () => {
+    running += 1;
+    calls += 1;
+    maxRunning = Math.max(maxRunning, running);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    running -= 1;
+    if (calls === 1) throw new Error('rete assente');
+    return { ok: true, updated_at: '2026-11-28T10:00:00.000Z' };
+  };
+  sync.publishLiveSnapshot = async () => ({ published: true });
+  sync.verifyCloudSnapshot = async () => ({ verified: true, localChecksum: 'ok' });
+
+  const results = await Promise.allSettled([sync.backupSnapshot(), sync.backupSnapshot(), sync.backupSnapshot()]);
+  assert.equal(maxRunning, 1);
+  assert.equal(results[0].status, 'rejected', 'a failed backup is reported to its caller');
+  assert.deepEqual(results.slice(1).map((result) => result.status), ['fulfilled', 'fulfilled'], 'and does not block the next ones');
+}));
+
 test('remote operation journal rebuilds reports newer than the last full backup', () => {
   const initial = fixture();
   const report = {

@@ -1530,6 +1530,7 @@ export const dictionary: TranslationDictionary = {
   "referees_password_required_input": "Введите пароль рефери.",
   "referees_password_wrong": "Неправильный пароль.",
   "referees_rate_limited": "Доступ рефери временно заблокирован: слишком много попыток с неправильным паролем. Повторите попытку через несколько минут.",
+  "referees_local_mode_active": "Турнир ведётся с компьютера турнира: на этом сайте нельзя сохранить протоколы. Подключитесь к Wi-Fi турнира и откройте ссылку для рефери с компьютера.",
   "referees_access_not_configured": "Доступ рефери не настроен для этого турнира.",
   "referees_remote_sync_not_enabled": "Удаленная синхронизация судей еще не активирована в базе данных. Запустите специальную миграцию.",
   "referees_password_check_failed": "Проверка пароля не удалась.",

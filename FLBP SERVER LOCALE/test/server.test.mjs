@@ -914,6 +914,66 @@ test('writes keep the local primary open and each pause backs up the new version
   }
 });
 
+test('an archive reaches the full public snapshot within seconds, a live result does not', async () => {
+  const ctx = await startConfiguredServer({
+    idleBackupMs: 600_000,
+    autoDeactivateIdleMs: 0,
+    archiveBackupDelayMs: 20,
+    archiveBackupMinIntervalMs: 250,
+    archiveBackupMaxAttempts: 3,
+  });
+  try {
+    ctx.app.sync.flushOutboxNow = async () => {
+      ctx.calls.push('flush');
+      ctx.app.store.markOutboxSyncedThroughVersion(ctx.app.store.getCurrent().version);
+    };
+    const writerId = await acquireWriter(ctx.base);
+    const headers = { Origin: 'http://test.local', 'content-type': 'application/json', 'x-flbp-local-token': TOKEN, 'x-flbp-writer-id': writerId };
+    let version = 1;
+    const commit = async (state, label) => {
+      const response = await fetch(`${ctx.base}/api/v1/admin/workspace/default/commit`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ operationId: label, baseVersion: version, state, publicState: state }),
+      });
+      assert.equal(response.status, 200);
+      version = (await response.json()).version;
+    };
+
+    const scored = structuredClone(ctx.state);
+    scored.tournamentMatches[0].scoreA = 6;
+    await commit(scored, 'live-score');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(ctx.calls, [], 'a live result waits for the usual backups');
+
+    const archived = { tournament: null, tournamentMatches: [], tournamentHistory: [{ id: 't1', matches: [{ id: 'm1' }] }], hallOfFame: [{ id: 'h1', tournamentId: 't1', type: 'winner' }] };
+    await commit(archived, 'archive-t1');
+    await waitFor(() => ctx.calls.includes(`backup:v${version}`), 2_000);
+    assert.deepEqual(ctx.calls, ['flush', 'backup:v3'], 'the journal goes first, then the full snapshot');
+
+    // A failed backup is retried in the next slot; edits in between share it.
+    let failNext = true;
+    const realBackup = ctx.app.sync.backupSnapshot;
+    ctx.app.sync.backupSnapshot = async () => {
+      if (failNext) {
+        failNext = false;
+        ctx.calls.push('backup:failed');
+        throw new Error('Supabase momentaneamente irraggiungibile');
+      }
+      return realBackup();
+    };
+    const edited = { ...archived, hallOfFame: [...archived.hallOfFame, { id: 'h2', tournamentId: 't1', type: 'mvp' }] };
+    await commit(edited, 'archive-edit-1');
+    await commit({ ...edited, integrationsScorers: [{ id: 's1', name: 'Marcatore' }] }, 'archive-edit-2');
+    await waitFor(() => ctx.calls.includes(`backup:v${version}`), 3_000);
+    assert.deepEqual(ctx.calls.slice(2), ['flush', 'backup:failed', 'flush', 'backup:v5']);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    assert.equal(ctx.calls.length, 6, 'nothing else is pending');
+  } finally {
+    await cleanup(ctx);
+  }
+});
+
 test('a failed automatic close is retried and a zero threshold disables it', async () => {
   const failing = await startConfiguredServer();
   try {

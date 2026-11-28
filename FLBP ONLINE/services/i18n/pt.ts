@@ -1530,6 +1530,7 @@ export const dictionary: TranslationDictionary = {
   "referees_password_required_input": "Digite a senha dos árbitros.",
   "referees_password_wrong": "Senha incorreta.",
   "referees_rate_limited": "Acesso de árbitro bloqueado temporariamente: muitas tentativas com senha incorreta. Tente novamente em alguns minutos.",
+  "referees_local_mode_active": "O torneio é gerenciado pelo PC do torneio: não é possível salvar relatórios neste site. Conecte-se ao Wi-Fi do torneio e abra o link de árbitros do PC.",
   "referees_access_not_configured": "Acesso de árbitro não configurado para este torneio.",
   "referees_remote_sync_not_enabled": "A sincronização remota do árbitro ainda não está ativada no banco de dados. Execute a migração dedicada.",
   "referees_password_check_failed": "A verificação da senha falhou.",

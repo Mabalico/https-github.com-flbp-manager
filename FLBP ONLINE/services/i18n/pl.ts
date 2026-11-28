@@ -1530,6 +1530,7 @@ export const dictionary: TranslationDictionary = {
   "referees_password_required_input": "Wprowadź hasło sędziego.",
   "referees_password_wrong": "Nieprawidłowe hasło.",
   "referees_rate_limited": "Dostęp sędziego tymczasowo zablokowany: zbyt wiele prób z nieprawidłowym hasłem. Spróbuj ponownie za kilka minut.",
+  "referees_local_mode_active": "Turniej jest prowadzony z komputera turnieju: na tej stronie nie można zapisać protokołów. Połącz się z Wi-Fi turnieju i otwórz link dla sędziów z komputera.",
   "referees_access_not_configured": "Dostęp sędziego nie jest skonfigurowany dla tego turnieju.",
   "referees_remote_sync_not_enabled": "Zdalna synchronizacja sędziów nie została jeszcze aktywowana w bazie danych. Uruchom dedykowaną migrację.",
   "referees_password_check_failed": "Weryfikacja hasła nie powiodła się.",

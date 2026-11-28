@@ -250,7 +250,7 @@ requirePattern(
 );
 requirePattern(
   '../FLBP SERVER LOCALE/src/server.mjs',
-  /isTrustedLoopbackRequest[\s\S]{0,16000}control\/local-session/,
+  /isTrustedLoopbackRequest[\s\S]{0,24000}control\/local-session/,
   'la sessione Admin automatica deve essere limitata al loopback del PC server',
 );
 requirePattern(

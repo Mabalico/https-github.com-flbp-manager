@@ -66,6 +66,12 @@ export const loadConfig = (overrides = {}) => {
     historyMinVersions: intFromEnv('FLBP_HISTORY_MIN_VERSIONS', 2_000, 100, 100_000),
     nodeId: String(process.env.FLBP_NODE_ID || '').trim(),
     idleBackupMs: intFromEnv('FLBP_IDLE_BACKUP_MS', 300_000, 60_000, 3_600_000),
+    // An archive (or another change outside the live row) reaches the public
+    // site only with the full snapshot: back it up after this short delay, at
+    // most once per interval, instead of waiting for the idle or periodic backup.
+    archiveBackupDelayMs: intFromEnv('FLBP_ARCHIVE_BACKUP_DELAY_MS', 5_000, 1_000, 300_000),
+    archiveBackupMinIntervalMs: intFromEnv('FLBP_ARCHIVE_BACKUP_MIN_INTERVAL_MS', 60_000, 10_000, 3_600_000),
+    archiveBackupMaxAttempts: intFromEnv('FLBP_ARCHIVE_BACKUP_MAX_ATTEMPTS', 5, 1, 20),
     autoDeactivateIdleMs: autoDeactivateIdleMs === 0 ? 0 : Math.max(autoDeactivateIdleMs, 600_000),
     autoDeactivateRetryMs: intFromEnv('FLBP_AUTO_DEACTIVATE_RETRY_MS', 900_000, 60_000, 86_400_000),
     idleCheckIntervalMs: intFromEnv('FLBP_IDLE_CHECK_INTERVAL_MS', 60_000, 10_000, 600_000),
